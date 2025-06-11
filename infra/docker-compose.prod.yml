@@ -53,8 +53,8 @@ services:
   # Gateway Service
   gateway:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: split.dockerfile
       target: gateway
     container_name: llmgateway-gateway
     restart: unless-stopped
@@ -99,8 +99,8 @@ services:
   # API Service
   api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: split.dockerfile
       target: api
     container_name: llmgateway-api
     restart: unless-stopped
@@ -141,8 +141,8 @@ services:
   # UI Service (Static files served via Nginx)
   ui:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: split.dockerfile
       target: ui
       args:
         VITE_DOCS_URL: ${VITE_DOCS_URL:-http://localhost:3005}
@@ -173,8 +173,8 @@ services:
   # Docs Service (Static files served via Nginx)
   docs:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: split.dockerfile
       target: docs
       args:
         VITE_DOCS_URL: ${VITE_DOCS_URL:-http://localhost:3005}

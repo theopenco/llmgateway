@@ -1,12 +1,31 @@
 import { serve } from "@hono/node-server";
+import { runMigrations } from "@llmgateway/db";
 
 import { app } from "./index";
 
-const port = Number(process.env.PORT) || 4002;
+async function startServer() {
+	const port = Number(process.env.PORT) || 4002;
 
-console.log("listening on port", port);
+	// Run migrations if the environment variable is set
+	if (process.env.RUN_MIGRATIONS === "true") {
+		try {
+			await runMigrations();
+		} catch (error) {
+			console.error("Failed to run migrations, exiting...", error);
+			process.exit(1);
+		}
+	}
 
-serve({
-	port,
-	fetch: app.fetch,
+	console.log("listening on port", port);
+
+	serve({
+		port,
+		fetch: app.fetch,
+	});
+}
+
+// Start the server
+startServer().catch((error) => {
+	console.error("Failed to start server:", error);
+	process.exit(1);
 });

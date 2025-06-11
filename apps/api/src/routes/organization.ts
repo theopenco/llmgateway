@@ -21,6 +21,7 @@ const organizationSchema = z.object({
 	autoTopUpEnabled: z.boolean(),
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
+	paidModeEnabled: z.boolean().optional(),
 });
 
 const projectSchema = z.object({
@@ -104,7 +105,11 @@ organization.openapi(getOrganizations, async (c) => {
 
 	const organizations = userOrganizations
 		.map((uo) => uo.organization!)
-		.filter((org) => org.status !== "deleted");
+		.filter((org) => org.status !== "deleted")
+		.map((org) => ({
+			...org,
+			paidModeEnabled: process.env.PAID_MODE === "true",
+		}));
 
 	return c.json({
 		organizations,

@@ -1166,6 +1166,7 @@ export interface paths {
 								autoTopUpEnabled: boolean;
 								autoTopUpThreshold: string | null;
 								autoTopUpAmount: string | null;
+								paidModeEnabled?: boolean;
 							}[];
 						};
 					};
@@ -1211,6 +1212,7 @@ export interface paths {
 								autoTopUpEnabled: boolean;
 								autoTopUpThreshold: string | null;
 								autoTopUpAmount: string | null;
+								paidModeEnabled?: boolean;
 							};
 						};
 					};
@@ -1378,6 +1380,7 @@ export interface paths {
 								autoTopUpEnabled: boolean;
 								autoTopUpThreshold: string | null;
 								autoTopUpAmount: string | null;
+								paidModeEnabled?: boolean;
 							};
 						};
 					};

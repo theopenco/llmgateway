@@ -118,8 +118,8 @@ keysProvider.openapi(create, async (c) => {
 
 	const organization = userOrgs[0].organization;
 
-	// Check if organization has pro plan for provider keys
-	if (organization?.plan !== "pro") {
+	// Check if organization has pro plan for provider keys (only if PAID_MODE is enabled)
+	if (process.env.PAID_MODE === "true" && organization?.plan !== "pro") {
 		throw new HTTPException(403, {
 			message:
 				"Provider keys are only available on the Pro plan. Please upgrade to use your own API keys.",

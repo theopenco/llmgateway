@@ -7,18 +7,18 @@ RUN apk add curl
 # Create app directory
 WORKDIR /app
 
-COPY .tool-versions ./
+COPY ../.tool-versions ./
 RUN curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)/pnpm-linuxstatic-x64" -o /bin/pnpm; chmod +x /bin/pnpm;
 
 # Copy package files and install dependencies
-COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/gateway/package.json ./apps/gateway/
-COPY apps/ui/package.json ./apps/ui/
-COPY apps/docs/package.json ./apps/docs/
-COPY packages/auth/package.json ./packages/auth/
-COPY packages/db/package.json ./packages/db/
-COPY packages/models/package.json ./packages/models/
+COPY ../.npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY ../apps/api/package.json ./apps/api/
+COPY ../apps/gateway/package.json ./apps/gateway/
+COPY ../apps/ui/package.json ./apps/ui/
+COPY ../apps/docs/package.json ./apps/docs/
+COPY ../packages/auth/package.json ./packages/auth/
+COPY ../packages/db/package.json ./packages/db/
+COPY ../packages/models/package.json ./packages/models/
 
 RUN pnpm install --frozen-lockfile
 
@@ -30,7 +30,7 @@ ARG NEXT_PUBLIC_POSTHOG_KEY
 ARG NEXT_PUBLIC_POSTHOG_HOST
 
 # Copy source code
-COPY . .
+COPY .. .
 
 # Build all apps
 RUN pnpm build
@@ -76,7 +76,7 @@ CMD ["pnpm", "start"]
 FROM nginx:alpine AS static-base
 
 # Copy Nginx configuration
-COPY infra/nginx-static.conf /etc/nginx/nginx.conf
+COPY nginx-static.conf /etc/nginx/nginx.conf
 
 # Create a simple 404 page
 RUN echo "<html><body><h1>404 - Page Not Found</h1></body></html>" > /usr/share/nginx/html/404.html

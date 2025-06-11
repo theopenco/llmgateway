@@ -45,8 +45,12 @@ export function ProjectModeSettings() {
 	}
 
 	const handleSave = async () => {
-		// Check if trying to set api-keys or hybrid mode without pro plan
-		if ((mode === "api-keys" || mode === "hybrid") && !isProPlan) {
+		// Check if trying to set api-keys or hybrid mode without pro plan (only if paid mode is enabled)
+		if (
+			(mode === "api-keys" || mode === "hybrid") &&
+			organization?.paidModeEnabled &&
+			!isProPlan
+		) {
 			toast({
 				title: "Upgrade Required",
 				description:
@@ -118,24 +122,28 @@ export function ProjectModeSettings() {
 							<RadioGroupItem
 								value={id}
 								id={id}
-								disabled={requiresPro && !isProPlan}
+								disabled={
+									requiresPro && organization?.paidModeEnabled && !isProPlan
+								}
 							/>
 							<div className="space-y-1 flex-1">
 								<div className="flex items-center gap-2">
 									<Label
 										htmlFor={id}
-										className={`font-medium ${requiresPro && !isProPlan ? "text-muted-foreground" : ""}`}
+										className={`font-medium ${requiresPro && organization?.paidModeEnabled && !isProPlan ? "text-muted-foreground" : ""}`}
 									>
 										{label}
 									</Label>
-									{requiresPro && !isProPlan && (
-										<Badge variant="outline" className="text-xs">
-											Pro Only
-										</Badge>
-									)}
+									{requiresPro &&
+										organization?.paidModeEnabled &&
+										!isProPlan && (
+											<Badge variant="outline" className="text-xs">
+												Pro Only
+											</Badge>
+										)}
 								</div>
 								<p
-									className={`text-sm ${requiresPro && !isProPlan ? "text-muted-foreground" : "text-muted-foreground"}`}
+									className={`text-sm ${requiresPro && organization?.paidModeEnabled && !isProPlan ? "text-muted-foreground" : "text-muted-foreground"}`}
 								>
 									{desc}
 								</p>

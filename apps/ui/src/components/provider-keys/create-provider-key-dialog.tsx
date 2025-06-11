@@ -95,7 +95,8 @@ export function CreateProviderKeyDialog({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!isProPlan) {
+		// Only enforce pro plan requirement if paid mode is enabled
+		if (organization?.paidModeEnabled && !isProPlan) {
 			toast({
 				title: "Upgrade Required",
 				description:
@@ -276,7 +277,7 @@ export function CreateProviderKeyDialog({
 						<Button
 							type="submit"
 							disabled={
-								!isProPlan ||
+								(!isProPlan && organization?.paidModeEnabled) ||
 								availableProviders.length === 0 ||
 								isLoading ||
 								isValidating
