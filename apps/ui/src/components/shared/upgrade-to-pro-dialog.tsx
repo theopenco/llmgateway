@@ -99,6 +99,15 @@ function UpgradeDialogContent({
 				<DialogDescription>
 					Unlock provider keys and get full access to all features.
 				</DialogDescription>
+				<div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+					<p className="text-sm text-blue-800 font-medium">
+						🎉 Start your free 7-day trial
+					</p>
+					<p className="text-xs text-blue-700 mt-1">
+						No payment required to start. Cancel anytime during the trial
+						period.
+					</p>
+				</div>
 			</DialogHeader>
 			<div className="py-4 space-y-4">
 				{/* Billing Cycle Toggle */}
@@ -177,10 +186,15 @@ function UpgradeDialogContent({
 					>
 						{loading || createSubscriptionMutation.isPending
 							? "Redirecting to checkout..."
-							: `Upgrade for $${billingCycle === "monthly" ? monthlyPrice : yearlyPrice}/${billingCycle === "monthly" ? "month" : "year"} now`}
+							: `Start 7-day free trial`}
 					</Button>
 					<div className="text-sm text-muted-foreground">
-						<p>You'll be redirected to Stripe Checkout to complete payment.</p>
+						<p>You'll be redirected to Stripe Checkout to start your trial.</p>
+						<p className="mt-1 text-xs">
+							After 7 days, you'll be charged $
+							{billingCycle === "monthly" ? monthlyPrice : yearlyPrice}/
+							{billingCycle === "monthly" ? "month" : "year"}
+						</p>
 					</div>
 				</div>
 			</DialogFooter>

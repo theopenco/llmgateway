@@ -113,6 +113,9 @@ export const organization = pgTable("organization", {
 		.default("free"),
 	planExpiresAt: timestamp(),
 	subscriptionCancelled: boolean().notNull().default(false),
+	trialStartDate: timestamp(),
+	trialEndDate: timestamp(),
+	isTrialActive: boolean().notNull().default(false),
 	retentionLevel: text({
 		enum: ["retain", "none"],
 	})

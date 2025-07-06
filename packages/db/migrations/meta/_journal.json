@@ -169,6 +169,13 @@
       "when": 1751655634777,
       "tag": "1751655634_naive_payback",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1751805662104,
+      "tag": "1751805662_windy_thanos",
+      "breakpoints": true
     }
   ]
 }
