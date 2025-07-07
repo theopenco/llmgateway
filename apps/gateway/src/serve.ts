@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 
 import { app } from "./index";
-import { startWorker } from "./worker";
+import { startWorker, stopWorker } from "./worker";
 
 const port = Number(process.env.PORT) || 4001;
 
@@ -9,7 +9,48 @@ console.log("listening on port", port);
 
 void startWorker();
 
-serve({
+const server = serve({
 	port,
 	fetch: app.fetch,
+});
+
+let isShuttingDown = false;
+
+const gracefulShutdown = async (signal: string) => {
+	if (isShuttingDown) {
+		console.log("Shutdown already in progress, ignoring signal:", signal);
+		return;
+	}
+
+	isShuttingDown = true;
+	console.log(`Received ${signal}, starting graceful shutdown...`);
+
+	try {
+		console.log("Stopping worker...");
+		await stopWorker();
+		console.log("Worker stopped successfully");
+
+		console.log("Closing HTTP server...");
+		server.close();
+		console.log("HTTP server closed");
+
+		console.log("Graceful shutdown completed");
+		process.exit(0);
+	} catch (error) {
+		console.error("Error during graceful shutdown:", error);
+		process.exit(1);
+	}
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+process.on("uncaughtException", (error) => {
+	console.error("Uncaught exception:", error);
+	process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+	console.error("Unhandled rejection at:", promise, "reason:", reason);
+	process.exit(1);
 });

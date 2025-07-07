@@ -280,12 +280,23 @@ export async function processLogQueue(): Promise<void> {
 	}
 }
 
+let isWorkerRunning = false;
+let shouldStop = false;
+
 export async function startWorker() {
+	if (isWorkerRunning) {
+		console.log("Worker is already running");
+		return;
+	}
+
+	isWorkerRunning = true;
+	shouldStop = false;
 	console.log("Starting log queue worker...");
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 
-	while (true) {
+	// eslint-disable-next-line no-unmodified-loop-condition
+	while (!shouldStop) {
 		try {
 			await processLogQueue();
 
@@ -295,13 +306,43 @@ export async function startWorker() {
 				autoTopUpCounter = 0;
 			}
 
-			await new Promise((resolve) => {
-				setTimeout(resolve, 1000);
-			});
+			if (!shouldStop) {
+				await new Promise((resolve) => {
+					setTimeout(resolve, 1000);
+				});
+			}
 		} catch (error) {
-			console.error("Error starting log queue worker:", error);
+			console.error("Error in log queue worker:", error);
+			if (!shouldStop) {
+				await new Promise((resolve) => {
+					setTimeout(resolve, 5000);
+				});
+			}
 		}
 	}
+
+	isWorkerRunning = false;
+	console.log("Worker stopped");
+}
+
+export async function stopWorker(): Promise<void> {
+	if (!isWorkerRunning) {
+		console.log("Worker is not running");
+		return;
+	}
+
+	console.log("Stopping worker...");
+	shouldStop = true;
+
+	const pollInterval = 100;
+	// eslint-disable-next-line no-unmodified-loop-condition
+	while (isWorkerRunning) {
+		await new Promise((resolve) => {
+			setTimeout(resolve, pollInterval);
+		});
+	}
+
+	console.log("Worker stopped gracefully");
 }
 
 void startWorker();
