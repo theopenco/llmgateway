@@ -1,10 +1,42 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+import { Client } from "pg";
 
 import { relations } from "./relations";
 
-export const db = drizzle({
-	connection:
+const client = new Client({
+	connectionString:
 		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+});
+
+let isConnected = false;
+
+const connectIfNeeded = async () => {
+	if (!isConnected) {
+		await client.connect();
+		isConnected = true;
+	}
+};
+
+export const db = drizzle({
+	client,
 	casing: "snake_case",
 	relations,
 });
+
+export async function closeDatabase(): Promise<void> {
+	if (!isConnected) {
+		console.log("Database connection already closed");
+		return;
+	}
+
+	try {
+		await client.end();
+		isConnected = false;
+		console.log("Database connection closed");
+	} catch (error) {
+		console.error("Error closing database connection:", error);
+		throw error;
+	}
+}
+
+void connectIfNeeded();
