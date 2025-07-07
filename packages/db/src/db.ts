@@ -8,6 +8,8 @@ const client = new Client({
 		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
 });
 
+void client.connect();
+
 export const db = drizzle({
 	client,
 	casing: "snake_case",
