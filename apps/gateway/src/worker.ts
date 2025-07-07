@@ -351,5 +351,3 @@ export async function stopWorker(): Promise<void> {
 
 	console.log("Worker stopped gracefully");
 }
-
-void startWorker();
