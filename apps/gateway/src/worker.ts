@@ -335,8 +335,15 @@ export async function stopWorker(): Promise<void> {
 	shouldStop = true;
 
 	const pollInterval = 100;
+	const maxWaitTime = 15000; // 15 seconds timeout
+	const startTime = Date.now();
+
 	// eslint-disable-next-line no-unmodified-loop-condition
 	while (isWorkerRunning) {
+		if (Date.now() - startTime > maxWaitTime) {
+			console.warn("Worker stop timeout exceeded, forcing shutdown");
+			break;
+		}
 		await new Promise((resolve) => {
 			setTimeout(resolve, pollInterval);
 		});
