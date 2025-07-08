@@ -18,7 +18,7 @@
 	},
 	"dependencies": {
 		"@types/nodemailer": "^6.4.14",
-		"better-auth": "1.2.7",
+		"better-auth": "1.2.10",
 		"nodemailer": "^6.9.8"
 	}
 }

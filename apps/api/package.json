@@ -20,7 +20,7 @@
 		"@llmgateway/auth": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"bcrypt-ts": "7.0.0",
-		"better-auth": "1.2.7",
+		"better-auth": "1.2.10",
 		"drizzle-zod": "0.7.1",
 		"gateway": "workspace:*",
 		"hono": "^4.7.6",

@@ -51,7 +51,7 @@
 		"@tanstack/router-core": "1.120.3",
 		"@tanstack/router-plugin": "^1.119.0",
 		"api": "workspace:*",
-		"better-auth": "1.2.7",
+		"better-auth": "1.2.10",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.0.0",
 		"crisp-sdk-web": "1.0.25",
