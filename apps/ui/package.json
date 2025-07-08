@@ -94,6 +94,6 @@
 		"typescript": "^5.8.2",
 		"vite": "^6.3.4",
 		"vite-tsconfig-paths": "^5.1.4",
-		"zod": "3.24.3"
+		"zod": "3.25.75"
 	}
 }
