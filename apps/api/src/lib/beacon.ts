@@ -5,6 +5,7 @@ interface BeaconData {
 	uuid: string;
 	type: string;
 	timestamp: string;
+	version: string;
 }
 
 /**
@@ -71,6 +72,7 @@ export async function sendInstallationBeacon(): Promise<void> {
 			uuid: installation.uuid,
 			type: installation.type,
 			timestamp: new Date().toISOString(),
+			version: process.env.APP_VERSION || "v0.0.0-unknown",
 		});
 
 		console.log("Installation beacon sent successfully");
