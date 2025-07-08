@@ -110,6 +110,7 @@ export interface paths {
 						type: string;
 						/** Format: date-time */
 						timestamp: string;
+						version: string;
 					};
 				};
 			};
