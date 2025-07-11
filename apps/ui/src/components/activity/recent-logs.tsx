@@ -159,6 +159,8 @@ export function RecentLogs() {
 									messages: log.messages as any,
 									errorDetails: log.errorDetails as any,
 									reasoningTokens: log.reasoningTokens,
+									cachedTokens: (log as any).cachedTokens || null,
+									cachedInputCost: (log as any).cachedInputCost || null,
 								}}
 							/>
 						))
