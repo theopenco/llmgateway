@@ -5,6 +5,7 @@ import { usePostHog } from "posthog-js/react";
 import {
 	Activity,
 	BarChart3,
+	BotMessageSquare,
 	ChevronUp,
 	ComputerIcon,
 	CreditCard,
@@ -28,7 +29,7 @@ import {
 	useSearchParams,
 	type ReadonlyURLSearchParams,
 } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 import { OrganizationSwitcher } from "./organization-switcher";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
@@ -632,11 +633,34 @@ export function DashboardSidebar({
 	const queryClient = useQueryClient();
 	const { signOut } = useAuth();
 	const [showUpgradeCTA, setShowUpgradeCTA] = useState(true);
+	const [ctaLoaded, setCTALoaded] = useState(false);
 
 	const { user } = useUser({
 		redirectTo: "/login",
 		redirectWhen: "unauthenticated",
 	});
+
+	// Check localStorage for dismissed CTA state after hydration
+	useEffect(() => {
+		const dismissed = localStorage.getItem("upgradeCTA_dismissed");
+		if (dismissed) {
+			try {
+				const dismissedData = JSON.parse(dismissed);
+				const now = Date.now();
+				// Check if 2 weeks (14 days) have passed
+				if (now - dismissedData.timestamp < 14 * 24 * 60 * 60 * 1000) {
+					setShowUpgradeCTA(false); // Still within 2 weeks, keep hidden
+				} else {
+					// Expired, remove from localStorage
+					localStorage.removeItem("upgradeCTA_dismissed");
+				}
+			} catch {
+				// Invalid JSON, remove the item
+				localStorage.removeItem("upgradeCTA_dismissed");
+			}
+		}
+		setCTALoaded(true);
+	}, []);
 
 	// selectedOrganization is now passed as a prop from the layout
 
@@ -664,12 +688,27 @@ export function DashboardSidebar({
 				icon: ExternalLink,
 				internal: false,
 			},
+			{
+				href: "https://llmgateway.io/playground",
+				label: "Playground",
+				icon: BotMessageSquare,
+				internal: false,
+			},
 		],
 		[],
 	);
 
 	const hideCreditCTA = () => {
 		setShowUpgradeCTA(false);
+		// Persist dismissal in localStorage with timestamp
+		if (typeof window !== "undefined") {
+			localStorage.setItem(
+				"upgradeCTA_dismissed",
+				JSON.stringify({
+					timestamp: Date.now(),
+				}),
+			);
+		}
 	};
 
 	const logout = async () => {
@@ -744,7 +783,7 @@ export function DashboardSidebar({
 			<SidebarFooter>
 				<CreditsDisplay selectedOrganization={selectedOrganization} />
 				<UpgradeCTA
-					show={showUpgradeCTA}
+					show={showUpgradeCTA && ctaLoaded}
 					onHide={hideCreditCTA}
 					selectedOrganization={selectedOrganization}
 				/>

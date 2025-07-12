@@ -12,6 +12,7 @@ import {
 } from "@/lib/components/dialog";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Organization } from "@/lib/types";
@@ -36,15 +37,61 @@ export function NewOrganizationDialog({
 		onSuccess: (data) => {
 			// Update the organizations cache
 			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			queryClient.setQueryData(queryKey, (oldData: any) => {
-				if (!oldData) {
-					return { organizations: [data.organization] };
-				}
-				return {
-					...oldData,
-					organizations: [...oldData.organizations, data.organization],
-				};
+			queryClient.setQueryData(
+				queryKey,
+				(oldData: { organizations: Organization[] }) => {
+					if (!oldData) {
+						return { organizations: [data.organization] };
+					}
+					return {
+						...oldData,
+						organizations: [...oldData.organizations, data.organization],
+					};
+				},
+			);
+
+			// Invalidate the organizations query to ensure all components get the updated data
+			queryClient.invalidateQueries({ queryKey });
+
+			// Invalidate projects cache for the new organization since a default project is created
+			const projectsQueryKey = api.queryOptions("get", "/orgs/{id}/projects", {
+				params: { path: { id: data.organization.id } },
+			}).queryKey;
+			queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+
+			// Also invalidate all activity queries to ensure they refresh with the new organization/project
+			queryClient.invalidateQueries({
+				queryKey: ["GET", "/activity"],
+				exact: false,
 			});
+
+			// Show success toast
+			toast({
+				title: "Organization created successfully",
+				description: `${data.organization.name} has been created.`,
+			});
+		},
+		onError: (error: Error) => {
+			// Check if it's a max organizations limit error
+			if (
+				error.message?.includes("maximum") ||
+				error.message?.includes("limit")
+			) {
+				toast({
+					title: "Organization limit reached",
+					description:
+						"You've reached the maximum number of organizations for your plan. Please contact us to upgrade to Enterprise.",
+					variant: "destructive",
+				});
+			} else {
+				// Generic error toast
+				toast({
+					title: "Failed to create organization",
+					description:
+						error.message || "An unexpected error occurred. Please try again.",
+					variant: "destructive",
+				});
+			}
 		},
 	});
 
@@ -54,20 +101,16 @@ export function NewOrganizationDialog({
 			return;
 		}
 
-		try {
-			const result = await createOrgMutation.mutateAsync({
-				body: {
-					name: orgName.trim(),
-				},
-			});
+		const result = await createOrgMutation.mutateAsync({
+			body: {
+				name: orgName.trim(),
+			},
+		});
 
-			if (result.organization) {
-				onOrganizationCreated(result.organization);
-				setOrgName("");
-				setIsOpen(false);
-			}
-		} catch (error) {
-			console.error("Failed to create organization:", error);
+		if (result.organization) {
+			onOrganizationCreated(result.organization);
+			setOrgName("");
+			setIsOpen(false);
 		}
 	};
 
