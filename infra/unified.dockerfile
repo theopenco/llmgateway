@@ -22,6 +22,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/gateway/package.json ./apps/gateway/
 COPY apps/ui/package.json ./apps/ui/
+COPY apps/next/package.json ./apps/next/
 COPY apps/docs/package.json ./apps/docs/
 COPY packages/auth/package.json ./packages/auth/
 COPY packages/db/package.json ./packages/db/
@@ -67,6 +68,7 @@ COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
     pnpm --filter=gateway --prod deploy /app/services/gateway && \
+    pnpm --filter=next --prod deploy /app/services/next && \
     pnpm --filter=ui --prod deploy /app/services/ui && \
     pnpm --filter=docs --prod deploy /app/services/docs
 
