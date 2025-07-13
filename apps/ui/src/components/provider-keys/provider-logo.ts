@@ -8,6 +8,8 @@ import InferenceLogo from "@/assets/models/inference-net.svg?react";
 import KlusterLogo from "@/assets/models/kluster-ai.svg?react";
 import LLMGatewayLogo from "@/assets/models/llmgateway.svg?react";
 import MistralLogo from "@/assets/models/mistral.svg?react";
+import MoonshotLogo from "@/assets/models/moonshot.svg?react";
+import NovitaLogo from "@/assets/models/novita.svg?react";
 import OpenAiLogo from "@/assets/models/openai.svg?react";
 import PerplexityLogo from "@/assets/models/perplexity.svg?react";
 import TogetherAiLogo from "@/assets/models/together-ai.svg?react";
@@ -33,4 +35,6 @@ export const providerLogoComponents: Partial<
 	xai: XaiLogo,
 	deepseek: DeepSeekLogo,
 	perplexity: PerplexityLogo,
+	moonshot: MoonshotLogo,
+	novita: NovitaLogo,
 };

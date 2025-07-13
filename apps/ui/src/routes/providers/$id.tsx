@@ -117,8 +117,8 @@ function ProviderPage() {
 			<Navbar />
 			<Hero providerId={provider.id} />
 			<div className="mx-auto px-6 lg:px-0 container py-8">
-				<div className="flex justify-between items-center mb-8">
-					<h2 className="text-2xl font-bold">Available Models</h2>
+				<div className="flex justify-between flex-col md:flex-row items-center mb-8">
+					<h2 className="text-2xl font-bold mb-4 md:mb-0">Available Models</h2>
 					<div className="flex gap-2">
 						<Button variant="outline" size="sm" asChild>
 							<a
