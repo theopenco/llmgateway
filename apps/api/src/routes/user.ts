@@ -13,6 +13,7 @@ const publicUserSchema = z.object({
 	email: z.string(),
 	name: z.string().nullable(),
 	onboardingCompleted: z.boolean(),
+	emailVerified: z.boolean(),
 });
 
 const get = createRoute({
@@ -59,6 +60,7 @@ user.openapi(get, async (c) => {
 			email: user.email,
 			name: user.name,
 			onboardingCompleted: user.onboardingCompleted,
+			emailVerified: user.emailVerified,
 		},
 	});
 });
@@ -201,6 +203,7 @@ user.openapi(updateUser, async (c) => {
 			email: updatedUser.email,
 			name: updatedUser.name,
 			onboardingCompleted: updatedUser.onboardingCompleted,
+			emailVerified: updatedUser.emailVerified,
 		},
 		message: "User updated successfully",
 	});
@@ -443,6 +446,7 @@ user.openapi(completeOnboarding, async (c) => {
 			email: updatedUser.email,
 			name: updatedUser.name,
 			onboardingCompleted: updatedUser.onboardingCompleted,
+			emailVerified: updatedUser.emailVerified,
 		},
 		message: "Onboarding completed successfully",
 	});

@@ -19,6 +19,7 @@ export interface UseUserOptions {
 	redirectTo?: string;
 	redirectWhen?: "authenticated" | "unauthenticated";
 	checkOnboarding?: boolean;
+	checkEmailVerification?: boolean;
 }
 
 export function useUser(options?: UseUserOptions) {
@@ -72,7 +73,11 @@ export function useUser(options?: UseUserOptions) {
 		const hasUser = !!data?.user;
 
 		if (redirectWhen === "authenticated" && hasUser) {
-			if (checkOnboarding && !data.user.onboardingCompleted) {
+			if (
+				checkOnboarding &&
+				!data.user.onboardingCompleted &&
+				routerState.location.pathname !== "/onboarding"
+			) {
 				navigate({ to: "/onboarding" });
 			} else {
 				navigate({ to: redirectTo });
@@ -85,14 +90,12 @@ export function useUser(options?: UseUserOptions) {
 			navigate({ to: redirectTo, replace: true });
 		}
 	}, [
-		data?.user,
+		data,
 		isLoading,
 		error,
 		navigate,
-		options?.redirectTo,
-		options?.redirectWhen,
-		options?.checkOnboarding,
 		options,
+		routerState.location.pathname,
 	]);
 
 	return {

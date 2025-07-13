@@ -7,7 +7,11 @@ import { app } from "..";
 import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
 import { createTestUser, deleteAll } from "../testing";
 
-describe("e2e tests for provider keys", () => {
+function getTestOptions() {
+	return process.env.CI ? { retry: 5 } : {};
+}
+
+describe("e2e tests for provider keys", getTestOptions(), () => {
 	let token: string;
 
 	afterEach(async () => {

@@ -10,178 +10,472 @@
 
 import { createFileRoute } from '@tanstack/react-router'
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as SignupRouteImport } from './routes/signup'
-import { Route as PlaygroundRouteImport } from './routes/playground'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as ModelsRouteImport } from './routes/models'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ChatRouteImport } from './routes/chat'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as ChangelogIndexRouteImport } from './routes/changelog/index'
-import { Route as ProvidersIdRouteImport } from './routes/providers/$id'
-import { Route as DashboardLayoutRouteImport } from './routes/dashboard/_layout'
-import { Route as CompareOpenRouterRouteImport } from './routes/compare/open-router'
-import { Route as ChangelogSlugRouteImport } from './routes/changelog/$slug'
-import { Route as DashboardLayoutIndexRouteImport } from './routes/dashboard/_layout/index'
-import { Route as DashboardLayoutUsageRouteImport } from './routes/dashboard/_layout/usage'
-import { Route as DashboardLayoutSettingsRouteImport } from './routes/dashboard/_layout/settings'
-import { Route as DashboardLayoutProviderKeysRouteImport } from './routes/dashboard/_layout/provider-keys'
-import { Route as DashboardLayoutModelsRouteImport } from './routes/dashboard/_layout/models'
-import { Route as DashboardLayoutApiKeysRouteImport } from './routes/dashboard/_layout/api-keys'
-import { Route as DashboardLayoutActivityRouteImport } from './routes/dashboard/_layout/activity'
-import { Route as DashboardLayoutSettingsIndexRouteImport } from './routes/dashboard/_layout/settings/index'
-import { Route as DashboardLayoutSettingsTransactionsRouteImport } from './routes/dashboard/_layout/settings/transactions'
-import { Route as DashboardLayoutSettingsSecurityRouteImport } from './routes/dashboard/_layout/settings/security'
-import { Route as DashboardLayoutSettingsPreferencesRouteImport } from './routes/dashboard/_layout/settings/preferences'
-import { Route as DashboardLayoutSettingsPoliciesRouteImport } from './routes/dashboard/_layout/settings/policies'
-import { Route as DashboardLayoutSettingsBillingRouteImport } from './routes/dashboard/_layout/settings/billing'
-import { Route as DashboardLayoutSettingsAccountRouteImport } from './routes/dashboard/_layout/settings/account'
+// Import Routes
 
-const DashboardRouteImport = createFileRoute('/dashboard')()
+import { Route as rootRoute } from './routes/__root'
+import { Route as SignupImport } from './routes/signup'
+import { Route as PlaygroundImport } from './routes/playground'
+import { Route as OnboardingImport } from './routes/onboarding'
+import { Route as ModelsImport } from './routes/models'
+import { Route as LoginImport } from './routes/login'
+import { Route as ChatImport } from './routes/chat'
+import { Route as IndexImport } from './routes/index'
+import { Route as ChangelogIndexImport } from './routes/changelog/index'
+import { Route as ProvidersIdImport } from './routes/providers/$id'
+import { Route as DashboardLayoutImport } from './routes/dashboard/_layout'
+import { Route as CompareOpenRouterImport } from './routes/compare/open-router'
+import { Route as ChangelogSlugImport } from './routes/changelog/$slug'
+import { Route as DashboardLayoutIndexImport } from './routes/dashboard/_layout/index'
+import { Route as DashboardLayoutUsageImport } from './routes/dashboard/_layout/usage'
+import { Route as DashboardLayoutSettingsImport } from './routes/dashboard/_layout/settings'
+import { Route as DashboardLayoutProviderKeysImport } from './routes/dashboard/_layout/provider-keys'
+import { Route as DashboardLayoutModelsImport } from './routes/dashboard/_layout/models'
+import { Route as DashboardLayoutApiKeysImport } from './routes/dashboard/_layout/api-keys'
+import { Route as DashboardLayoutActivityImport } from './routes/dashboard/_layout/activity'
+import { Route as DashboardLayoutSettingsIndexImport } from './routes/dashboard/_layout/settings/index'
+import { Route as DashboardLayoutSettingsTransactionsImport } from './routes/dashboard/_layout/settings/transactions'
+import { Route as DashboardLayoutSettingsSecurityImport } from './routes/dashboard/_layout/settings/security'
+import { Route as DashboardLayoutSettingsPreferencesImport } from './routes/dashboard/_layout/settings/preferences'
+import { Route as DashboardLayoutSettingsPoliciesImport } from './routes/dashboard/_layout/settings/policies'
+import { Route as DashboardLayoutSettingsBillingImport } from './routes/dashboard/_layout/settings/billing'
+import { Route as DashboardLayoutSettingsAccountImport } from './routes/dashboard/_layout/settings/account'
 
-const DashboardRoute = DashboardRouteImport.update({
+// Create Virtual Routes
+
+const DashboardImport = createFileRoute('/dashboard')()
+
+// Create/Update Routes
+
+const DashboardRoute = DashboardImport.update({
   id: '/dashboard',
   path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const SignupRoute = SignupRouteImport.update({
+
+const SignupRoute = SignupImport.update({
   id: '/signup',
   path: '/signup',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const PlaygroundRoute = PlaygroundRouteImport.update({
+
+const PlaygroundRoute = PlaygroundImport.update({
   id: '/playground',
   path: '/playground',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const OnboardingRoute = OnboardingRouteImport.update({
+
+const OnboardingRoute = OnboardingImport.update({
   id: '/onboarding',
   path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const ModelsRoute = ModelsRouteImport.update({
+
+const ModelsRoute = ModelsImport.update({
   id: '/models',
   path: '/models',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const LoginRoute = LoginRouteImport.update({
+
+const LoginRoute = LoginImport.update({
   id: '/login',
   path: '/login',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const ChatRoute = ChatRouteImport.update({
+
+const ChatRoute = ChatImport.update({
   id: '/chat',
   path: '/chat',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+
+const IndexRoute = IndexImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const ChangelogIndexRoute = ChangelogIndexRouteImport.update({
+
+const ChangelogIndexRoute = ChangelogIndexImport.update({
   id: '/changelog/',
   path: '/changelog/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const ProvidersIdRoute = ProvidersIdRouteImport.update({
+
+const ProvidersIdRoute = ProvidersIdImport.update({
   id: '/providers/$id',
   path: '/providers/$id',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const DashboardLayoutRoute = DashboardLayoutRouteImport.update({
+
+const DashboardLayoutRoute = DashboardLayoutImport.update({
   id: '/_layout',
   getParentRoute: () => DashboardRoute,
 } as any)
-const CompareOpenRouterRoute = CompareOpenRouterRouteImport.update({
+
+const CompareOpenRouterRoute = CompareOpenRouterImport.update({
   id: '/compare/open-router',
   path: '/compare/open-router',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const ChangelogSlugRoute = ChangelogSlugRouteImport.update({
+
+const ChangelogSlugRoute = ChangelogSlugImport.update({
   id: '/changelog/$slug',
   path: '/changelog/$slug',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => rootRoute,
 } as any)
-const DashboardLayoutIndexRoute = DashboardLayoutIndexRouteImport.update({
+
+const DashboardLayoutIndexRoute = DashboardLayoutIndexImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
-const DashboardLayoutUsageRoute = DashboardLayoutUsageRouteImport.update({
+
+const DashboardLayoutUsageRoute = DashboardLayoutUsageImport.update({
   id: '/usage',
   path: '/usage',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
-const DashboardLayoutSettingsRoute = DashboardLayoutSettingsRouteImport.update({
+
+const DashboardLayoutSettingsRoute = DashboardLayoutSettingsImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
+
 const DashboardLayoutProviderKeysRoute =
-  DashboardLayoutProviderKeysRouteImport.update({
+  DashboardLayoutProviderKeysImport.update({
     id: '/provider-keys',
     path: '/provider-keys',
     getParentRoute: () => DashboardLayoutRoute,
   } as any)
-const DashboardLayoutModelsRoute = DashboardLayoutModelsRouteImport.update({
+
+const DashboardLayoutModelsRoute = DashboardLayoutModelsImport.update({
   id: '/models',
   path: '/models',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
-const DashboardLayoutApiKeysRoute = DashboardLayoutApiKeysRouteImport.update({
+
+const DashboardLayoutApiKeysRoute = DashboardLayoutApiKeysImport.update({
   id: '/api-keys',
   path: '/api-keys',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
-const DashboardLayoutActivityRoute = DashboardLayoutActivityRouteImport.update({
+
+const DashboardLayoutActivityRoute = DashboardLayoutActivityImport.update({
   id: '/activity',
   path: '/activity',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
+
 const DashboardLayoutSettingsIndexRoute =
-  DashboardLayoutSettingsIndexRouteImport.update({
+  DashboardLayoutSettingsIndexImport.update({
     id: '/',
     path: '/',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
 const DashboardLayoutSettingsTransactionsRoute =
-  DashboardLayoutSettingsTransactionsRouteImport.update({
+  DashboardLayoutSettingsTransactionsImport.update({
     id: '/transactions',
     path: '/transactions',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
 const DashboardLayoutSettingsSecurityRoute =
-  DashboardLayoutSettingsSecurityRouteImport.update({
+  DashboardLayoutSettingsSecurityImport.update({
     id: '/security',
     path: '/security',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
 const DashboardLayoutSettingsPreferencesRoute =
-  DashboardLayoutSettingsPreferencesRouteImport.update({
+  DashboardLayoutSettingsPreferencesImport.update({
     id: '/preferences',
     path: '/preferences',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
 const DashboardLayoutSettingsPoliciesRoute =
-  DashboardLayoutSettingsPoliciesRouteImport.update({
+  DashboardLayoutSettingsPoliciesImport.update({
     id: '/policies',
     path: '/policies',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
 const DashboardLayoutSettingsBillingRoute =
-  DashboardLayoutSettingsBillingRouteImport.update({
+  DashboardLayoutSettingsBillingImport.update({
     id: '/billing',
     path: '/billing',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
 const DashboardLayoutSettingsAccountRoute =
-  DashboardLayoutSettingsAccountRouteImport.update({
+  DashboardLayoutSettingsAccountImport.update({
     id: '/account',
     path: '/account',
     getParentRoute: () => DashboardLayoutSettingsRoute,
   } as any)
+
+// Populate the FileRoutesByPath interface
+
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexImport
+      parentRoute: typeof rootRoute
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatImport
+      parentRoute: typeof rootRoute
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginImport
+      parentRoute: typeof rootRoute
+    }
+    '/models': {
+      id: '/models'
+      path: '/models'
+      fullPath: '/models'
+      preLoaderRoute: typeof ModelsImport
+      parentRoute: typeof rootRoute
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingImport
+      parentRoute: typeof rootRoute
+    }
+    '/playground': {
+      id: '/playground'
+      path: '/playground'
+      fullPath: '/playground'
+      preLoaderRoute: typeof PlaygroundImport
+      parentRoute: typeof rootRoute
+    }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupImport
+      parentRoute: typeof rootRoute
+    }
+    '/changelog/$slug': {
+      id: '/changelog/$slug'
+      path: '/changelog/$slug'
+      fullPath: '/changelog/$slug'
+      preLoaderRoute: typeof ChangelogSlugImport
+      parentRoute: typeof rootRoute
+    }
+    '/compare/open-router': {
+      id: '/compare/open-router'
+      path: '/compare/open-router'
+      fullPath: '/compare/open-router'
+      preLoaderRoute: typeof CompareOpenRouterImport
+      parentRoute: typeof rootRoute
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardImport
+      parentRoute: typeof rootRoute
+    }
+    '/dashboard/_layout': {
+      id: '/dashboard/_layout'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardLayoutImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/providers/$id': {
+      id: '/providers/$id'
+      path: '/providers/$id'
+      fullPath: '/providers/$id'
+      preLoaderRoute: typeof ProvidersIdImport
+      parentRoute: typeof rootRoute
+    }
+    '/changelog/': {
+      id: '/changelog/'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof ChangelogIndexImport
+      parentRoute: typeof rootRoute
+    }
+    '/dashboard/_layout/activity': {
+      id: '/dashboard/_layout/activity'
+      path: '/activity'
+      fullPath: '/dashboard/activity'
+      preLoaderRoute: typeof DashboardLayoutActivityImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/api-keys': {
+      id: '/dashboard/_layout/api-keys'
+      path: '/api-keys'
+      fullPath: '/dashboard/api-keys'
+      preLoaderRoute: typeof DashboardLayoutApiKeysImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/models': {
+      id: '/dashboard/_layout/models'
+      path: '/models'
+      fullPath: '/dashboard/models'
+      preLoaderRoute: typeof DashboardLayoutModelsImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/provider-keys': {
+      id: '/dashboard/_layout/provider-keys'
+      path: '/provider-keys'
+      fullPath: '/dashboard/provider-keys'
+      preLoaderRoute: typeof DashboardLayoutProviderKeysImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/settings': {
+      id: '/dashboard/_layout/settings'
+      path: '/settings'
+      fullPath: '/dashboard/settings'
+      preLoaderRoute: typeof DashboardLayoutSettingsImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/usage': {
+      id: '/dashboard/_layout/usage'
+      path: '/usage'
+      fullPath: '/dashboard/usage'
+      preLoaderRoute: typeof DashboardLayoutUsageImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/': {
+      id: '/dashboard/_layout/'
+      path: '/'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof DashboardLayoutIndexImport
+      parentRoute: typeof DashboardLayoutImport
+    }
+    '/dashboard/_layout/settings/account': {
+      id: '/dashboard/_layout/settings/account'
+      path: '/account'
+      fullPath: '/dashboard/settings/account'
+      preLoaderRoute: typeof DashboardLayoutSettingsAccountImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+    '/dashboard/_layout/settings/billing': {
+      id: '/dashboard/_layout/settings/billing'
+      path: '/billing'
+      fullPath: '/dashboard/settings/billing'
+      preLoaderRoute: typeof DashboardLayoutSettingsBillingImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+    '/dashboard/_layout/settings/policies': {
+      id: '/dashboard/_layout/settings/policies'
+      path: '/policies'
+      fullPath: '/dashboard/settings/policies'
+      preLoaderRoute: typeof DashboardLayoutSettingsPoliciesImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+    '/dashboard/_layout/settings/preferences': {
+      id: '/dashboard/_layout/settings/preferences'
+      path: '/preferences'
+      fullPath: '/dashboard/settings/preferences'
+      preLoaderRoute: typeof DashboardLayoutSettingsPreferencesImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+    '/dashboard/_layout/settings/security': {
+      id: '/dashboard/_layout/settings/security'
+      path: '/security'
+      fullPath: '/dashboard/settings/security'
+      preLoaderRoute: typeof DashboardLayoutSettingsSecurityImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+    '/dashboard/_layout/settings/transactions': {
+      id: '/dashboard/_layout/settings/transactions'
+      path: '/transactions'
+      fullPath: '/dashboard/settings/transactions'
+      preLoaderRoute: typeof DashboardLayoutSettingsTransactionsImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+    '/dashboard/_layout/settings/': {
+      id: '/dashboard/_layout/settings/'
+      path: '/'
+      fullPath: '/dashboard/settings/'
+      preLoaderRoute: typeof DashboardLayoutSettingsIndexImport
+      parentRoute: typeof DashboardLayoutSettingsImport
+    }
+  }
+}
+
+// Create and export the route tree
+
+interface DashboardLayoutSettingsRouteChildren {
+  DashboardLayoutSettingsAccountRoute: typeof DashboardLayoutSettingsAccountRoute
+  DashboardLayoutSettingsBillingRoute: typeof DashboardLayoutSettingsBillingRoute
+  DashboardLayoutSettingsPoliciesRoute: typeof DashboardLayoutSettingsPoliciesRoute
+  DashboardLayoutSettingsPreferencesRoute: typeof DashboardLayoutSettingsPreferencesRoute
+  DashboardLayoutSettingsSecurityRoute: typeof DashboardLayoutSettingsSecurityRoute
+  DashboardLayoutSettingsTransactionsRoute: typeof DashboardLayoutSettingsTransactionsRoute
+  DashboardLayoutSettingsIndexRoute: typeof DashboardLayoutSettingsIndexRoute
+}
+
+const DashboardLayoutSettingsRouteChildren: DashboardLayoutSettingsRouteChildren =
+  {
+    DashboardLayoutSettingsAccountRoute: DashboardLayoutSettingsAccountRoute,
+    DashboardLayoutSettingsBillingRoute: DashboardLayoutSettingsBillingRoute,
+    DashboardLayoutSettingsPoliciesRoute: DashboardLayoutSettingsPoliciesRoute,
+    DashboardLayoutSettingsPreferencesRoute:
+      DashboardLayoutSettingsPreferencesRoute,
+    DashboardLayoutSettingsSecurityRoute: DashboardLayoutSettingsSecurityRoute,
+    DashboardLayoutSettingsTransactionsRoute:
+      DashboardLayoutSettingsTransactionsRoute,
+    DashboardLayoutSettingsIndexRoute: DashboardLayoutSettingsIndexRoute,
+  }
+
+const DashboardLayoutSettingsRouteWithChildren =
+  DashboardLayoutSettingsRoute._addFileChildren(
+    DashboardLayoutSettingsRouteChildren,
+  )
+
+interface DashboardLayoutRouteChildren {
+  DashboardLayoutActivityRoute: typeof DashboardLayoutActivityRoute
+  DashboardLayoutApiKeysRoute: typeof DashboardLayoutApiKeysRoute
+  DashboardLayoutModelsRoute: typeof DashboardLayoutModelsRoute
+  DashboardLayoutProviderKeysRoute: typeof DashboardLayoutProviderKeysRoute
+  DashboardLayoutSettingsRoute: typeof DashboardLayoutSettingsRouteWithChildren
+  DashboardLayoutUsageRoute: typeof DashboardLayoutUsageRoute
+  DashboardLayoutIndexRoute: typeof DashboardLayoutIndexRoute
+}
+
+const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
+  DashboardLayoutActivityRoute: DashboardLayoutActivityRoute,
+  DashboardLayoutApiKeysRoute: DashboardLayoutApiKeysRoute,
+  DashboardLayoutModelsRoute: DashboardLayoutModelsRoute,
+  DashboardLayoutProviderKeysRoute: DashboardLayoutProviderKeysRoute,
+  DashboardLayoutSettingsRoute: DashboardLayoutSettingsRouteWithChildren,
+  DashboardLayoutUsageRoute: DashboardLayoutUsageRoute,
+  DashboardLayoutIndexRoute: DashboardLayoutIndexRoute,
+}
+
+const DashboardLayoutRouteWithChildren = DashboardLayoutRoute._addFileChildren(
+  DashboardLayoutRouteChildren,
+)
+
+interface DashboardRouteChildren {
+  DashboardLayoutRoute: typeof DashboardLayoutRouteWithChildren
+}
+
+const DashboardRouteChildren: DashboardRouteChildren = {
+  DashboardLayoutRoute: DashboardLayoutRouteWithChildren,
+}
+
+const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
+  DashboardRouteChildren,
+)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -211,6 +505,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/settings/transactions': typeof DashboardLayoutSettingsTransactionsRoute
   '/dashboard/settings/': typeof DashboardLayoutSettingsIndexRoute
 }
+
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
@@ -237,8 +532,9 @@ export interface FileRoutesByTo {
   '/dashboard/settings/transactions': typeof DashboardLayoutSettingsTransactionsRoute
   '/dashboard/settings': typeof DashboardLayoutSettingsIndexRoute
 }
+
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
+  __root__: typeof rootRoute
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
   '/login': typeof LoginRoute
@@ -267,6 +563,7 @@ export interface FileRoutesById {
   '/dashboard/_layout/settings/transactions': typeof DashboardLayoutSettingsTransactionsRoute
   '/dashboard/_layout/settings/': typeof DashboardLayoutSettingsIndexRoute
 }
+
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
@@ -353,6 +650,7 @@ export interface FileRouteTypes {
     | '/dashboard/_layout/settings/'
   fileRoutesById: FileRoutesById
 }
+
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChatRoute: typeof ChatRoute
@@ -368,264 +666,6 @@ export interface RootRouteChildren {
   ChangelogIndexRoute: typeof ChangelogIndexRoute
 }
 
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/signup': {
-      id: '/signup'
-      path: '/signup'
-      fullPath: '/signup'
-      preLoaderRoute: typeof SignupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/playground': {
-      id: '/playground'
-      path: '/playground'
-      fullPath: '/playground'
-      preLoaderRoute: typeof PlaygroundRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/models': {
-      id: '/models'
-      path: '/models'
-      fullPath: '/models'
-      preLoaderRoute: typeof ModelsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chat': {
-      id: '/chat'
-      path: '/chat'
-      fullPath: '/chat'
-      preLoaderRoute: typeof ChatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/changelog/': {
-      id: '/changelog/'
-      path: '/changelog'
-      fullPath: '/changelog'
-      preLoaderRoute: typeof ChangelogIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/providers/$id': {
-      id: '/providers/$id'
-      path: '/providers/$id'
-      fullPath: '/providers/$id'
-      preLoaderRoute: typeof ProvidersIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard/_layout': {
-      id: '/dashboard/_layout'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardLayoutRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/compare/open-router': {
-      id: '/compare/open-router'
-      path: '/compare/open-router'
-      fullPath: '/compare/open-router'
-      preLoaderRoute: typeof CompareOpenRouterRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/changelog/$slug': {
-      id: '/changelog/$slug'
-      path: '/changelog/$slug'
-      fullPath: '/changelog/$slug'
-      preLoaderRoute: typeof ChangelogSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard/_layout/': {
-      id: '/dashboard/_layout/'
-      path: '/'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof DashboardLayoutIndexRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/usage': {
-      id: '/dashboard/_layout/usage'
-      path: '/usage'
-      fullPath: '/dashboard/usage'
-      preLoaderRoute: typeof DashboardLayoutUsageRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/settings': {
-      id: '/dashboard/_layout/settings'
-      path: '/settings'
-      fullPath: '/dashboard/settings'
-      preLoaderRoute: typeof DashboardLayoutSettingsRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/provider-keys': {
-      id: '/dashboard/_layout/provider-keys'
-      path: '/provider-keys'
-      fullPath: '/dashboard/provider-keys'
-      preLoaderRoute: typeof DashboardLayoutProviderKeysRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/models': {
-      id: '/dashboard/_layout/models'
-      path: '/models'
-      fullPath: '/dashboard/models'
-      preLoaderRoute: typeof DashboardLayoutModelsRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/api-keys': {
-      id: '/dashboard/_layout/api-keys'
-      path: '/api-keys'
-      fullPath: '/dashboard/api-keys'
-      preLoaderRoute: typeof DashboardLayoutApiKeysRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/activity': {
-      id: '/dashboard/_layout/activity'
-      path: '/activity'
-      fullPath: '/dashboard/activity'
-      preLoaderRoute: typeof DashboardLayoutActivityRouteImport
-      parentRoute: typeof DashboardLayoutRoute
-    }
-    '/dashboard/_layout/settings/': {
-      id: '/dashboard/_layout/settings/'
-      path: '/'
-      fullPath: '/dashboard/settings/'
-      preLoaderRoute: typeof DashboardLayoutSettingsIndexRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-    '/dashboard/_layout/settings/transactions': {
-      id: '/dashboard/_layout/settings/transactions'
-      path: '/transactions'
-      fullPath: '/dashboard/settings/transactions'
-      preLoaderRoute: typeof DashboardLayoutSettingsTransactionsRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-    '/dashboard/_layout/settings/security': {
-      id: '/dashboard/_layout/settings/security'
-      path: '/security'
-      fullPath: '/dashboard/settings/security'
-      preLoaderRoute: typeof DashboardLayoutSettingsSecurityRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-    '/dashboard/_layout/settings/preferences': {
-      id: '/dashboard/_layout/settings/preferences'
-      path: '/preferences'
-      fullPath: '/dashboard/settings/preferences'
-      preLoaderRoute: typeof DashboardLayoutSettingsPreferencesRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-    '/dashboard/_layout/settings/policies': {
-      id: '/dashboard/_layout/settings/policies'
-      path: '/policies'
-      fullPath: '/dashboard/settings/policies'
-      preLoaderRoute: typeof DashboardLayoutSettingsPoliciesRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-    '/dashboard/_layout/settings/billing': {
-      id: '/dashboard/_layout/settings/billing'
-      path: '/billing'
-      fullPath: '/dashboard/settings/billing'
-      preLoaderRoute: typeof DashboardLayoutSettingsBillingRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-    '/dashboard/_layout/settings/account': {
-      id: '/dashboard/_layout/settings/account'
-      path: '/account'
-      fullPath: '/dashboard/settings/account'
-      preLoaderRoute: typeof DashboardLayoutSettingsAccountRouteImport
-      parentRoute: typeof DashboardLayoutSettingsRoute
-    }
-  }
-}
-
-interface DashboardLayoutSettingsRouteChildren {
-  DashboardLayoutSettingsAccountRoute: typeof DashboardLayoutSettingsAccountRoute
-  DashboardLayoutSettingsBillingRoute: typeof DashboardLayoutSettingsBillingRoute
-  DashboardLayoutSettingsPoliciesRoute: typeof DashboardLayoutSettingsPoliciesRoute
-  DashboardLayoutSettingsPreferencesRoute: typeof DashboardLayoutSettingsPreferencesRoute
-  DashboardLayoutSettingsSecurityRoute: typeof DashboardLayoutSettingsSecurityRoute
-  DashboardLayoutSettingsTransactionsRoute: typeof DashboardLayoutSettingsTransactionsRoute
-  DashboardLayoutSettingsIndexRoute: typeof DashboardLayoutSettingsIndexRoute
-}
-
-const DashboardLayoutSettingsRouteChildren: DashboardLayoutSettingsRouteChildren =
-  {
-    DashboardLayoutSettingsAccountRoute: DashboardLayoutSettingsAccountRoute,
-    DashboardLayoutSettingsBillingRoute: DashboardLayoutSettingsBillingRoute,
-    DashboardLayoutSettingsPoliciesRoute: DashboardLayoutSettingsPoliciesRoute,
-    DashboardLayoutSettingsPreferencesRoute:
-      DashboardLayoutSettingsPreferencesRoute,
-    DashboardLayoutSettingsSecurityRoute: DashboardLayoutSettingsSecurityRoute,
-    DashboardLayoutSettingsTransactionsRoute:
-      DashboardLayoutSettingsTransactionsRoute,
-    DashboardLayoutSettingsIndexRoute: DashboardLayoutSettingsIndexRoute,
-  }
-
-const DashboardLayoutSettingsRouteWithChildren =
-  DashboardLayoutSettingsRoute._addFileChildren(
-    DashboardLayoutSettingsRouteChildren,
-  )
-
-interface DashboardLayoutRouteChildren {
-  DashboardLayoutActivityRoute: typeof DashboardLayoutActivityRoute
-  DashboardLayoutApiKeysRoute: typeof DashboardLayoutApiKeysRoute
-  DashboardLayoutModelsRoute: typeof DashboardLayoutModelsRoute
-  DashboardLayoutProviderKeysRoute: typeof DashboardLayoutProviderKeysRoute
-  DashboardLayoutSettingsRoute: typeof DashboardLayoutSettingsRouteWithChildren
-  DashboardLayoutUsageRoute: typeof DashboardLayoutUsageRoute
-  DashboardLayoutIndexRoute: typeof DashboardLayoutIndexRoute
-}
-
-const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
-  DashboardLayoutActivityRoute: DashboardLayoutActivityRoute,
-  DashboardLayoutApiKeysRoute: DashboardLayoutApiKeysRoute,
-  DashboardLayoutModelsRoute: DashboardLayoutModelsRoute,
-  DashboardLayoutProviderKeysRoute: DashboardLayoutProviderKeysRoute,
-  DashboardLayoutSettingsRoute: DashboardLayoutSettingsRouteWithChildren,
-  DashboardLayoutUsageRoute: DashboardLayoutUsageRoute,
-  DashboardLayoutIndexRoute: DashboardLayoutIndexRoute,
-}
-
-const DashboardLayoutRouteWithChildren = DashboardLayoutRoute._addFileChildren(
-  DashboardLayoutRouteChildren,
-)
-
-interface DashboardRouteChildren {
-  DashboardLayoutRoute: typeof DashboardLayoutRouteWithChildren
-}
-
-const DashboardRouteChildren: DashboardRouteChildren = {
-  DashboardLayoutRoute: DashboardLayoutRouteWithChildren,
-}
-
-const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
-  DashboardRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChatRoute: ChatRoute,
@@ -640,6 +680,148 @@ const rootRouteChildren: RootRouteChildren = {
   ProvidersIdRoute: ProvidersIdRoute,
   ChangelogIndexRoute: ChangelogIndexRoute,
 }
-export const routeTree = rootRouteImport
+
+export const routeTree = rootRoute
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+/* ROUTE_MANIFEST_START
+{
+  "routes": {
+    "__root__": {
+      "filePath": "__root.tsx",
+      "children": [
+        "/",
+        "/chat",
+        "/login",
+        "/models",
+        "/onboarding",
+        "/playground",
+        "/signup",
+        "/changelog/$slug",
+        "/compare/open-router",
+        "/dashboard",
+        "/providers/$id",
+        "/changelog/"
+      ]
+    },
+    "/": {
+      "filePath": "index.tsx"
+    },
+    "/chat": {
+      "filePath": "chat.tsx"
+    },
+    "/login": {
+      "filePath": "login.tsx"
+    },
+    "/models": {
+      "filePath": "models.tsx"
+    },
+    "/onboarding": {
+      "filePath": "onboarding.tsx"
+    },
+    "/playground": {
+      "filePath": "playground.tsx"
+    },
+    "/signup": {
+      "filePath": "signup.tsx"
+    },
+    "/changelog/$slug": {
+      "filePath": "changelog/$slug.tsx"
+    },
+    "/compare/open-router": {
+      "filePath": "compare/open-router.tsx"
+    },
+    "/dashboard": {
+      "filePath": "dashboard",
+      "children": [
+        "/dashboard/_layout"
+      ]
+    },
+    "/dashboard/_layout": {
+      "filePath": "dashboard/_layout.tsx",
+      "parent": "/dashboard",
+      "children": [
+        "/dashboard/_layout/activity",
+        "/dashboard/_layout/api-keys",
+        "/dashboard/_layout/models",
+        "/dashboard/_layout/provider-keys",
+        "/dashboard/_layout/settings",
+        "/dashboard/_layout/usage",
+        "/dashboard/_layout/"
+      ]
+    },
+    "/providers/$id": {
+      "filePath": "providers/$id.tsx"
+    },
+    "/changelog/": {
+      "filePath": "changelog/index.tsx"
+    },
+    "/dashboard/_layout/activity": {
+      "filePath": "dashboard/_layout/activity.tsx",
+      "parent": "/dashboard/_layout"
+    },
+    "/dashboard/_layout/api-keys": {
+      "filePath": "dashboard/_layout/api-keys.tsx",
+      "parent": "/dashboard/_layout"
+    },
+    "/dashboard/_layout/models": {
+      "filePath": "dashboard/_layout/models.tsx",
+      "parent": "/dashboard/_layout"
+    },
+    "/dashboard/_layout/provider-keys": {
+      "filePath": "dashboard/_layout/provider-keys.tsx",
+      "parent": "/dashboard/_layout"
+    },
+    "/dashboard/_layout/settings": {
+      "filePath": "dashboard/_layout/settings.tsx",
+      "parent": "/dashboard/_layout",
+      "children": [
+        "/dashboard/_layout/settings/account",
+        "/dashboard/_layout/settings/billing",
+        "/dashboard/_layout/settings/policies",
+        "/dashboard/_layout/settings/preferences",
+        "/dashboard/_layout/settings/security",
+        "/dashboard/_layout/settings/transactions",
+        "/dashboard/_layout/settings/"
+      ]
+    },
+    "/dashboard/_layout/usage": {
+      "filePath": "dashboard/_layout/usage.tsx",
+      "parent": "/dashboard/_layout"
+    },
+    "/dashboard/_layout/": {
+      "filePath": "dashboard/_layout/index.tsx",
+      "parent": "/dashboard/_layout"
+    },
+    "/dashboard/_layout/settings/account": {
+      "filePath": "dashboard/_layout/settings/account.tsx",
+      "parent": "/dashboard/_layout/settings"
+    },
+    "/dashboard/_layout/settings/billing": {
+      "filePath": "dashboard/_layout/settings/billing.tsx",
+      "parent": "/dashboard/_layout/settings"
+    },
+    "/dashboard/_layout/settings/policies": {
+      "filePath": "dashboard/_layout/settings/policies.tsx",
+      "parent": "/dashboard/_layout/settings"
+    },
+    "/dashboard/_layout/settings/preferences": {
+      "filePath": "dashboard/_layout/settings/preferences.tsx",
+      "parent": "/dashboard/_layout/settings"
+    },
+    "/dashboard/_layout/settings/security": {
+      "filePath": "dashboard/_layout/settings/security.tsx",
+      "parent": "/dashboard/_layout/settings"
+    },
+    "/dashboard/_layout/settings/transactions": {
+      "filePath": "dashboard/_layout/settings/transactions.tsx",
+      "parent": "/dashboard/_layout/settings"
+    },
+    "/dashboard/_layout/settings/": {
+      "filePath": "dashboard/_layout/settings/index.tsx",
+      "parent": "/dashboard/_layout/settings"
+    }
+  }
+}
+ROUTE_MANIFEST_END */

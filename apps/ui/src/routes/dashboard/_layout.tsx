@@ -3,15 +3,19 @@ import {
 	Outlet,
 	createFileRoute,
 	useRouterState,
+	useNavigate,
+	useSearch,
 } from "@tanstack/react-router";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
+import { EmailVerificationBanner } from "@/components/dashboard/email-verification-banner";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
 import { TopBar } from "@/components/dashboard/top-bar";
 import { useUser } from "@/hooks/useUser";
 import { SidebarProvider } from "@/lib/components/sidebar";
+import { toast } from "@/lib/components/use-toast";
 import { DashboardContext } from "@/lib/dashboard-context";
 import { useApi } from "@/lib/fetch-client";
 
@@ -24,6 +28,10 @@ export const Route = createFileRoute("/dashboard/_layout")({
 function RouteComponent() {
 	const posthog = usePostHog();
 	const { location } = useRouterState();
+	const navigate = useNavigate();
+	const search = useSearch({ from: "/dashboard/_layout" }) as {
+		emailVerified?: boolean;
+	};
 	const queryClient = useQueryClient();
 	const [selectedOrganizationId, setSelectedOrganizationId] = useState<
 		string | null
@@ -31,7 +39,10 @@ function RouteComponent() {
 	const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 	const api = useApi();
 
-	useUser({ redirectTo: "/login", redirectWhen: "unauthenticated" });
+	const { user } = useUser({
+		redirectTo: "/login",
+		redirectWhen: "unauthenticated",
+	});
 
 	// Fetch organizations
 	const { data: organizationsData } = api.useQuery("get", "/orgs");
@@ -104,6 +115,22 @@ function RouteComponent() {
 		posthog.capture("page_viewed_dashboard");
 	}, [posthog]);
 
+	// Handle email verification success
+	useEffect(() => {
+		if (search.emailVerified) {
+			toast({
+				title: "Email verified successfully!",
+				description: "Your email address has been verified.",
+			});
+
+			// Clean up the URL parameter using TanStack Router
+			navigate({
+				to: location.pathname,
+				replace: true,
+			});
+		}
+	}, [search.emailVerified, location.pathname, navigate]);
+
 	// Refetch organizations query when navigating between dashboard pages
 	useEffect(() => {
 		const orgsQueryKey = api.queryOptions("get", "/orgs").queryKey;
@@ -146,6 +173,9 @@ function RouteComponent() {
 								selectedOrganization={selectedOrganization}
 								onProjectCreated={handleProjectCreated}
 							/>
+							{user && !user.emailVerified && (
+								<EmailVerificationBanner userEmail={user.email} />
+							)}
 							<main className="bg-background max-w-7xl mx-auto w-full flex-1 overflow-y-auto pt-10 pb-4 px-4 md:p-6 lg:p-8">
 								<Outlet />
 							</main>

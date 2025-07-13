@@ -116,4 +116,24 @@ export const xaiModels = [
 		],
 		jsonOutput: true,
 	},
+	{
+		model: "grok-4-0709",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "xai",
+				modelName: "grok-4-0709",
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				contextSize: 256000,
+				maxOutput: 256000,
+				streaming: true,
+				vision: false,
+			},
+		],
+		jsonOutput: true,
+	},
 ] as const satisfies ModelDefinition[];

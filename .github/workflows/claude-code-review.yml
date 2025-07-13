@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
 
@@ -43,7 +43,7 @@ jobs:
           if [[ "$AUTHOR_EMAIL" == *"claude[bot]"* ]] || [[ "$AUTHOR_NAME" == *"claude[bot]"* ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             echo "Skipping review - most recent commit is from Claude"
-          elif [[ "$COMMIT_TITLE" == *"WIP"* ]] || [[ "$COMMIT_TITLE" == "Merge"* ]] || [[ "$COMMIT_TITLE" == "automated"* ]]; then
+          elif [[ "$COMMIT_TITLE" == *"wip"* ]] || [[ "$COMMIT_TITLE" == *"WIP"* ]] || [[ "$COMMIT_TITLE" == "Merge"* ]] || [[ "$COMMIT_TITLE" == "chore"* ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             echo "Skipping review - most recent commit title contains WIP"
           else
@@ -51,12 +51,31 @@ jobs:
             echo "Proceeding with review - most recent commit is not from Claude and doesn't contain WIP"
           fi
 
+      - name: Check repository permissions
+        id: check-permissions
+        if: |
+          steps.check-author.outputs.skip != 'true' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          !contains(github.event.pull_request.title, 'WIP')
+        run: |
+          # Check if GITHUB_TOKEN has pull-requests write permission
+          if [[ "${{ github.token }}" != "" && "${{ github.event.pull_request.head.repo.full_name }}" == "${{ github.repository }}" ]]; then
+            # Token is available and PR is from the same repo (not a fork)
+            echo "has_write_permission=true" >> $GITHUB_OUTPUT
+            echo "Token has necessary permissions - proceeding with review"
+          else
+            # Token is missing or PR is from a fork (which restricts permissions)
+            echo "has_write_permission=false" >> $GITHUB_OUTPUT
+            echo "Token lacks necessary permissions - skipping review"
+          fi
+
       - name: Run Claude Code Review
         id: claude-review
         if: |
           steps.check-author.outputs.skip != 'true' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
-          !contains(github.event.pull_request.title, 'WIP')
+          !contains(github.event.pull_request.title, 'WIP') &&
+          steps.check-permissions.outputs.has_write_permission == 'true'
 
         uses: anthropics/claude-code-action@beta
         with:

@@ -18,7 +18,7 @@ export async function setCache(
 	expirationSeconds: number,
 ): Promise<void> {
 	if (process.env.NODE_ENV === "test") {
-		// todo temp disable caching in test mode
+		// temp disable caching in test mode
 		return;
 	}
 

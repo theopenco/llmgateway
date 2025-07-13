@@ -26,5 +26,6 @@ export function useAuth() {
 		signOut: authClient.signOut,
 		useSession: authClient.useSession,
 		getSession: authClient.getSession,
+		sendVerificationEmail: authClient.sendVerificationEmail,
 	};
 }

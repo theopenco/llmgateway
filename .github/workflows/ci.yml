@@ -1,7 +1,12 @@
 name: ci
 on:
+  pull_request:
   push:
+    branches:
+      - main
   merge_group:
+    branches:
+      - main
 jobs:
   lint:
     uses: ./.github/workflows/run.yml
@@ -19,7 +24,7 @@ jobs:
     uses: ./.github/workflows/run.yml
     secrets: inherit
     with:
-      cmd: pnpm build && bash .github/start.sh
+      cmd: docker compose up -d && pnpm build && bash .github/start.sh
 
   test:
     uses: ./.github/workflows/run.yml

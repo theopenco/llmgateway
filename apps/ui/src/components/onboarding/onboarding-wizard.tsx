@@ -63,8 +63,7 @@ export function OnboardingWizard() {
 					skippedAt: "plan_choice",
 				});
 				await completeOnboarding.mutateAsync({});
-				const queryKey = api.queryOptions("get", "/user/me").queryKey;
-				await queryClient.invalidateQueries({ queryKey });
+				queryClient.clear();
 				navigate({ to: "/dashboard" });
 				return;
 			}
@@ -78,8 +77,7 @@ export function OnboardingWizard() {
 			});
 
 			await completeOnboarding.mutateAsync({});
-			const queryKey = api.queryOptions("get", "/user/me").queryKey;
-			await queryClient.invalidateQueries({ queryKey });
+			queryClient.clear();
 			navigate({ to: "/dashboard" });
 			return;
 		}

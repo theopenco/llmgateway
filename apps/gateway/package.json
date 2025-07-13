@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "tsc && tsup && pnpm run generate",
-		"dev": "concurrently 'nodemon -e ts,json --exec \"tsx src/serve.ts\"' 'nodemon -e ts,json --exec \"tsx src/worker.ts\"'",
+		"dev": "nodemon -e ts,json --exec \"tsx src/serve.ts\"",
 		"generate": "NODE_ENV=production tsx ./src/scripts/generate-openapi.ts",
 		"start": "node dist/serve.js"
 	},
@@ -20,12 +20,12 @@
 		"@hono/zod-validator": "^0.7.0",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
-		"gpt-tokenizer": "2.9.0",
+		"gpt-tokenizer": "3.0.1",
 		"hono": "^4.7.6",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.6.1",
 		"redis": "5.5.6",
-		"zod": "3.24.3",
+		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
 	},
 	"devDependencies": {

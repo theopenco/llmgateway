@@ -240,7 +240,7 @@ export function CodeExample() {
 								<button
 									key={key}
 									onClick={() => setActiveTab(key as keyof typeof codeExamples)}
-									className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+									className={`px-3 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer ${
 										activeTab === key
 											? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
 											: "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"

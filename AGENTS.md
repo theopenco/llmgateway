@@ -26,7 +26,7 @@
 
 ### apps/ui
 
-This is a tanstack router project. Always use navigate() for navigation.
+This is a tanstack router project. Always use navigate() for navigation. Never use window.location.
 
 ### apps/docs
 

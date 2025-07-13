@@ -20,6 +20,7 @@ export function calculateCosts(
 	provider: string,
 	promptTokens: number | null,
 	completionTokens: number | null,
+	cachedTokens: number | null = null,
 	fullOutput?: {
 		messages?: ChatMessage[];
 		prompt?: string;
@@ -39,10 +40,12 @@ export function calculateCosts(
 		return {
 			inputCost: null,
 			outputCost: null,
+			cachedInputCost: null,
 			requestCost: null,
 			totalCost: null,
 			promptTokens,
 			completionTokens,
+			cachedTokens,
 			estimatedCost: false,
 		};
 	}
@@ -96,10 +99,12 @@ export function calculateCosts(
 		return {
 			inputCost: null,
 			outputCost: null,
+			cachedInputCost: null,
 			requestCost: null,
 			totalCost: null,
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
+			cachedTokens,
 			estimatedCost: isEstimated,
 		};
 	}
@@ -113,30 +118,36 @@ export function calculateCosts(
 		return {
 			inputCost: null,
 			outputCost: null,
+			cachedInputCost: null,
 			requestCost: null,
 			totalCost: null,
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
+			cachedTokens,
 			estimatedCost: isEstimated,
 		};
 	}
 
 	const inputPrice = providerInfo.inputPrice || 0;
 	const outputPrice = providerInfo.outputPrice || 0;
+	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
 
 	const inputCost = calculatedPromptTokens * inputPrice;
 	const outputCost = calculatedCompletionTokens * outputPrice;
+	const cachedInputCost = cachedTokens ? cachedTokens * cachedInputPrice : 0;
 	const requestCost = requestPrice;
-	const totalCost = inputCost + outputCost + requestCost;
+	const totalCost = inputCost + outputCost + cachedInputCost + requestCost;
 
 	return {
 		inputCost,
 		outputCost,
+		cachedInputCost,
 		requestCost,
 		totalCost,
 		promptTokens: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
+		cachedTokens,
 		estimatedCost: isEstimated,
 	};
 }

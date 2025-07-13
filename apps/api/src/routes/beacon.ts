@@ -11,6 +11,7 @@ const beaconDataSchema = z.object({
 	uuid: z.string().uuid("Must be a valid UUID"),
 	type: z.string().min(1, "Type is required"),
 	timestamp: z.string().datetime("Must be a valid ISO datetime"),
+	version: z.string().min(1, "Version is required"),
 });
 
 const beaconRoute = createRoute({
@@ -118,11 +119,10 @@ beacon.openapi(beaconRoute, async (c) => {
 			installation: beaconData.type,
 			timestamp: beaconData.timestamp,
 			source: "self_hosted_api",
-			version: process.env.APP_VERSION || "v0.0.0-unknown",
+			version: beaconData.version,
 			client_ip: clientIP,
 			country: regionInfo.country,
 			region: regionInfo.region,
-			cloud_provider: cloudProvider,
 		},
 	});
 

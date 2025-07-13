@@ -4,6 +4,7 @@ import { googleModels } from "./models/google";
 import { llmgatewayModels } from "./models/llmgateway";
 import { metaModels } from "./models/meta";
 import { mistralModels } from "./models/mistral";
+import { moonshotModels } from "./models/moonshot";
 import { openaiModels } from "./models/openai";
 import { perplexityModels } from "./models/perplexity";
 import { xaiModels } from "./models/xai";
@@ -25,6 +26,10 @@ export interface ProviderModelMapping {
 	 * Price per output token in USD
 	 */
 	outputPrice?: number;
+	/**
+	 * Price per cached input token in USD
+	 */
+	cachedInputPrice?: number;
 	/**
 	 * Price per image input in USD
 	 */
@@ -86,4 +91,5 @@ export const models = [
 	...metaModels,
 	...deepseekModels,
 	...mistralModels,
+	...moonshotModels,
 ] as const satisfies ModelDefinition[];

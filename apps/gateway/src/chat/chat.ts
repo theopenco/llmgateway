@@ -128,6 +128,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let completionTokens = null;
 	let totalTokens = null;
 	let reasoningTokens = null;
+	let cachedTokens = null;
 
 	switch (usedProvider) {
 		case "anthropic":
@@ -136,6 +137,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			promptTokens = json.usage?.input_tokens || null;
 			completionTokens = json.usage?.output_tokens || null;
 			reasoningTokens = json.usage?.reasoning_output_tokens || null;
+			cachedTokens = json.usage?.cache_read_input_tokens || null;
 			totalTokens =
 				json.usage?.input_tokens && json.usage?.output_tokens
 					? json.usage.input_tokens + json.usage.output_tokens
@@ -208,6 +210,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			promptTokens = json.usage?.prompt_tokens || null;
 			completionTokens = json.usage?.completion_tokens || null;
 			reasoningTokens = json.usage?.reasoning_tokens || null;
+			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
 			totalTokens = json.usage?.total_tokens || null;
 	}
 
@@ -218,6 +221,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		completionTokens,
 		totalTokens,
 		reasoningTokens,
+		cachedTokens,
 	};
 }
 
@@ -317,6 +321,7 @@ function extractTokenUsage(data: any, provider: Provider) {
 	let completionTokens = null;
 	let totalTokens = null;
 	let reasoningTokens = null;
+	let cachedTokens = null;
 
 	switch (provider) {
 		case "google-vertex":
@@ -332,6 +337,7 @@ function extractTokenUsage(data: any, provider: Provider) {
 				promptTokens = data.usage.input_tokens || null;
 				completionTokens = data.usage.output_tokens || null;
 				reasoningTokens = data.usage.reasoning_output_tokens || null;
+				cachedTokens = data.usage.cache_read_input_tokens || null;
 				totalTokens = (promptTokens || 0) + (completionTokens || 0);
 			}
 			break;
@@ -354,6 +360,7 @@ function extractTokenUsage(data: any, provider: Provider) {
 				completionTokens = data.usage.completion_tokens || null;
 				totalTokens = data.usage.total_tokens || null;
 				reasoningTokens = data.usage.reasoning_tokens || null;
+				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens || null;
 			}
 			break;
 	}
@@ -363,6 +370,7 @@ function extractTokenUsage(data: any, provider: Provider) {
 		completionTokens,
 		totalTokens,
 		reasoningTokens,
+		cachedTokens,
 	};
 }
 
@@ -379,6 +387,7 @@ function transformToOpenAIFormat(
 	completionTokens: number | null,
 	totalTokens: number | null,
 	reasoningTokens: number | null,
+	cachedTokens: number | null,
 ) {
 	let transformedResponse = json;
 
@@ -410,6 +419,11 @@ function transformToOpenAIFormat(
 					...(reasoningTokens !== null && {
 						reasoning_tokens: reasoningTokens,
 					}),
+					...(cachedTokens !== null && {
+						prompt_tokens_details: {
+							cached_tokens: cachedTokens,
+						},
+					}),
 				},
 			};
 			break;
@@ -439,6 +453,11 @@ function transformToOpenAIFormat(
 					total_tokens: totalTokens,
 					...(reasoningTokens !== null && {
 						reasoning_tokens: reasoningTokens,
+					}),
+					...(cachedTokens !== null && {
+						prompt_tokens_details: {
+							cached_tokens: cachedTokens,
+						},
 					}),
 				},
 			};
@@ -833,6 +852,11 @@ const completions = createRoute({
 							completion_tokens: z.number(),
 							total_tokens: z.number(),
 							reasoning_tokens: z.number().optional(),
+							prompt_tokens_details: z
+								.object({
+									cached_tokens: z.number().optional(),
+								})
+								.optional(),
 						}),
 					}),
 				},
@@ -1374,12 +1398,14 @@ chat.openapi(completions, async (c) => {
 				completionTokens: cachedResponse.usage?.completion_tokens || null,
 				totalTokens: cachedResponse.usage?.total_tokens || null,
 				reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
+				cachedTokens: null,
 				hasError: false,
 				streamed: false,
 				canceled: false,
 				errorDetails: null,
 				inputCost: 0,
 				outputCost: 0,
+				cachedInputCost: 0,
 				requestCost: 0,
 				cost: 0,
 				estimatedCost: false,
@@ -1504,10 +1530,12 @@ chat.openapi(completions, async (c) => {
 						completionTokens: null,
 						totalTokens: null,
 						reasoningTokens: null,
+						cachedTokens: null,
 						hasError: false,
 						streamed: true,
 						canceled: true,
 						errorDetails: null,
+						cachedInputCost: null,
 						requestCost: null,
 						cached: false,
 					});
@@ -1584,6 +1612,7 @@ chat.openapi(completions, async (c) => {
 					completionTokens: null,
 					totalTokens: null,
 					reasoningTokens: null,
+					cachedTokens: null,
 					hasError: true,
 					streamed: true,
 					canceled: false,
@@ -1592,6 +1621,7 @@ chat.openapi(completions, async (c) => {
 						statusText: res.statusText,
 						responseText: errorResponseText,
 					},
+					cachedInputCost: null,
 					requestCost: null,
 					cached: false,
 				});
@@ -1627,6 +1657,7 @@ chat.openapi(completions, async (c) => {
 			let completionTokens = null;
 			let totalTokens = null;
 			let reasoningTokens = null;
+			let cachedTokens = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
@@ -1944,6 +1975,9 @@ chat.openapi(completions, async (c) => {
 										if (usage.reasoningTokens !== null) {
 											reasoningTokens = usage.reasoningTokens;
 										}
+										if (usage.cachedTokens !== null) {
+											cachedTokens = usage.cachedTokens;
+										}
 
 										// Estimate tokens if not provided and we have a finish reason
 										if (finishReason && (!promptTokens || !completionTokens)) {
@@ -2072,6 +2106,11 @@ chat.openapi(completions, async (c) => {
 								total_tokens: Math.round(
 									totalTokens || calculatedTotalTokens || 0,
 								),
+								...(cachedTokens !== null && {
+									prompt_tokens_details: {
+										cached_tokens: cachedTokens,
+									},
+								}),
 							},
 						};
 
@@ -2096,6 +2135,7 @@ chat.openapi(completions, async (c) => {
 					usedProvider,
 					calculatedPromptTokens,
 					calculatedCompletionTokens,
+					cachedTokens,
 					{
 						prompt: messages.map((m) => m.content).join("\n"),
 						completion: fullContent,
@@ -2129,12 +2169,14 @@ chat.openapi(completions, async (c) => {
 					completionTokens: calculatedCompletionTokens?.toString() || null,
 					totalTokens: calculatedTotalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens,
+					cachedTokens: cachedTokens?.toString() || null,
 					hasError: false,
 					errorDetails: null,
 					streamed: true,
 					canceled: canceled,
 					inputCost: costs.inputCost,
 					outputCost: costs.outputCost,
+					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
@@ -2210,10 +2252,12 @@ chat.openapi(completions, async (c) => {
 			completionTokens: null,
 			totalTokens: null,
 			reasoningTokens: null,
+			cachedTokens: null,
 			hasError: false,
 			streamed: false,
 			canceled: true,
 			errorDetails: null,
+			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
 			cached: false,
@@ -2268,6 +2312,7 @@ chat.openapi(completions, async (c) => {
 			completionTokens: null,
 			totalTokens: null,
 			reasoningTokens: null,
+			cachedTokens: null,
 			hasError: true,
 			streamed: false,
 			canceled: false,
@@ -2276,6 +2321,7 @@ chat.openapi(completions, async (c) => {
 				statusText: res.statusText,
 				responseText: errorResponseText,
 			},
+			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
 			cached: false,
@@ -2318,6 +2364,7 @@ chat.openapi(completions, async (c) => {
 		completionTokens,
 		totalTokens,
 		reasoningTokens,
+		cachedTokens,
 	} = parseProviderResponse(usedProvider, json);
 
 	// Estimate tokens if not provided by the API
@@ -2334,6 +2381,7 @@ chat.openapi(completions, async (c) => {
 		usedProvider,
 		calculatedPromptTokens,
 		calculatedCompletionTokens,
+		cachedTokens,
 		{
 			prompt: messages.map((m) => m.content).join("\n"),
 			completion: content,
@@ -2371,12 +2419,14 @@ chat.openapi(completions, async (c) => {
 				(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0)
 			).toString(),
 		reasoningTokens: reasoningTokens,
+		cachedTokens: cachedTokens?.toString() || null,
 		hasError: false,
 		streamed: false,
 		canceled: false,
 		errorDetails: null,
 		inputCost: costs.inputCost,
 		outputCost: costs.outputCost,
+		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
@@ -2394,6 +2444,7 @@ chat.openapi(completions, async (c) => {
 		calculatedCompletionTokens,
 		(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0),
 		reasoningTokens,
+		cachedTokens,
 	);
 
 	if (cachingEnabled && cacheKey && !stream) {

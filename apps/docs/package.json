@@ -22,7 +22,7 @@
 		"fumadocs-openapi": "9.0.8",
 		"fumadocs-ui": "15.5.1",
 		"gateway": "workspace:*",
-		"next": "15.3.4",
+		"next": "15.3.5",
 		"posthog-js": "1.255.1",
 		"react": "^19.1.0",
 		"react-dom": "^19.1.0",

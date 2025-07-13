@@ -16,6 +16,7 @@ describe("beacon endpoint", () => {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
 			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
 		};
 
 		const response = await app.request("/beacon", {
@@ -45,7 +46,6 @@ describe("beacon endpoint", () => {
 				client_ip: null, // No IP headers provided
 				country: undefined,
 				region: undefined,
-				cloud_provider: "unknown",
 			},
 		});
 	});
@@ -55,6 +55,7 @@ describe("beacon endpoint", () => {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
 			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
 		};
 
 		const response = await app.request("/beacon", {
@@ -83,7 +84,6 @@ describe("beacon endpoint", () => {
 				client_ip: "203.0.113.42",
 				country: "US",
 				region: "California",
-				cloud_provider: "cloudflare",
 			},
 		});
 	});
@@ -93,6 +93,7 @@ describe("beacon endpoint", () => {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
 			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
 		};
 
 		const response = await app.request("/beacon", {
@@ -120,7 +121,6 @@ describe("beacon endpoint", () => {
 				client_ip: "198.51.100.25", // First IP from X-Forwarded-For
 				country: undefined, // GCP doesn't provide country in standard headers
 				region: "us-central1",
-				cloud_provider: "gcp",
 			},
 		});
 	});
@@ -130,6 +130,7 @@ describe("beacon endpoint", () => {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
 			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
 		};
 
 		const response = await app.request("/beacon", {
@@ -155,7 +156,6 @@ describe("beacon endpoint", () => {
 				client_ip: "192.0.2.123",
 				country: undefined,
 				region: undefined,
-				cloud_provider: "unknown",
 			},
 		});
 	});
@@ -165,6 +165,7 @@ describe("beacon endpoint", () => {
 			uuid: "invalid-uuid",
 			type: "self-host",
 			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
 		};
 
 		const response = await app.request("/beacon", {

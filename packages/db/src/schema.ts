@@ -113,6 +113,9 @@ export const organization = pgTable("organization", {
 		.default("free"),
 	planExpiresAt: timestamp(),
 	subscriptionCancelled: boolean().notNull().default(false),
+	trialStartDate: timestamp(),
+	trialEndDate: timestamp(),
+	isTrialActive: boolean().notNull().default(false),
 	retentionLevel: text({
 		enum: ["retain", "none"],
 	})
@@ -261,6 +264,7 @@ export const log = pgTable("log", {
 	completionTokens: decimal(),
 	totalTokens: decimal(),
 	reasoningTokens: decimal(),
+	cachedTokens: decimal(),
 	messages: json(),
 	temperature: real(),
 	maxTokens: integer(),
@@ -272,6 +276,7 @@ export const log = pgTable("log", {
 	cost: real(),
 	inputCost: real(),
 	outputCost: real(),
+	cachedInputCost: real(),
 	requestCost: real(),
 	estimatedCost: boolean().default(false),
 	canceled: boolean().default(false),
