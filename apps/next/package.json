@@ -3,13 +3,15 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
-		"dev": "next dev --port 3002",
 		"build": "next build",
-		"start": "next start",
+		"dev": "next dev --port 3002",
+		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "next lint",
-		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts"
+		"start": "next start"
 	},
 	"dependencies": {
+		"@content-collections/core": "0.9.1",
+		"@content-collections/next": "0.2.1",
 		"@hey-api/client-fetch": "0.10.1",
 		"@hookform/resolvers": "5.0.1",
 		"@llmgateway/models": "workspace:*",
@@ -64,8 +66,6 @@
 		"tailwindcss-animate": "1.0.7"
 	},
 	"devDependencies": {
-		"@content-collections/core": "0.9.1",
-		"@content-collections/next": "0.2.1",
 		"@tanstack/react-query-devtools": "5.81.5",
 		"@types/node": "^20",
 		"@types/react": "^19.1.8",

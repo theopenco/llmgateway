@@ -264,6 +264,12 @@ importers:
 
   apps/next:
     dependencies:
+      '@content-collections/core':
+        specifier: 0.9.1
+        version: 0.9.1(typescript@5.8.3)
+      '@content-collections/next':
+        specifier: 0.2.1
+        version: 0.2.1(@content-collections/core@0.9.1(typescript@5.8.3))(next@15.1.7(react-dom@19.1.0(react@19.1.0))(react@19.1.0))
       '@hey-api/client-fetch':
         specifier: 0.10.1
         version: 0.10.1(@hey-api/openapi-ts@0.67.6(magicast@0.3.5)(typescript@5.8.3))
@@ -421,12 +427,6 @@ importers:
         specifier: 1.0.7
         version: 1.0.7(tailwindcss@4.1.11)
     devDependencies:
-      '@content-collections/core':
-        specifier: 0.9.1
-        version: 0.9.1(typescript@5.8.3)
-      '@content-collections/next':
-        specifier: 0.2.1
-        version: 0.2.1(@content-collections/core@0.9.1(typescript@5.8.3))(next@15.1.7(react-dom@19.1.0(react@19.1.0))(react@19.1.0))
       '@tanstack/react-query-devtools':
         specifier: 5.81.5
         version: 5.81.5(@tanstack/react-query@5.79.0(react@19.1.0))(react@19.1.0)
