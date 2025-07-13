@@ -13,10 +13,10 @@
 		".vercel"
 	],
 	"scripts": {
-		"build": "tsc && vite build && rm -rf .output/server/node_modules && rm -rf .output/server/package.json",
-		"dev": "vite dev",
+		"build": "tsc && vinxi build && rm -rf .output/server/node_modules && rm -rf .output/server/package.json",
+		"dev": "vinxi dev --port 3002",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
-		"start": "node .output/server/index.mjs"
+		"start": "vinxi start"
 	},
 	"dependencies": {
 		"@hey-api/client-fetch": "0.10.1",
@@ -44,9 +44,9 @@
 		"@stripe/react-stripe-js": "3.7.0",
 		"@stripe/stripe-js": "7.4.0",
 		"@tanstack/react-query": "^5.74.7",
-		"@tanstack/react-router": "1.121.0-alpha.27",
+		"@tanstack/react-router": "^1.117.1",
 		"@tanstack/react-router-with-query": "^1.123.2",
-		"@tanstack/react-start": "1.121.0-alpha.27",
+		"@tanstack/react-start": "^1.118.0",
 		"@tanstack/react-table": "^8.21.2",
 		"@tanstack/router-core": "1.120.3",
 		"@tanstack/router-plugin": "^1.119.0",
@@ -75,6 +75,7 @@
 		"tailwind-merge": "^3.2.0",
 		"tailwindcss": "4.0.15",
 		"tailwindcss-animate": "1.0.7",
+		"vinxi": "^0.5.3",
 		"vite-plugin-svgr": "4.3.0"
 	},
 	"devDependencies": {
@@ -82,7 +83,7 @@
 		"@content-collections/vinxi": "0.1.1",
 		"@tailwindcss/vite": "^4.1.10",
 		"@tanstack/react-query-devtools": "5.81.5",
-		"@tanstack/react-router-devtools": "1.121.0-alpha.27",
+		"@tanstack/react-router-devtools": "1.124.0",
 		"@types/node": "24.0.10",
 		"@types/react": "^19.1.8",
 		"@types/react-dom": "^19.1.6",
@@ -91,8 +92,8 @@
 		"openapi-typescript": "7.8.0",
 		"postcss": "8.5.4",
 		"typescript": "^5.8.2",
-		"vite": "^6.3.5",
+		"vite": "^6.3.4",
 		"vite-tsconfig-paths": "^5.1.4",
-		"zod": "3.25.75"
+		"zod": "3.24.3"
 	}
 }
