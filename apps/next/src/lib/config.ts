@@ -11,7 +11,7 @@ export interface AppConfig {
 export function getConfig(): AppConfig {
 	return {
 		hosted: process.env.HOSTED === "true",
-		apiUrl: process.env.API_URL || "http://localhost:3002/api",
+		apiUrl: process.env.API_URL || "http://localhost:4002",
 		githubUrl:
 			process.env.GITHUB_URL || "https://github.com/theopenco/llmgateway",
 		docsUrl: process.env.DOCS_URL || "http://localhost:3005",
