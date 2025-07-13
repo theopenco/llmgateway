@@ -6,3 +6,5 @@ routeTree.gen.ts
 .source
 out
 migrations
+.content-collections
+.tanstack

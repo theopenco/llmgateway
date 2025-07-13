@@ -26,6 +26,8 @@ export default [
 	},
 	{
 		ignores: [
+			"**/.tanstack/",
+			"**/.next/",
 			"**/.source/",
 			"**/.output/",
 			"**/out/",

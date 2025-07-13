@@ -6,10 +6,6 @@ const nextConfig: NextConfig = {
 	eslint: {
 		ignoreDuringBuilds: true,
 	},
-	typescript: {
-		// TODO TEMP!!!!!
-		ignoreBuildErrors: true,
-	},
 };
 
 // withContentCollections must be the outermost plugin
