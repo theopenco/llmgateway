@@ -6,8 +6,6 @@ on:
   push:
     branches:
       - main
-      # temp
-      - chore/migrate-to-next
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
