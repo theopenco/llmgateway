@@ -22,6 +22,7 @@ COPY ../.npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY ../apps/api/package.json ./apps/api/
 COPY ../apps/gateway/package.json ./apps/gateway/
 COPY ../apps/ui/package.json ./apps/ui/
+COPY ../apps/next/package.json ./apps/next/
 COPY ../apps/docs/package.json ./apps/docs/
 COPY ../packages/auth/package.json ./packages/auth/
 COPY ../packages/db/package.json ./packages/db/
@@ -40,6 +41,7 @@ RUN mkdir -p /app/packages/db/.turbo \
     /app/apps/gateway/.turbo \
     /app/apps/ui/.turbo \
     /app/apps/docs/.turbo \
+    /app/apps/next/.turbo \
     /app/.turbo
 
 # Build all apps
