@@ -20,7 +20,7 @@
 	},
 	"dependencies": {
 		"@hey-api/client-fetch": "0.10.1",
-		"@hookform/resolvers": "5.1.1",
+		"@hookform/resolvers": "5.0.1",
 		"@llmgateway/models": "workspace:*",
 		"@radix-ui/react-accordion": "1.2.11",
 		"@radix-ui/react-alert-dialog": "1.1.14",
@@ -68,7 +68,7 @@
 		"prism-react-renderer": "2.4.1",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
-		"react-hook-form": "7.60.0",
+		"react-hook-form": "7.56.1",
 		"recharts": "^2.15.2",
 		"rollup-plugin-copy": "3.5.0",
 		"sonner": "^2.0.3",
@@ -94,6 +94,6 @@
 		"typescript": "^5.8.2",
 		"vite": "^6.3.4",
 		"vite-tsconfig-paths": "^5.1.4",
-		"zod": "4.0.5"
+		"zod": "3.25.75"
 	}
 }
