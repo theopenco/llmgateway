@@ -10,15 +10,14 @@ export interface AppConfig {
 
 export function getConfig(): AppConfig {
 	return {
-		hosted: process.env.NEXT_PUBLIC_HOSTED === "true",
-		apiUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3002/api",
+		hosted: process.env.HOSTED === "true",
+		apiUrl: process.env.API_URL || "http://localhost:3002/api",
 		githubUrl:
-			process.env.NEXT_PUBLIC_GITHUB_URL ||
-			"https://github.com/theopenco/llmgateway",
-		docsUrl: process.env.NEXT_PUBLIC_DOCS_URL || "http://localhost:3005",
-		posthogKey: process.env.NEXT_PUBLIC_POSTHOG_KEY,
-		posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-		crispId: process.env.NEXT_PUBLIC_CRISP_ID,
+			process.env.GITHUB_URL || "https://github.com/theopenco/llmgateway",
+		docsUrl: process.env.DOCS_URL || "http://localhost:3005",
+		posthogKey: process.env.POSTHOG_KEY,
+		posthogHost: process.env.POSTHOG_HOST,
+		crispId: process.env.CRISP_ID,
 	};
 }
 
