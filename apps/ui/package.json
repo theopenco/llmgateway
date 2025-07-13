@@ -14,7 +14,7 @@
 	],
 	"scripts": {
 		"build": "tsc && vinxi build && rm -rf .output/server/node_modules && rm -rf .output/server/package.json",
-		"dev": "vinxi dev --port 3002",
+		"dev": "vinxi dev --port 3006",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"start": "vinxi start"
 	},
