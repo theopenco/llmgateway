@@ -91,6 +91,7 @@
 		"openapi-typescript": "7.8.0",
 		"postcss": "8.5.4",
 		"typescript": "^5.8.2",
+		"vinxi": "0.5.8",
 		"vite": "^6.3.5",
 		"vite-tsconfig-paths": "^5.1.4",
 		"zod": "3.25.75"
