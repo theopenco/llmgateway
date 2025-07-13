@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 
 import { RecentLogs } from "@/components/activity/recent-logs";
 import { ActivityChart } from "@/components/dashboard/activity-chart";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -13,10 +14,10 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+
 import type { ActivitT } from "@/types/activity";
 
-type LogsData = {
+interface LogsData {
 	message?: string;
 	logs: {
 		id: string;
@@ -67,7 +68,7 @@ type LogsData = {
 		hasMore: boolean;
 		limit: number;
 	};
-};
+}
 
 interface ActivityClientProps {
 	initialLogsData?: LogsData;

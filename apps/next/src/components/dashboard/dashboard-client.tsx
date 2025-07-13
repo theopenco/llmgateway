@@ -14,7 +14,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { Overview } from "@/components/dashboard/overview";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -25,10 +27,9 @@ import {
 } from "@/lib/components/card";
 import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
 import { useApi } from "@/lib/fetch-client";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { cn } from "@/lib/utils";
+
 import type { ActivitT } from "@/types/activity";
-import { Overview } from "@/components/dashboard/overview";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;

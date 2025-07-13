@@ -20,8 +20,3 @@ export function getConfig(): AppConfig {
 		crispId: process.env.CRISP_ID,
 	};
 }
-
-// Hook for client-side usage
-export function useAppConfig(): AppConfig {
-	return getConfig();
-}

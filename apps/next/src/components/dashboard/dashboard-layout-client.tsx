@@ -1,7 +1,7 @@
 "use client";
 
-import { type ReactNode, useEffect } from "react";
 import { usePostHog } from "posthog-js/react";
+import { type ReactNode, useEffect } from "react";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { MobileHeader } from "@/components/dashboard/mobile-header";

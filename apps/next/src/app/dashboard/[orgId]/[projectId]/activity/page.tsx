@@ -1,5 +1,6 @@
 import { ActivityClient } from "@/components/activity/activity-client";
 import { fetchServerData } from "@/lib/server-api";
+
 import type { ActivitT, LogsData } from "@/types/activity";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies

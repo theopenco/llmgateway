@@ -1,13 +1,13 @@
 import { allChangelogs, type Changelog } from "content-collections";
-import { notFound } from "next/navigation";
-import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
+import Image from "next/image";
+import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/changelog/app-header";
 import Footer from "@/components/landing/footer";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
-import Image from "next/image";
 
 interface ChangelogEntryPageProps {
 	params: Promise<{ slug: string }>;

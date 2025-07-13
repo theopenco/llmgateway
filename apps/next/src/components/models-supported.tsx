@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
@@ -13,9 +12,11 @@ import {
 	GitBranch,
 	Filter,
 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { providerLogoUrls } from "./provider-keys/provider-logo";
+import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -33,7 +34,6 @@ import {
 } from "@/lib/components/select";
 import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
-import { getProviderIcon } from "@/components/ui/providers-icons";
 
 interface ProviderModel {
 	model: string;

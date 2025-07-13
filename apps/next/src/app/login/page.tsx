@@ -1,15 +1,17 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, KeySquare } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import Link from "next/link";
-import { Loader2, KeySquare } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
-import { useQueryClient } from "@tanstack/react-query";
 
+import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -20,8 +22,6 @@ import {
 	FormMessage,
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
-import { useAuth } from "@/lib/auth-client";
-import { useUser } from "@/hooks/useUser";
 import { toast } from "@/lib/components/use-toast";
 
 const formSchema = z.object({

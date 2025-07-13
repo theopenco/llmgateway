@@ -1,20 +1,19 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import Link from "next/link";
-import Image from "next/image";
 import { ArrowRight, ChevronRight, Copy } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Highlight, themes } from "prism-react-renderer";
 import { useEffect, useState } from "react";
 
 import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
-import { AuthLink } from "../shared/auth-link";
 import {
 	providerLogoUrls,
 	getProviderLogoDarkModeClasses,
 } from "../provider-keys/provider-logo";
+import { AuthLink } from "../shared/auth-link";
 import heroImageLight from "@/assets/new-hero-light.png";
 import heroImageDark from "@/assets/new-hero.png";
 import { Button } from "@/lib/components/button";
@@ -22,8 +21,8 @@ import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import type { Language } from "prism-react-renderer";
 import type { ProviderId } from "@llmgateway/models";
+import type { Language } from "prism-react-renderer";
 import type { CSSProperties } from "react";
 
 const transitionVariants = {

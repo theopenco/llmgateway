@@ -3,11 +3,11 @@
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 
+import { useDashboardState } from "@/lib/dashboard-state";
 import {
 	buildDashboardUrl,
 	extractOrgAndProjectFromPath,
 } from "@/lib/navigation-utils";
-import { useDashboardState } from "@/lib/dashboard-state";
 
 export function useDashboardNavigation() {
 	const pathname = usePathname();

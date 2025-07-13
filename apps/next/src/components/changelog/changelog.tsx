@@ -1,8 +1,8 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { AppHeader } from "./app-header";
 import Footer from "@/components/landing/footer";
-import Image from "next/image";
 
 import type { ChangelogFrontmatter } from "@/lib/utils/markdown";
 

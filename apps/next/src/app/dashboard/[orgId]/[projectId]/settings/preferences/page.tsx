@@ -7,7 +7,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Separator } from "@/lib/components/separator";
 
 export default function PreferencesPage() {
 	return (

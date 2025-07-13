@@ -1,8 +1,8 @@
 "use client";
 import { providers as providerDefinitions } from "@llmgateway/models";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
-import Link from "next/link";
 import { GithubIcon, TwitterIcon } from "lucide-react";
+import Link from "next/link";
 
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";

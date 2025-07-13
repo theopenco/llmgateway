@@ -1,5 +1,5 @@
-import { fetchServerData } from "@/lib/server-api";
 import { TransactionsClient } from "@/components/billing/transactions-client";
+import { fetchServerData } from "@/lib/server-api";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies
 export const dynamic = "force-dynamic";

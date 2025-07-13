@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Key } from "lucide-react";
+import Link from "next/link";
 
 import { ModelSelector } from "./model-selector";
 import { Button } from "@/lib/components/button";

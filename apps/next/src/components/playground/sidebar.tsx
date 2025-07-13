@@ -1,6 +1,5 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
 import { format } from "date-fns";
 import {
 	Plus,
@@ -10,6 +9,8 @@ import {
 	LogOutIcon,
 	MoreVerticalIcon,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
@@ -43,7 +44,6 @@ import {
 } from "@/lib/components/sidebar";
 import { toast } from "@/lib/components/use-toast";
 import Logo from "@/lib/icons/Logo";
-import { useRouter } from "next/navigation";
 
 interface ChatSidebarProps {
 	currentChatId?: string;

@@ -20,8 +20,8 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Step } from "@/lib/components/stepper";
 import { toast } from "@/lib/components/use-toast";
-import { useApi } from "@/lib/fetch-client";
 import { useAppConfig } from "@/lib/config";
+import { useApi } from "@/lib/fetch-client";
 
 const CREDIT_OPTIONS = [
 	{ value: "10", label: "$10", description: "Good for testing" },

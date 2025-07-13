@@ -211,7 +211,9 @@ export function PlaygroundClient() {
 					try {
 						while (true) {
 							const { done, value } = await reader.read();
-							if (done) break;
+							if (done) {
+								break;
+							}
 
 							buffer += decoder.decode(value, { stream: true });
 							const lines = buffer.split("\n");
@@ -220,7 +222,9 @@ export function PlaygroundClient() {
 							for (const line of lines) {
 								if (line.startsWith("data: ")) {
 									const data = line.slice(6).trim();
-									if (data === "[DONE]") continue;
+									if (data === "[DONE]") {
+										continue;
+									}
 
 									try {
 										const parsed = JSON.parse(data);

@@ -1,6 +1,6 @@
 "use client";
-import Link from "next/link";
 import { Check, X } from "lucide-react";
+import Link from "next/link";
 
 import { AuthLink } from "../shared/auth-link";
 import { Badge } from "@/lib/components/badge";

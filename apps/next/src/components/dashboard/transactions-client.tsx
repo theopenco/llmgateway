@@ -1,8 +1,8 @@
 "use client";
 
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
-import { useApi } from "@/lib/fetch-client";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { Badge } from "@/lib/components/badge";
 import {
 	Card,
 	CardContent,
@@ -18,7 +18,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/lib/components/table";
-import { Badge } from "@/lib/components/badge";
+import { useApi } from "@/lib/fetch-client";
 
 interface TransactionsClientProps {
 	initialTransactionsData?: any;
@@ -76,7 +76,7 @@ export function TransactionsClient({
 						</CardHeader>
 						<CardContent>
 							<div className="flex items-center justify-center py-16">
-								<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+								<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
 							</div>
 						</CardContent>
 					</Card>

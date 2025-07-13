@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { usePostHog } from "posthog-js/react";
 import {
 	Activity,
 	BarChart3,
@@ -21,7 +20,6 @@ import {
 	User as UserIcon,
 	X,
 } from "lucide-react";
-import { useTheme } from "next-themes";
 import Link from "next/link";
 import {
 	usePathname,
@@ -29,13 +27,15 @@ import {
 	useSearchParams,
 	type ReadonlyURLSearchParams,
 } from "next/navigation";
+import { useTheme } from "next-themes";
+import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect } from "react";
 
 import { OrganizationSwitcher } from "./organization-switcher";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
-import { useUser } from "@/hooks/useUser";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import {
@@ -68,11 +68,12 @@ import {
 	SidebarMenuSubItem,
 	useSidebar,
 } from "@/lib/components/sidebar";
-import { cn } from "@/lib/utils";
-import { buildUrlWithParams } from "@/lib/navigation-utils";
 import Logo from "@/lib/icons/Logo";
-import type { LucideIcon } from "lucide-react";
+import { buildUrlWithParams } from "@/lib/navigation-utils";
+import { cn } from "@/lib/utils";
+
 import type { Organization, User } from "@/lib/types";
+import type { LucideIcon } from "lucide-react";
 
 // Configuration
 const PROJECT_NAVIGATION = [
@@ -502,7 +503,9 @@ function UserDropdownMenu({
 	const searchParams = useSearchParams();
 
 	const getUserInitials = () => {
-		if (!user?.name) return "U";
+		if (!user?.name) {
+			return "U";
+		}
 		return user.name
 			.split(" ")
 			.map((n: string) => n[0])

@@ -1,8 +1,8 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronUp, Settings, User2 } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";

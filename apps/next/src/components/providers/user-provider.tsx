@@ -2,8 +2,10 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
-import type { User } from "@/lib/types";
+
 import { useApi } from "@/lib/fetch-client";
+
+import type { User } from "@/lib/types";
 
 interface UserProviderProps {
 	children: React.ReactNode;
@@ -23,5 +25,5 @@ export function UserProvider({ children, initialUserData }: UserProviderProps) {
 		hasSetInitialData.current = true;
 	}
 
-	return <>{children}</>;
+	return children;
 }

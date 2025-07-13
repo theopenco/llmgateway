@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
@@ -18,7 +19,6 @@ import {
 import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
-import { useRouter } from "next/navigation";
 
 interface SubscriptionStatus {
 	plan: "free" | "pro";

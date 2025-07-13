@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
 	Key,
 	Zap,
@@ -7,6 +6,7 @@ import {
 	Infinity as InfinityIcon,
 	ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";

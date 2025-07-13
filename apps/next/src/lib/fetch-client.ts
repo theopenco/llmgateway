@@ -3,6 +3,7 @@ import createClient from "openapi-react-query";
 import { useMemo } from "react";
 
 import { useAppConfig } from "./config";
+
 import type { paths } from "./api/v1";
 
 // React hook to get the fetch client

@@ -2,6 +2,7 @@
 
 import { format } from "date-fns";
 
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -10,7 +11,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Transaction {
 	id: string;

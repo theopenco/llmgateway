@@ -28,8 +28,8 @@ import {
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
-import { useApi } from "@/lib/fetch-client";
 import { useAppConfig } from "@/lib/config";
+import { useApi } from "@/lib/fetch-client";
 
 const formSchema = z.object({
 	provider: z.string().min(1, "Provider is required"),

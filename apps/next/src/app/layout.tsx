@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
-
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { getConfig } from "@/lib/config-server";
+
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
 	metadataBase: new URL("https://llmgateway.io"),
@@ -30,10 +31,12 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+	const config = getConfig();
+
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<body className="min-h-screen font-sans antialiased">
-				<Providers>{children}</Providers>
+				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>
 	);

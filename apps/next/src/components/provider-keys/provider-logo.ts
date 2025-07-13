@@ -1,5 +1,6 @@
-import type { ProviderId } from "@llmgateway/models";
 import { ProviderIcons } from "@/components/ui/providers-icons";
+
+import type { ProviderId } from "@llmgateway/models";
 
 export const providerLogoUrls: Partial<
 	Record<ProviderId, React.FC<React.SVGProps<SVGSVGElement>>>

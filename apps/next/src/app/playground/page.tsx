@@ -1,6 +1,7 @@
 import { PlaygroundClient } from "./playground-client";
 import { UserProvider } from "@/components/providers/user-provider";
 import { fetchServerData } from "@/lib/server-api";
+
 import type { User } from "@/lib/types";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies

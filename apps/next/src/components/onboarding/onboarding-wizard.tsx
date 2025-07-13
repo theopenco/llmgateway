@@ -1,6 +1,7 @@
 "use client";
 import { Elements } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import * as React from "react";
 import { useState } from "react";
@@ -14,7 +15,6 @@ import { Card, CardContent } from "@/lib/components/card";
 import { Stepper } from "@/lib/components/stepper";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
-import { useRouter } from "next/navigation";
 
 type FlowType = "credits" | "byok" | null;
 

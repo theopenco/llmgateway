@@ -1,8 +1,8 @@
 "use client";
 
 import { addDays, format, parseISO, subDays } from "date-fns";
-import { useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import {
 	Bar,
 	BarChart,
@@ -14,6 +14,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
 	CardContent,
@@ -28,8 +29,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useApi } from "@/lib/fetch-client";
+
 import type { ActivitT } from "@/types/activity";
 import type { TooltipProps } from "recharts";
 

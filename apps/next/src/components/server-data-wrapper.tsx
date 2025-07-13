@@ -24,5 +24,5 @@ export function ServerDataWrapper({
 		});
 	}, [queryClient, initialData]);
 
-	return <>{children}</>;
+	return children;
 }

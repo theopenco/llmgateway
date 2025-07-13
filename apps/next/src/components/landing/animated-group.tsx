@@ -2,8 +2,8 @@
 
 import React from "react";
 
-import { cn } from "@/lib/utils";
 import { motion, type Variants } from "@/components/motion-wrapper";
+import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
 

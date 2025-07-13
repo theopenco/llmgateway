@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
 	CardContent,
@@ -14,7 +15,6 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useToast } from "@/lib/components/use-toast";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 
 export default function BillingPage() {
 	const router = useRouter();

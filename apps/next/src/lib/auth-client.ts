@@ -1,6 +1,7 @@
 import { passkeyClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { useMemo } from "react";
+
 import { useAppConfig } from "./config";
 
 // React hook to get the auth client

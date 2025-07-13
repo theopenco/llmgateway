@@ -1,10 +1,10 @@
-import { type ReactNode } from "react";
-
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { fetchServerData } from "@/lib/server-api";
+
 import type { User } from "@/lib/types";
+import type { ReactNode } from "react";
 
 // Force dynamic rendering since this layout uses cookies for authentication
 export const dynamic = "force-dynamic";

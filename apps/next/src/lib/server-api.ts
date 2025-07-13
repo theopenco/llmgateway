@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import createFetchClient from "openapi-fetch";
 import { cookies } from "next/headers";
+import createFetchClient from "openapi-fetch";
 
-import { getConfig } from "./config";
+import { getConfig } from "./config-server";
+
 import type { paths } from "./api/v1";
 
 // Server-side API client

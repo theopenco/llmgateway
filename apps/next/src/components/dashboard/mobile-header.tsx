@@ -3,9 +3,9 @@
 import Link from "next/link";
 
 import { ModeToggle } from "@/components/mode-toggle";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { SidebarTrigger } from "@/lib/components/sidebar";
 import Logo from "@/lib/icons/Logo";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 
 export function MobileHeader() {
 	const { buildUrl } = useDashboardNavigation();
