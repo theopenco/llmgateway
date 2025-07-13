@@ -129,6 +129,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "novita",
+		name: "NovitaAI",
+		description: "NovitaAI's OpenAI-compatible large language models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#9333ea",
+		website: "https://novita.ai",
+		announcement: null,
+	},
+	{
 		id: "xai",
 		name: "xAI",
 		description: "xAI's Grok large language models",

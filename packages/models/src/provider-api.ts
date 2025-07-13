@@ -25,6 +25,7 @@ export function getProviderHeaders(
 		case "groq":
 		case "deepseek":
 		case "perplexity":
+		case "novita":
 		default:
 			return {
 				Authorization: `Bearer ${token}`,
@@ -83,7 +84,8 @@ export function prepareRequestBody(
 		case "xai":
 		case "groq":
 		case "deepseek":
-		case "perplexity": {
+		case "perplexity":
+		case "novita": {
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -295,6 +297,9 @@ export function getProviderEndpoint(
 			case "perplexity":
 				url = "https://api.perplexity.ai";
 				break;
+			case "novita":
+				url = "https://api.novita.ai/v3/openai";
+				break;
 			default:
 				throw new Error(`Provider ${provider} requires a baseUrl`);
 		}
@@ -315,6 +320,8 @@ export function getProviderEndpoint(
 			return token ? `${baseEndpoint}?key=${token}` : baseEndpoint;
 		}
 		case "perplexity":
+			return `${url}/chat/completions`;
+		case "novita":
 			return `${url}/chat/completions`;
 		case "inference.net":
 		case "kluster.ai":
