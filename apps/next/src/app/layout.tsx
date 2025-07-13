@@ -5,6 +5,8 @@ import { getConfig } from "@/lib/config-server";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
 	metadataBase: new URL("https://llmgateway.io"),
 	title: "LLM Gateway",
