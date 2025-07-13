@@ -129,6 +129,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "moonshot",
+		name: "Moonshot AI",
+		description: "Moonshot AI's OpenAI-compatible large language models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#4B9EFF",
+		website: "https://moonshot.ai",
+		announcement: null,
+	},
+	{
 		id: "novita",
 		name: "NovitaAI",
 		description: "NovitaAI's OpenAI-compatible large language models",

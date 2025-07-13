@@ -26,6 +26,7 @@ export function getProviderHeaders(
 		case "deepseek":
 		case "perplexity":
 		case "novita":
+		case "moonshot":
 		default:
 			return {
 				Authorization: `Bearer ${token}`,
@@ -85,7 +86,8 @@ export function prepareRequestBody(
 		case "groq":
 		case "deepseek":
 		case "perplexity":
-		case "novita": {
+		case "novita":
+		case "moonshot": {
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -300,6 +302,9 @@ export function getProviderEndpoint(
 			case "novita":
 				url = "https://api.novita.ai/v3/openai";
 				break;
+			case "moonshot":
+				url = "https://api.moonshot.ai";
+				break;
 			default:
 				throw new Error(`Provider ${provider} requires a baseUrl`);
 		}
@@ -331,6 +336,7 @@ export function getProviderEndpoint(
 		case "xai":
 		case "groq":
 		case "deepseek":
+		case "moonshot":
 		default:
 			return `${url}/v1/chat/completions`;
 	}
