@@ -288,6 +288,9 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 									...log,
 									createdAt: new Date(log.createdAt),
 									updatedAt: new Date(log.updatedAt),
+									messages: log.messages,
+									errorDetails: log.errorDetails,
+									reasoningTokens: log.reasoningTokens,
 								}}
 							/>
 						))

@@ -502,7 +502,6 @@ export interface paths {
 								organizationId: string;
 								projectId: string;
 								apiKeyId: string;
-								providerKeyId: string | null;
 								duration: number;
 								requestedModel: string;
 								requestedProvider: string | null;
@@ -516,7 +515,6 @@ export interface paths {
 								completionTokens: string | null;
 								totalTokens: string | null;
 								reasoningTokens: string | null;
-								cachedTokens: string | null;
 								messages?: unknown;
 								temperature: number | null;
 								maxTokens: number | null;
@@ -532,7 +530,6 @@ export interface paths {
 								cost: number | null;
 								inputCost: number | null;
 								outputCost: number | null;
-								cachedInputCost: number | null;
 								requestCost: number | null;
 								estimatedCost: boolean | null;
 								canceled: boolean | null;
