@@ -1,5 +1,3 @@
-// src/routes/__root.tsx
-/// <reference types="vite/client" />
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import {
 	createRootRouteWithContext,

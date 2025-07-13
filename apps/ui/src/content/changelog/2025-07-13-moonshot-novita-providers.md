@@ -18,20 +18,20 @@ We're excited to announce support for two new AI providers, expanding our model 
 Moonshot AI brings advanced language processing capabilities with their flagship model:
 
 - **kimi-k2** - High-performance model with 128K context window
-  - **Input**: $0.60 per 1M tokens
-  - **Output**: $2.50 per 1M tokens
-  - Supports streaming and JSON output
-  - Ideal for long-form content analysis and generation
+- **Input**: $0.60 per 1M tokens
+- **Output**: $2.50 per 1M tokens
+- Supports streaming and JSON output
+- Ideal for long-form content analysis and generation
 
 ## 🤖 New Provider: Novita AI
 
 Novita AI offers competitive pricing with their efficient kimi-k2 implementation:
 
 - **kimi-k2** - Optimized model with 131.1K context window
-  - **Input**: $0.57 per 1M tokens
-  - **Output**: $2.30 per 1M tokens
-  - Supports streaming and JSON output
-  - Perfect for cost-effective large context processing
+- **Input**: $0.57 per 1M tokens
+- **Output**: $2.30 per 1M tokens
+- Supports streaming and JSON output
+- Perfect for cost-effective large context processing
 
 ## 💡 Key Benefits
 
@@ -44,9 +44,11 @@ Both providers offer the same powerful kimi-k2 model with slightly different imp
 
 ## Getting Started
 
-1. **Add Provider Keys**: Navigate to Dashboard → Settings → Provider Keys to add your Moonshot AI or Novita AI API keys
-2. **Select Models**: Choose kimi-k2 from either provider in the playground or via API
-3. **Optimize Usage**: Compare pricing between providers to find the best fit for your use case
+1- **Add Provider Keys**: Navigate to Dashboard → Settings → Provider Keys to add your Moonshot AI or Novita AI API keys
+
+2- **Select Models**: Choose kimi-k2 from either provider in the playground or via API
+
+3- **Optimize Usage**: Compare pricing between providers to find the best fit for your use case
 
 These additions bring our total to **14 supported providers** with **40+ models** available through a single unified API endpoint.
 
