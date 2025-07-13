@@ -467,8 +467,8 @@ importers:
         specifier: 0.10.1
         version: 0.10.1(@hey-api/openapi-ts@0.67.6(magicast@0.3.5)(typescript@5.8.3))
       '@hookform/resolvers':
-        specifier: 5.0.1
-        version: 5.0.1(react-hook-form@7.56.1(react@19.1.0))
+        specifier: 5.1.1
+        version: 5.1.1(react-hook-form@7.60.0(react@19.1.0))
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
@@ -611,8 +611,8 @@ importers:
         specifier: ^19.0.0
         version: 19.1.0(react@19.1.0)
       react-hook-form:
-        specifier: 7.56.1
-        version: 7.56.1(react@19.1.0)
+        specifier: 7.60.0
+        version: 7.60.0(react@19.1.0)
       recharts:
         specifier: ^2.15.2
         version: 2.15.3(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -684,8 +684,8 @@ importers:
         specifier: ^5.1.4
         version: 5.1.4(typescript@5.8.3)(vite@6.3.5(@types/node@24.0.10)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.40.0)(tsx@4.19.4)(yaml@2.8.0))
       zod:
-        specifier: 3.24.3
-        version: 3.24.3
+        specifier: 4.0.5
+        version: 4.0.5
 
   packages/auth:
     dependencies:
@@ -2087,11 +2087,6 @@ packages:
     peerDependencies:
       hono: '>=3.9.0'
       zod: ^3.25.0
-
-  '@hookform/resolvers@5.0.1':
-    resolution: {integrity: sha512-u/+Jp83luQNx9AdyW2fIPGY6Y7NG68eN2ZW8FOJYL+M0i4s49+refdJdOp/A9n9HFQtQs3HIDHQvX3ZET2o7YA==}
-    peerDependencies:
-      react-hook-form: ^7.55.0
 
   '@hookform/resolvers@5.1.1':
     resolution: {integrity: sha512-J/NVING3LMAEvexJkyTLjruSm7aOFx7QX21pzkiJfMoNG0wl5aFEjLTl7ay7IQb9EWY6AkrBy7tHL2Alijpdcg==}
@@ -8615,18 +8610,6 @@ packages:
     peerDependencies:
       react: ^19.1.0
 
-  react-hook-form@7.56.1:
-    resolution: {integrity: sha512-qWAVokhSpshhcEuQDSANHx3jiAEFzu2HAaaQIzi/r9FNPm1ioAvuJSD4EuZzWd7Al7nTRKcKPnBKO7sRn+zavQ==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      react: ^16.8.0 || ^17 || ^18 || ^19
-
-  react-hook-form@7.56.3:
-    resolution: {integrity: sha512-IK18V6GVbab4TAo1/cz3kqajxbDPGofdF0w7VHdCo0Nt8PrPlOZcuuDq9YYIV1BtjcX78x0XsldbQRQnQXWXmw==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      react: ^16.8.0 || ^17 || ^18 || ^19
-
   react-hook-form@7.60.0:
     resolution: {integrity: sha512-SBrYOvMbDB7cV8ZfNpaiLcgjH/a1c7aK0lK+aNigpf4xWLO8q+o4tcvVurv3c4EOyzn/3dCsYt4GKD42VvJ/+A==}
     engines: {node: '>=18.0.0'}
@@ -10109,9 +10092,6 @@ packages:
     peerDependencies:
       zod: ^3.21.4
 
-  zod@3.24.3:
-    resolution: {integrity: sha512-HhY1oqzWCQWuUqvBFnsyrtZRhyPeR7SUGv+C4+MsisMuVfSPx8HpwWqH8tRahSlt6M3PiFAcoeFhZAqIXTxoSg==}
-
   zod@3.25.75:
     resolution: {integrity: sha512-OhpzAmVzabPOL6C3A3gpAifqr9MqihV/Msx3gor2b2kviCgcb+HM9SEOpMWwwNp9MRunWnhtAKUoo0AHhjyPPg==}
 
@@ -11269,11 +11249,6 @@ snapshots:
     dependencies:
       hono: 4.7.11
       zod: 3.25.75
-
-  '@hookform/resolvers@5.0.1(react-hook-form@7.56.1(react@19.1.0))':
-    dependencies:
-      '@standard-schema/utils': 0.3.0
-      react-hook-form: 7.56.1(react@19.1.0)
 
   '@hookform/resolvers@5.1.1(react-hook-form@7.60.0(react@19.1.0))':
     dependencies:
@@ -16757,7 +16732,7 @@ snapshots:
       openapi-sampler: 1.6.1
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
-      react-hook-form: 7.56.3(react@19.1.0)
+      react-hook-form: 7.60.0(react@19.1.0)
       remark: 15.0.1
       remark-rehype: 11.1.2
       shiki: 3.6.0
@@ -19194,14 +19169,6 @@ snapshots:
       react: 19.1.0
       scheduler: 0.26.0
 
-  react-hook-form@7.56.1(react@19.1.0):
-    dependencies:
-      react: 19.1.0
-
-  react-hook-form@7.56.3(react@19.1.0):
-    dependencies:
-      react: 19.1.0
-
   react-hook-form@7.60.0(react@19.1.0):
     dependencies:
       react: 19.1.0
@@ -21134,8 +21101,6 @@ snapshots:
   zod-openapi@4.2.4(zod@3.25.75):
     dependencies:
       zod: 3.25.75
-
-  zod@3.24.3: {}
 
   zod@3.25.75: {}
 
