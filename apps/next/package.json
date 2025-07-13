@@ -2,6 +2,9 @@
 	"name": "next",
 	"version": "1.0.0",
 	"private": true,
+	"files": [
+		".next"
+	],
 	"scripts": {
 		"build": "next build",
 		"dev": "next dev --port 3002",
