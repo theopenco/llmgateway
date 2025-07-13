@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [api, gateway, docs, next]
+        app: [api, gateway, ui, docs, next]
     permissions:
       contents: read
       packages: write
