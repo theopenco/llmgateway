@@ -12,7 +12,7 @@ export async function createServerApiClient() {
 
 	// Get session cookie for authentication
 	const sessionCookie =
-		cookieStore.get("__Secure-better-auth.better-auth-passkey") ||
+		cookieStore.get("__Secure-better-auth.session_token") ||
 		cookieStore.get("better-auth.session_token");
 
 	return createFetchClient<paths>({
