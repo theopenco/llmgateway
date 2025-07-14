@@ -19,10 +19,10 @@ export async function createServerApiClient() {
 		baseUrl: config.apiUrl,
 		credentials: "include",
 		headers: {
-			Cookie: sessionCookie
-				? `${key}=${sessionCookie.value}`
-				: secureSessionCookie
-					? `__Secure-${key}=${secureSessionCookie.value}`
+			Cookie: secureSessionCookie
+				? `__Secure-${key}=${secureSessionCookie.value}`
+				: sessionCookie
+					? `${key}=${sessionCookie.value}`
 					: "",
 		},
 	});

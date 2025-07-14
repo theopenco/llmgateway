@@ -6,6 +6,7 @@ import { passkey } from "better-auth/plugins/passkey";
 import nodemailer from "nodemailer";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
+const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
 const uiUrl = process.env.UI_URL || "http://localhost:3002";
 const originUrls =
 	process.env.ORIGIN_URL || "http://localhost:3002,http://localhost:4002";
@@ -62,10 +63,10 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 	advanced: {
 		crossSubDomainCookies: {
 			enabled: true,
-			domain: new URL(apiUrl).hostname,
+			domain: cookieDomain,
 		},
 		defaultCookieAttributes: {
-			domain: new URL(apiUrl).hostname,
+			domain: cookieDomain,
 		},
 	},
 	session: {
