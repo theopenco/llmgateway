@@ -7,7 +7,6 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
-import { ProductHuntBanner } from "@/components/shared/product-hunt-banner";
 import {
 	Card,
 	CardContent,
@@ -38,7 +37,6 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
 			<main>
-				<ProductHuntBanner />
 				<Navbar />
 				<Hero providerId={provider.id} />
 
