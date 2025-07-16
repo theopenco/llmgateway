@@ -43,6 +43,7 @@ export function CreateProviderKeyDialog({
 		preselectedProvider || "",
 	);
 	const [baseUrl, setBaseUrl] = useState("");
+	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
@@ -122,9 +123,29 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
+		if (selectedProvider === "custom" && (!baseUrl || !customName)) {
+			toast({
+				title: "Error",
+				description:
+					"Base URL and custom name are required for custom provider",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		if (selectedProvider === "custom" && !/^[a-z]+$/.test(customName)) {
+			toast({
+				title: "Error",
+				description: "Custom name must contain only lowercase letters a-z",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		const payload: {
 			provider: string;
 			token: string;
+			name?: string;
 			baseUrl?: string;
 			organizationId: string;
 		} = {
@@ -134,6 +155,9 @@ export function CreateProviderKeyDialog({
 		};
 		if (baseUrl) {
 			payload.baseUrl = baseUrl;
+		}
+		if (selectedProvider === "custom" && customName) {
+			payload.name = customName;
 		}
 
 		setIsValidating(true);
@@ -172,6 +196,7 @@ export function CreateProviderKeyDialog({
 		setTimeout(() => {
 			setSelectedProvider(preselectedProvider || "");
 			setBaseUrl("");
+			setCustomName("");
 			setToken("");
 		}, 300);
 	};
@@ -246,6 +271,37 @@ export function CreateProviderKeyDialog({
 								required
 							/>
 						</div>
+					)}
+
+					{selectedProvider === "custom" && (
+						<>
+							<div className="space-y-2">
+								<Label htmlFor="custom-name">Custom Provider Name</Label>
+								<Input
+									id="custom-name"
+									type="text"
+									placeholder="my-provider"
+									value={customName}
+									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
+									pattern="[a-z]+"
+									required
+								/>
+								<p className="text-sm text-muted-foreground">
+									Used in model names like: {customName || "my-provider"}/gpt-4o
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="custom-base-url">Base URL</Label>
+								<Input
+									id="custom-base-url"
+									type="url"
+									placeholder="https://api.example.com"
+									value={baseUrl}
+									onChange={(e) => setBaseUrl(e.target.value)}
+									required
+								/>
+							</div>
+						</>
 					)}
 
 					<DialogFooter>

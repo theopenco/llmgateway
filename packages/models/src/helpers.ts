@@ -7,10 +7,10 @@ import { providers } from "./providers";
 export function getModelStreamingSupport(
 	modelName: string,
 	providerId?: string,
-): boolean {
+): boolean | null {
 	const modelInfo = models.find((m) => m.model === modelName);
 	if (!modelInfo) {
-		return false;
+		return null;
 	}
 
 	// If no specific provider is requested, check if any provider for this model supports streaming

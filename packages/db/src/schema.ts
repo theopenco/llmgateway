@@ -223,6 +223,7 @@ export const providerKey = pgTable(
 			.$onUpdate(() => new Date()),
 		token: text().notNull(),
 		provider: text().notNull(),
+		name: text(), // Optional name for custom providers (lowercase a-z only)
 		baseUrl: text(), // Optional base URL for custom providers
 		status: text({
 			enum: ["active", "inactive", "deleted"],

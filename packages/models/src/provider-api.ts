@@ -27,6 +27,7 @@ export function getProviderHeaders(
 		case "perplexity":
 		case "novita":
 		case "moonshot":
+		case "custom":
 		default:
 			return {
 				Authorization: `Bearer ${token}`,
@@ -87,7 +88,8 @@ export function prepareRequestBody(
 		case "deepseek":
 		case "perplexity":
 		case "novita":
-		case "moonshot": {
+		case "moonshot":
+		case "custom": {
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -305,6 +307,12 @@ export function getProviderEndpoint(
 			case "moonshot":
 				url = "https://api.moonshot.ai";
 				break;
+			case "custom":
+				if (!baseUrl) {
+					throw new Error(`Custom provider requires a baseUrl`);
+				}
+				url = baseUrl;
+				break;
 			default:
 				throw new Error(`Provider ${provider} requires a baseUrl`);
 		}
@@ -337,6 +345,7 @@ export function getProviderEndpoint(
 		case "groq":
 		case "deepseek":
 		case "moonshot":
+		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
 	}
@@ -420,6 +429,11 @@ export async function validateProviderKey(
 ): Promise<{ valid: boolean; error?: string; statusCode?: number }> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
+		return { valid: true };
+	}
+
+	// Skip validation for custom providers since they don't have predefined models
+	if (provider === "custom") {
 		return { valid: true };
 	}
 

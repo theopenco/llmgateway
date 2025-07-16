@@ -40,6 +40,7 @@ interface ProviderKeysListProps {
 			createdAt: string;
 			updatedAt: string;
 			provider: string;
+			name: string | null;
 			baseUrl: string | null;
 			status: "active" | "inactive" | "deleted" | null;
 			organizationId: string;
@@ -177,7 +178,19 @@ export function ProviderKeysList({
 									)}
 								</div>
 								<div className="flex flex-col">
-									<span className="font-medium">{provider.name}</span>
+									<div className="flex items-center gap-2">
+										<span className="font-medium">{provider.name}</span>
+										{hasKey && existingKey.name && (
+											<Badge variant="outline" className="text-xs">
+												{existingKey.name}
+											</Badge>
+										)}
+										{hasKey && existingKey.baseUrl && (
+											<Badge variant="outline" className="text-xs">
+												{existingKey.baseUrl}
+											</Badge>
+										)}
+									</div>
 									{hasKey && (
 										<div className="flex items-center gap-2 mt-1">
 											<Badge

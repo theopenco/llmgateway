@@ -1,3 +1,5 @@
+import React from "react";
+
 import anthropicLogo from "@/assets/models/anthropic.svg?react";
 import CloudRiftLogo from "@/assets/models/cloudrift.svg?react";
 import DeepSeekLogo from "@/assets/models/deepseek.svg?react";
@@ -16,7 +18,17 @@ import TogetherAiLogo from "@/assets/models/together-ai.svg?react";
 import XaiLogo from "@/assets/models/xai.svg?react";
 
 import type { ProviderId } from "@llmgateway/models";
-import type React from "react";
+
+// Custom provider logo component
+const CustomProviderLogo: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
+	return React.createElement(
+		"svg",
+		{ viewBox: "0 0 24 24", fill: "currentColor", ...props },
+		React.createElement("path", {
+			d: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+		}),
+	);
+};
 
 export const providerLogoComponents: Partial<
 	Record<ProviderId, React.FC<React.SVGProps<SVGSVGElement>> | null>
@@ -37,4 +49,5 @@ export const providerLogoComponents: Partial<
 	perplexity: PerplexityLogo,
 	moonshot: MoonshotLogo,
 	novita: NovitaLogo,
+	custom: CustomProviderLogo,
 };
