@@ -1,7 +1,6 @@
 import { allChangelogs, type Changelog } from "content-collections";
 
 import { ChangelogComponent } from "@/components/changelog";
-import { ProductHuntBanner } from "@/components/shared/product-hunt-banner";
 
 export default async function ChangelogPage() {
 	const sortedEntries = allChangelogs
@@ -13,7 +12,6 @@ export default async function ChangelogPage() {
 
 	return (
 		<div>
-			<ProductHuntBanner />
 			<ChangelogComponent entries={sortedEntries} />
 		</div>
 	);

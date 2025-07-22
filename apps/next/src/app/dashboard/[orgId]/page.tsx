@@ -9,8 +9,6 @@ interface OrgPageProps {
 export default async function OrgPage({ params }: OrgPageProps) {
 	const { orgId } = await params;
 
-	console.log("OrgPage: Fetching projects for orgId:", orgId);
-
 	// Fetch projects for this organization
 	const projectsData = await fetchServerData("GET", "/orgs/{id}/projects", {
 		params: {
@@ -20,11 +18,8 @@ export default async function OrgPage({ params }: OrgPageProps) {
 		},
 	});
 
-	console.log("OrgPage: Raw projectsData:", projectsData);
-
 	// Check if API returned null (error case)
 	if (!projectsData) {
-		console.log("OrgPage: Projects API returned null - possible API error");
 		return (
 			<div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
 				<h1 className="text-2xl font-bold">Error Loading Projects</h1>
@@ -41,12 +36,8 @@ export default async function OrgPage({ params }: OrgPageProps) {
 			projects?: Array<{ id: string; name: string }>;
 		};
 
-		console.log("OrgPage: Parsed projects:", projects.projects);
-		console.log("OrgPage: Projects length:", projects.projects?.length);
-
 		if (projects.projects && projects.projects.length > 0) {
 			const firstProjectId = projects.projects[0].id;
-			console.log("OrgPage: Redirecting to first project:", firstProjectId);
 			// Redirect to the first project
 			redirect(`/dashboard/${orgId}/${firstProjectId}`);
 		}

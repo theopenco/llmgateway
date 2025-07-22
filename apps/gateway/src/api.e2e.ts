@@ -42,8 +42,13 @@ if (hasOnlyModels) {
 	);
 }
 
-const testModels = models
+const filteredModels = models
+	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.model))
+	// Filter out deactivated models
+	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt);
+
+const testModels = filteredModels
 	// If any model has test: "only", only include those models
 	.filter((model) => {
 		if (hasOnlyModels) {
@@ -88,8 +93,7 @@ const testModels = models
 		return testCases;
 	});
 
-const providerModels = models
-	.filter((model) => !["custom", "auto"].includes(model.model))
+const providerModels = filteredModels
 	// If any model has test: "only", only include those models
 	.filter((model) => {
 		if (hasOnlyModels) {

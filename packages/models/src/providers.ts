@@ -115,7 +115,7 @@ export const providers = [
 		cancellation: true,
 		color: "#00d4aa",
 		website: "https://www.cloudrift.ai",
-		announcement: "DeepSeek are now 40-60% cheaper until July 15th!",
+		announcement: "DeepSeek & Kimi K2 are 30-50% cheaper than the competition!",
 	},
 	{
 		id: "mistral",
