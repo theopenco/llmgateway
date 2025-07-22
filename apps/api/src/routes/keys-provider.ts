@@ -135,6 +135,23 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// Check if custom provider is allowed (only for pro plan or self-hosted mode)
+	if (provider === "custom") {
+		const isHosted = true; // process.env.HOSTED === "true";
+		const isPaidMode = true; //  process.env.PAID_MODE === "true";
+		const isProPlan = organization?.plan === "pro";
+
+		// Custom providers are allowed if:
+		// 1. Self-hosted mode (HOSTED !== "true")
+		// 2. Pro plan in hosted mode
+		if (isHosted && isPaidMode && !isProPlan) {
+			throw new HTTPException(403, {
+				message:
+					"Custom providers are only available on the Pro plan. Please upgrade to use custom OpenAI-compatible providers.",
+			});
+		}
+	}
+
 	// Check if a provider key already exists for this provider and organization
 	const existingKey = await db.query.providerKey.findFirst({
 		where: {

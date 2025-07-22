@@ -78,6 +78,11 @@ export function CreateProviderKeyDialog({
 			return false;
 		}
 
+		// Filter out custom provider for non-Pro users in hosted mode
+		if (provider.id === "custom" && config.hosted && !isProPlan) {
+			return false;
+		}
+
 		// If a provider is preselected, always include it even if it has a key
 		if (preselectedProvider && provider.id === preselectedProvider) {
 			return true;
@@ -105,6 +110,17 @@ export function CreateProviderKeyDialog({
 				title: "Upgrade Required",
 				description:
 					"Provider keys are only available on the Pro plan. Please upgrade to use your own API keys.",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		// Additional check for custom providers specifically
+		if (selectedProvider === "custom" && config.hosted && !isProPlan) {
+			toast({
+				title: "Upgrade Required",
+				description:
+					"Custom providers are only available on the Pro plan. Please upgrade to use custom OpenAI-compatible providers.",
 				variant: "destructive",
 			});
 			return;
@@ -230,19 +246,28 @@ export function CreateProviderKeyDialog({
 					</DialogDescription>
 				</DialogHeader>
 				{config.hosted && !isProPlan && (
-					<Alert>
-						<AlertDescription className="flex items-center justify-between gap-2">
-							<span>Provider keys are only available on the Pro plan.</span>
-							<div className="flex items-center gap-2">
-								<Badge variant="outline">Pro Only</Badge>
-								<UpgradeToProDialog>
-									<Button size="sm" variant="outline">
-										Upgrade
-									</Button>
-								</UpgradeToProDialog>
-							</div>
-						</AlertDescription>
-					</Alert>
+					<div className="space-y-3">
+						<Alert>
+							<AlertDescription className="flex items-center justify-between gap-2">
+								<span>Provider keys are only available on the Pro plan.</span>
+								<div className="flex items-center gap-2">
+									<Badge variant="outline">Pro Only</Badge>
+									<UpgradeToProDialog>
+										<Button size="sm" variant="outline">
+											Upgrade
+										</Button>
+									</UpgradeToProDialog>
+								</div>
+							</AlertDescription>
+						</Alert>
+						<Alert>
+							<AlertDescription>
+								<span className="font-medium">Custom Providers:</span> Custom
+								OpenAI-compatible providers are also restricted to Pro plan
+								users for advanced integration capabilities.
+							</AlertDescription>
+						</Alert>
+					</div>
 				)}
 				<form onSubmit={handleSubmit} className="space-y-4 py-4">
 					<div className="space-y-2">
