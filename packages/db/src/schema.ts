@@ -7,6 +7,7 @@ import {
 	real,
 	text,
 	timestamp,
+	unique,
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
@@ -232,7 +233,7 @@ export const providerKey = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 	},
-	(table) => [],
+	(table) => [unique().on(table.organizationId, table.name)],
 );
 
 export const log = pgTable("log", {
