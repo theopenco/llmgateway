@@ -23,6 +23,7 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import {
+	checkCustomProviderExists,
 	generateCacheKey,
 	getCache,
 	getCustomProviderKey,
@@ -924,17 +925,10 @@ chat.openapi(completions, async (c) => {
 		// Check if the provider exists
 		const knownProvider = providers.find((p) => p.id === providerCandidate);
 		if (!knownProvider) {
-			// Check if this might be a custom provider name
-			// Custom provider names can only contain lowercase a-z characters
-			if (/^[a-z]+$/.test(providerCandidate)) {
-				// This looks like a custom provider name
-				customProviderName = providerCandidate;
-				requestedProvider = "custom";
-			} else {
-				throw new HTTPException(400, {
-					message: `Requested provider ${providerCandidate} not supported. If you requested a model on a specific provider, make sure to prefix the model name with the provider name. e.g. inference.net/llama-3.3-70b-instruct`,
-				});
-			}
+			// This might be a custom provider name - we'll validate against the database later
+			// For now, assume it's a potential custom provider
+			customProviderName = providerCandidate;
+			requestedProvider = "custom";
 		} else {
 			requestedProvider = providerCandidate as Provider;
 		}
@@ -1132,6 +1126,19 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
+	}
+
+	// Validate the custom provider against the database if one was requested
+	if (requestedProvider === "custom" && customProviderName) {
+		const customProviderExists = await checkCustomProviderExists(
+			project.organizationId,
+			customProviderName,
+		);
+		if (!customProviderExists) {
+			throw new HTTPException(400, {
+				message: `Provider '${customProviderName}' not found.`,
+			});
+		}
 	}
 
 	// Apply routing logic after apiKey and project are available

@@ -211,3 +211,42 @@ export async function getCustomProviderKey(
 		throw error;
 	}
 }
+
+export async function checkCustomProviderExists(
+	organizationId: string,
+	providerCandidate: string,
+): Promise<boolean> {
+	try {
+		const existsCacheKey = `custom_provider_exists:${organizationId}:${providerCandidate}`;
+		const cachedResult = await getCache(existsCacheKey);
+
+		if (cachedResult !== null) {
+			return cachedResult;
+		}
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					eq: "active",
+				},
+				organizationId: {
+					eq: organizationId,
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: providerCandidate,
+				},
+			},
+		});
+
+		const exists = !!providerKey;
+		await setCache(existsCacheKey, exists, 60);
+
+		return exists;
+	} catch (error) {
+		console.error("Error checking if custom provider exists:", error);
+		throw error;
+	}
+}
