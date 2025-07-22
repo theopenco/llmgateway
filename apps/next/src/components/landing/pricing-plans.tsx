@@ -249,7 +249,6 @@ export function PricingPlans() {
 				annual: "$500",
 			},
 			features: [
-				"Free 7-day trial",
 				"Use your own API keys without surcharges",
 				"NO fees on credit usage",
 				"90-day data retention",
@@ -359,7 +358,7 @@ export function PricingPlans() {
 								{plan.popular && (
 									<div className="absolute top-0 right-0 transform translate-x-2 -translate-y-2">
 										<Badge className="bg-primary hover:bg-primary">
-											Most Popular
+											Free 7-day trial
 										</Badge>
 									</div>
 								)}
