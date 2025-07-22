@@ -614,7 +614,7 @@ function UpgradeCTA({
 						size="sm"
 						className="mt-2 w-full bg-white text-blue-600 hover:bg-blue-50"
 					>
-						Upgrade Now
+						Start your 7-day trial
 					</Button>
 				</UpgradeToProDialog>
 			</div>

@@ -7,6 +7,7 @@ import {
 	real,
 	text,
 	timestamp,
+	unique,
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
@@ -223,6 +224,7 @@ export const providerKey = pgTable(
 			.$onUpdate(() => new Date()),
 		token: text().notNull(),
 		provider: text().notNull(),
+		name: text(), // Optional name for custom providers (lowercase a-z only)
 		baseUrl: text(), // Optional base URL for custom providers
 		status: text({
 			enum: ["active", "inactive", "deleted"],
@@ -231,7 +233,7 @@ export const providerKey = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 	},
-	(table) => [],
+	(table) => [unique().on(table.organizationId, table.name)],
 );
 
 export const log = pgTable("log", {

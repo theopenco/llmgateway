@@ -250,6 +250,7 @@ export function PricingPlans() {
 				annual: "$500",
 			},
 			features: [
+				"Free 7-day trial",
 				"Use your own API keys without surcharges",
 				"NO fees on credit usage",
 				"90-day data retention",
@@ -301,7 +302,7 @@ export function PricingPlans() {
 					</h2>
 					<p className="text-xl text-muted-foreground max-w-3xl mx-auto">
 						Choose the plan that works best for your needs, with no hidden fees
-						or surprises
+						or surprises. Start with a free 7-day trial on Pro plans.
 					</p>
 
 					<div className="flex items-center justify-center mt-8 space-x-4">

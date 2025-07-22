@@ -171,3 +171,82 @@ export async function getProviderKey(
 		throw error;
 	}
 }
+
+export async function getCustomProviderKey(
+	organizationId: string,
+	customName: string,
+): Promise<InferSelectModel<typeof tables.providerKey> | undefined> {
+	try {
+		const providerKeyCacheKey = `custom_provider_key:${organizationId}:${customName}`;
+		const cachedProviderKey = await getCache(providerKeyCacheKey);
+
+		if (cachedProviderKey) {
+			return cachedProviderKey;
+		}
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					eq: "active",
+				},
+				organizationId: {
+					eq: organizationId,
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: customName,
+				},
+			},
+		});
+
+		if (providerKey) {
+			await setCache(providerKeyCacheKey, providerKey, 60);
+		}
+
+		return providerKey;
+	} catch (error) {
+		console.error("Error fetching custom provider key:", error);
+		throw error;
+	}
+}
+
+export async function checkCustomProviderExists(
+	organizationId: string,
+	providerCandidate: string,
+): Promise<boolean> {
+	try {
+		const existsCacheKey = `custom_provider_exists:${organizationId}:${providerCandidate}`;
+		const cachedResult = await getCache(existsCacheKey);
+
+		if (cachedResult !== null) {
+			return cachedResult;
+		}
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					eq: "active",
+				},
+				organizationId: {
+					eq: organizationId,
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: providerCandidate,
+				},
+			},
+		});
+
+		const exists = !!providerKey;
+		await setCache(existsCacheKey, exists, 60);
+
+		return exists;
+	} catch (error) {
+		console.error("Error checking if custom provider exists:", error);
+		throw error;
+	}
+}

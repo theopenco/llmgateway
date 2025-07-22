@@ -21,6 +21,7 @@ interface ProviderKeysClientProps {
 			createdAt: string;
 			updatedAt: string;
 			provider: string;
+			name: string | null;
 			baseUrl: string | null;
 			status: "active" | "inactive" | "deleted" | null;
 			organizationId: string;

@@ -1,0 +1,79 @@
+---
+title: Custom Providers
+description: Learn how to integrate custom OpenAI-compatible providers with LLMGateway for enhanced flexibility and control.
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Custom Providers
+
+LLMGateway supports integrating custom OpenAI-compatible providers, allowing you to use any API that follows the OpenAI chat completions format. This feature is perfect for:
+
+- Private or self-hosted LLM deployments
+- Specialized AI providers not natively supported
+- Internal AI services within your organization
+- Testing against different model endpoints
+
+<Callout type="info">
+	Custom providers must be OpenAI-compatible, supporting the
+	`/v1/chat/completions` endpoint format.
+</Callout>
+
+## Quick Setup
+
+### 1. Add a Custom Provider Key
+
+Navigate to your organization's provider settings and add a custom provider via the UI.
+Provide a lowercase name, OpenAI-compatible base URL, and API token for the custom provider.
+
+### 2. Make Requests
+
+Once configured, make requests using the format `{customName}/{modelName}`:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mycompany/custom-gpt-4",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello from my custom provider!"
+      }
+    ]
+  }'
+```
+
+## Configuration Requirements
+
+### Custom Provider Name
+
+- **Format**: Lowercase letters only (`a-z`)
+- **Examples**: `mycompany`, `internal`, `testing`
+- **Invalid**: `MyCompany`, `my-company`, `my_company`, `123test`
+
+<Callout type="warn">
+	The custom provider name must match the regex pattern `/^[a-z]+$/` exactly.
+</Callout>
+
+### Base URL
+
+- Must be a valid HTTPS URL
+- Should point to your provider's base endpoint
+- LLMGateway will append `/v1/chat/completions` automatically
+- **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
+
+### API Token
+
+- Provider-specific authentication token
+- Used in the `Authorization: Bearer {token}` header
+
+<Callout type="info">
+	Unlike built-in providers, custom provider models are not validated, giving
+	you complete flexibility.
+</Callout>
+
+## Supported Features
+
+Custom providers inherit full LLMGateway functionality.

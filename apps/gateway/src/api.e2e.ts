@@ -146,7 +146,7 @@ const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: any) => p.reasoning === true),
 );
 
-describe("e2e tests with real provider keys", () => {
+describe("e2e", () => {
 	beforeEach(async () => {
 		await clearCache();
 
@@ -256,7 +256,7 @@ describe("e2e tests with real provider keys", () => {
 	}
 
 	test.each(testModels)(
-		"/v1/chat/completions with $model",
+		"completions $model",
 		getTestOptions(),
 		async ({ model }) => {
 			const res = await app.request("/v1/chat/completions", {
@@ -407,7 +407,7 @@ describe("e2e tests with real provider keys", () => {
 	);
 
 	test.each(reasoningModels)(
-		"/v1/chat/completions with reasoning for $model",
+		"reasoning $model",
 		getTestOptions(),
 		async ({ model }) => {
 			const res = await app.request("/v1/chat/completions", {
@@ -468,51 +468,47 @@ describe("e2e tests with real provider keys", () => {
 			const modelDef = models.find((def) => def.model === m.model);
 			return (modelDef as any)?.jsonOutput === true;
 		}),
-	)(
-		"/v1/chat/completions with JSON output mode for $model",
-		getTestOptions(),
-		async ({ model }) => {
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "system",
-							content:
-								"You are a helpful assistant. Always respond with valid JSON.",
-						},
-						{
-							role: "user",
-							content: 'Return a JSON object with "message": "Hello World"',
-						},
-					],
-					response_format: { type: "json_object" },
-				}),
-			});
+	)("JSON output $model", getTestOptions(), async ({ model }) => {
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: model,
+				messages: [
+					{
+						role: "system",
+						content:
+							"You are a helpful assistant. Always respond with valid JSON.",
+					},
+					{
+						role: "user",
+						content: 'Return a JSON object with "message": "Hello World"',
+					},
+				],
+				response_format: { type: "json_object" },
+			}),
+		});
 
-			const json = await res.json();
-			if (fullMode) {
-				console.log("json", JSON.stringify(json, null, 2));
-			}
-			expect(res.status).toBe(200);
-			expect(json).toHaveProperty("choices.[0].message.content");
+		const json = await res.json();
+		if (fullMode) {
+			console.log("json", JSON.stringify(json, null, 2));
+		}
+		expect(res.status).toBe(200);
+		expect(json).toHaveProperty("choices.[0].message.content");
 
-			const content = json.choices[0].message.content;
-			expect(() => JSON.parse(content)).not.toThrow();
+		const content = json.choices[0].message.content;
+		expect(() => JSON.parse(content)).not.toThrow();
 
-			const parsedContent = JSON.parse(content);
-			expect(parsedContent).toHaveProperty("message");
-		},
-	);
+		const parsedContent = JSON.parse(content);
+		expect(parsedContent).toHaveProperty("message");
+	});
 
 	if (fullMode) {
 		test.each(providerModels)(
-			"/v1/chat/completions with complex content array for $model",
+			"complex $model",
 			getTestOptions(),
 			async ({ model, provider }) => {
 				const res = await app.request("/v1/chat/completions", {
@@ -618,7 +614,7 @@ describe("e2e tests with real provider keys", () => {
 		await db.delete(tables.providerKey);
 	});
 
-	test("/v1/chat/completions with llmgateway/auto in credits mode", async () => {
+	test("completions with llmgateway/auto in credits mode", async () => {
 		// require all provider keys to be set
 		for (const provider of providers) {
 			const envVarName = getProviderEnvVar(provider.id);
@@ -677,7 +673,7 @@ describe("e2e tests with real provider keys", () => {
 		expect(logs[0].usedModel).toBeTruthy();
 	});
 
-	test("/v1/chat/completions with bare 'auto' model and credits", async () => {
+	test("completions with bare 'auto' model and credits", async () => {
 		await db
 			.update(tables.organization)
 			.set({ credits: "1000" })

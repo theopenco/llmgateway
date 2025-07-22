@@ -11,7 +11,7 @@ export interface ProviderDefinition {
 	// Color used for UI representation (hex code)
 	color?: string;
 	// Website URL
-	website?: string;
+	website?: string | null;
 	// Announcement text
 	announcement?: string | null;
 }
@@ -194,6 +194,17 @@ export const providers = [
 		jsonOutput: false,
 		color: "#20B2AA",
 		website: "https://perplexity.ai",
+		announcement: null,
+	},
+	{
+		id: "custom",
+		name: "Custom",
+		description: "Custom OpenAI-compatible provider with configurable base URL",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#6b7280",
+		website: null,
 		announcement: null,
 	},
 ] as const satisfies ProviderDefinition[];

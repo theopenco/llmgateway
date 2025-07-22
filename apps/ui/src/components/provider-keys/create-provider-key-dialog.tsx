@@ -43,6 +43,7 @@ export function CreateProviderKeyDialog({
 		preselectedProvider || "",
 	);
 	const [baseUrl, setBaseUrl] = useState("");
+	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
@@ -67,6 +68,11 @@ export function CreateProviderKeyDialog({
 
 	const availableProviders = providers.filter((provider) => {
 		if (provider.id === "llmgateway") {
+			return false;
+		}
+
+		// Filter out custom provider for non-Pro users in hosted mode
+		if (provider.id === "custom" && config.hosted && !isProPlan) {
 			return false;
 		}
 
@@ -102,6 +108,17 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
+		// Additional check for custom providers specifically
+		if (selectedProvider === "custom" && config.hosted && !isProPlan) {
+			toast({
+				title: "Upgrade Required",
+				description:
+					"Custom providers are only available on the Pro plan. Please upgrade to use custom OpenAI-compatible providers.",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		if (!selectedProvider || !token) {
 			toast({
 				title: "Error",
@@ -122,9 +139,29 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
+		if (selectedProvider === "custom" && (!baseUrl || !customName)) {
+			toast({
+				title: "Error",
+				description:
+					"Base URL and custom name are required for custom provider",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		if (selectedProvider === "custom" && !/^[a-z]+$/.test(customName)) {
+			toast({
+				title: "Error",
+				description: "Custom name must contain only lowercase letters a-z",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		const payload: {
 			provider: string;
 			token: string;
+			name?: string;
 			baseUrl?: string;
 			organizationId: string;
 		} = {
@@ -134,6 +171,9 @@ export function CreateProviderKeyDialog({
 		};
 		if (baseUrl) {
 			payload.baseUrl = baseUrl;
+		}
+		if (selectedProvider === "custom" && customName) {
+			payload.name = customName;
 		}
 
 		setIsValidating(true);
@@ -172,6 +212,7 @@ export function CreateProviderKeyDialog({
 		setTimeout(() => {
 			setSelectedProvider(preselectedProvider || "");
 			setBaseUrl("");
+			setCustomName("");
 			setToken("");
 		}, 300);
 	};
@@ -196,19 +237,28 @@ export function CreateProviderKeyDialog({
 					</DialogDescription>
 				</DialogHeader>
 				{config.hosted && !isProPlan && (
-					<Alert>
-						<AlertDescription className="flex items-center justify-between gap-2">
-							<span>Provider keys are only available on the Pro plan.</span>
-							<div className="flex items-center gap-2">
-								<Badge variant="outline">Pro Only</Badge>
-								<UpgradeToProDialog>
-									<Button size="sm" variant="outline">
-										Upgrade
-									</Button>
-								</UpgradeToProDialog>
-							</div>
-						</AlertDescription>
-					</Alert>
+					<div className="space-y-3">
+						<Alert>
+							<AlertDescription className="flex items-center justify-between gap-2">
+								<span>Provider keys are only available on the Pro plan.</span>
+								<div className="flex items-center gap-2">
+									<Badge variant="outline">Pro Only</Badge>
+									<UpgradeToProDialog>
+										<Button size="sm" variant="outline">
+											Upgrade
+										</Button>
+									</UpgradeToProDialog>
+								</div>
+							</AlertDescription>
+						</Alert>
+						<Alert>
+							<AlertDescription>
+								<span className="font-medium">Custom Providers:</span> Custom
+								OpenAI-compatible providers are also restricted to Pro plan
+								users for advanced integration capabilities.
+							</AlertDescription>
+						</Alert>
+					</div>
 				)}
 				<form onSubmit={handleSubmit} className="space-y-4 py-4">
 					<div className="space-y-2">
@@ -246,6 +296,37 @@ export function CreateProviderKeyDialog({
 								required
 							/>
 						</div>
+					)}
+
+					{selectedProvider === "custom" && (
+						<>
+							<div className="space-y-2">
+								<Label htmlFor="custom-name">Custom Provider Name</Label>
+								<Input
+									id="custom-name"
+									type="text"
+									placeholder="my-provider"
+									value={customName}
+									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
+									pattern="[a-z]+"
+									required
+								/>
+								<p className="text-sm text-muted-foreground">
+									Used in model names like: {customName || "my-provider"}/gpt-4o
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="custom-base-url">Base URL</Label>
+								<Input
+									id="custom-base-url"
+									type="url"
+									placeholder="https://api.example.com"
+									value={baseUrl}
+									onChange={(e) => setBaseUrl(e.target.value)}
+									required
+								/>
+							</div>
+						</>
 					)}
 
 					<DialogFooter>

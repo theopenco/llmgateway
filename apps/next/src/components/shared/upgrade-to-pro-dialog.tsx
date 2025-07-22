@@ -177,7 +177,7 @@ function UpgradeDialogContent({
 					>
 						{loading || createSubscriptionMutation.isPending
 							? "Redirecting to checkout..."
-							: `Upgrade for $${billingCycle === "monthly" ? monthlyPrice : yearlyPrice}/${billingCycle === "monthly" ? "month" : "year"} now`}
+							: `Start 7-day free trial`}
 					</Button>
 					<div className="text-sm text-muted-foreground">
 						<p>You'll be redirected to Stripe Checkout to complete payment.</p>

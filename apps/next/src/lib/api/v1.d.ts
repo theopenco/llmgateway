@@ -861,6 +861,7 @@ export interface paths {
 								createdAt: string;
 								updatedAt: string;
 								provider: string;
+								name: string | null;
 								baseUrl: string | null;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
@@ -885,6 +886,7 @@ export interface paths {
 					"application/json": {
 						provider: string;
 						token: string;
+						name?: string;
 						/** Format: uri */
 						baseUrl?: string;
 						organizationId: string;
@@ -904,6 +906,7 @@ export interface paths {
 								createdAt: string;
 								updatedAt: string;
 								provider: string;
+								name: string | null;
 								baseUrl: string | null;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
@@ -1010,6 +1013,7 @@ export interface paths {
 								createdAt: string;
 								updatedAt: string;
 								provider: string;
+								name: string | null;
 								baseUrl: string | null;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;

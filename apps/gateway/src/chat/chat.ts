@@ -23,8 +23,10 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import {
+	checkCustomProviderExists,
 	generateCacheKey,
 	getCache,
+	getCustomProviderKey,
 	getOrganization,
 	getProject,
 	getProviderKey,
@@ -910,6 +912,7 @@ chat.openapi(completions, async (c) => {
 
 	let requestedModel: Model = modelInput as Model;
 	let requestedProvider: Provider | undefined;
+	let customProviderName: string | undefined;
 
 	// check if there is an exact model match
 	if (modelInput === "auto" || modelInput === "custom") {
@@ -920,48 +923,56 @@ chat.openapi(completions, async (c) => {
 		const providerCandidate = split[0];
 
 		// Check if the provider exists
-		if (!providers.find((p) => p.id === providerCandidate)) {
-			throw new HTTPException(400, {
-				message: `Requested provider ${providerCandidate} not supported. If you requested a model on a specific provider, make sure to prefix the model name with the provider name. e.g. inference.net/llama-3.3-70b-instruct`,
-			});
+		const knownProvider = providers.find((p) => p.id === providerCandidate);
+		if (!knownProvider) {
+			// This might be a custom provider name - we'll validate against the database later
+			// For now, assume it's a potential custom provider
+			customProviderName = providerCandidate;
+			requestedProvider = "custom";
+		} else {
+			requestedProvider = providerCandidate as Provider;
 		}
-
-		requestedProvider = providerCandidate as Provider;
 		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
 		const modelName = split.slice(1).join("/");
 
-		// First try to find by base model name
-		let modelDef = models.find((m) => m.model === modelName);
-
-		if (!modelDef) {
-			modelDef = models.find((m) =>
-				m.providers.some(
-					(p) =>
-						p.modelName === modelName && p.providerId === requestedProvider,
-				),
-			);
-		}
-
-		if (!modelDef) {
-			throw new HTTPException(400, {
-				message: `Requested model ${modelName} not supported`,
-			});
-		}
-
-		if (!modelDef.providers.some((p) => p.providerId === requestedProvider)) {
-			throw new HTTPException(400, {
-				message: `Provider ${requestedProvider} does not support model ${modelName}`,
-			});
-		}
-
-		// Use the provider-specific model name if available
-		const providerMapping = modelDef.providers.find(
-			(p) => p.providerId === requestedProvider,
-		);
-		if (providerMapping) {
-			requestedModel = providerMapping.modelName as Model;
-		} else {
+		// For custom providers, we don't need to validate the model name
+		// since they can use any OpenAI-compatible model name
+		if (requestedProvider === "custom") {
 			requestedModel = modelName as Model;
+		} else {
+			// First try to find by base model name
+			let modelDef = models.find((m) => m.model === modelName);
+
+			if (!modelDef) {
+				modelDef = models.find((m) =>
+					m.providers.some(
+						(p) =>
+							p.modelName === modelName && p.providerId === requestedProvider,
+					),
+				);
+			}
+
+			if (!modelDef) {
+				throw new HTTPException(400, {
+					message: `Requested model ${modelName} not supported`,
+				});
+			}
+
+			if (!modelDef.providers.some((p) => p.providerId === requestedProvider)) {
+				throw new HTTPException(400, {
+					message: `Provider ${requestedProvider} does not support model ${modelName}`,
+				});
+			}
+
+			// Use the provider-specific model name if available
+			const providerMapping = modelDef.providers.find(
+				(p) => p.providerId === requestedProvider,
+			);
+			if (providerMapping) {
+				requestedModel = providerMapping.modelName as Model;
+			} else {
+				requestedModel = modelName as Model;
+			}
 		}
 	} else if (models.find((m) => m.model === modelInput)) {
 		requestedModel = modelInput as Model;
@@ -982,20 +993,48 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (requestedProvider && !providers.find((p) => p.id === requestedProvider)) {
+	if (
+		requestedProvider &&
+		requestedProvider !== "custom" &&
+		!providers.find((p) => p.id === requestedProvider)
+	) {
 		throw new HTTPException(400, {
 			message: `Requested provider ${requestedProvider} not supported`,
 		});
 	}
 
-	const modelInfo =
-		models.find((m) => m.model === requestedModel) ||
-		models.find((m) => m.providers.find((p) => p.modelName === requestedModel));
+	let modelInfo;
 
-	if (!modelInfo) {
-		throw new HTTPException(400, {
-			message: `Unsupported model: ${requestedModel}`,
-		});
+	if (requestedProvider === "custom") {
+		// For custom providers, we create a mock model info that treats it as an OpenAI model
+		modelInfo = {
+			model: requestedModel,
+			providers: [
+				{
+					providerId: "custom" as const,
+					modelName: requestedModel,
+					inputPrice: 0,
+					outputPrice: 0,
+					contextSize: 8192,
+					maxOutput: 4096,
+					streaming: true,
+					vision: false,
+				},
+			],
+			jsonOutput: true,
+		};
+	} else {
+		modelInfo =
+			models.find((m) => m.model === requestedModel) ||
+			models.find((m) =>
+				m.providers.find((p) => p.modelName === requestedModel),
+			);
+
+		if (!modelInfo) {
+			throw new HTTPException(400, {
+				message: `Unsupported model: ${requestedModel}`,
+			});
+		}
 	}
 
 	// Check if model is deactivated
@@ -1087,6 +1126,19 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
+	}
+
+	// Validate the custom provider against the database if one was requested
+	if (requestedProvider === "custom" && customProviderName) {
+		const customProviderExists = await checkCustomProviderExists(
+			project.organizationId,
+			customProviderName,
+		);
+		if (!customProviderExists) {
+			throw new HTTPException(400, {
+				message: `Provider '${customProviderName}' not found.`,
+			});
+		}
 	}
 
 	// Apply routing logic after apiKey and project are available
@@ -1238,11 +1290,30 @@ chat.openapi(completions, async (c) => {
 
 	// Update baseModelName to match the final usedModel after routing
 	// Find the model definition that corresponds to the final usedModel
-	const finalModelInfo = models.find(
-		(m) =>
-			m.model === usedModel ||
-			m.providers.some((p) => p.modelName === usedModel),
-	);
+	let finalModelInfo;
+	if (usedProvider === "custom") {
+		finalModelInfo = {
+			model: usedModel,
+			providers: [
+				{
+					providerId: "custom" as const,
+					modelName: usedModel,
+					inputPrice: 0,
+					outputPrice: 0,
+					contextSize: 8192,
+					maxOutput: 4096,
+					streaming: true,
+					vision: false,
+				},
+			],
+		};
+	} else {
+		finalModelInfo = models.find(
+			(m) =>
+				m.model === usedModel ||
+				m.providers.some((p) => p.modelName === usedModel),
+		);
+	}
 
 	const baseModelName = finalModelInfo?.model || usedModel;
 
@@ -1253,13 +1324,31 @@ chat.openapi(completions, async (c) => {
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 
+	if (project.mode === "credits" && usedProvider === "custom") {
+		throw new HTTPException(400, {
+			message:
+				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
+		});
+	}
+
 	if (project.mode === "api-keys") {
 		// Get the provider key from the database using cached helper function
-		providerKey = await getProviderKey(project.organizationId, usedProvider);
+		if (usedProvider === "custom" && customProviderName) {
+			providerKey = await getCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
+		} else {
+			providerKey = await getProviderKey(project.organizationId, usedProvider);
+		}
 
 		if (!providerKey) {
+			const providerDisplayName =
+				usedProvider === "custom" && customProviderName
+					? customProviderName
+					: usedProvider;
 			throw new HTTPException(400, {
-				message: `No API key set for provider: ${usedProvider}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
+				message: `No API key set for provider: ${providerDisplayName}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 			});
 		}
 
@@ -1283,7 +1372,14 @@ chat.openapi(completions, async (c) => {
 		usedToken = getProviderTokenFromEnv(usedProvider);
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
-		providerKey = await getProviderKey(project.organizationId, usedProvider);
+		if (usedProvider === "custom" && customProviderName) {
+			providerKey = await getCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
+		} else {
+			providerKey = await getProviderKey(project.organizationId, usedProvider);
+		}
 
 		if (providerKey) {
 			usedToken = providerKey.token;
@@ -1438,7 +1534,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check if streaming is requested and if the model/provider combination supports it
 	if (stream) {
-		if (!getModelStreamingSupport(baseModelName, usedProvider)) {
+		if (getModelStreamingSupport(baseModelName, usedProvider) === false) {
 			throw new HTTPException(400, {
 				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
 			});

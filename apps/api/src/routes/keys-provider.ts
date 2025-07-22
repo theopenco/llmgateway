@@ -19,6 +19,7 @@ const providerKeySchema = z.object({
 	updatedAt: z.date(),
 	token: z.string(),
 	provider: z.string(),
+	name: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	organizationId: z.string(),
@@ -33,6 +34,10 @@ const createProviderKeySchema = z.object({
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
 	token: z.string().min(1, "API key is required"),
+	name: z
+		.string()
+		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
+		.optional(),
 	baseUrl: z.string().url().optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
 });
@@ -85,6 +90,7 @@ keysProvider.openapi(create, async (c) => {
 	const {
 		provider,
 		token: userToken,
+		name,
 		baseUrl,
 		organizationId,
 	} = c.req.valid("json");
@@ -129,6 +135,23 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// Check if custom provider is allowed (only for pro plan or self-hosted mode)
+	if (provider === "custom") {
+		const isHosted = process.env.HOSTED === "true";
+		const isPaidMode = process.env.PAID_MODE === "true";
+		const isProPlan = organization?.plan === "pro";
+
+		// Custom providers are allowed if:
+		// 1. Self-hosted mode (HOSTED !== "true")
+		// 2. Pro plan in hosted mode
+		if (isHosted && isPaidMode && !isProPlan) {
+			throw new HTTPException(403, {
+				message:
+					"Custom providers are only available on the Pro plan. Please upgrade to use custom OpenAI-compatible providers.",
+			});
+		}
+	}
+
 	// Check if a provider key already exists for this provider and organization
 	const existingKey = await db.query.providerKey.findFirst({
 		where: {
@@ -158,12 +181,18 @@ keysProvider.openapi(create, async (c) => {
 		if (!providers.some((p) => p.id === provider) && provider !== "custom") {
 			throw new Error(`Invalid provider: ${provider}`);
 		}
-		validationResult = await validateProviderKey(
-			provider as ProviderId,
-			userToken,
-			baseUrl,
-			isTestEnv,
-		);
+
+		// Skip validation for custom providers as they don't have predefined models
+		if (provider === "custom") {
+			validationResult = { valid: true };
+		} else {
+			validationResult = await validateProviderKey(
+				provider as ProviderId,
+				userToken,
+				baseUrl,
+				isTestEnv,
+			);
+		}
 	} catch (error) {
 		throw new HTTPException(500, {
 			message:
@@ -193,6 +222,7 @@ keysProvider.openapi(create, async (c) => {
 			token: userToken,
 			organizationId,
 			provider,
+			name,
 			baseUrl,
 		})
 		.returning();
