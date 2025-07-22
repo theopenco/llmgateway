@@ -6,12 +6,10 @@ import Footer from "@/components/landing/footer";
 import { Graph } from "@/components/landing/graph";
 import { Hero } from "@/components/landing/hero";
 import { PricingPlans } from "@/components/landing/pricing-plans";
-import { ProductHuntBanner } from "@/components/shared/product-hunt-banner";
 
 export default function Home() {
 	return (
 		<>
-			<ProductHuntBanner />
 			<Hero />
 			<Features />
 			<Graph />

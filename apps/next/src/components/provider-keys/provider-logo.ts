@@ -18,6 +18,8 @@ export const providerLogoUrls: Partial<
 	xai: ProviderIcons.xai,
 	deepseek: ProviderIcons.deepseek,
 	perplexity: ProviderIcons.perplexity,
+	moonshot: ProviderIcons.moonshot,
+	novita: ProviderIcons.novita,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

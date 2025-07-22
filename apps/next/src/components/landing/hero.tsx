@@ -14,15 +14,13 @@ import {
 	getProviderLogoDarkModeClasses,
 } from "../provider-keys/provider-logo";
 import { AuthLink } from "../shared/auth-link";
-import heroImageLight from "@/assets/new-hero-light.png";
-import heroImageDark from "@/assets/new-hero.png";
 import { Button } from "@/lib/components/button";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 import type { ProviderId } from "@llmgateway/models";
-import type { Language } from "prism-react-renderer";
+import type { Language, Token } from "prism-react-renderer";
 import type { CSSProperties } from "react";
 
 const transitionVariants = {
@@ -60,6 +58,8 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "DeepSeek", providerId: "deepseek" },
 	{ name: "Perplexity", providerId: "perplexity" },
 	{ name: "Ai Studio", providerId: "google-ai-studio" },
+	{ name: "Moonshot", providerId: "moonshot" },
+	{ name: "Novita", providerId: "novita" },
 ];
 
 // TypeScript code example
@@ -268,9 +268,15 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 														}: {
 															className: string;
 															style: CSSProperties;
-															tokens: any[];
-															getLineProps: (props: any) => any;
-															getTokenProps: (props: any) => any;
+															tokens: Token[][];
+															getLineProps: (input: {
+																line: Token[];
+																key?: React.Key;
+															}) => React.HTMLAttributes<HTMLElement>;
+															getTokenProps: (input: {
+																token: Token;
+																key?: React.Key;
+															}) => React.HTMLAttributes<HTMLElement>;
 														}) => (
 															<pre
 																className={cn(
@@ -283,7 +289,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 																	overflowX: "auto",
 																}}
 															>
-																{tokens.map((line: any, i: number) => {
+																{tokens.map((line, i: number) => {
 																	const isHighlighted =
 																		typescriptExample.highlightedLines?.includes(
 																			i + 1,
@@ -300,7 +306,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 																					: "",
 																			)}
 																		>
-																			{line.map((token: any, key: number) => {
+																			{line.map((token, key: number) => {
 																				const tokenProps = getTokenProps({
 																					token,
 																				});
@@ -342,14 +348,14 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 									<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
 										<Image
 											className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
-											src={heroImageDark}
+											src="/new-hero.png"
 											alt="app screen"
 											width={2696}
 											height={1386}
 										/>
 										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
-											src={heroImageLight}
+											src="/new-hero-light.png"
 											alt="app screen"
 											width={2696}
 											height={1386}
