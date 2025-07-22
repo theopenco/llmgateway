@@ -243,7 +243,7 @@ export function PricingPlans() {
 		},
 		{
 			name: "Pro",
-			description: "For professionals and growing teams • Free 7-day trial",
+			description: "For professionals and growing teams",
 			price: {
 				monthly: "$50",
 				annual: "$500",
