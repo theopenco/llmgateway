@@ -137,8 +137,8 @@ keysProvider.openapi(create, async (c) => {
 
 	// Check if custom provider is allowed (only for pro plan or self-hosted mode)
 	if (provider === "custom") {
-		const isHosted = true; // process.env.HOSTED === "true";
-		const isPaidMode = true; //  process.env.PAID_MODE === "true";
+		const isHosted = process.env.HOSTED === "true";
+		const isPaidMode = process.env.PAID_MODE === "true";
 		const isProPlan = organization?.plan === "pro";
 
 		// Custom providers are allowed if:

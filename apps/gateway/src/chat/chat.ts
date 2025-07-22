@@ -1317,6 +1317,13 @@ chat.openapi(completions, async (c) => {
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 
+	if (project.mode === "credits" && usedProvider === "custom") {
+		throw new HTTPException(400, {
+			message:
+				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
+		});
+	}
+
 	if (project.mode === "api-keys") {
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
