@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM node:20.10-alpine AS base
 
 # Build stage
@@ -33,19 +34,8 @@ RUN pnpm install --frozen-lockfile
 # Copy source code
 COPY .. .
 
-# Create Turbo cache directories before building (todo temp figure out a better solution)
-RUN mkdir -p /app/packages/db/.turbo \
-    /app/packages/auth/.turbo \
-    /app/packages/models/.turbo \
-    /app/apps/api/.turbo \
-    /app/apps/gateway/.turbo \
-    /app/apps/ui/.turbo \
-    /app/apps/docs/.turbo \
-    /app/apps/next/.turbo \
-    /app/.turbo
-
 # Build all apps
-RUN pnpm build
+RUN --mount=type=cache,target=/app/.turbo pnpm build
 
 
 FROM base AS init
