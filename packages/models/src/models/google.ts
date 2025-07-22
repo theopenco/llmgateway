@@ -58,7 +58,7 @@ export const googleModels = [
 	{
 		model: "gemini-2.5-flash-preview-04-17",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-07-22"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -112,7 +112,7 @@ export const googleModels = [
 	{
 		model: "gemini-2.5-flash-preview-04-17-thinking",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-07-22"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
