@@ -4,6 +4,7 @@ export const mistralModels = [
 	{
 		id: "mistral-large-latest",
 		name: "Mistral Large Latest",
+		family: "mistral",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

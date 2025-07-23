@@ -4,6 +4,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-plus",
 		name: "Qwen Plus",
+		family: "alibaba",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -24,6 +25,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-turbo",
 		name: "Qwen Turbo",
+		family: "alibaba",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -44,6 +46,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-coder-plus",
 		name: "Qwen3 Coder Plus",
+		family: "alibaba",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

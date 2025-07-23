@@ -75,6 +75,10 @@ export interface ModelDefinition {
 	 */
 	name?: string;
 	/**
+	 * Model family (e.g., 'openai', 'deepseek', 'anthropic')
+	 */
+	family: string;
+	/**
 	 * Mappings to provider models
 	 */
 	providers: ProviderModelMapping[];

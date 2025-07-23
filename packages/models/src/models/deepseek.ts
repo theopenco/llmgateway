@@ -4,6 +4,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3",
 		name: "DeepSeek V3",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -35,6 +36,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1",
 		name: "DeepSeek R1",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -66,6 +68,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1-0528",
 		name: "DeepSeek R1 (0528)",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -97,6 +100,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1-distill-llama-70b",
 		name: "DeepSeek R1 Distill Llama 70B",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
