@@ -197,6 +197,18 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "alibaba",
+		name: "Alibaba Cloud",
+		description:
+			"Alibaba Cloud's Qwen large language models with OpenAI-compatible API",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#FF6A00",
+		website: "https://www.alibabacloud.com",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

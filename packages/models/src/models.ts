@@ -1,3 +1,4 @@
+import { alibabaModels } from "./models/alibaba";
 import { anthropicModels } from "./models/anthropic";
 import { deepseekModels } from "./models/deepseek";
 import { googleModels } from "./models/google";
@@ -92,4 +93,5 @@ export const models = [
 	...deepseekModels,
 	...mistralModels,
 	...moonshotModels,
+	...alibabaModels,
 ] as const satisfies ModelDefinition[];
