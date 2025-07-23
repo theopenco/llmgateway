@@ -16,6 +16,7 @@ const modelSchema = z.object({
 	name: z.string(),
 	created: z.number(),
 	description: z.string().optional(),
+	family: z.string(),
 	architecture: z.object({
 		input_modalities: z.array(z.enum(["text", "image"])),
 		output_modalities: z.array(z.enum(["text"])),
@@ -111,6 +112,7 @@ modelsApi.openapi(listModels, async (c) => {
 				name: model.name || model.id,
 				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
 				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
+				family: model.family,
 				architecture: {
 					input_modalities: inputModalities,
 					output_modalities: ["text"] as ["text"],
