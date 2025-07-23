@@ -55,22 +55,28 @@ export default async function ModelPage({ params }: PageProps) {
 							</span>
 							<span>
 								Starting at $
-								{Math.min(
-									...modelProviders
+								{(() => {
+									const inputPrices = modelProviders
 										.filter((p) => p.inputPrice)
 										.map((p) => (p.inputPrice! * 1e6).toFixed(2))
-										.map(Number),
-								)}
+										.map(Number);
+									return inputPrices.length > 0
+										? Math.min(...inputPrices)
+										: "N/A";
+								})()}
 								/M input tokens
 							</span>
 							<span>
 								Starting at $
-								{Math.min(
-									...modelProviders
+								{(() => {
+									const outputPrices = modelProviders
 										.filter((p) => p.outputPrice)
 										.map((p) => (p.outputPrice! * 1e6).toFixed(2))
-										.map(Number),
-								)}
+										.map(Number);
+									return outputPrices.length > 0
+										? Math.min(...outputPrices)
+										: "N/A";
+								})()}
 								/M output tokens
 							</span>
 						</div>
@@ -119,12 +125,9 @@ export async function generateStaticParams() {
 	}));
 }
 
-interface ModelPageProps {
-	params: { name: string };
-}
-
-export async function generateMetadata({ params }: ModelPageProps) {
-	const decodedName = decodeURIComponent(params.name);
+export async function generateMetadata({ params }: PageProps) {
+	const { name } = await params;
+	const decodedName = decodeURIComponent(name);
 	const model = modelDefinitions.find((m) => m.model === decodedName);
 
 	if (!model) {

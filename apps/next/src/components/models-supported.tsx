@@ -16,13 +16,13 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { providerLogoUrls } from "./provider-keys/provider-logo";
-import { CardFooter } from "./ui/card";
 import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
 	CardDescription,
+	CardFooter,
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
@@ -44,6 +44,107 @@ interface ProviderModel {
 	outputPrice?: number;
 	requestPrice?: number;
 	contextSize?: number;
+}
+
+// Component for rendering individual provider-model cards
+interface ProviderModelCardProps {
+	model: ProviderModel;
+	copiedText: string | null;
+	onCopy: (text: string) => void;
+}
+
+function ProviderModelCard({
+	model,
+	copiedText,
+	onCopy,
+}: ProviderModelCardProps) {
+	const providerModelName = `${model.providerId}/${model.model}`;
+
+	return (
+		<Card
+			key={`${model.providerId}-${model.model}`}
+			className="flex flex-col h-full hover:shadow-md transition-shadow"
+		>
+			<CardHeader className="pb-2">
+				<div className="flex items-start justify-between gap-2">
+					<div className="flex-1 min-w-0">
+						<CardTitle className="text-base leading-tight line-clamp-1">
+							{model.model}
+						</CardTitle>
+						<CardDescription className="text-xs">
+							{model.providerName}
+						</CardDescription>
+					</div>
+				</div>
+			</CardHeader>
+			<CardContent className="mt-auto space-y-2">
+				{/* Model Name Copy Section */}
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex-1 min-w-0">
+						<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all">
+							{providerModelName}
+						</code>
+					</div>
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-6 w-6 p-0 shrink-0"
+						onClick={() => onCopy(providerModelName)}
+						title="Copy provider/model name"
+					>
+						{copiedText === providerModelName ? (
+							<Check className="h-3 w-3 text-green-600" />
+						) : (
+							<Copy className="h-3 w-3" />
+						)}
+					</Button>
+				</div>
+
+				{model.contextSize && (
+					<p className="text-xs text-muted-foreground">
+						Context:{" "}
+						<span className="font-mono text-foreground font-bold">
+							{formatContextSize(model.contextSize)}
+						</span>
+					</p>
+				)}
+				{(model.inputPrice !== undefined ||
+					model.outputPrice !== undefined ||
+					model.requestPrice !== undefined) && (
+					<p className="text-xs text-muted-foreground">
+						{model.inputPrice !== undefined && (
+							<>
+								<span className="font-mono text-foreground font-bold">
+									${(model.inputPrice * 1e6).toFixed(2)}
+								</span>{" "}
+								<span className="text-muted-foreground">in</span>
+							</>
+						)}
+
+						{model.outputPrice !== undefined && (
+							<>
+								<span className="text-muted-foreground mx-2">/</span>
+								<span className="font-mono text-foreground font-bold">
+									${(model.outputPrice * 1e6).toFixed(2)}
+								</span>{" "}
+								<span className="text-muted-foreground">out</span>
+							</>
+						)}
+						{model.requestPrice !== undefined &&
+							model.requestPrice !== 0 &&
+							` / $${(model.requestPrice * 1000).toFixed(2)} per 1K req`}
+					</p>
+				)}
+			</CardContent>
+			<CardFooter className="mt-auto pt-4">
+				<Button asChild variant="secondary" className="w-full">
+					<Link href={`/models/${encodeURIComponent(model.model)}`}>
+						See more details
+					</Link>
+				</Button>
+			</CardFooter>
+		</Card>
+	);
 }
 
 const getProviderLogo = (providerId: ProviderId) => {
@@ -315,103 +416,14 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 								</span>
 							</Link>
 							<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-								{models.map((model) => {
-									const providerModelName = `${model.providerId}/${model.model}`;
-
-									return (
-										<Card
-											key={`${model.providerId}-${model.model}`}
-											className="flex flex-col h-full hover:shadow-md transition-shadow"
-										>
-											<CardHeader className="pb-2">
-												<div className="flex items-start justify-between gap-2">
-													<div className="flex-1 min-w-0">
-														<CardTitle className="text-base leading-tight line-clamp-1">
-															{model.model}
-														</CardTitle>
-														<CardDescription className="text-xs">
-															{model.providerName}
-														</CardDescription>
-													</div>
-												</div>
-											</CardHeader>
-											<CardContent className="mt-auto space-y-2">
-												{/* Model Name Copy Section */}
-												<div className="flex items-center justify-between gap-2">
-													<div className="flex-1 min-w-0">
-														<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all">
-															{providerModelName}
-														</code>
-													</div>
-													<Button
-														variant="ghost"
-														size="sm"
-														className="h-6 w-6 p-0 shrink-0"
-														onClick={() => copyToClipboard(providerModelName)}
-														title="Copy provider/model name"
-													>
-														{copiedText === providerModelName ? (
-															<Check className="h-3 w-3 text-green-600" />
-														) : (
-															<Copy className="h-3 w-3" />
-														)}
-													</Button>
-												</div>
-
-												{model.contextSize && (
-													<p className="text-xs text-muted-foreground">
-														Context:{" "}
-														<span className="font-mono text-foreground font-bold">
-															{formatContextSize(model.contextSize)}
-														</span>
-													</p>
-												)}
-												{(model.inputPrice !== undefined ||
-													model.outputPrice !== undefined ||
-													model.requestPrice !== undefined) && (
-													<p className="text-xs text-muted-foreground">
-														{model.inputPrice !== undefined && (
-															<>
-																<span className="font-mono text-foreground font-bold">
-																	${(model.inputPrice * 1e6).toFixed(2)}
-																</span>{" "}
-																<span className="text-muted-foreground">
-																	in
-																</span>
-															</>
-														)}
-
-														{model.outputPrice !== undefined && (
-															<>
-																<span className="text-muted-foreground mx-2">
-																	/
-																</span>
-																<span className="font-mono text-foreground font-bold">
-																	${(model.outputPrice * 1e6).toFixed(2)}
-																</span>{" "}
-																<span className="text-muted-foreground">
-																	out
-																</span>
-															</>
-														)}
-														{model.requestPrice !== undefined &&
-															model.requestPrice !== 0 &&
-															` / $${(model.requestPrice * 1000).toFixed(2)} per 1K req`}
-													</p>
-												)}
-											</CardContent>
-											<CardFooter className="mt-auto pt-4">
-												<Button asChild variant="secondary" className="w-full">
-													<Link
-														href={`/models/${encodeURIComponent(model.model)}`}
-													>
-														See more details
-													</Link>
-												</Button>
-											</CardFooter>
-										</Card>
-									);
-								})}
+								{models.map((model) => (
+									<ProviderModelCard
+										key={`${model.providerId}-${model.model}`}
+										model={model}
+										copiedText={copiedText}
+										onCopy={copyToClipboard}
+									/>
+								))}
 							</div>
 						</div>
 					);

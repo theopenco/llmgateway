@@ -14,6 +14,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
 import type { Project } from "@/lib/types";
@@ -21,36 +22,41 @@ import type { Project } from "@/lib/types";
 export default function ApiKeysPage() {
 	const pathname = usePathname();
 
-	// Debug logging
-	console.log("ApiKeysPage render - pathname:", pathname);
-
 	// Extract project and org IDs directly from URL to avoid dashboard state conflicts
 	const { projectId, orgId } = useMemo(() => {
 		const result = extractOrgAndProjectFromPath(pathname);
-		console.log("Extracted IDs:", result);
 		return result;
 	}, [pathname]);
 
-	// Create a minimal project object for components that need it
+	// Fetch actual project data instead of using mock values
+	const api = useApi();
+
+	const { data: projectsData } = api.useQuery(
+		"get",
+		"/orgs/{id}/projects",
+		{
+			params: {
+				path: { id: orgId || "" },
+			},
+		},
+		{
+			enabled: !!orgId,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+		},
+	);
+
+	// Find the actual project from the fetched data
 	const selectedProject = useMemo((): Project | null => {
-		if (!projectId || !orgId) {
+		if (!projectId || !projectsData?.projects) {
 			return null;
 		}
 
-		const project = {
-			id: projectId,
-			name: "Current Project",
-			organizationId: orgId,
-			createdAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
-			cachingEnabled: false,
-			cacheDurationSeconds: 0,
-			mode: "api-keys" as const,
-			status: "active" as const,
-		};
-		console.log("Created project object:", project.id);
-		return project;
-	}, [projectId, orgId]);
+		const actualProject = projectsData.projects.find(
+			(p: Project) => p.id === projectId,
+		);
+		return actualProject || null;
+	}, [projectId, projectsData]);
 
 	return (
 		<div className="flex flex-col">
@@ -79,7 +85,7 @@ export default function ApiKeysPage() {
 								API keys allow you to authenticate with the LLM Gateway API.
 								{!selectedProject && (
 									<span className="block mt-2 text-amber-600">
-										Please select a project to manage API keys.
+										Loading project information...
 									</span>
 								)}
 							</CardDescription>

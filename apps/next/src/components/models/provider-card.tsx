@@ -8,29 +8,13 @@ import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 import { formatContextSize } from "@/lib/utils";
 
-import type { ProviderId } from "@llmgateway/models";
+import type {
+	ProviderModelMapping,
+	ProviderDefinition,
+} from "@llmgateway/models";
 
-interface ProviderWithInfo {
-	providerId: ProviderId;
-	contextSize?: number;
-	inputPrice?: number;
-	outputPrice?: number;
-	requestPrice?: number;
-	maxOutputTokens?: number;
-	streaming?: boolean;
-	vision?: boolean;
-	[key: string]: unknown;
-	providerInfo?: {
-		readonly id: ProviderId;
-		readonly name: string;
-		readonly description?: string;
-		readonly streaming: boolean;
-		readonly cancellation: boolean;
-		readonly color: string;
-		readonly website: string | null;
-		readonly announcement: string | null;
-		[key: string]: unknown;
-	};
+interface ProviderWithInfo extends ProviderModelMapping {
+	providerInfo?: ProviderDefinition;
 }
 
 interface ProviderCardProps {

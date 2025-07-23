@@ -108,20 +108,11 @@ export function useDashboardState({
 	const handleOrganizationSelect = useCallback(
 		(org: Organization | null) => {
 			if (org?.id) {
-				// Extract the current page from pathname (e.g., 'api-keys', 'provider-keys', etc.)
-				const pathParts = pathname.split("/");
-				const currentPage = pathParts[4]; // /dashboard/[orgId]/[projectId]/[page]
-
-				if (currentPage && pathParts.length > 4) {
-					// Try to preserve the current page if we have one
-					router.push(`/dashboard/${org.id}`);
-				} else {
-					// Navigate to the new organization
-					router.push(`/dashboard/${org.id}`);
-				}
+				// Navigate to the new organization (will redirect to first project)
+				router.push(`/dashboard/${org.id}`);
 			}
 		},
-		[router, pathname],
+		[router],
 	);
 
 	const handleProjectSelect = useCallback(

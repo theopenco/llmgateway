@@ -44,29 +44,13 @@ export function ApiKeysList({ selectedProject }: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
-	// Debug logging
-	console.log("ApiKeysList render - selectedProject:", selectedProject?.id);
-
-	// Show message if no project is selected
-	if (!selectedProject) {
-		return (
-			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
-				<div className="mb-4">
-					<KeyIcon className="h-10 w-10 text-gray-500" />
-				</div>
-				<p className="text-gray-400 mb-6">
-					Please select a project to view API keys.
-				</p>
-			</div>
-		);
-	}
-
+	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject.id },
+				query: { projectId: selectedProject?.id || "" },
 			},
 		},
 		{
@@ -86,6 +70,20 @@ export function ApiKeysList({ selectedProject }: ApiKeysListProps) {
 		"patch",
 		"/keys/api/{id}",
 	);
+
+	// Show message if no project is selected
+	if (!selectedProject) {
+		return (
+			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
+				<div className="mb-4">
+					<KeyIcon className="h-10 w-10 text-gray-500" />
+				</div>
+				<p className="text-gray-400 mb-6">
+					Please select a project to view API keys.
+				</p>
+			</div>
+		);
+	}
 
 	const keys = data?.apiKeys.filter((key) => key.status !== "deleted");
 

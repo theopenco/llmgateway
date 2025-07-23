@@ -15,23 +15,14 @@ import {
 } from "@/lib/components/card";
 import { formatContextSize } from "@/lib/utils";
 
-interface ModelProvider {
-	providerId: string;
-	modelName: string;
-	contextSize?: number;
-	inputPrice?: number;
-	outputPrice?: number;
-	requestPrice?: number;
-}
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 interface ModelCardProps {
-	model: {
-		model: string;
-		providers: ModelProvider[];
-	};
+	modelName: string;
+	providers: ProviderModelMapping[];
 }
 
-export function ModelCard({ model }: ModelCardProps) {
+export function ModelCard({ modelName, providers }: ModelCardProps) {
 	const [copiedText, setCopiedText] = useState<string | null>(null);
 
 	const copyToClipboard = async (text: string) => {
@@ -44,16 +35,37 @@ export function ModelCard({ model }: ModelCardProps) {
 		}
 	};
 
-	const provider = model.providers[0];
-	const providerModelName = `${provider.providerId}/${model.model}`;
+	// Safety check: ensure providers array is non-empty
+	if (!providers || providers.length === 0) {
+		return (
+			<Card className="flex flex-col h-full">
+				<CardHeader className="pb-2">
+					<CardTitle className="text-base leading-tight line-clamp-1">
+						{modelName}
+					</CardTitle>
+					<CardDescription className="text-xs text-muted-foreground">
+						No providers available
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="flex items-center justify-center py-8">
+					<p className="text-sm text-muted-foreground">
+						This model is currently not available through any providers.
+					</p>
+				</CardContent>
+			</Card>
+		);
+	}
+
+	const provider = providers[0];
+	const providerModelName = `${provider.providerId}/${modelName}`;
 
 	return (
-		<Card key={model.model} className="flex flex-col h-full">
+		<Card className="flex flex-col h-full">
 			<CardHeader className="pb-2">
 				<div className="flex items-start justify-between gap-2">
 					<div className="flex-1 min-w-0">
 						<CardTitle className="text-base leading-tight line-clamp-1">
-							{model.model}
+							{modelName}
 						</CardTitle>
 						<CardDescription className="text-xs">
 							{provider.modelName}
@@ -125,7 +137,7 @@ export function ModelCard({ model }: ModelCardProps) {
 			</CardContent>
 			<CardFooter className="mt-auto pt-4">
 				<Button asChild variant="secondary" className="w-full">
-					<Link href={`/models/${encodeURIComponent(model.model)}`}>
+					<Link href={`/models/${encodeURIComponent(modelName)}`}>
 						See more details
 					</Link>
 				</Button>

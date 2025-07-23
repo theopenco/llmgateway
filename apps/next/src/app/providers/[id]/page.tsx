@@ -40,19 +40,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 							{providerModels.map((model) => (
 								<ModelCard
 									key={`${model.providers[0].providerId}-${model.model}`}
-									model={{
-										model: model.providers[0].modelName,
-										providers: [
-											{
-												providerId: model.providers[0].providerId,
-												modelName: model.providers[0].modelName,
-												contextSize: model.providers[0].contextSize,
-												inputPrice: model.providers[0].inputPrice,
-												outputPrice: model.providers[0].outputPrice,
-												requestPrice: model.providers[0].requestPrice,
-											},
-										],
-									}}
+									modelName={model.model}
+									providers={model.providers}
 								/>
 							))}
 						</div>
