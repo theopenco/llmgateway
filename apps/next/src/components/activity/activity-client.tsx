@@ -34,6 +34,7 @@ interface LogsData {
 		usedProvider: string;
 		responseSize: number;
 		content: string | null;
+		reasoningContent: string | null;
 		unifiedFinishReason: string | null;
 		finishReason: string | null;
 		promptTokens: string | null;

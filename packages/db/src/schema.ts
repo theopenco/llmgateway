@@ -260,6 +260,7 @@ export const log = pgTable("log", {
 	usedProvider: text().notNull(),
 	responseSize: integer().notNull(),
 	content: text(),
+	reasoningContent: text(),
 	finishReason: text(),
 	unifiedFinishReason: text(),
 	promptTokens: decimal(),

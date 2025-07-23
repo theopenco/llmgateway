@@ -24,6 +24,7 @@ const logSchema = z.object({
 	usedProvider: z.string(),
 	responseSize: z.number(),
 	content: z.string().nullable(),
+	reasoningContent: z.string().nullable(),
 	unifiedFinishReason: z.string().nullable(),
 	finishReason: z.string().nullable(),
 	promptTokens: z.string().nullable(),

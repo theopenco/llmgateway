@@ -125,6 +125,7 @@ function getProviderTokenFromEnv(usedProvider: Provider): string | undefined {
  */
 function parseProviderResponse(usedProvider: Provider, json: any) {
 	let content = null;
+	let reasoningContent = null;
 	let finishReason = null;
 	let promptTokens = null;
 	let completionTokens = null;
@@ -164,6 +165,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		case "deepseek":
 		case "perplexity":
 		case "alibaba":
+			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
 			content = json.choices?.[0]?.message?.content || null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
 			promptTokens = json.usage?.prompt_tokens || null;
@@ -209,6 +211,8 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			} else {
 				content = json.choices?.[0]?.message?.content || null;
 			}
+			// Extract reasoning content for reasoning-capable models
+			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
 			promptTokens = json.usage?.prompt_tokens || null;
 			completionTokens = json.usage?.completion_tokens || null;
@@ -219,6 +223,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 
 	return {
 		content,
+		reasoningContent,
 		finishReason,
 		promptTokens,
 		completionTokens,
@@ -387,6 +392,7 @@ function transformToOpenAIFormat(
 	usedModel: string,
 	json: any,
 	content: string | null,
+	reasoningContent: string | null,
 	finishReason: string | null,
 	promptTokens: number | null,
 	completionTokens: number | null,
@@ -410,6 +416,9 @@ function transformToOpenAIFormat(
 						message: {
 							role: "assistant",
 							content: content,
+							...(reasoningContent !== null && {
+								reasoning_content: reasoningContent,
+							}),
 						},
 						finish_reason:
 							finishReason === "STOP"
@@ -445,6 +454,9 @@ function transformToOpenAIFormat(
 						message: {
 							role: "assistant",
 							content: content,
+							...(reasoningContent !== null && {
+								reasoning_content: reasoningContent,
+							}),
 						},
 						finish_reason:
 							finishReason === "end_turn"
@@ -484,6 +496,9 @@ function transformToOpenAIFormat(
 							message: {
 								role: "assistant",
 								content: content,
+								...(reasoningContent !== null && {
+									reasoning_content: reasoningContent,
+								}),
 							},
 							finish_reason: finishReason || "stop",
 						},
@@ -836,6 +851,7 @@ const completions = createRoute({
 								message: z.object({
 									role: z.string(),
 									content: z.string().nullable(),
+									reasoning_content: z.string().nullable().optional(),
 									tool_calls: z
 										.array(
 											z.object({
@@ -1492,6 +1508,8 @@ chat.openapi(completions, async (c) => {
 				duration,
 				responseSize: JSON.stringify(cachedResponse).length,
 				content: cachedResponse.choices?.[0]?.message?.content || null,
+				reasoningContent:
+					cachedResponse.choices?.[0]?.message?.reasoning_content || null,
 				finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
 				promptTokens: cachedResponse.usage?.prompt_tokens || null,
 				completionTokens: cachedResponse.usage?.completion_tokens || null,
@@ -1624,6 +1642,7 @@ chat.openapi(completions, async (c) => {
 						duration: Date.now() - startTime,
 						responseSize: 0,
 						content: null,
+						reasoningContent: null,
 						finishReason: "canceled",
 						promptTokens: null,
 						completionTokens: null,
@@ -1706,6 +1725,7 @@ chat.openapi(completions, async (c) => {
 					duration: Date.now() - startTime,
 					responseSize: errorResponseText.length,
 					content: null,
+					reasoningContent: null,
 					finishReason: getFinishReasonForError(res.status),
 					promptTokens: null,
 					completionTokens: null,
@@ -2263,6 +2283,7 @@ chat.openapi(completions, async (c) => {
 					duration,
 					responseSize: fullContent.length,
 					content: fullContent,
+					reasoningContent: null, // Reasoning content typically not available in streaming
 					finishReason: finishReason,
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2346,6 +2367,7 @@ chat.openapi(completions, async (c) => {
 			duration,
 			responseSize: 0,
 			content: null,
+			reasoningContent: null,
 			finishReason: "canceled",
 			promptTokens: null,
 			completionTokens: null,
@@ -2406,6 +2428,7 @@ chat.openapi(completions, async (c) => {
 			duration,
 			responseSize: errorResponseText.length,
 			content: null,
+			reasoningContent: null,
 			finishReason: getFinishReasonForError(res.status),
 			promptTokens: null,
 			completionTokens: null,
@@ -2458,6 +2481,7 @@ chat.openapi(completions, async (c) => {
 	// Extract content and token usage based on provider
 	const {
 		content,
+		reasoningContent,
 		finishReason,
 		promptTokens,
 		completionTokens,
@@ -2509,6 +2533,7 @@ chat.openapi(completions, async (c) => {
 		duration,
 		responseSize: responseText.length,
 		content: content,
+		reasoningContent: reasoningContent,
 		finishReason: finishReason,
 		promptTokens: calculatedPromptTokens?.toString() || null,
 		completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2538,6 +2563,7 @@ chat.openapi(completions, async (c) => {
 		usedModel,
 		json,
 		content,
+		reasoningContent,
 		finishReason,
 		calculatedPromptTokens,
 		calculatedCompletionTokens,

@@ -46,6 +46,7 @@ interface RecentLogsProps {
 					usedProvider: string;
 					responseSize: number;
 					content: string | null;
+					reasoningContent: string | null;
 					unifiedFinishReason: string | null;
 					finishReason: string | null;
 					promptTokens: string | null;
@@ -290,7 +291,6 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 									updatedAt: new Date(log.updatedAt),
 									messages: log.messages as any,
 									errorDetails: log.errorDetails as any,
-									reasoningTokens: log.reasoningTokens,
 									cachedTokens: (log as any).cachedTokens || null,
 									cachedInputCost: (log as any).cachedInputCost || null,
 								}}

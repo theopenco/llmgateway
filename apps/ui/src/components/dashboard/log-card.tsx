@@ -345,6 +345,16 @@ export function LogCard({ log }: { log: Log }) {
 							</pre>
 						</div>
 					</div>
+					{log.reasoningContent && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Reasoning Content</h4>
+							<div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
+									{log.reasoningContent}
+								</pre>
+							</div>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

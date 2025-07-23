@@ -74,10 +74,12 @@ export interface LogsData {
 		usedProvider: string;
 		responseSize: number;
 		content: string | null;
+		reasoningContent: string | null;
 		unifiedFinishReason: string | null;
 		finishReason: string | null;
 		promptTokens: string | null;
 		completionTokens: string | null;
+		cachedTokens: string | null;
 		totalTokens: string | null;
 		reasoningTokens: string | null;
 		messages?: unknown;
@@ -93,6 +95,7 @@ export interface LogsData {
 			responseText: string;
 		} | null;
 		cost: number | null;
+		cachedInputCost: number | null;
 		inputCost: number | null;
 		outputCost: number | null;
 		requestCost: number | null;
