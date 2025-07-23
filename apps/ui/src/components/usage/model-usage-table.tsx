@@ -16,7 +16,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { ActivityModelUsage } from "@/types/activity";
 
-type SortColumn = "model" | "provider" | "requestCount" | "totalTokens";
+type SortColumn = "id" | "provider" | "requestCount" | "totalTokens";
 type SortDirection = "asc" | "desc";
 
 export function ModelUsageTable() {
@@ -48,7 +48,7 @@ export function ModelUsageTable() {
 		} else {
 			setSortColumn(column);
 			setSortDirection(
-				column === "model" || column === "provider" ? "asc" : "desc",
+				column === "id" || column === "provider" ? "asc" : "desc",
 			);
 		}
 	};
@@ -109,7 +109,7 @@ export function ModelUsageTable() {
 
 	data.activity.forEach((day) => {
 		day.modelBreakdown.forEach((model) => {
-			const key = `${model.provider}|${model.model}`;
+			const key = `${model.provider}|${model.id}`;
 			if (modelMap.has(key)) {
 				const existing = modelMap.get(key)!;
 				existing.requestCount += model.requestCount;
@@ -167,11 +167,11 @@ export function ModelUsageTable() {
 						<TableHead>
 							<Button
 								variant="ghost"
-								onClick={() => handleSort("model")}
+								onClick={() => handleSort("id")}
 								className="flex items-center p-0 h-auto font-semibold"
 							>
 								Model
-								{getSortIcon("model")}
+								{getSortIcon("id")}
 							</Button>
 						</TableHead>
 						<TableHead>
@@ -214,8 +214,8 @@ export function ModelUsageTable() {
 								? 0
 								: Math.round((model.totalTokens / totalTokens) * 100);
 						return (
-							<TableRow key={`${model.provider}-${model.model}-${index}`}>
-								<TableCell className="font-medium">{model.model}</TableCell>
+							<TableRow key={`${model.provider}-${model.id}-${index}`}>
+								<TableCell className="font-medium">{model.id}</TableCell>
 								<TableCell>{model.provider}</TableCell>
 								<TableCell>{model.requestCount.toLocaleString()}</TableCell>
 								<TableCell>{model.totalTokens.toLocaleString()}</TableCell>

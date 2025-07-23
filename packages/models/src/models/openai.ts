@@ -2,7 +2,8 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const openaiModels = [
 	{
-		model: "gpt-4o-mini",
+		id: "gpt-4o-mini",
+		name: "GPT-4o Mini",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -22,7 +23,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "gpt-4",
+		id: "gpt-4",
+		name: "GPT-4",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -41,7 +43,8 @@ export const openaiModels = [
 		jsonOutput: false,
 	},
 	{
-		model: "gpt-4o",
+		id: "gpt-4o",
+		name: "GPT-4o",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -62,7 +65,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "gpt-3.5-turbo",
+		id: "gpt-3.5-turbo",
+		name: "GPT-3.5 Turbo",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -81,7 +85,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "gpt-4-turbo",
+		id: "gpt-4-turbo",
+		name: "GPT-4 Turbo",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -100,7 +105,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "gpt-4.1",
+		id: "gpt-4.1",
+		name: "GPT-4.1",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -119,7 +125,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "o1",
+		id: "o1",
+		name: "o1",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -157,7 +164,8 @@ export const openaiModels = [
 	// 	jsonOutput: true,
 	// },
 	{
-		model: "gpt-4.1-mini",
+		id: "gpt-4.1-mini",
+		name: "GPT-4.1 Mini",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -176,7 +184,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "gpt-4.1-nano",
+		id: "gpt-4.1-nano",
+		name: "GPT-4.1 Nano",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -195,7 +204,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "o3",
+		id: "o3",
+		name: "o3",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -214,7 +224,8 @@ export const openaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "o3-mini",
+		id: "o3-mini",
+		name: "o3 Mini",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

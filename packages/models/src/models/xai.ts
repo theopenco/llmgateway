@@ -2,7 +2,8 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const xaiModels = [
 	{
-		model: "grok-3",
+		id: "grok-3",
+		name: "Grok-3",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -21,7 +22,8 @@ export const xaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "grok-3-mini",
+		id: "grok-3-mini",
+		name: "Grok-3 Mini",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -40,7 +42,8 @@ export const xaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "grok-3-fast",
+		id: "grok-3-fast",
+		name: "Grok-3 Fast",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -59,7 +62,8 @@ export const xaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "grok-3-mini-fast",
+		id: "grok-3-mini-fast",
+		name: "Grok-3 Mini Fast",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -78,7 +82,8 @@ export const xaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "grok-2-1212",
+		id: "grok-2-1212",
+		name: "Grok-2 (1212)",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -97,7 +102,8 @@ export const xaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "grok-2-vision-1212",
+		id: "grok-2-vision-1212",
+		name: "Grok-2 Vision (1212)",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -117,7 +123,8 @@ export const xaiModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "grok-4-0709",
+		id: "grok-4-0709",
+		name: "Grok-4 (0709)",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

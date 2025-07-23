@@ -12,8 +12,8 @@ export function ModelsList() {
 	return (
 		<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 			{(models as readonly ModelDefinition[]).map((model) => (
-				<Card key={model.model} className="p-4">
-					<div className="text-lg font-semibold">{model.model}</div>
+				<Card key={model.id} className="p-4">
+					<div className="text-lg font-semibold">{model.name || model.id}</div>
 					<div className="text-sm text-muted-foreground mb-2">Providers:</div>
 					<div className="flex flex-wrap gap-2 mb-2">
 						{model.providers.map((provider) => (

@@ -2,7 +2,8 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const mistralModels = [
 	{
-		model: "mistral-large-latest",
+		id: "mistral-large-latest",
+		name: "Mistral Large Latest",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

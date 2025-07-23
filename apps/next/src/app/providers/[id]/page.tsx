@@ -45,12 +45,12 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
 						<div className="grid gap-6 md:grid-cols-3">
 							{providerModels.map((model) => (
-								<Card key={model.model}>
+								<Card key={model.id}>
 									<CardHeader className="pb-2">
 										<div className="flex items-start justify-between gap-2">
 											<div className="flex-1 min-w-0">
 												<CardTitle className="text-base leading-tight line-clamp-1">
-													{model.model}
+													{model.id}
 												</CardTitle>
 												<CardDescription className="text-xs">
 													{model.providers[0].modelName}

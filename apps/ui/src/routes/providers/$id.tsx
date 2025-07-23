@@ -99,9 +99,9 @@ function ProviderPage() {
 			}
 
 			return {
-				id: m.model,
-				name: m.model,
-				description: `${m.model} model from ${provider.name}`,
+				id: m.id,
+				name: (m as any).displayName || m.id,
+				description: `${m.id} model from ${provider.name}`,
 				tags,
 				contextSize: providerModel.contextSize,
 				inputPrice: providerModel.inputPrice,

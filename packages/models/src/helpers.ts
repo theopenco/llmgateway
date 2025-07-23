@@ -8,7 +8,7 @@ export function getModelStreamingSupport(
 	modelName: string,
 	providerId?: string,
 ): boolean | null {
-	const modelInfo = models.find((m) => m.model === modelName);
+	const modelInfo = models.find((m) => m.id === modelName);
 	if (!modelInfo) {
 		return null;
 	}

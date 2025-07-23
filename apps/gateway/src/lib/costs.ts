@@ -28,7 +28,7 @@ export function calculateCosts(
 	},
 ) {
 	// Find the model info - try both base model name and provider model name
-	let modelInfo = models.find((m) => m.model === model) as ModelDefinition;
+	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
 
 	if (!modelInfo) {
 		modelInfo = models.find((m) =>

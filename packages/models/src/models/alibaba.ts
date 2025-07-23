@@ -2,7 +2,8 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const alibabaModels = [
 	{
-		model: "qwen-plus",
+		id: "qwen-plus",
+		name: "Qwen Plus",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -21,7 +22,8 @@ export const alibabaModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "qwen-turbo",
+		id: "qwen-turbo",
+		name: "Qwen Turbo",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -40,7 +42,8 @@ export const alibabaModels = [
 		jsonOutput: true,
 	},
 	{
-		model: "qwen3-coder-plus",
+		id: "qwen3-coder-plus",
+		name: "Qwen3 Coder Plus",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

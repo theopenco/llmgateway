@@ -21,7 +21,7 @@ import Logo from "@/lib/icons/Logo";
 import { cn, formatContextSize } from "@/lib/utils";
 
 interface ProviderModel {
-	model: string;
+	id: string;
 	providerId: ProviderId;
 	providerName: string;
 	inputPrice?: number;
@@ -49,7 +49,7 @@ const groupedProviders = modelDefinitions.reduce<
 			acc[provider.name] = [];
 		}
 		acc[provider.name].push({
-			model: def.model,
+			id: def.id,
 			providerId: map.providerId,
 			providerName: provider.name,
 			inputPrice: map.inputPrice,
@@ -65,7 +65,7 @@ const sortedProviderEntries = Object.entries(groupedProviders)
 	.sort(([a], [b]) => a.localeCompare(b))
 	.map(([providerName, models]) => [
 		providerName,
-		[...models].sort((a, b) => a.model.localeCompare(b.model)),
+		[...models].sort((a, b) => a.id.localeCompare(b.id)),
 	]) as [string, ProviderModel[]][];
 
 const totalModels = modelDefinitions.length;
@@ -197,14 +197,14 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 								<div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
 									{models.map((model) => (
 										<Card
-											key={`${model.providerId}-${model.model}`}
+											key={`${model.providerId}-${model.id}`}
 											className="flex flex-col h-full hover:shadow-md transition-shadow"
 										>
 											<CardHeader className="pb-2">
 												<div className="flex items-start justify-between gap-2">
 													<div className="flex-1 min-w-0">
 														<CardTitle className="text-base leading-tight line-clamp-1">
-															{model.model}
+															{model.id}
 														</CardTitle>
 														<CardDescription className="text-xs">
 															{model.providerName}
@@ -214,10 +214,10 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 														variant="ghost"
 														size="sm"
 														className="h-6 w-6 p-0 shrink-0"
-														onClick={() => copyModelName(model.model)}
+														onClick={() => copyModelName(model.id)}
 														title="Copy model name"
 													>
-														{copiedModel === model.model ? (
+														{copiedModel === model.id ? (
 															<Check className="h-3 w-3 text-green-600" />
 														) : (
 															<Copy className="h-3 w-3" />

@@ -1,5 +1,5 @@
 export interface ActivityModelUsage {
-	model: string;
+	id: string;
 	provider: string;
 	requestCount: number;
 	inputTokens: number;

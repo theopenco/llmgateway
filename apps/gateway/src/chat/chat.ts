@@ -944,7 +944,7 @@ chat.openapi(completions, async (c) => {
 			requestedModel = modelName as Model;
 		} else {
 			// First try to find by base model name
-			let modelDef = models.find((m) => m.model === modelName);
+			let modelDef = models.find((m) => m.id === modelName);
 
 			if (!modelDef) {
 				modelDef = models.find((m) =>
@@ -977,7 +977,7 @@ chat.openapi(completions, async (c) => {
 				requestedModel = modelName as Model;
 			}
 		}
-	} else if (models.find((m) => m.model === modelInput)) {
+	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
 	} else if (
 		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
@@ -988,7 +988,7 @@ chat.openapi(completions, async (c) => {
 		const provider = model?.providers.find((p) => p.modelName === modelInput);
 
 		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.model}`,
+			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
 		});
 	} else {
 		throw new HTTPException(400, {
@@ -1028,7 +1028,7 @@ chat.openapi(completions, async (c) => {
 		};
 	} else {
 		modelInfo =
-			models.find((m) => m.model === requestedModel) ||
+			models.find((m) => m.id === requestedModel) ||
 			models.find((m) =>
 				m.providers.find((p) => p.modelName === requestedModel),
 			);
@@ -1190,7 +1190,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		for (const modelDef of models) {
-			if (modelDef.model === "auto" || modelDef.model === "custom") {
+			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
 			}
 
@@ -1263,7 +1263,7 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const modelWithPricing = models.find((m) => m.model === usedModel);
+			const modelWithPricing = models.find((m) => m.id === usedModel);
 
 			if (modelWithPricing) {
 				const cheapestResult = getCheapestFromAvailableProviders(
@@ -1313,12 +1313,12 @@ chat.openapi(completions, async (c) => {
 	} else {
 		finalModelInfo = models.find(
 			(m) =>
-				m.model === usedModel ||
+				m.id === usedModel ||
 				m.providers.some((p) => p.modelName === usedModel),
 		);
 	}
 
-	const baseModelName = finalModelInfo?.model || usedModel;
+	const baseModelName = finalModelInfo?.id || usedModel;
 
 	let url: string | undefined;
 

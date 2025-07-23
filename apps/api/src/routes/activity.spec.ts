@@ -203,7 +203,7 @@ describe("activity endpoint", () => {
 
 		// Check model breakdown
 		const modelData = firstDay.modelBreakdown[0];
-		expect(modelData).toHaveProperty("model");
+		expect(modelData).toHaveProperty("id");
 		expect(modelData).toHaveProperty("provider");
 		expect(modelData).toHaveProperty("requestCount");
 		expect(modelData).toHaveProperty("inputTokens");

@@ -30,8 +30,8 @@ jobs:
 
           # Check if this is a comment event with @claude mention
           if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            COMMENT_BODY="${{ github.event.comment.body }}"
-            if [[ "$COMMENT_BODY" == *"@claude"* ]] || [[ "$COMMENT_BODY" == *"@Claude"* ]]; then
+            # Use environment variable to safely handle multiline content with quotes
+            if echo "$COMMENT_BODY" | grep -i "@claude" > /dev/null; then
               CLAUDE_REQUESTED=true
               echo "Claude was mentioned in comment"
             fi
@@ -39,9 +39,7 @@ jobs:
 
           # Check if PR title or description contains request for Claude
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            PR_TITLE="${{ github.event.pull_request.title }}"
-            PR_BODY="${{ github.event.pull_request.body }}"
-            if [[ "$PR_TITLE" == *"@claude"* ]] || [[ "$PR_TITLE" == *"@Claude"* ]] || [[ "$PR_BODY" == *"@claude"* ]] || [[ "$PR_BODY" == *"@Claude"* ]]; then
+            if echo "$PR_TITLE" | grep -i "@claude" > /dev/null || echo "$PR_BODY" | grep -i "@claude" > /dev/null; then
               CLAUDE_REQUESTED=true
               echo "Claude was mentioned in PR title or description"
             fi
@@ -54,6 +52,10 @@ jobs:
             echo "claude_requested=false" >> $GITHUB_OUTPUT
             echo "Claude review not requested - skipping"
           fi
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
 
       - name: Check if most recent commit is from Claude
         id: check-author

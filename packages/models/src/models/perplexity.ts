@@ -2,7 +2,8 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const perplexityModels = [
 	{
-		model: "sonar-reasoning-pro",
+		id: "sonar-reasoning-pro",
+		name: "Sonar Reasoning Pro",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -22,7 +23,8 @@ export const perplexityModels = [
 		jsonOutput: false,
 	},
 	{
-		model: "sonar-pro",
+		id: "sonar-pro",
+		name: "Sonar Pro",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -42,7 +44,8 @@ export const perplexityModels = [
 		jsonOutput: false,
 	},
 	{
-		model: "sonar",
+		id: "sonar",
+		name: "Sonar",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
