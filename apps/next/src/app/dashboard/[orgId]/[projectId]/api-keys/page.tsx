@@ -1,6 +1,8 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 
 import { ApiKeysList } from "@/components/api-keys/api-keys-list";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
@@ -12,10 +14,43 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { useDashboardState } from "@/lib/dashboard-state";
+import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
+
+import type { Project } from "@/lib/types";
 
 export default function ApiKeysPage() {
-	const { selectedProject } = useDashboardState();
+	const pathname = usePathname();
+
+	// Debug logging
+	console.log("ApiKeysPage render - pathname:", pathname);
+
+	// Extract project and org IDs directly from URL to avoid dashboard state conflicts
+	const { projectId, orgId } = useMemo(() => {
+		const result = extractOrgAndProjectFromPath(pathname);
+		console.log("Extracted IDs:", result);
+		return result;
+	}, [pathname]);
+
+	// Create a minimal project object for components that need it
+	const selectedProject = useMemo((): Project | null => {
+		if (!projectId || !orgId) {
+			return null;
+		}
+
+		const project = {
+			id: projectId,
+			name: "Current Project",
+			organizationId: orgId,
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			cachingEnabled: false,
+			cacheDurationSeconds: 0,
+			mode: "api-keys" as const,
+			status: "active" as const,
+		};
+		console.log("Created project object:", project.id);
+		return project;
+	}, [projectId, orgId]);
 
 	return (
 		<div className="flex flex-col">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useMemo, useCallback } from "react";
 
 import { useUser } from "@/hooks/useUser";
@@ -22,6 +22,7 @@ export function useDashboardState({
 	selectedProjectId,
 }: UseDashboardStateProps = {}) {
 	const router = useRouter();
+	const pathname = usePathname();
 	const api = useApi();
 
 	useUser({ redirectTo: "/login", redirectWhen: "unauthenticated" });
@@ -107,21 +108,41 @@ export function useDashboardState({
 	const handleOrganizationSelect = useCallback(
 		(org: Organization | null) => {
 			if (org?.id) {
-				// Navigate to the new organization
-				router.push(`/dashboard/${org.id}`);
+				// Extract the current page from pathname (e.g., 'api-keys', 'provider-keys', etc.)
+				const pathParts = pathname.split("/");
+				const currentPage = pathParts[4]; // /dashboard/[orgId]/[projectId]/[page]
+
+				if (currentPage && pathParts.length > 4) {
+					// Try to preserve the current page if we have one
+					router.push(`/dashboard/${org.id}`);
+				} else {
+					// Navigate to the new organization
+					router.push(`/dashboard/${org.id}`);
+				}
 			}
 		},
-		[router],
+		[router, pathname],
 	);
 
 	const handleProjectSelect = useCallback(
 		(project: Project | null) => {
 			if (project?.id) {
-				// Navigate to the new project
-				router.push(`/dashboard/${project.organizationId}/${project.id}`);
+				// Extract the current page from pathname (e.g., 'api-keys', 'provider-keys', etc.)
+				const pathParts = pathname.split("/");
+				const currentPage = pathParts[4]; // /dashboard/[orgId]/[projectId]/[page]
+
+				if (currentPage && pathParts.length > 4) {
+					// Preserve the current page when changing projects
+					router.push(
+						`/dashboard/${project.organizationId}/${project.id}/${currentPage}`,
+					);
+				} else {
+					// Navigate to the new project dashboard
+					router.push(`/dashboard/${project.organizationId}/${project.id}`);
+				}
 			}
 		},
-		[router],
+		[router, pathname],
 	);
 
 	return {

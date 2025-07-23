@@ -1,10 +1,18 @@
+"use client";
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	type ProviderId,
 } from "@llmgateway/models";
 import { Link } from "@tanstack/react-router";
-import { ExternalLink, Copy, Check, Plus, GitBranch } from "lucide-react";
+import {
+	ExternalLink,
+	Copy,
+	Check,
+	Plus,
+	GitBranch,
+	Filter,
+} from "lucide-react";
 import { useState } from "react";
 
 import { providerLogoComponents } from "./provider-keys/provider-logo";
@@ -16,6 +24,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { useAppConfigValue } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn, formatContextSize } from "@/lib/utils";
@@ -30,11 +45,21 @@ interface ProviderModel {
 	contextSize?: number;
 }
 
-const getProviderIcon = (providerId: ProviderId) => {
-	const ProviderLogo = providerLogoComponents[providerId];
+const getProviderLogo = (providerId: ProviderId) => {
+	const LogoComponent = providerLogoComponents[providerId];
 
-	if (ProviderLogo) {
-		return <ProviderLogo className="h-10 w-10 text-black dark:text-white" />;
+	if (LogoComponent) {
+		return <LogoComponent className="h-10 w-10 object-contain" />;
+	}
+
+	return <Logo className="h-10 w-10" />;
+};
+
+const getProviderLogoSmall = (providerId: ProviderId) => {
+	const LogoComponent = providerLogoComponents[providerId];
+
+	if (LogoComponent) {
+		return <LogoComponent className="h-5 w-5 object-contain" />;
 	}
 
 	return <Logo className="h-5 w-5" />;
@@ -73,17 +98,36 @@ const totalProviders = sortedProviderEntries.length;
 
 export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 	const config = useAppConfigValue();
-	const [copiedModel, setCopiedModel] = useState<string | null>(null);
+	const [copiedText, setCopiedText] = useState<string | null>(null);
+	const [selectedProvider, setSelectedProvider] = useState<string>("all");
 
-	const copyModelName = async (modelName: string) => {
+	const copyToClipboard = async (text: string) => {
 		try {
-			await navigator.clipboard.writeText(modelName);
-			setCopiedModel(modelName);
-			setTimeout(() => setCopiedModel(null), 2000);
+			await navigator.clipboard.writeText(text);
+			setCopiedText(text);
+			setTimeout(() => setCopiedText(null), 2000);
 		} catch (err) {
-			console.error("Failed to copy model name:", err);
+			console.error("Failed to copy text:", err);
 		}
 	};
+
+	// Filter providers based on selection
+	const filteredProviderEntries =
+		selectedProvider === "all"
+			? sortedProviderEntries.filter(
+					([providerName]) => providerName !== "LLM Gateway",
+				)
+			: sortedProviderEntries.filter(
+					([providerName]) =>
+						providerName !== "LLM Gateway" && providerName === selectedProvider,
+				);
+
+	// Calculate filtered counts
+	const filteredModelsCount = filteredProviderEntries.reduce(
+		(sum, [, models]) => sum + models.length,
+		0,
+	);
+	const filteredProvidersCount = filteredProviderEntries.length;
 
 	return (
 		<div className={cn(!isDashboard && "container mx-auto px-4 pt-60 pb-8")}>
@@ -176,26 +220,95 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 				</div>
 			)}
 
-			<section className="space-y-12">
-				{sortedProviderEntries
-					.filter(([providerName]) => providerName !== "LLM Gateway")
-					.map(([providerName, models]) => {
-						const providerId = models[0].providerId;
-						return (
-							<div key={providerName} className="space-y-6">
-								<Link
-									to="/providers/$id"
-									params={{ id: providerId }}
-									className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-								>
-									{getProviderIcon(providerId)}
-									<h2 className="text-2xl font-semibold">{providerName}</h2>
-									<span className="text-sm text-muted-foreground">
-										{models.length} model{models.length !== 1 && "s"}
+			{/* Filter Section */}
+			<div className="mb-8">
+				<div className="flex items-center justify-between">
+					<div className="flex items-center gap-4">
+						{selectedProvider !== "all" && (
+							<div className="flex gap-4 text-sm text-muted-foreground">
+								<div className="flex items-center gap-2">
+									<div className="w-2 h-2 bg-blue-500 rounded-full" />
+									<span>
+										Showing {filteredModelsCount} models from{" "}
+										{filteredProvidersCount} provider
 									</span>
-								</Link>
-								<div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-									{models.map((model) => (
+								</div>
+							</div>
+						)}
+					</div>
+					<div className="flex items-center gap-4">
+						<div className="flex items-center gap-2">
+							<Filter className="h-4 w-4 text-muted-foreground" />
+							<span className="text-sm font-medium">Filter by Provider:</span>
+						</div>
+						<Select
+							value={selectedProvider}
+							onValueChange={setSelectedProvider}
+						>
+							<SelectTrigger className="w-[200px]">
+								<SelectValue placeholder="Select provider" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">
+									<div className="flex items-center gap-2">
+										<div className="w-5 h-5 bg-muted rounded flex items-center justify-center">
+											<Filter className="h-3 w-3" />
+										</div>
+										<span>All Providers</span>
+									</div>
+								</SelectItem>
+								{sortedProviderEntries
+									.filter(([providerName]) => providerName !== "LLM Gateway")
+									.map(([providerName, models]) => {
+										const providerId = models[0].providerId;
+										return (
+											<SelectItem key={providerName} value={providerName}>
+												<div className="flex items-center gap-2">
+													<div className="w-5 h-5 flex items-center justify-center">
+														{getProviderLogoSmall(providerId)}
+													</div>
+													<span>{providerName}</span>
+												</div>
+											</SelectItem>
+										);
+									})}
+							</SelectContent>
+						</Select>
+						{selectedProvider !== "all" && (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setSelectedProvider("all")}
+							>
+								Clear Filter
+							</Button>
+						)}
+					</div>
+				</div>
+			</div>
+
+			<section className="space-y-12">
+				{filteredProviderEntries.map(([providerName, models]) => {
+					const providerId = models[0].providerId;
+					return (
+						<div key={providerName} className="space-y-6">
+							<Link
+								to="/providers/$id"
+								params={{ id: providerId }}
+								className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+								preload="intent"
+							>
+								{getProviderLogo(providerId)}
+								<h2 className="text-2xl font-semibold">{providerName}</h2>
+								<span className="text-sm text-muted-foreground">
+									{models.length} model{models.length !== 1 && "s"}
+								</span>
+							</Link>
+							<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+								{models.map((model) => {
+									const providerModelName = `${model.providerId}/${model.model}`;
+
+									return (
 										<Card
 											key={`${model.providerId}-${model.model}`}
 											className="flex flex-col h-full hover:shadow-md transition-shadow"
@@ -210,22 +323,31 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 															{model.providerName}
 														</CardDescription>
 													</div>
+												</div>
+											</CardHeader>
+											<CardContent className="mt-auto space-y-2">
+												{/* Model Name Copy Section */}
+												<div className="flex items-center justify-between gap-2">
+													<div className="flex-1 min-w-0">
+														<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all">
+															{providerModelName}
+														</code>
+													</div>
 													<Button
 														variant="ghost"
 														size="sm"
 														className="h-6 w-6 p-0 shrink-0"
-														onClick={() => copyModelName(model.model)}
-														title="Copy model name"
+														onClick={() => copyToClipboard(providerModelName)}
+														title="Copy provider/model name"
 													>
-														{copiedModel === model.model ? (
+														{copiedText === providerModelName ? (
 															<Check className="h-3 w-3 text-green-600" />
 														) : (
 															<Copy className="h-3 w-3" />
 														)}
 													</Button>
 												</div>
-											</CardHeader>
-											<CardContent className="mt-auto space-y-2">
+
 												{model.contextSize && (
 													<p className="text-xs text-muted-foreground">
 														Context:{" "}
@@ -269,12 +391,21 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 												)}
 											</CardContent>
 										</Card>
-									))}
-								</div>
+									);
+								})}
 							</div>
-						);
-					})}
+						</div>
+					);
+				})}
 			</section>
+
+			{filteredProviderEntries.length === 0 && (
+				<div className="text-center py-12">
+					<p className="text-muted-foreground">
+						No providers match the selected filter.
+					</p>
+				</div>
+			)}
 
 			<footer className="mt-16 text-center">
 				<a

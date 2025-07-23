@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 
 import { CreateProviderKeyDialog } from "@/components/provider-keys/create-provider-key-dialog";
 import { ProviderKeysList } from "@/components/provider-keys/provider-keys-list";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -12,7 +13,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { useDashboardState } from "@/lib/dashboard-state";
 
 interface ProviderKeysClientProps {
 	initialProviderKeysData?: {
@@ -33,7 +33,7 @@ interface ProviderKeysClientProps {
 export function ProviderKeysClient({
 	initialProviderKeysData,
 }: ProviderKeysClientProps) {
-	const { selectedOrganization } = useDashboardState();
+	const { selectedOrganization } = useDashboardNavigation();
 
 	return (
 		<div className="flex flex-col">
@@ -57,12 +57,8 @@ export function ProviderKeysClient({
 						<CardHeader>
 							<CardTitle>Your Provider Keys</CardTitle>
 							<CardDescription>
-								Manage your provider keys for connecting to LLM providers
-								{selectedOrganization && (
-									<span className="block mt-1 text-sm">
-										Organization: {selectedOrganization.name}
-									</span>
-								)}
+								Provider keys allow you to use your own API keys with LLM
+								Gateway without additional fees.
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
