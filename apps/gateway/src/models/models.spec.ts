@@ -39,5 +39,7 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("pricing");
 		expect(firstModel.pricing).toHaveProperty("prompt");
 		expect(firstModel.pricing).toHaveProperty("completion");
+
+		expect(firstModel).toHaveProperty("family");
 	});
 });
