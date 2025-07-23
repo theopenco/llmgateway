@@ -1,5 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { models as modelsList } from "@llmgateway/models";
+import {
+	models as modelsList,
+	providers,
+	type ProviderModelMapping,
+	type ModelDefinition,
+} from "@llmgateway/models";
 import { HTTPException } from "hono/http-exception";
 
 import type { ServerTypes } from "../vars";
@@ -30,6 +35,9 @@ const modelSchema = z.object({
 					image: z.string().optional(),
 				})
 				.optional(),
+			streaming: z.boolean(),
+			vision: z.boolean(),
+			cancellation: z.boolean(),
 		}),
 	),
 	pricing: z.object({
@@ -43,9 +51,11 @@ const modelSchema = z.object({
 		internal_reasoning: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
-	hugging_face_id: z.string().optional(),
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
+	json_output: z.boolean(),
+	deprecated_at: z.string().optional(),
+	deactivated_at: z.string().optional(),
 });
 
 const listModelsResponseSchema = z.object({
@@ -73,30 +83,28 @@ const listModels = createRoute({
 
 modelsApi.openapi(listModels, async (c) => {
 	try {
-		const modelData = modelsList.map((model) => {
+		const modelData = modelsList.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
 			const inputModalities: ("text" | "image")[] = ["text"];
 
-			// Check if any provider has imageInputPrice property and it's defined
-			if (
-				model.providers.some((p) => (p as any).imageInputPrice !== undefined)
-			) {
+			// Check if any provider has vision support
+			if (model.providers.some((p) => p.vision)) {
 				inputModalities.push("image");
 			}
 
 			const firstProviderWithPricing = model.providers.find(
-				(p) =>
-					(p as any).inputPrice !== undefined ||
-					(p as any).outputPrice !== undefined ||
-					(p as any).imageInputPrice !== undefined,
+				(p: ProviderModelMapping) =>
+					p.inputPrice !== undefined ||
+					p.outputPrice !== undefined ||
+					p.imageInputPrice !== undefined,
 			);
 
 			const inputPrice =
-				(firstProviderWithPricing as any)?.inputPrice?.toString() || "0";
+				firstProviderWithPricing?.inputPrice?.toString() || "0";
 			const outputPrice =
-				(firstProviderWithPricing as any)?.outputPrice?.toString() || "0";
+				firstProviderWithPricing?.outputPrice?.toString() || "0";
 			const imagePrice =
-				(firstProviderWithPricing as any)?.imageInputPrice?.toString() || "0";
+				firstProviderWithPricing?.imageInputPrice?.toString() || "0";
 
 			return {
 				id: model.model,
@@ -106,39 +114,56 @@ modelsApi.openapi(listModels, async (c) => {
 				architecture: {
 					input_modalities: inputModalities,
 					output_modalities: ["text"] as ["text"],
-					tokenizer: "GPT", // Default tokenizer
+					tokenizer: "GPT", // TODO: Should come from model definitions when available
 				},
 				top_provider: {
 					is_moderated: true,
 				},
-				providers: model.providers.map((provider) => ({
-					providerId: provider.providerId,
-					modelName: provider.modelName,
-					pricing:
-						(provider as any).inputPrice !== undefined ||
-						(provider as any).outputPrice !== undefined ||
-						(provider as any).imageInputPrice !== undefined
-							? {
-									prompt: (provider as any).inputPrice?.toString() || "0",
-									completion: (provider as any).outputPrice?.toString() || "0",
-									image: (provider as any).imageInputPrice?.toString() || "0",
-								}
-							: undefined,
-				})),
+				providers: model.providers.map((provider: ProviderModelMapping) => {
+					// Find the provider definition to get cancellation support
+					const providerDef = providers.find(
+						(p) => p.id === provider.providerId,
+					);
+
+					return {
+						providerId: provider.providerId,
+						modelName: provider.modelName,
+						pricing:
+							provider.inputPrice !== undefined ||
+							provider.outputPrice !== undefined ||
+							provider.imageInputPrice !== undefined
+								? {
+										prompt: provider.inputPrice?.toString() || "0",
+										completion: provider.outputPrice?.toString() || "0",
+										image: provider.imageInputPrice?.toString() || "0",
+									}
+								: undefined,
+						streaming: provider.streaming,
+						vision: provider.vision || false,
+						cancellation: providerDef?.cancellation || false,
+					};
+				}),
 				pricing: {
 					prompt: inputPrice,
 					completion: outputPrice,
 					image: imagePrice,
-					request: "0",
-					input_cache_read: "0",
-					input_cache_write: "0",
-					web_search: "0",
-					internal_reasoning: "0",
+					request: firstProviderWithPricing?.requestPrice?.toString() || "0",
+					input_cache_read:
+						firstProviderWithPricing?.cachedInputPrice?.toString() || "0",
+					input_cache_write: "0", // Not defined in model definitions yet
+					web_search: "0", // Not defined in model definitions yet
+					internal_reasoning: "0", // Not defined in model definitions yet
 				},
-				// Estimate context length based on model name
-				context_length: getContextLength(model.model),
-				// Add supported parameters
+				// Use context length from model definition (take the largest from all providers)
+				context_length:
+					Math.max(...model.providers.map((p) => p.contextSize || 0)) ||
+					undefined,
+				// TODO: supported_parameters should come from model definitions when available
 				supported_parameters: getSupportedParameters(model.model),
+				// Add model-level capabilities
+				json_output: model.jsonOutput || false,
+				deprecated_at: model.deprecatedAt?.toISOString(),
+				deactivated_at: model.deactivatedAt?.toISOString(),
 			};
 		});
 
@@ -149,31 +174,8 @@ modelsApi.openapi(listModels, async (c) => {
 	}
 });
 
-// Helper function to estimate context length based on model name
-function getContextLength(modelName: string): number {
-	if (modelName.includes("gpt-4o")) {
-		return 128000;
-	} else if (modelName.includes("gpt-4")) {
-		return 8192;
-	} else if (modelName.includes("gpt-3.5")) {
-		return 16385;
-	} else if (modelName.includes("llama-3.3")) {
-		return 128000;
-	} else if (modelName.includes("llama-3.1")) {
-		return 128000;
-	} else if (modelName.includes("llama-3")) {
-		return 8192;
-	} else if (modelName.includes("claude")) {
-		return 200000;
-	} else if (modelName.includes("gemini")) {
-		return 32768;
-	}
-
-	// Default context length
-	return 8192;
-}
-
 // Helper function to determine supported parameters based on model name
+// TODO: This should be moved to model definitions instead of hardcoded logic
 function getSupportedParameters(modelName: string): string[] {
 	const baseParams = [
 		"temperature",

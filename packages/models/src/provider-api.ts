@@ -27,6 +27,7 @@ export function getProviderHeaders(
 		case "perplexity":
 		case "novita":
 		case "moonshot":
+		case "alibaba":
 		case "custom":
 		default:
 			return {
@@ -89,6 +90,7 @@ export function prepareRequestBody(
 		case "perplexity":
 		case "novita":
 		case "moonshot":
+		case "alibaba":
 		case "custom": {
 			if (stream) {
 				requestBody.stream_options = {
@@ -307,6 +309,9 @@ export function getProviderEndpoint(
 			case "moonshot":
 				url = "https://api.moonshot.ai";
 				break;
+			case "alibaba":
+				url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -345,6 +350,7 @@ export function getProviderEndpoint(
 		case "groq":
 		case "deepseek":
 		case "moonshot":
+		case "alibaba":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

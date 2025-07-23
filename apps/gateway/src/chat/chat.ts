@@ -163,6 +163,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		case "groq":
 		case "deepseek":
 		case "perplexity":
+		case "alibaba":
 			content = json.choices?.[0]?.message?.content || null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
 			promptTokens = json.usage?.prompt_tokens || null;
@@ -309,6 +310,7 @@ function extractContentFromProvider(data: any, provider: Provider): string {
 		case "groq":
 		case "deepseek":
 		case "perplexity":
+		case "alibaba":
 			return data.choices?.[0]?.delta?.content || "";
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.content || "";
@@ -349,6 +351,7 @@ function extractTokenUsage(data: any, provider: Provider) {
 		case "groq":
 		case "deepseek":
 		case "perplexity":
+		case "alibaba":
 			if (data.usage) {
 				promptTokens = data.usage.prompt_tokens || null;
 				completionTokens = data.usage.completion_tokens || null;

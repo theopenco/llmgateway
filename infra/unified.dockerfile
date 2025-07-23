@@ -34,7 +34,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 
 # Build all apps
-RUN pnpm build
+RUN --mount=type=cache,target=/app/.turbo pnpm build
 
 # Runtime stage with all services
 FROM alpine:3.19 AS runtime

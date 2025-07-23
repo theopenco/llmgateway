@@ -2,13 +2,7 @@ name: claude
 
 on:
   pull_request:
-    types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    types: [opened, synchronize, review_requested]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,8 +23,41 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Check if Claude review is requested
+        id: check-claude-requested
+        run: |
+          CLAUDE_REQUESTED=false
+
+          # Check if this is a comment event with @claude mention
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            COMMENT_BODY="${{ github.event.comment.body }}"
+            if [[ "$COMMENT_BODY" == *"@claude"* ]] || [[ "$COMMENT_BODY" == *"@Claude"* ]]; then
+              CLAUDE_REQUESTED=true
+              echo "Claude was mentioned in comment"
+            fi
+          fi
+
+          # Check if PR title or description contains request for Claude
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_TITLE="${{ github.event.pull_request.title }}"
+            PR_BODY="${{ github.event.pull_request.body }}"
+            if [[ "$PR_TITLE" == *"@claude"* ]] || [[ "$PR_TITLE" == *"@Claude"* ]] || [[ "$PR_BODY" == *"@claude"* ]] || [[ "$PR_BODY" == *"@Claude"* ]]; then
+              CLAUDE_REQUESTED=true
+              echo "Claude was mentioned in PR title or description"
+            fi
+          fi
+
+          if [[ "$CLAUDE_REQUESTED" == "true" ]]; then
+            echo "claude_requested=true" >> $GITHUB_OUTPUT
+            echo "Claude review requested - proceeding"
+          else
+            echo "claude_requested=false" >> $GITHUB_OUTPUT
+            echo "Claude review not requested - skipping"
+          fi
+
       - name: Check if most recent commit is from Claude
         id: check-author
+        if: steps.check-claude-requested.outputs.claude_requested == 'true'
         run: |
           # Get the most recent actual commit (HEAD~1 to skip the merge commit)
           AUTHOR_EMAIL=$(git log --no-merges -1 --pretty=format:'%ae')
@@ -54,6 +81,7 @@ jobs:
       - name: Check repository permissions
         id: check-permissions
         if: |
+          steps.check-claude-requested.outputs.claude_requested == 'true' &&
           steps.check-author.outputs.skip != 'true' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           !contains(github.event.pull_request.title, 'WIP')
@@ -72,6 +100,7 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         if: |
+          steps.check-claude-requested.outputs.claude_requested == 'true' &&
           steps.check-author.outputs.skip != 'true' &&
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           !contains(github.event.pull_request.title, 'WIP') &&
