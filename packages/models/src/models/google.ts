@@ -2,7 +2,9 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const googleModels = [
 	{
-		model: "gemini-2.5-pro",
+		id: "gemini-2.5-pro",
+		name: "Gemini 2.5 Pro",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -20,7 +22,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.5-pro-preview-05-06",
+		id: "gemini-2.5-pro-preview-05-06",
+		name: "Gemini 2.5 Pro Preview (05-06)",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -38,7 +42,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.5-pro-preview-06-05",
+		id: "gemini-2.5-pro-preview-06-05",
+		name: "Gemini 2.5 Pro Preview (06-05)",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -56,7 +62,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.5-flash-preview-04-17",
+		id: "gemini-2.5-flash-preview-04-17",
+		name: "Gemini 2.5 Flash Preview (04-17)",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: new Date("2025-07-22"),
 		providers: [
@@ -74,7 +82,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.5-flash-preview-05-20",
+		id: "gemini-2.5-flash-preview-05-20",
+		name: "Gemini 2.5 Flash Preview (05-20)",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -92,7 +102,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.5-flash",
+		id: "gemini-2.5-flash",
+		name: "Gemini 2.5 Flash",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -110,7 +122,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.5-flash-preview-04-17-thinking",
+		id: "gemini-2.5-flash-preview-04-17-thinking",
+		name: "Gemini 2.5 Flash Preview Thinking (04-17)",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: new Date("2025-07-22"),
 		providers: [
@@ -128,7 +142,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-1.5-pro",
+		id: "gemini-1.5-pro",
+		name: "Gemini 1.5 Pro",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -146,7 +162,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-1.5-flash",
+		id: "gemini-1.5-flash",
+		name: "Gemini 1.5 Flash",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -164,7 +182,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-1.5-flash-8b",
+		id: "gemini-1.5-flash-8b",
+		name: "Gemini 1.5 Flash 8B",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -182,7 +202,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.0-flash-lite",
+		id: "gemini-2.0-flash-lite",
+		name: "Gemini 2.0 Flash Lite",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -200,7 +222,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemini-2.0-flash",
+		id: "gemini-2.0-flash",
+		name: "Gemini 2.0 Flash",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -218,7 +242,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemma-3n-e2b-it",
+		id: "gemma-3n-e2b-it",
+		name: "Gemma 3n E2B IT",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -236,7 +262,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemma-3n-e4b-it",
+		id: "gemma-3n-e4b-it",
+		name: "Gemma 3n E4B IT",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -254,7 +282,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemma-3-1b-it",
+		id: "gemma-3-1b-it",
+		name: "Gemma 3 1B IT",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -272,7 +302,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemma-3-4b-it",
+		id: "gemma-3-4b-it",
+		name: "Gemma 3 4B IT",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -291,7 +323,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemma-3-12b-it",
+		id: "gemma-3-12b-it",
+		name: "Gemma 3 12B IT",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -310,7 +344,9 @@ export const googleModels = [
 		],
 	},
 	{
-		model: "gemma2-9b-it",
+		id: "gemma2-9b-it",
+		name: "Gemma2 9B IT",
+		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

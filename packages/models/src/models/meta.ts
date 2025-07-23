@@ -2,7 +2,9 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const metaModels = [
 	{
-		model: "llama-3.1-8b-instruct",
+		id: "llama-3.1-8b-instruct",
+		name: "Llama 3.1 8B Instruct",
+		family: "meta",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -42,7 +44,9 @@ export const metaModels = [
 		],
 	},
 	{
-		model: "llama-3.2-11b-instruct",
+		id: "llama-3.2-11b-instruct",
+		name: "Llama 3.2 11B Instruct",
+		family: "meta",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -60,7 +64,9 @@ export const metaModels = [
 		],
 	},
 	{
-		model: "llama-4-maverick-17b-128e-instruct",
+		id: "llama-4-maverick-17b-128e-instruct",
+		name: "Llama 4 Maverick 17B 128E Instruct",
+		family: "meta",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -77,7 +83,9 @@ export const metaModels = [
 		],
 	},
 	{
-		model: "llama-guard-4-12b",
+		id: "llama-guard-4-12b",
+		name: "Llama Guard 4 12B",
+		family: "meta",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

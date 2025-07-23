@@ -603,7 +603,7 @@ export interface paths {
 								cacheCount: number;
 								cacheRate: number;
 								modelBreakdown: {
-									model: string;
+									id: string;
 									provider: string;
 									requestCount: number;
 									inputTokens: number;

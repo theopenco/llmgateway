@@ -17,7 +17,7 @@ export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	const modelDef = modelDefinitions.find((m) => m.model === decodedName);
+	const modelDef = modelDefinitions.find((m) => m.id === decodedName);
 
 	if (!modelDef) {
 		notFound();
@@ -40,7 +40,7 @@ export default async function ModelPage({ params }: PageProps) {
 				<div className="container mx-auto px-4 py-8">
 					<div className="mb-8">
 						<h1 className="text-4xl font-bold tracking-tight mb-2">
-							{modelDef.model}
+							{modelDef.id}
 						</h1>
 						<div className="flex items-center gap-2 mb-4">
 							<CopyModelName modelName={decodedName} />
@@ -82,7 +82,7 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 
 						<p className="text-muted-foreground max-w-4xl">
-							{modelDef.model} is available across multiple providers with
+							{modelDef.id} is available across multiple providers with
 							different configurations, pricing, and performance
 							characteristics. Choose the provider that best fits your needs.
 						</p>
@@ -92,7 +92,7 @@ export default async function ModelPage({ params }: PageProps) {
 						<div className="flex items-center justify-between mb-6">
 							<div>
 								<h2 className="text-2xl font-semibold mb-2">
-									Providers for {modelDef.model}
+									Providers for {modelDef.id}
 								</h2>
 								<p className="text-muted-foreground">
 									LLM Gateway routes requests to the best providers that are
@@ -121,31 +121,31 @@ export default async function ModelPage({ params }: PageProps) {
 
 export async function generateStaticParams() {
 	return modelDefinitions.map((model) => ({
-		name: encodeURIComponent(model.model),
+		name: encodeURIComponent(model.id),
 	}));
 }
 
 export async function generateMetadata({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = modelDefinitions.find((m) => m.model === decodedName);
+	const model = modelDefinitions.find((m) => m.id === decodedName);
 
 	if (!model) {
 		return {};
 	}
 
 	return {
-		title: `${model.model} - LLM Gateway`,
-		description: `Explore ${model.model} across providers on LLM Gateway.`,
+		title: `${model.id} - LLM Gateway`,
+		description: `Explore ${model.id} across providers on LLM Gateway.`,
 		openGraph: {
-			title: `${model.model} - LLM Gateway`,
-			description: `Explore ${model.model} across providers on LLM Gateway.`,
+			title: `${model.id} - LLM Gateway`,
+			description: `Explore ${model.id} across providers on LLM Gateway.`,
 			type: "website",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${model.model} - LLM Gateway`,
-			description: `Explore ${model.model} across providers.`,
+			title: `${model.id} - LLM Gateway`,
+			description: `Explore ${model.id} across providers.`,
 		},
 	};
 }

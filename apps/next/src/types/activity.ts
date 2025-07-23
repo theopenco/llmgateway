@@ -1,5 +1,5 @@
 export interface ActivityModelUsage {
-	model: string;
+	id: string;
 	provider: string;
 	requestCount: number;
 	inputTokens: number;
@@ -45,7 +45,7 @@ export type ActivitT =
 				cacheCount: number;
 				cacheRate: number;
 				modelBreakdown: {
-					model: string;
+					id: string;
 					provider: string;
 					requestCount: number;
 					inputTokens: number;

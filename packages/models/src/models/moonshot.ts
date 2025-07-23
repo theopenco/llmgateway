@@ -2,7 +2,9 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const moonshotModels = [
 	{
-		model: "kimi-k2",
+		id: "kimi-k2",
+		name: "Kimi K2",
+		family: "moonshot",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

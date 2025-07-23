@@ -39,8 +39,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 						<div className="grid gap-6 md:grid-cols-3">
 							{providerModels.map((model) => (
 								<ModelCard
-									key={`${model.providers[0].providerId}-${model.model}`}
-									modelName={model.model}
+									key={`${model.providers[0].providerId}-${model.id}`}
+									modelName={model.id}
 									providers={model.providers}
 								/>
 							))}

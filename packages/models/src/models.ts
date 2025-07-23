@@ -66,7 +66,21 @@ export interface ProviderModelMapping {
 }
 
 export interface ModelDefinition {
-	model: string;
+	/**
+	 * Unique identifier for the model
+	 */
+	id: string;
+	/**
+	 * Human-readable display name for the model
+	 */
+	name?: string;
+	/**
+	 * Model family (e.g., 'openai', 'deepseek', 'anthropic')
+	 */
+	family: string;
+	/**
+	 * Mappings to provider models
+	 */
 	providers: ProviderModelMapping[];
 	/**
 	 * Whether the model supports JSON output mode

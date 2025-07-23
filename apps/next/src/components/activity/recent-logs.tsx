@@ -266,8 +266,8 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 					<SelectContent>
 						<SelectItem value="all">All models</SelectItem>
 						{models.map((m) => (
-							<SelectItem key={m.model} value={m.model}>
-								{m.model}
+							<SelectItem key={m.id} value={m.id}>
+								{m.id}
 							</SelectItem>
 						))}
 					</SelectContent>

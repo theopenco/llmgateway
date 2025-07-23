@@ -16,7 +16,7 @@ interface ModelSelectorProps {
 }
 
 interface LocalModel {
-	model: string;
+	id: string;
 	jsonOutput: boolean;
 	providers: Array<{
 		providerId: string;
@@ -60,13 +60,13 @@ export function ModelSelector({
 
 		const typedModel = model as ModelDefinition;
 		return {
-			model: typedModel.model,
+			id: typedModel.id,
 			jsonOutput: typedModel.jsonOutput ?? false,
 			providers: modelProviders,
 		};
 	});
 
-	const currentModelInfo = uniqueModels.find((m) => m.model === selectedModel);
+	const currentModelInfo = uniqueModels.find((m) => m.id === selectedModel);
 
 	return (
 		<DropdownMenu>
@@ -86,7 +86,7 @@ export function ModelSelector({
 							/>
 						)}
 						<span className="truncate">
-							{currentModelInfo?.model || selectedModel}
+							{currentModelInfo?.id || selectedModel}
 						</span>
 					</div>
 					<ChevronDown className="h-4 w-4 opacity-50" />
@@ -94,9 +94,9 @@ export function ModelSelector({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent className="w-80 max-h-96 overflow-y-auto">
 				{uniqueModels.map((model) => (
-					<div key={model.model}>
+					<div key={model.id}>
 						<DropdownMenuItem
-							onSelect={() => onModelSelect(model.model)}
+							onSelect={() => onModelSelect(model.id)}
 							className="flex items-center justify-between py-3"
 						>
 							<div className="flex items-center gap-2">
@@ -110,8 +110,8 @@ export function ModelSelector({
 										/>
 									))}
 								</div>
-								<span className="font-medium">{model.model}</span>
-								{model.model === selectedModel && (
+								<span className="font-medium">{model.id}</span>
+								{model.id === selectedModel && (
 									<Check className="h-4 w-4 text-green-600" />
 								)}
 							</div>

@@ -42,7 +42,7 @@ function getUniqueModels(data: any[]): string[] {
 	data.forEach((day) => {
 		if (day.modelBreakdown && day.modelBreakdown.length > 0) {
 			day.modelBreakdown.forEach((model: any) => {
-				allModels.add(model.model);
+				allModels.add(model.id);
 			});
 		}
 	});
@@ -284,14 +284,14 @@ export function ActivityChart() {
 			dayData.modelBreakdown.forEach((model) => {
 				switch (breakdownField) {
 					case "cost":
-						result[model.model] = model.cost;
+						result[model.id] = model.cost;
 						break;
 					case "tokens":
-						result[model.model] = model.totalTokens;
+						result[model.id] = model.totalTokens;
 						break;
 					case "requests":
 					default:
-						result[model.model] = model.requestCount;
+						result[model.id] = model.requestCount;
 						break;
 				}
 			});

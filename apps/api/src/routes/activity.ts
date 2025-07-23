@@ -9,7 +9,7 @@ export const activity = new OpenAPIHono<ServerTypes>();
 
 // Define the response schema for model-specific usage
 const modelUsageSchema = z.object({
-	model: z.string(),
+	id: z.string(),
 	provider: z.string(),
 	requestCount: z.number(),
 	inputTokens: z.number(),
@@ -208,7 +208,7 @@ activity.openapi(getActivity, async (c) => {
 
 		if (!dayModelMap.has(modelKey)) {
 			dayModelMap.set(modelKey, {
-				model,
+				id: model,
 				provider,
 				requestCount: 0,
 				inputTokens: 0,

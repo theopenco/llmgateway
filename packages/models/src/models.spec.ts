@@ -4,7 +4,7 @@ import { models } from "./models";
 
 describe("Models", () => {
 	it("should not have duplicate model IDs", () => {
-		const modelIds = models.map((model) => model.model);
+		const modelIds = models.map((model) => model.id);
 
 		const uniqueModelIds = new Set(modelIds);
 

@@ -2,7 +2,9 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const llmgatewayModels = [
 	{
-		model: "custom", // custom provider which expects base URL to be set
+		id: "custom", // custom provider which expects base URL to be set
+		name: "Custom Model",
+		family: "llmgateway",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -19,7 +21,9 @@ export const llmgatewayModels = [
 		],
 	},
 	{
-		model: "auto", // native automatic routing
+		id: "auto", // native automatic routing
+		name: "Auto Route",
+		family: "llmgateway",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

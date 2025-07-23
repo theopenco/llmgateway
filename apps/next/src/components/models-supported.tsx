@@ -37,7 +37,7 @@ import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
 
 interface ProviderModel {
-	model: string;
+	id: string;
 	providerId: ProviderId;
 	providerName: string;
 	inputPrice?: number;
@@ -58,18 +58,18 @@ function ProviderModelCard({
 	copiedText,
 	onCopy,
 }: ProviderModelCardProps) {
-	const providerModelName = `${model.providerId}/${model.model}`;
+	const providerModelName = `${model.providerId}/${model.id}`;
 
 	return (
 		<Card
-			key={`${model.providerId}-${model.model}`}
+			key={`${model.providerId}-${model.id}`}
 			className="flex flex-col h-full hover:shadow-md transition-shadow"
 		>
 			<CardHeader className="pb-2">
 				<div className="flex items-start justify-between gap-2">
 					<div className="flex-1 min-w-0">
 						<CardTitle className="text-base leading-tight line-clamp-1">
-							{model.model}
+							{model.id}
 						</CardTitle>
 						<CardDescription className="text-xs">
 							{model.providerName}
@@ -138,7 +138,7 @@ function ProviderModelCard({
 			</CardContent>
 			<CardFooter className="mt-auto pt-4">
 				<Button asChild variant="secondary" className="w-full">
-					<Link href={`/models/${encodeURIComponent(model.model)}`}>
+					<Link href={`/models/${encodeURIComponent(model.id)}`}>
 						See more details
 					</Link>
 				</Button>
@@ -186,7 +186,7 @@ const groupedProviders = modelDefinitions.reduce<
 			acc[provider.name] = [];
 		}
 		acc[provider.name].push({
-			model: def.model,
+			id: def.id,
 			providerId: map.providerId,
 			providerName: provider.name,
 			inputPrice: map.inputPrice,
@@ -202,7 +202,7 @@ const sortedProviderEntries = Object.entries(groupedProviders)
 	.sort(([a], [b]) => a.localeCompare(b))
 	.map(([providerName, models]) => [
 		providerName,
-		[...models].sort((a, b) => a.model.localeCompare(b.model)),
+		[...models].sort((a, b) => a.id.localeCompare(b.id)),
 	]) as [string, ProviderModel[]][];
 
 const totalModels = modelDefinitions.length;
@@ -418,7 +418,7 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 							<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
 								{models.map((model) => (
 									<ProviderModelCard
-										key={`${model.providerId}-${model.model}`}
+										key={`${model.providerId}-${model.id}`}
 										model={model}
 										copiedText={copiedText}
 										onCopy={copyToClipboard}

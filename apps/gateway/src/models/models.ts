@@ -107,10 +107,10 @@ modelsApi.openapi(listModels, async (c) => {
 				firstProviderWithPricing?.imageInputPrice?.toString() || "0";
 
 			return {
-				id: model.model,
-				name: model.model,
+				id: model.id,
+				name: model.name || model.id,
 				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
-				description: `${model.model} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
+				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
 				architecture: {
 					input_modalities: inputModalities,
 					output_modalities: ["text"] as ["text"],
@@ -159,7 +159,7 @@ modelsApi.openapi(listModels, async (c) => {
 					Math.max(...model.providers.map((p) => p.contextSize || 0)) ||
 					undefined,
 				// TODO: supported_parameters should come from model definitions when available
-				supported_parameters: getSupportedParameters(model.model),
+				supported_parameters: getSupportedParameters(model.id),
 				// Add model-level capabilities
 				json_output: model.jsonOutput || false,
 				deprecated_at: model.deprecatedAt?.toISOString(),

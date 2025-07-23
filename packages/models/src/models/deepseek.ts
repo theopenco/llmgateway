@@ -2,7 +2,9 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const deepseekModels = [
 	{
-		model: "deepseek-v3",
+		id: "deepseek-v3",
+		name: "DeepSeek V3",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -32,7 +34,9 @@ export const deepseekModels = [
 		jsonOutput: false,
 	},
 	{
-		model: "deepseek-r1",
+		id: "deepseek-r1",
+		name: "DeepSeek R1",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -62,7 +66,9 @@ export const deepseekModels = [
 		jsonOutput: false,
 	},
 	{
-		model: "deepseek-r1-0528",
+		id: "deepseek-r1-0528",
+		name: "DeepSeek R1 (0528)",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
@@ -92,7 +98,9 @@ export const deepseekModels = [
 		jsonOutput: false,
 	},
 	{
-		model: "deepseek-r1-distill-llama-70b",
+		id: "deepseek-r1-distill-llama-70b",
+		name: "DeepSeek R1 Distill Llama 70B",
+		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [

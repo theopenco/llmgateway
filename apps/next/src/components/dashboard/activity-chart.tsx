@@ -36,7 +36,7 @@ import type { TooltipProps } from "recharts";
 
 // Helper function to get all unique models from the data
 function getUniqueModels(
-	data: { modelBreakdown: { model: string }[] }[],
+	data: { modelBreakdown: { id: string }[] }[],
 ): string[] {
 	if (!data || data.length === 0) {
 		return [];
@@ -46,7 +46,7 @@ function getUniqueModels(
 	data.forEach((day) => {
 		if (day.modelBreakdown && day.modelBreakdown.length > 0) {
 			day.modelBreakdown.forEach((model) => {
-				allModels.add(model.model);
+				allModels.add(model.id);
 			});
 		}
 	});
@@ -84,7 +84,7 @@ interface TooltipPayload {
 		totalTokens: number;
 		cost: number;
 		modelBreakdown: {
-			model: string;
+			id: string;
 			requestCount: number;
 			cost: number;
 			totalTokens: number;
@@ -309,7 +309,7 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 				| string
 				| number
 				| {
-						model: string;
+						id: string;
 						requestCount: number;
 						cost: number;
 						totalTokens: number;
@@ -323,14 +323,14 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 			dayData.modelBreakdown.forEach((model) => {
 				switch (breakdownField) {
 					case "cost":
-						result[model.model] = model.cost;
+						result[model.id] = model.cost;
 						break;
 					case "tokens":
-						result[model.model] = model.totalTokens;
+						result[model.id] = model.totalTokens;
 						break;
 					case "requests":
 					default:
-						result[model.model] = model.requestCount;
+						result[model.id] = model.requestCount;
 						break;
 				}
 			});

@@ -44,7 +44,7 @@ if (hasOnlyModels) {
 
 const filteredModels = models
 	// Filter out auto/custom models
-	.filter((model) => !["custom", "auto"].includes(model.model))
+	.filter((model) => !["custom", "auto"].includes(model.id))
 	// Filter out deactivated models
 	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt);
 
@@ -64,7 +64,7 @@ const testModels = filteredModels
 		if (fullMode) {
 			// test root model without a specific provider
 			testCases.push({
-				model: model.model,
+				model: model.id,
 				providers: model.providers.filter(
 					(provider: ProviderModelMapping) => provider.test !== "skip",
 				),
@@ -84,9 +84,9 @@ const testModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.model}`,
+				model: `${provider.providerId}/${model.id}`,
 				providers: [provider],
-				originalModel: model.model, // Keep track of the original model for reference
+				originalModel: model.id, // Keep track of the original model for reference
 			});
 		}
 
@@ -118,9 +118,9 @@ const providerModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.model}`,
+				model: `${provider.providerId}/${model.id}`,
 				provider,
-				originalModel: model.model, // Keep track of the original model for reference
+				originalModel: model.id, // Keep track of the original model for reference
 			});
 		}
 
@@ -465,7 +465,7 @@ describe("e2e", () => {
 
 	test.each(
 		testModels.filter((m) => {
-			const modelDef = models.find((def) => def.model === m.model);
+			const modelDef = models.find((def) => def.id === m.model);
 			return (modelDef as any)?.jsonOutput === true;
 		}),
 	)("JSON output $model", getTestOptions(), async ({ model }) => {
@@ -791,7 +791,7 @@ describe("e2e", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: multiProviderModel.model,
+				model: multiProviderModel.id,
 				messages: [
 					{
 						role: "user",

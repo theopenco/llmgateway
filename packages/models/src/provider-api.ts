@@ -242,7 +242,7 @@ export function getProviderEndpoint(
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
-		const modelInfo = models.find((m) => m.model === model);
+		const modelInfo = models.find((m) => m.id === model);
 		if (modelInfo) {
 			const providerMapping = modelInfo.providers.find(
 				(p) => p.providerId === provider,
@@ -367,7 +367,7 @@ export function getCheapestModelForProvider(
 		.filter((model) => model.providers.some((p) => p.providerId === provider))
 		.filter((model) => !model.deprecatedAt || new Date() <= model.deprecatedAt)
 		.map((model) => ({
-			model: model.model,
+			model: model.id,
 			provider: model.providers.find((p) => p.providerId === provider)!,
 		}))
 		.filter(
