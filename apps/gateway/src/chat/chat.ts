@@ -323,6 +323,27 @@ function extractContentFromProvider(data: any, provider: Provider): string {
 }
 
 /**
+ * Extracts reasoning content from streaming data based on provider format
+ */
+function extractReasoningContentFromProvider(
+	data: any,
+	provider: Provider,
+): string {
+	switch (provider) {
+		case "inference.net":
+		case "kluster.ai":
+		case "together.ai":
+		case "groq":
+		case "deepseek":
+		case "perplexity":
+		case "alibaba":
+			return data.choices?.[0]?.delta?.reasoning_content || "";
+		default: // OpenAI format
+			return data.choices?.[0]?.delta?.reasoning_content || "";
+	}
+}
+
+/**
  * Extracts token usage information from streaming data based on provider format
  */
 function extractTokenUsage(data: any, provider: Provider) {
@@ -1771,6 +1792,7 @@ chat.openapi(completions, async (c) => {
 
 			const reader = res.body.getReader();
 			let fullContent = "";
+			let fullReasoningContent = "";
 			let finishReason = null;
 			let promptTokens = null;
 			let completionTokens = null;
@@ -1861,6 +1883,13 @@ chat.openapi(completions, async (c) => {
 								);
 								if (contentChunk) {
 									fullContent += contentChunk;
+								}
+
+								// Extract reasoning content for logging using helper function
+								const reasoningContentChunk =
+									extractReasoningContentFromProvider(data, usedProvider);
+								if (reasoningContentChunk) {
+									fullReasoningContent += reasoningContentChunk;
 								}
 
 								// Check for finish reason
@@ -2044,6 +2073,13 @@ chat.openapi(completions, async (c) => {
 										);
 										if (contentChunk) {
 											fullContent += contentChunk;
+										}
+
+										// Extract reasoning content for logging using helper function
+										const reasoningContentChunk =
+											extractReasoningContentFromProvider(data, usedProvider);
+										if (reasoningContentChunk) {
+											fullReasoningContent += reasoningContentChunk;
 										}
 
 										// Handle provider-specific finish reason extraction
@@ -2283,7 +2319,7 @@ chat.openapi(completions, async (c) => {
 					duration,
 					responseSize: fullContent.length,
 					content: fullContent,
-					reasoningContent: null, // Reasoning content typically not available in streaming
+					reasoningContent: fullReasoningContent || null,
 					finishReason: finishReason,
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
