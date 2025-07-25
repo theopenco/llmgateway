@@ -40,7 +40,6 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          KLUSTER_AI_API_KEY: ${{ secrets.KLUSTER_AI_API_KEY }}
           INFERENCE_NET_API_KEY: ${{ secrets.INFERENCE_NET_API_KEY }}
           TOGETHER_AI_API_KEY: ${{ secrets.TOGETHER_AI_API_KEY }}
           GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
