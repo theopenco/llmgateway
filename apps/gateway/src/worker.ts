@@ -10,12 +10,12 @@ import {
 } from "@llmgateway/db";
 
 import { getProject, getOrganization } from "./lib/cache";
-import { 
-	moveToProcessingQueue, 
-	removeFromProcessingQueue, 
+import {
+	moveToProcessingQueue,
+	removeFromProcessingQueue,
 	recoverProcessingQueue,
-	LOG_QUEUE, 
-	LOG_PROCESSING_QUEUE 
+	LOG_QUEUE,
+	LOG_PROCESSING_QUEUE,
 } from "./lib/redis";
 import { calculateFees } from "../../api/src/lib/fee-calculator";
 import { stripe } from "../../api/src/routes/payments";
@@ -238,7 +238,11 @@ async function processAutoTopUp(): Promise<void> {
 
 export async function processLogQueue(): Promise<void> {
 	// Move messages from main queue to processing queue
-	const messages = await moveToProcessingQueue(LOG_QUEUE, LOG_PROCESSING_QUEUE, 10);
+	const messages = await moveToProcessingQueue(
+		LOG_QUEUE,
+		LOG_PROCESSING_QUEUE,
+		10,
+	);
 
 	if (!messages) {
 		return;
@@ -249,7 +253,10 @@ export async function processLogQueue(): Promise<void> {
 		try {
 			logData = messages.map((i) => JSON.parse(i) as LogInsertData);
 		} catch (parseError) {
-			console.error("Error parsing log messages - discarding invalid messages:", parseError);
+			console.error(
+				"Error parsing log messages - discarding invalid messages:",
+				parseError,
+			);
 			// For parsing errors, we discard the messages as they are corrupted
 			await removeFromProcessingQueue(LOG_PROCESSING_QUEUE, messages.length);
 			return;
@@ -321,7 +328,7 @@ export async function startWorker() {
 	isWorkerRunning = true;
 	shouldStop = false;
 	console.log("Starting log queue worker...");
-	
+
 	// Recover any messages that were being processed when the worker died
 	try {
 		await recoverProcessingQueue(LOG_PROCESSING_QUEUE, LOG_QUEUE);
@@ -329,7 +336,7 @@ export async function startWorker() {
 	} catch (error) {
 		console.error("Error recovering processing queue on startup:", error);
 	}
-	
+
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 

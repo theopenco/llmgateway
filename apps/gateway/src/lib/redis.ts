@@ -8,7 +8,8 @@ const redisClient = new Redis({
 redisClient.on("error", (err) => console.error("Redis Client Error", err));
 
 export const LOG_QUEUE = "log_queue_" + process.env.NODE_ENV;
-export const LOG_PROCESSING_QUEUE = "log_processing_queue_" + process.env.NODE_ENV;
+export const LOG_PROCESSING_QUEUE =
+	"log_processing_queue_" + process.env.NODE_ENV;
 
 export async function publishToQueue(
 	queue: string,
@@ -39,9 +40,7 @@ export async function consumeFromQueue(
 	}
 }
 
-export async function peekFromQueue(
-	queue: string,
-): Promise<string[] | null> {
+export async function peekFromQueue(queue: string): Promise<string[] | null> {
 	try {
 		const result = await redisClient.lrange(queue, 0, 9);
 
@@ -84,7 +83,7 @@ export async function moveToProcessingQueue(
 			}
 			messages.push(message);
 		}
-		
+
 		return messages.length > 0 ? messages : null;
 	} catch (error) {
 		console.error("Error moving to processing queue:", error);
