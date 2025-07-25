@@ -2829,7 +2829,6 @@ chat.openapi(completions, async (c) => {
 		responseSize: responseText.length,
 		content: content,
 		reasoningContent: reasoningContent,
-		toolCalls: toolCalls,
 		finishReason: finishReason,
 		promptTokens: calculatedPromptTokens?.toString() || null,
 		completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2851,6 +2850,8 @@ chat.openapi(completions, async (c) => {
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		cached: false,
+		tools,
+		toolChoice: tool_choice,
 	});
 
 	// Transform response to OpenAI format for non-OpenAI providers
