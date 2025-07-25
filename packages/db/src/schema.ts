@@ -261,6 +261,7 @@ export const log = pgTable("log", {
 	responseSize: integer().notNull(),
 	content: text(),
 	reasoningContent: text(),
+	toolCalls: json(),
 	finishReason: text(),
 	unifiedFinishReason: text(),
 	promptTokens: decimal(),

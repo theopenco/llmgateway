@@ -132,6 +132,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let totalTokens = null;
 	let reasoningTokens = null;
 	let cachedTokens = null;
+	let toolCalls = null;
 
 	switch (usedProvider) {
 		case "anthropic":
@@ -203,14 +204,8 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			}
 			break;
 		default: // OpenAI format
-			// Handle both regular content and tool calls
-			if (json.choices?.[0]?.message?.tool_calls) {
-				// For tool calls, we'll keep the original JSON structure
-				// but set content to null since it's in tool_calls
-				content = null;
-			} else {
-				content = json.choices?.[0]?.message?.content || null;
-			}
+			toolCalls = json.choices?.[0]?.message?.tool_calls || null;
+			content = json.choices?.[0]?.message?.content || null;
 			// Extract reasoning content for reasoning-capable models
 			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
@@ -230,6 +225,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		totalTokens,
 		reasoningTokens,
 		cachedTokens,
+		toolCalls,
 	};
 }
 
@@ -420,6 +416,7 @@ function transformToOpenAIFormat(
 	totalTokens: number | null,
 	reasoningTokens: number | null,
 	cachedTokens: number | null,
+	toolCalls: any,
 ) {
 	let transformedResponse = json;
 
@@ -440,6 +437,7 @@ function transformToOpenAIFormat(
 							...(reasoningContent !== null && {
 								reasoning_content: reasoningContent,
 							}),
+							...(toolCalls && { tool_calls: toolCalls }),
 						},
 						finish_reason:
 							finishReason === "STOP"
@@ -478,6 +476,7 @@ function transformToOpenAIFormat(
 							...(reasoningContent !== null && {
 								reasoning_content: reasoningContent,
 							}),
+							...(toolCalls && { tool_calls: toolCalls }),
 						},
 						finish_reason:
 							finishReason === "end_turn"
@@ -1799,6 +1798,14 @@ chat.openapi(completions, async (c) => {
 			let totalTokens = null;
 			let reasoningTokens = null;
 			let cachedTokens = null;
+			let fullToolCalls: Array<{
+				id: string;
+				type: string;
+				function: {
+					name: string;
+					arguments: string;
+				};
+			}> | null = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
@@ -2082,6 +2089,58 @@ chat.openapi(completions, async (c) => {
 											fullReasoningContent += reasoningContentChunk;
 										}
 
+										// Extract tool calls for OpenAI format providers
+										if (
+											(usedProvider === "openai" ||
+												usedProvider === "inference.net" ||
+												usedProvider === "kluster.ai" ||
+												usedProvider === "together.ai" ||
+												usedProvider === "groq" ||
+												usedProvider === "deepseek" ||
+												usedProvider === "perplexity" ||
+												usedProvider === "alibaba") &&
+											data.choices?.[0]?.delta?.tool_calls
+										) {
+											// Initialize fullToolCalls if not exists
+											if (!fullToolCalls) {
+												fullToolCalls = [];
+											}
+
+											// Process each tool call delta
+											for (const deltaToolCall of data.choices[0].delta
+												.tool_calls) {
+												const index = deltaToolCall.index || 0;
+
+												// Ensure we have a tool call at this index
+												while (fullToolCalls.length <= index) {
+													fullToolCalls.push({
+														id: "",
+														type: "function",
+														function: {
+															name: "",
+															arguments: "",
+														},
+													});
+												}
+
+												// Accumulate the tool call data
+												if (deltaToolCall.id) {
+													fullToolCalls[index].id = deltaToolCall.id;
+												}
+												if (deltaToolCall.type) {
+													fullToolCalls[index].type = deltaToolCall.type;
+												}
+												if (deltaToolCall.function?.name) {
+													fullToolCalls[index].function.name =
+														deltaToolCall.function.name;
+												}
+												if (deltaToolCall.function?.arguments) {
+													fullToolCalls[index].function.arguments +=
+														deltaToolCall.function.arguments;
+												}
+											}
+										}
+
 										// Handle provider-specific finish reason extraction
 										switch (usedProvider) {
 											case "anthropic":
@@ -2320,6 +2379,7 @@ chat.openapi(completions, async (c) => {
 					responseSize: fullContent.length,
 					content: fullContent,
 					reasoningContent: fullReasoningContent || null,
+					toolCalls: fullToolCalls,
 					finishReason: finishReason,
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2524,6 +2584,7 @@ chat.openapi(completions, async (c) => {
 		totalTokens,
 		reasoningTokens,
 		cachedTokens,
+		toolCalls,
 	} = parseProviderResponse(usedProvider, json);
 
 	// Estimate tokens if not provided by the API
@@ -2570,6 +2631,7 @@ chat.openapi(completions, async (c) => {
 		responseSize: responseText.length,
 		content: content,
 		reasoningContent: reasoningContent,
+		toolCalls: toolCalls,
 		finishReason: finishReason,
 		promptTokens: calculatedPromptTokens?.toString() || null,
 		completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2606,6 +2668,7 @@ chat.openapi(completions, async (c) => {
 		(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0),
 		reasoningTokens,
 		cachedTokens,
+		toolCalls,
 	);
 
 	if (cachingEnabled && cacheKey && !stream) {

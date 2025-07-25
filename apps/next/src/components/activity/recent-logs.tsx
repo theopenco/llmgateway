@@ -290,6 +290,7 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 									createdAt: new Date(log.createdAt),
 									updatedAt: new Date(log.updatedAt),
 									messages: log.messages as any,
+									toolCalls: null,
 									errorDetails: log.errorDetails as any,
 									cachedTokens: (log as any).cachedTokens || null,
 									cachedInputCost: (log as any).cachedInputCost || null,
