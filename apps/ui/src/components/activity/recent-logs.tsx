@@ -157,6 +157,7 @@ export function RecentLogs() {
 									createdAt: new Date(log.createdAt),
 									updatedAt: new Date(log.updatedAt),
 									messages: log.messages as any,
+									toolCalls: null,
 									errorDetails: log.errorDetails as any,
 									reasoningTokens: log.reasoningTokens,
 									reasoningContent: (log as any).reasoningContent,

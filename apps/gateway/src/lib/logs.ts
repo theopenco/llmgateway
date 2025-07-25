@@ -37,6 +37,9 @@ export function getUnifiedFinishReason(
 			if (finishReason === "end_turn") {
 				return UnifiedFinishReason.COMPLETED;
 			}
+			if (finishReason === "tool_use") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
 			break;
 		case "google-vertex":
 		case "google-ai-studio":
@@ -59,6 +62,9 @@ export function getUnifiedFinishReason(
 			}
 			if (finishReason === "content_filter") {
 				return UnifiedFinishReason.CONTENT_FILTER;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
 			}
 			break;
 	}

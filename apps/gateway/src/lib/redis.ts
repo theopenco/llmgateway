@@ -25,7 +25,7 @@ export async function consumeFromQueue(
 	queue: string,
 ): Promise<string[] | null> {
 	try {
-		const result = await redisClient.rpop(queue, 10);
+		const result = await redisClient.lpop(queue, 10);
 
 		if (!result) {
 			return null;

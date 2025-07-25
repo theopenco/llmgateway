@@ -42,7 +42,7 @@ export function getProviderHeaders(
 export function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedModel: string,
-	messagesInput: any[],
+	messages: any[],
 	stream: boolean,
 	temperature: number | undefined,
 	max_tokens: number | undefined,
@@ -54,26 +54,13 @@ export function prepareRequestBody(
 	tool_choice?: string | { type: string; function: { name: string } },
 	reasoning_effort?: "low" | "medium" | "high",
 ) {
-	// filter out empty messages
-	const messages = messagesInput.map((m) => ({
-		role: m.role,
-		content: Array.isArray(m.content)
-			? m.content.filter((c: any) => {
-					if (c.type === "text" && Object.keys(c).length === 2) {
-						return c.text.trim() !== "";
-					}
-					return true;
-				})
-			: m.content,
-	}));
-
 	const requestBody: any = {
 		model: usedModel,
 		messages,
 		stream: stream,
 	};
 
-	// Add tools and tool_choice if provided
+	// Add tools, tool_choice, and tool_calls if provided
 	if (tools && tools.length > 0) {
 		requestBody.tools = tools;
 	}
@@ -171,7 +158,7 @@ export function prepareRequestBody(
 			requestBody.contents = messages.map((m) => ({
 				role: m.role === "assistant" ? "model" : "user", // get rid of system role
 				parts: Array.isArray(m.content)
-					? m.content.map((i) => {
+					? m.content.map((i: any) => {
 							if (i.type === "text") {
 								return {
 									text: i.text,

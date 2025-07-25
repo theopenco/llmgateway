@@ -204,6 +204,13 @@
       "when": 1753314466630,
       "tag": "1753314466_colossal_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1753404831184,
+      "tag": "1753404831_freezing_sentinel",
+      "breakpoints": true
     }
   ]
 }
