@@ -1610,6 +1610,7 @@ chat.openapi(completions, async (c) => {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
 			let canceled = false;
+			let streamingError: unknown = null;
 
 			// Set up cancellation handling
 			const controller = new AbortController();
@@ -2170,6 +2171,32 @@ chat.openapi(completions, async (c) => {
 					canceled = true;
 				} else {
 					console.error("Error reading stream:", error);
+
+					// Forward the error to the client
+					try {
+						await stream.writeSSE({
+							event: "error",
+							data: JSON.stringify({
+								error: {
+									message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+									type: "gateway_error",
+									param: null,
+									code: "streaming_error",
+								},
+							}),
+							id: String(eventId++),
+						});
+						await stream.writeSSE({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+					} catch (sseError) {
+						console.error("Failed to send error SSE:", sseError);
+					}
+
+					// Mark as having an error for logging
+					streamingError = error;
 				}
 			} finally {
 				// Clean up the event listeners
@@ -2320,14 +2347,23 @@ chat.openapi(completions, async (c) => {
 					responseSize: fullContent.length,
 					content: fullContent,
 					reasoningContent: fullReasoningContent || null,
-					finishReason: finishReason,
+					finishReason: streamingError ? "gateway_error" : finishReason,
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
 					totalTokens: calculatedTotalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens,
 					cachedTokens: cachedTokens?.toString() || null,
-					hasError: false,
-					errorDetails: null,
+					hasError: streamingError !== null,
+					errorDetails: streamingError
+						? {
+								statusCode: 500,
+								statusText: "Streaming Error",
+								responseText:
+									streamingError instanceof Error
+										? streamingError.message
+										: String(streamingError),
+							}
+						: null,
 					streamed: true,
 					canceled: canceled,
 					inputCost: costs.inputCost,
