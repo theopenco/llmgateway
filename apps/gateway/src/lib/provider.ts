@@ -7,7 +7,6 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	"google-vertex": "VERTEX_API_KEY",
 	"google-ai-studio": "GOOGLE_AI_STUDIO_API_KEY",
 	"inference.net": "INFERENCE_NET_API_KEY",
-	"kluster.ai": "KLUSTER_AI_API_KEY",
 	"together.ai": "TOGETHER_AI_API_KEY",
 	cloudrift: "CLOUD_RIFT_API_KEY",
 	mistral: "MISTRAL_API_KEY",

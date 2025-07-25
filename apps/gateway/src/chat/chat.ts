@@ -160,7 +160,6 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					: json.usageMetadata?.totalTokenCount || null;
 			break;
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai":
 		case "groq":
 		case "deepseek":
@@ -306,7 +305,6 @@ function extractContentFromProvider(data: any, provider: Provider): string {
 			}
 			return "";
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai":
 		case "groq":
 		case "deepseek":
@@ -327,7 +325,6 @@ function extractReasoningContentFromProvider(
 ): string {
 	switch (provider) {
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai":
 		case "groq":
 		case "deepseek":
@@ -388,7 +385,6 @@ function extractToolCallsFromProvider(
 			}
 			return null;
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai":
 		case "groq":
 		case "deepseek":
@@ -429,7 +425,6 @@ function extractTokenUsage(data: any, provider: Provider) {
 			}
 			break;
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai":
 		case "groq":
 		case "deepseek":
@@ -562,7 +557,6 @@ function transformToOpenAIFormat(
 			break;
 		}
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai":
 		case "groq": {
 			if (!transformedResponse.id) {
@@ -2346,7 +2340,6 @@ chat.openapi(completions, async (c) => {
 												}
 												break;
 											case "inference.net":
-											case "kluster.ai":
 											case "together.ai":
 											case "groq":
 											case "deepseek":

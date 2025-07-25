@@ -53,7 +53,7 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
-		default: // OpenAI format (also used by inference.net and kluster.ai)
+		default: // OpenAI format (also used by inference.net)
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}

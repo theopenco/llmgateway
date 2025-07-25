@@ -10,7 +10,6 @@ export const providerLogoUrls: Partial<
 	"google-vertex": ProviderIcons["google-vertex"],
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	"inference.net": ProviderIcons["inference.net"],
-	"kluster.ai": ProviderIcons["kluster.ai"],
 	"together.ai": ProviderIcons["together.ai"],
 	cloudrift: ProviderIcons.cloudrift,
 	mistral: ProviderIcons.mistral,

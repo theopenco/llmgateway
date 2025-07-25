@@ -13,7 +13,6 @@ import DeepSeekLogo from "@/assets/models/deepseek.svg?react";
 import GoogleVertexAILogo from "@/assets/models/google-vertex-ai.svg?react";
 import GroqLogo from "@/assets/models/groq.svg?react";
 import InferenceNetLogo from "@/assets/models/inference-net.svg?react";
-import KlusterAILogo from "@/assets/models/kluster-ai.svg?react";
 import MistralLogo from "@/assets/models/mistral.svg?react";
 import MoonshotLogo from "@/assets/models/moonshot.svg?react";
 import NovitaLogo from "@/assets/models/novita.svg?react";
@@ -58,7 +57,6 @@ const PROVIDER_LOGOS = [
 	{ name: "Mistral", component: MistralLogo },
 	{ name: "Together AI", component: TogetherAILogo },
 	{ name: "Cloudrift", component: CloudriftLogo },
-	{ name: "Kluster AI", component: KlusterAILogo },
 	{ name: "Inference Net", component: InferenceNetLogo },
 	{ name: "Groq", component: GroqLogo },
 	{ name: "xAI", component: XaiLogo },
