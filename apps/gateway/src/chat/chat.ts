@@ -341,66 +341,6 @@ function extractReasoningContentFromProvider(
 }
 
 /**
- * Extracts tool calls from streaming data based on provider format
- */
-function extractToolCallsFromProvider(
-	data: any,
-	provider: Provider,
-): Array<{
-	id: string;
-	type: string;
-	function: {
-		name: string;
-		arguments: string;
-	};
-}> | null {
-	switch (provider) {
-		case "anthropic":
-			// For Anthropic, tool calls come in content_block_start and content_block_delta events
-			if (
-				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_use"
-			) {
-				return [
-					{
-						id: data.content_block.id,
-						type: "function",
-						function: {
-							name: data.content_block.name,
-							arguments: "",
-						},
-					},
-				];
-			} else if (
-				data.type === "content_block_delta" &&
-				data.delta?.partial_json
-			) {
-				// Return partial arguments for accumulation
-				return [
-					{
-						id: "", // Will be matched by index
-						type: "function",
-						function: {
-							name: "",
-							arguments: data.delta.partial_json,
-						},
-					},
-				];
-			}
-			return null;
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			return data.choices?.[0]?.delta?.tool_calls || null;
-		default: // OpenAI format
-			return data.choices?.[0]?.delta?.tool_calls || null;
-	}
-}
-
-/**
  * Extracts token usage information from streaming data based on provider format
  */
 function extractTokenUsage(data: any, provider: Provider) {
@@ -1955,14 +1895,6 @@ chat.openapi(completions, async (c) => {
 			let totalTokens = null;
 			let reasoningTokens = null;
 			let cachedTokens = null;
-			let fullToolCalls: Array<{
-				id: string;
-				type: string;
-				function: {
-					name: string;
-					arguments: string;
-				};
-			}> | null = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
@@ -2054,31 +1986,6 @@ chat.openapi(completions, async (c) => {
 									extractReasoningContentFromProvider(data, usedProvider);
 								if (reasoningContentChunk) {
 									fullReasoningContent += reasoningContentChunk;
-								}
-
-								// Extract tool calls for logging using helper function
-								const toolCallsChunk = extractToolCallsFromProvider(
-									data,
-									usedProvider,
-								);
-								if (toolCallsChunk) {
-									if (!fullToolCalls) {
-										fullToolCalls = [];
-									}
-									// For Google providers, accumulate tool calls
-									for (const toolCall of toolCallsChunk) {
-										const existingIndex = fullToolCalls.findIndex(
-											(tc) => tc.id === toolCall.id,
-										);
-										if (existingIndex >= 0) {
-											// Update existing tool call
-											fullToolCalls[existingIndex].function.arguments +=
-												toolCall.function.arguments;
-										} else {
-											// Add new tool call
-											fullToolCalls.push(toolCall);
-										}
-									}
 								}
 
 								// Check for finish reason
@@ -2269,67 +2176,6 @@ chat.openapi(completions, async (c) => {
 											extractReasoningContentFromProvider(data, usedProvider);
 										if (reasoningContentChunk) {
 											fullReasoningContent += reasoningContentChunk;
-										}
-
-										// Extract tool calls using helper function
-										const toolCallsChunk = extractToolCallsFromProvider(
-											data,
-											usedProvider,
-										);
-										if (toolCallsChunk) {
-											if (!fullToolCalls) {
-												fullToolCalls = [];
-											}
-
-											if (usedProvider === "anthropic") {
-												// For Anthropic, handle content_block_start and content_block_delta
-												for (const toolCall of toolCallsChunk) {
-													if (data.type === "content_block_start") {
-														// New tool call
-														fullToolCalls.push(toolCall);
-													} else if (data.type === "content_block_delta") {
-														// Accumulate arguments for the last tool call
-														const lastIndex = fullToolCalls.length - 1;
-														if (lastIndex >= 0) {
-															fullToolCalls[lastIndex].function.arguments +=
-																toolCall.function.arguments;
-														}
-													}
-												}
-											} else {
-												// For OpenAI format providers - these have index and delta format
-												for (const deltaToolCall of toolCallsChunk as any[]) {
-													const index = deltaToolCall.index || 0;
-
-													// Ensure we have a tool call at this index
-													while (fullToolCalls.length <= index) {
-														fullToolCalls.push({
-															id: "",
-															type: "function",
-															function: {
-																name: "",
-																arguments: "",
-															},
-														});
-													}
-
-													// Accumulate the tool call data
-													if (deltaToolCall.id) {
-														fullToolCalls[index].id = deltaToolCall.id;
-													}
-													if (deltaToolCall.type) {
-														fullToolCalls[index].type = deltaToolCall.type;
-													}
-													if (deltaToolCall.function?.name) {
-														fullToolCalls[index].function.name =
-															deltaToolCall.function.name;
-													}
-													if (deltaToolCall.function?.arguments) {
-														fullToolCalls[index].function.arguments +=
-															deltaToolCall.function.arguments;
-													}
-												}
-											}
 										}
 
 										// Handle provider-specific finish reason extraction
