@@ -2,7 +2,9 @@ name: claude
 
 on:
   pull_request:
-    types: [opened, synchronize, review_requested]
+    types: [opened, synchronize]
+  issue_comment:
+    types: [edited]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
