@@ -1752,7 +1752,6 @@ chat.openapi(completions, async (c) => {
 		response_format,
 		tools,
 		tool_choice,
-		undefined, // tool_calls are now part of messages
 		reasoning_effort,
 	);
 

@@ -42,7 +42,7 @@ export function getProviderHeaders(
 export function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedModel: string,
-	messagesInput: any[],
+	messages: any[],
 	stream: boolean,
 	temperature: number | undefined,
 	max_tokens: number | undefined,
@@ -52,22 +52,8 @@ export function prepareRequestBody(
 	response_format: any,
 	tools?: any[],
 	tool_choice?: string | { type: string; function: { name: string } },
-	tool_calls?: any[],
 	reasoning_effort?: "low" | "medium" | "high",
 ) {
-	// filter out empty messages
-	const messages = messagesInput.map((m) => ({
-		role: m.role,
-		content: Array.isArray(m.content)
-			? m.content.filter((c: any) => {
-					if (c.type === "text" && Object.keys(c).length === 2) {
-						return c.text.trim() !== "";
-					}
-					return true;
-				})
-			: m.content,
-	}));
-
 	const requestBody: any = {
 		model: usedModel,
 		messages,
@@ -81,10 +67,6 @@ export function prepareRequestBody(
 
 	if (tool_choice) {
 		requestBody.tool_choice = tool_choice;
-	}
-
-	if (tool_calls && tool_calls.length > 0) {
-		requestBody.tool_calls = tool_calls;
 	}
 
 	switch (usedProvider) {
@@ -176,7 +158,7 @@ export function prepareRequestBody(
 			requestBody.contents = messages.map((m) => ({
 				role: m.role === "assistant" ? "model" : "user", // get rid of system role
 				parts: Array.isArray(m.content)
-					? m.content.map((i) => {
+					? m.content.map((i: any) => {
 							if (i.type === "text") {
 								return {
 									text: i.text,
@@ -485,7 +467,6 @@ export async function validateProviderKey(
 			undefined, // response_format
 			undefined, // tools
 			undefined, // tool_choice
-			undefined, // tool_calls
 			undefined, // reasoning_effort
 		);
 
