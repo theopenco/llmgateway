@@ -18,7 +18,6 @@ export function getProviderHeaders(
 		case "google-ai-studio":
 			return {};
 		case "google-vertex":
-		case "kluster.ai":
 		case "openai":
 		case "inference.net":
 		case "xai":
@@ -189,7 +188,6 @@ export function prepareRequestBody(
 			break;
 		}
 		case "inference.net":
-		case "kluster.ai":
 		case "together.ai": {
 			if (usedModel.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
@@ -266,9 +264,6 @@ export function getProviderEndpoint(
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
-			case "kluster.ai":
-				url = "https://api.kluster.ai";
-				break;
 			case "together.ai":
 				url = "https://api.together.ai";
 				break;
@@ -329,7 +324,6 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "inference.net":
-		case "kluster.ai":
 		case "openai":
 		case "llmgateway":
 		case "cloudrift":

@@ -85,17 +85,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "kluster.ai",
-		name: "Kluster.ai",
-		description:
-			"Kluster.ai is a platform for running large language models in the cloud.",
-		streaming: true,
-		cancellation: true,
-		color: "#f59e0b",
-		website: "https://kluster.ai",
-		announcement: null,
-	},
-	{
 		id: "together.ai",
 		name: "Together AI",
 		description:

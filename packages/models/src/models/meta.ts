@@ -20,17 +20,6 @@ export const metaModels = [
 				vision: false,
 			},
 			{
-				providerId: "kluster.ai",
-				modelName: "klusterai/Meta-Llama-3.1-8B-Instruct-Turbo",
-				inputPrice: 0.07 / 1e6,
-				outputPrice: 0.33 / 1e6,
-				requestPrice: 0,
-				contextSize: 128000,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-			},
-			{
 				providerId: "together.ai",
 				modelName: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
 				inputPrice: 0.88 / 1e6,

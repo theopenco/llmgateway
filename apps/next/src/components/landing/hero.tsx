@@ -51,7 +51,6 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Mistral", providerId: "mistral" },
 	{ name: "Together AI", providerId: "together.ai" },
 	{ name: "Cloudrift", providerId: "cloudrift" },
-	{ name: "Kluster AI", providerId: "kluster.ai" },
 	{ name: "Inference Net", providerId: "inference.net" },
 	{ name: "Groq", providerId: "groq" },
 	{ name: "xAI", providerId: "xai" },
