@@ -10,7 +10,13 @@ import {
 } from "@llmgateway/db";
 
 import { getProject, getOrganization } from "./lib/cache";
-import { consumeFromQueue, LOG_QUEUE } from "./lib/redis";
+import { 
+	moveToProcessingQueue, 
+	removeFromProcessingQueue, 
+	recoverProcessingQueue,
+	LOG_QUEUE, 
+	LOG_PROCESSING_QUEUE 
+} from "./lib/redis";
 import { calculateFees } from "../../api/src/lib/fee-calculator";
 import { stripe } from "../../api/src/routes/payments";
 
@@ -231,14 +237,23 @@ async function processAutoTopUp(): Promise<void> {
 }
 
 export async function processLogQueue(): Promise<void> {
-	const message = await consumeFromQueue(LOG_QUEUE);
+	// Move messages from main queue to processing queue
+	const messages = await moveToProcessingQueue(LOG_QUEUE, LOG_PROCESSING_QUEUE, 10);
 
-	if (!message) {
+	if (!messages) {
 		return;
 	}
 
 	try {
-		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
+		let logData: LogInsertData[];
+		try {
+			logData = messages.map((i) => JSON.parse(i) as LogInsertData);
+		} catch (parseError) {
+			console.error("Error parsing log messages - discarding invalid messages:", parseError);
+			// For parsing errors, we discard the messages as they are corrupted
+			await removeFromProcessingQueue(LOG_PROCESSING_QUEUE, messages.length);
+			return;
+		}
 
 		const processedLogData = await Promise.all(
 			logData.map(async (data) => {
@@ -257,8 +272,10 @@ export async function processLogQueue(): Promise<void> {
 			}),
 		);
 
+		// Insert logs into database
 		await db.insert(log).values(processedLogData as any);
 
+		// Update organization credits
 		for (const data of logData) {
 			if (!data.cost || data.cached) {
 				continue;
@@ -275,8 +292,20 @@ export async function processLogQueue(): Promise<void> {
 					.where(eq(organization.id, data.organizationId));
 			}
 		}
+
+		// Only remove from processing queue after successful processing
+		await removeFromProcessingQueue(LOG_PROCESSING_QUEUE, messages.length);
 	} catch (error) {
 		console.error("Error processing log message:", error);
+		// Move messages back to main queue for retry
+		try {
+			await recoverProcessingQueue(LOG_PROCESSING_QUEUE, LOG_QUEUE);
+		} catch (recoveryError) {
+			console.error("Error recovering messages to main queue:", recoveryError);
+			// If we can't recover to main queue, at least log the issue
+			// Messages will remain in processing queue and be recovered on next worker restart
+		}
+		throw error;
 	}
 }
 
@@ -292,6 +321,15 @@ export async function startWorker() {
 	isWorkerRunning = true;
 	shouldStop = false;
 	console.log("Starting log queue worker...");
+	
+	// Recover any messages that were being processed when the worker died
+	try {
+		await recoverProcessingQueue(LOG_PROCESSING_QUEUE, LOG_QUEUE);
+		console.log("Recovered any pending messages from processing queue");
+	} catch (error) {
+		console.error("Error recovering processing queue on startup:", error);
+	}
+	
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 
@@ -313,6 +351,7 @@ export async function startWorker() {
 			}
 		} catch (error) {
 			console.error("Error in log queue worker:", error);
+			// Wait longer on error to prevent rapid retries that could overwhelm the system
 			if (!shouldStop) {
 				await new Promise((resolve) => {
 					setTimeout(resolve, 5000);
