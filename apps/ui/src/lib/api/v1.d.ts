@@ -524,7 +524,6 @@ export interface paths {
 								presencePenalty: number | null;
 								tools?: unknown;
 								toolChoice?: unknown;
-								toolCalls?: unknown;
 								hasError: boolean | null;
 								errorDetails: {
 									statusCode: number;
