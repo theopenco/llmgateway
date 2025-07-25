@@ -78,6 +78,8 @@ function createLogEntry(
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
+	tools: any[] | undefined,
+	toolChoice: any | undefined,
 ) {
 	return {
 		requestId,
@@ -95,6 +97,8 @@ function createLogEntry(
 		topP: top_p || null,
 		frequencyPenalty: frequency_penalty || null,
 		presencePenalty: presence_penalty || null,
+		tools: tools || null,
+		toolChoice: toolChoice || null,
 		mode: project.mode,
 	} as const;
 }
@@ -1668,6 +1672,8 @@ chat.openapi(completions, async (c) => {
 				top_p,
 				frequency_penalty,
 				presence_penalty,
+				tools,
+				tool_choice,
 			);
 
 			await insertLog({
@@ -1802,6 +1808,8 @@ chat.openapi(completions, async (c) => {
 						top_p,
 						frequency_penalty,
 						presence_penalty,
+						tools,
+						tool_choice,
 					);
 
 					await insertLog({
@@ -1885,6 +1893,8 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					tools,
+					tool_choice,
 				);
 
 				await insertLog({
@@ -2551,6 +2561,8 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					tools,
+					tool_choice,
 				);
 
 				await insertLog({
@@ -2636,6 +2648,8 @@ chat.openapi(completions, async (c) => {
 			top_p,
 			frequency_penalty,
 			presence_penalty,
+			tools,
+			tool_choice,
 		);
 
 		await insertLog({
@@ -2697,6 +2711,8 @@ chat.openapi(completions, async (c) => {
 			top_p,
 			frequency_penalty,
 			presence_penalty,
+			tools,
+			tool_choice,
 		);
 
 		await insertLog({
@@ -2803,6 +2819,8 @@ chat.openapi(completions, async (c) => {
 		top_p,
 		frequency_penalty,
 		presence_penalty,
+		tools,
+		tool_choice,
 	);
 
 	await insertLog({
