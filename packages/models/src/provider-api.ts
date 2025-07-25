@@ -52,6 +52,7 @@ export function prepareRequestBody(
 	response_format: any,
 	tools?: any[],
 	tool_choice?: string | { type: string; function: { name: string } },
+	tool_calls?: any[],
 	reasoning_effort?: "low" | "medium" | "high",
 ) {
 	// filter out empty messages
@@ -73,13 +74,17 @@ export function prepareRequestBody(
 		stream: stream,
 	};
 
-	// Add tools and tool_choice if provided
+	// Add tools, tool_choice, and tool_calls if provided
 	if (tools && tools.length > 0) {
 		requestBody.tools = tools;
 	}
 
 	if (tool_choice) {
 		requestBody.tool_choice = tool_choice;
+	}
+
+	if (tool_calls && tool_calls.length > 0) {
+		requestBody.tool_calls = tool_calls;
 	}
 
 	switch (usedProvider) {
@@ -480,6 +485,7 @@ export async function validateProviderKey(
 			undefined, // response_format
 			undefined, // tools
 			undefined, // tool_choice
+			undefined, // tool_calls
 			undefined, // reasoning_effort
 		);
 
