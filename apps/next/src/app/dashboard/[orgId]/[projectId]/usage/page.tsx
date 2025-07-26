@@ -7,16 +7,16 @@ import type { ActivitT } from "@/types/activity";
 export const dynamic = "force-dynamic";
 
 export default async function UsagePage({
-	searchParams,
+	params,
 }: {
-	searchParams?: Promise<{
+	params?: Promise<{
 		projectId?: string;
 		days?: string;
 	}>;
 }) {
-	const params = searchParams ? await searchParams : {};
-	const projectId = params?.projectId;
-	const days = params?.days;
+	const paramsData = await params;
+	const projectId = paramsData?.projectId;
+	const days = paramsData?.days;
 
 	// Default to "7" days, only use "30" if explicitly specified
 	const daysParam = days === "30" ? "30" : "7";
@@ -26,7 +26,7 @@ export default async function UsagePage({
 		? await fetchServerData<ActivitT>("GET", "/activity", {
 				params: {
 					query: {
-						days: daysParam,
+						days: String(daysParam),
 						projectId,
 					},
 				},

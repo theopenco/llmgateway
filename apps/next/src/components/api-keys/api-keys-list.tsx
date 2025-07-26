@@ -35,12 +35,17 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Project } from "@/lib/types";
+import type { ApiKey } from "@llmgateway/db";
 
 interface ApiKeysListProps {
 	selectedProject: Project | null;
+	initialData: ApiKey[];
 }
 
-export function ApiKeysList({ selectedProject }: ApiKeysListProps) {
+export function ApiKeysList({
+	selectedProject,
+	initialData,
+}: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
@@ -59,6 +64,20 @@ export function ApiKeysList({ selectedProject }: ApiKeysListProps) {
 			refetchOnWindowFocus: false,
 			refetchOnMount: false,
 			refetchInterval: false,
+			initialData: {
+				apiKeys: initialData.map((key) => ({
+					...key,
+					maskedToken: key.token,
+					createdAt:
+						key.createdAt instanceof Date
+							? key.createdAt.toISOString()
+							: key.createdAt,
+					updatedAt:
+						key.updatedAt instanceof Date
+							? key.updatedAt.toISOString()
+							: key.updatedAt,
+				})),
+			},
 		},
 	);
 

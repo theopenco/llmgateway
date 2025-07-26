@@ -100,7 +100,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const totalOutputCost =
 		activityData.reduce((sum, day) => sum + day.outputCost, 0) || 0;
 	const totalRequestCost =
-		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
+		activityData.reduce(
+			(sum, day) => sum + (day.cost - day.inputCost - day.outputCost),
+			0,
+		) || 0;
 
 	const formatTokens = (tokens: number) => {
 		if (tokens >= 1_000_000) {

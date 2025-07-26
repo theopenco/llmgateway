@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useEffect, useMemo } from "react";
 
 import { RecentLogs } from "@/components/activity/recent-logs";
 import { ActivityChart } from "@/components/dashboard/activity-chart";
@@ -14,56 +14,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
 import type { ActivitT } from "@/types/activity";
+import type { Log } from "@llmgateway/db";
 
 interface LogsData {
 	message?: string;
-	logs: {
-		id: string;
-		requestId: string;
-		createdAt: string;
-		updatedAt: string;
-		organizationId: string;
-		projectId: string;
-		apiKeyId: string;
-		duration: number;
-		requestedModel: string;
-		requestedProvider: string | null;
-		usedModel: string;
-		usedProvider: string;
-		responseSize: number;
-		content: string | null;
-		reasoningContent: string | null;
-		unifiedFinishReason: string | null;
-		finishReason: string | null;
-		promptTokens: string | null;
-		completionTokens: string | null;
-		totalTokens: string | null;
-		reasoningTokens: string | null;
-		messages?: unknown;
-		temperature: number | null;
-		maxTokens: number | null;
-		topP: number | null;
-		frequencyPenalty: number | null;
-		presencePenalty: number | null;
-		hasError: boolean | null;
-		errorDetails: {
-			statusCode: number;
-			statusText: string;
-			responseText: string;
-		} | null;
-		cost: number | null;
-		inputCost: number | null;
-		outputCost: number | null;
-		requestCost: number | null;
-		estimatedCost: boolean | null;
-		canceled: boolean | null;
-		streamed: boolean | null;
-		cached: boolean | null;
-		mode: "api-keys" | "credits" | "hybrid";
-		usedMode: "api-keys" | "credits";
-	}[];
+	logs: Log[];
 	pagination: {
 		nextCursor: string | null;
 		hasMore: boolean;
@@ -82,7 +40,13 @@ export function ActivityClient({
 }: ActivityClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const pathname = usePathname();
 	const { buildUrl } = useDashboardNavigation();
+
+	// Extract project ID directly from URL to avoid dashboard state conflicts
+	const { projectId } = useMemo(() => {
+		return extractOrgAndProjectFromPath(pathname);
+	}, [pathname]);
 
 	const daysParam = searchParams.get("days");
 	const days = daysParam === "30" ? 30 : 7;
@@ -136,9 +100,7 @@ export function ActivityClient({
 							</div>
 						</CardHeader>
 						<CardContent>
-							<RecentLogs
-								initialData={initialLogsData as LogsData | undefined}
-							/>
+							<RecentLogs initialData={initialLogsData} projectId={projectId} />
 						</CardContent>
 					</Card>
 				</div>

@@ -53,7 +53,7 @@ export function PaymentMethodsManagement() {
 						description: "Default payment method updated",
 					});
 				},
-				onError: (error: any) => {
+				onError: (error: Error) => {
 					toast({
 						title: "Error",
 						description:
@@ -92,7 +92,7 @@ export function PaymentMethodsManagement() {
 						description: "Payment method deleted",
 					});
 				},
-				onError: (error: any) => {
+				onError: (error: Error) => {
 					toast({
 						title: "Error",
 						description:

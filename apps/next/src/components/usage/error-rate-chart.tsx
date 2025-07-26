@@ -42,7 +42,7 @@ export function ErrorRateChart({ initialData }: ErrorRateChartProps) {
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: daysParam ? initialData : undefined,
+			initialData,
 		},
 	);
 
