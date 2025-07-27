@@ -59,9 +59,8 @@ interface RecentLogsProps {
 					topP: number | null;
 					frequencyPenalty: number | null;
 					presencePenalty: number | null;
-					tools: unknown | null;
-					toolChoice: unknown | null;
-					toolCalls: unknown | null;
+					tools: string | null;
+					toolChoice: string | null;
 					hasError: boolean | null;
 					errorDetails: {
 						statusCode: number;
@@ -295,7 +294,6 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 									messages: log.messages as any,
 									tools: log.tools,
 									toolChoice: log.toolChoice,
-									toolCalls: log.toolCalls,
 									errorDetails: log.errorDetails as any,
 									cachedTokens: (log as any).cachedTokens || null,
 									cachedInputCost: (log as any).cachedInputCost || null,

@@ -88,9 +88,8 @@ export interface LogsData {
 		topP: number | null;
 		frequencyPenalty: number | null;
 		presencePenalty: number | null;
-		tools: unknown | null;
-		toolChoice: unknown | null;
-		toolCalls: unknown | null;
+		tools: string | null;
+		toolChoice: string | null;
 		hasError: boolean | null;
 		errorDetails: {
 			statusCode: number;

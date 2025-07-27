@@ -159,7 +159,6 @@ export function RecentLogs() {
 									messages: log.messages as any,
 									tools: (log as any).tools,
 									toolChoice: (log as any).toolChoice,
-									toolCalls: (log as any).toolCalls,
 									errorDetails: log.errorDetails as any,
 									reasoningTokens: log.reasoningTokens,
 									reasoningContent: (log as any).reasoningContent,
