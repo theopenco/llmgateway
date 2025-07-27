@@ -25,13 +25,16 @@ import { streamSSE } from "hono/streaming";
 import {
 	checkCustomProviderExists,
 	generateCacheKey,
+	generateStreamingCacheKey,
 	getCache,
 	getCustomProviderKey,
 	getOrganization,
 	getProject,
 	getProviderKey,
+	getStreamingCache,
 	isCachingEnabled,
 	setCache,
+	setStreamingCache,
 } from "../lib/cache";
 import { calculateCosts } from "../lib/costs";
 import { insertLog } from "../lib/logs";
@@ -1580,9 +1583,10 @@ chat.openapi(completions, async (c) => {
 		await isCachingEnabled(project.id);
 
 	let cacheKey: string | null = null;
-	if (cachingEnabled && !stream) {
-		// Don't cache streaming responses
-		cacheKey = generateCacheKey({
+	let streamingCacheKey: string | null = null;
+
+	if (cachingEnabled) {
+		const cachePayload = {
 			model: usedModel,
 			messages,
 			temperature,
@@ -1591,58 +1595,229 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
-		});
+		};
 
-		const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
-		if (cachedResponse) {
-			// Log the cached request
-			const duration = 0; // No processing time needed
-			const baseLogEntry = createLogEntry(
-				requestId,
-				project,
-				apiKey,
-				providerKey?.id,
-				usedModel,
-				usedProvider,
-				requestedModel,
-				requestedProvider,
-				messages,
-				temperature,
-				max_tokens,
-				top_p,
-				frequency_penalty,
-				presence_penalty,
-				tools,
-				tool_choice,
-			);
+		if (stream) {
+			streamingCacheKey = generateStreamingCacheKey(cachePayload);
+			const cachedStreamingResponse =
+				await getStreamingCache(streamingCacheKey);
+			if (cachedStreamingResponse?.metadata.completed) {
+				// Extract final content and metadata from cached chunks
+				let fullContent = "";
+				let fullReasoningContent = "";
+				let promptTokens = null;
+				let completionTokens = null;
+				let totalTokens = null;
+				let reasoningTokens = null;
+				let cachedTokens = null;
+				let fullToolCalls: Array<{
+					id: string;
+					type: string;
+					function: {
+						name: string;
+						arguments: string;
+					};
+				}> = [];
 
-			await insertLog({
-				...baseLogEntry,
-				duration,
-				responseSize: JSON.stringify(cachedResponse).length,
-				content: cachedResponse.choices?.[0]?.message?.content || null,
-				reasoningContent:
-					cachedResponse.choices?.[0]?.message?.reasoning_content || null,
-				finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
-				promptTokens: cachedResponse.usage?.prompt_tokens || null,
-				completionTokens: cachedResponse.usage?.completion_tokens || null,
-				totalTokens: cachedResponse.usage?.total_tokens || null,
-				reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost: 0,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost: 0,
-				cost: 0,
-				estimatedCost: false,
-				cached: true,
-			});
+				for (const chunk of cachedStreamingResponse.chunks) {
+					try {
+						const chunkData = JSON.parse(chunk.data);
 
-			return c.json(cachedResponse);
+						// Extract content from chunk
+						if (chunkData.choices?.[0]?.delta?.content) {
+							fullContent += chunkData.choices[0].delta.content;
+						}
+
+						// Extract reasoning content from chunk
+						if (chunkData.choices?.[0]?.delta?.reasoning_content) {
+							fullReasoningContent +=
+								chunkData.choices[0].delta.reasoning_content;
+						}
+
+						// Accumulate tool calls from streaming chunks
+						if (chunkData.choices?.[0]?.delta?.tool_calls) {
+							const deltaToolCalls = chunkData.choices[0].delta.tool_calls;
+							for (const deltaToolCall of deltaToolCalls) {
+								const index = deltaToolCall.index || 0;
+
+								// Ensure we have a tool call at this index
+								while (fullToolCalls.length <= index) {
+									fullToolCalls.push({
+										id: "",
+										type: "function",
+										function: {
+											name: "",
+											arguments: "",
+										},
+									});
+								}
+
+								// Accumulate the tool call data
+								if (deltaToolCall.id) {
+									fullToolCalls[index].id = deltaToolCall.id;
+								}
+								if (deltaToolCall.type) {
+									fullToolCalls[index].type = deltaToolCall.type;
+								}
+								if (deltaToolCall.function?.name) {
+									fullToolCalls[index].function.name =
+										deltaToolCall.function.name;
+								}
+								if (deltaToolCall.function?.arguments) {
+									fullToolCalls[index].function.arguments +=
+										deltaToolCall.function.arguments;
+								}
+							}
+						}
+
+						// Extract usage information (usually in the last chunks)
+						if (chunkData.usage) {
+							if (chunkData.usage.prompt_tokens) {
+								promptTokens = chunkData.usage.prompt_tokens;
+							}
+							if (chunkData.usage.completion_tokens) {
+								completionTokens = chunkData.usage.completion_tokens;
+							}
+							if (chunkData.usage.total_tokens) {
+								totalTokens = chunkData.usage.total_tokens;
+							}
+							if (chunkData.usage.reasoning_tokens) {
+								reasoningTokens = chunkData.usage.reasoning_tokens;
+							}
+							if (chunkData.usage.prompt_tokens_details?.cached_tokens) {
+								cachedTokens =
+									chunkData.usage.prompt_tokens_details.cached_tokens;
+							}
+						}
+					} catch (e) {
+						// Skip malformed chunks
+						console.warn("Failed to parse cached chunk:", e);
+					}
+				}
+
+				// Log the cached streaming request with reconstructed content
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModel,
+					usedProvider,
+					requestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration: 0, // No processing time for cached response
+					responseSize: JSON.stringify(cachedStreamingResponse).length,
+					content: fullContent || null,
+					reasoningContent: fullReasoningContent || null,
+					toolCalls: fullToolCalls.length > 0 ? fullToolCalls : null,
+					finishReason: cachedStreamingResponse.metadata.finishReason,
+					promptTokens: promptTokens?.toString() || null,
+					completionTokens: completionTokens?.toString() || null,
+					totalTokens: totalTokens?.toString() || null,
+					reasoningTokens: reasoningTokens?.toString() || null,
+					cachedTokens: cachedTokens?.toString() || null,
+					hasError: false,
+					streamed: true,
+					canceled: false,
+					errorDetails: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					cost: 0,
+					estimatedCost: false,
+					cached: true,
+				});
+
+				// Return cached streaming response by replaying chunks with original timing
+				return streamSSE(c, async (stream) => {
+					let previousTimestamp = 0;
+
+					for (const chunk of cachedStreamingResponse.chunks) {
+						// Calculate delay based on original chunk timing
+						const delay = Math.max(0, chunk.timestamp - previousTimestamp);
+						// Cap the delay to prevent excessively long waits (max 1 second)
+						const cappedDelay = Math.min(delay, 1000);
+
+						if (cappedDelay > 0) {
+							await new Promise<void>((resolve) => {
+								setTimeout(() => resolve(), cappedDelay);
+							});
+						}
+
+						await stream.writeSSE({
+							data: chunk.data,
+							id: String(chunk.eventId),
+							event: chunk.event,
+						});
+
+						previousTimestamp = chunk.timestamp;
+					}
+				});
+			}
+		} else {
+			cacheKey = generateCacheKey(cachePayload);
+			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
+			if (cachedResponse) {
+				// Log the cached request
+				const duration = 0; // No processing time needed
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModel,
+					usedProvider,
+					requestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					tools,
+					tool_choice,
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration,
+					responseSize: JSON.stringify(cachedResponse).length,
+					content: cachedResponse.choices?.[0]?.message?.content || null,
+					reasoningContent:
+						cachedResponse.choices?.[0]?.message?.reasoning_content || null,
+					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
+					promptTokens: cachedResponse.usage?.prompt_tokens || null,
+					completionTokens: cachedResponse.usage?.completion_tokens || null,
+					totalTokens: cachedResponse.usage?.total_tokens || null,
+					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					cost: 0,
+					estimatedCost: false,
+					cached: true,
+				});
+
+				return c.json(cachedResponse);
+			}
 		}
 	}
 
@@ -1702,6 +1877,34 @@ chat.openapi(completions, async (c) => {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
 			let canceled = false;
+
+			// Streaming cache variables
+			const streamingChunks: Array<{
+				data: string;
+				eventId: number;
+				event?: string;
+				timestamp: number;
+			}> = [];
+			const streamStartTime = Date.now();
+
+			// Helper function to write SSE and capture for cache
+			const writeSSEAndCache = async (sseData: {
+				data: string;
+				event?: string;
+				id?: string;
+			}) => {
+				await stream.writeSSE(sseData);
+
+				// Capture for streaming cache if enabled
+				if (cachingEnabled && streamingCacheKey) {
+					streamingChunks.push({
+						data: sseData.data,
+						eventId: sseData.id ? parseInt(sseData.id, 10) : eventId,
+						event: sseData.event,
+						timestamp: Date.now() - streamStartTime,
+					});
+				}
+			};
 
 			// Set up cancellation handling
 			const controller = new AbortController();
@@ -1774,14 +1977,14 @@ chat.openapi(completions, async (c) => {
 					});
 
 					// Send a cancellation event to the client
-					await stream.writeSSE({
+					await writeSSEAndCache({
 						event: "canceled",
 						data: JSON.stringify({
 							message: "Request canceled by client",
 						}),
 						id: String(eventId++),
 					});
-					await stream.writeSSE({
+					await writeSSEAndCache({
 						event: "done",
 						data: "[DONE]",
 						id: String(eventId++),
@@ -1798,7 +2001,7 @@ chat.openapi(completions, async (c) => {
 					`Provider error - Status: ${res.status}, Text: ${errorResponseText}`,
 				);
 
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "error",
 					data: JSON.stringify({
 						error: {
@@ -1811,7 +2014,7 @@ chat.openapi(completions, async (c) => {
 					}),
 					id: String(eventId++),
 				});
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "done",
 					data: "[DONE]",
 					id: String(eventId++),
@@ -1866,7 +2069,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (!res.body) {
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "error",
 					data: JSON.stringify({
 						error: {
@@ -1878,7 +2081,7 @@ chat.openapi(completions, async (c) => {
 					}),
 					id: String(eventId++),
 				});
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "done",
 					data: "[DONE]",
 					id: String(eventId++),
@@ -1967,7 +2170,7 @@ chat.openapi(completions, async (c) => {
 									data,
 								);
 
-								await stream.writeSSE({
+								await writeSSEAndCache({
 									data: JSON.stringify(transformedData),
 									id: String(eventId++),
 								});
@@ -1994,7 +2197,7 @@ chat.openapi(completions, async (c) => {
 
 									// Send final chunk when we get a finish reason
 									if (finishReason) {
-										await stream.writeSSE({
+										await writeSSEAndCache({
 											event: "done",
 											data: "[DONE]",
 											id: String(eventId++),
@@ -2111,13 +2314,13 @@ chat.openapi(completions, async (c) => {
 											},
 										};
 
-										await stream.writeSSE({
+										await writeSSEAndCache({
 											data: JSON.stringify(finalUsageChunk),
 											id: String(eventId++),
 										});
 									}
 
-									await stream.writeSSE({
+									await writeSSEAndCache({
 										event: "done",
 										data: "[DONE]",
 										id: String(eventId++),
@@ -2157,7 +2360,7 @@ chat.openapi(completions, async (c) => {
 											}
 										}
 
-										await stream.writeSSE({
+										await writeSSEAndCache({
 											data: JSON.stringify(transformedData),
 											id: String(eventId++),
 										});
@@ -2364,13 +2567,13 @@ chat.openapi(completions, async (c) => {
 							},
 						};
 
-						await stream.writeSSE({
+						await writeSSEAndCache({
 							data: JSON.stringify(finalUsageChunk),
 							id: String(eventId++),
 						});
 
 						// Send final [DONE] if we haven't already
-						await stream.writeSSE({
+						await writeSSEAndCache({
 							event: "done",
 							data: "[DONE]",
 							id: String(eventId++),
@@ -2437,6 +2640,30 @@ chat.openapi(completions, async (c) => {
 					tools,
 					toolChoice: tool_choice,
 				});
+
+				// Save streaming cache if enabled and not canceled
+				if (cachingEnabled && streamingCacheKey && !canceled && finishReason) {
+					try {
+						const streamingCacheData = {
+							chunks: streamingChunks,
+							metadata: {
+								model: usedModel,
+								provider: usedProvider,
+								finishReason: finishReason,
+								totalChunks: streamingChunks.length,
+								duration: duration,
+								completed: true,
+							},
+						};
+						await setStreamingCache(
+							streamingCacheKey,
+							streamingCacheData,
+							cacheDuration,
+						);
+					} catch (error) {
+						console.error("Error saving streaming cache:", error);
+					}
+				}
 			}
 		});
 	}
