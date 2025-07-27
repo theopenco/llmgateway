@@ -18,7 +18,7 @@ export const perplexityModels = [
 				imageInputPrice: 0,
 				contextSize: 128000,
 				maxOutput: undefined,
-				streaming: true,
+				streaming: false,
 				vision: false,
 			},
 		],
