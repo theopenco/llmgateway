@@ -10,6 +10,7 @@ export const perplexityModels = [
 		providers: [
 			{
 				providerId: "perplexity",
+				test: "only",
 				modelName: "sonar-reasoning-pro",
 				inputPrice: 0.000003,
 				outputPrice: 0.00001,
@@ -17,7 +18,7 @@ export const perplexityModels = [
 				imageInputPrice: 0,
 				contextSize: 128000,
 				maxOutput: undefined,
-				streaming: false,
+				streaming: true,
 				vision: false,
 			},
 		],
@@ -32,6 +33,7 @@ export const perplexityModels = [
 		providers: [
 			{
 				providerId: "perplexity",
+				test: "only",
 				modelName: "sonar-pro",
 				inputPrice: 0.000003,
 				outputPrice: 0.000015,
@@ -39,7 +41,7 @@ export const perplexityModels = [
 				imageInputPrice: 0,
 				contextSize: 200000,
 				maxOutput: undefined,
-				streaming: false,
+				streaming: true,
 				vision: false,
 			},
 		],
@@ -54,6 +56,7 @@ export const perplexityModels = [
 		providers: [
 			{
 				providerId: "perplexity",
+				test: "only",
 				modelName: "sonar",
 				inputPrice: 0.000001,
 				outputPrice: 0.000001,
@@ -61,7 +64,7 @@ export const perplexityModels = [
 				imageInputPrice: 0,
 				contextSize: 130000,
 				maxOutput: undefined,
-				streaming: false,
+				streaming: true,
 				vision: false,
 			},
 		],
