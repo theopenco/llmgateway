@@ -250,17 +250,33 @@ export async function processLogQueue(): Promise<void> {
 
 	try {
 		let logData: LogInsertData[];
-		try {
-			logData = messages.map((i) => JSON.parse(i) as LogInsertData);
-		} catch (parseError) {
+		// Parse each message individually and discard only the invalid ones
+		const parseResults: { data?: LogInsertData; error?: Error; index: number }[] =
+			messages.map((message, index) => {
+				try {
+					return { data: JSON.parse(message) as LogInsertData, index };
+				} catch (error) {
+					return { error: error as Error, index };
+				}
+			});
+
+		const validMessages = parseResults.filter(r => r.data);
+		const invalidMessages = parseResults.filter(r => r.error);
+
+		if (invalidMessages.length > 0) {
 			console.error(
-				"Error parsing log messages - discarding invalid messages:",
-				parseError,
+				`Error parsing ${invalidMessages.length} log messages - discarding invalid messages:`,
+				invalidMessages.map(r => ({ index: r.index, error: r.error?.message }))
 			);
-			// For parsing errors, we discard the messages as they are corrupted
+		}
+
+		if (validMessages.length === 0) {
+			// All messages were invalid, remove them all
 			await removeFromProcessingQueue(LOG_PROCESSING_QUEUE, messages.length);
 			return;
 		}
+
+		const logData = validMessages.map(r => r.data!);
 
 		const processedLogData = await Promise.all(
 			logData.map(async (data) => {
