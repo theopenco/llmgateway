@@ -312,6 +312,37 @@ export function LogCard({ log }: { log: Log }) {
 							</TooltipProvider>
 						</div>
 					</div>
+					{((log as any).tools || (log as any).toolChoice) && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Tool Information</h4>
+							<div className="grid gap-4 md:grid-cols-1">
+								{(log as any).tools && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Available Tools
+										</h5>
+										<div className="rounded-md border p-3">
+											<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+												{JSON.stringify((log as any).tools, null, 2)}
+											</pre>
+										</div>
+									</div>
+								)}
+								{(log as any).toolChoice && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Tool Choice
+										</h5>
+										<div className="rounded-md border p-3">
+											<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+												{JSON.stringify((log as any).toolChoice, null, 2)}
+											</pre>
+										</div>
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 					{log.hasError && !!log.errorDetails && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium text-red-600">
@@ -355,6 +386,7 @@ export function LogCard({ log }: { log: Log }) {
 							</div>
 						</div>
 					)}
+					`
 				</div>
 			)}
 		</div>

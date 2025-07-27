@@ -1610,14 +1610,6 @@ chat.openapi(completions, async (c) => {
 				let totalTokens = null;
 				let reasoningTokens = null;
 				let cachedTokens = null;
-				let fullToolCalls: Array<{
-					id: string;
-					type: string;
-					function: {
-						name: string;
-						arguments: string;
-					};
-				}> = [];
 
 				for (const chunk of cachedStreamingResponse.chunks) {
 					try {
@@ -1632,42 +1624,6 @@ chat.openapi(completions, async (c) => {
 						if (chunkData.choices?.[0]?.delta?.reasoning_content) {
 							fullReasoningContent +=
 								chunkData.choices[0].delta.reasoning_content;
-						}
-
-						// Accumulate tool calls from streaming chunks
-						if (chunkData.choices?.[0]?.delta?.tool_calls) {
-							const deltaToolCalls = chunkData.choices[0].delta.tool_calls;
-							for (const deltaToolCall of deltaToolCalls) {
-								const index = deltaToolCall.index || 0;
-
-								// Ensure we have a tool call at this index
-								while (fullToolCalls.length <= index) {
-									fullToolCalls.push({
-										id: "",
-										type: "function",
-										function: {
-											name: "",
-											arguments: "",
-										},
-									});
-								}
-
-								// Accumulate the tool call data
-								if (deltaToolCall.id) {
-									fullToolCalls[index].id = deltaToolCall.id;
-								}
-								if (deltaToolCall.type) {
-									fullToolCalls[index].type = deltaToolCall.type;
-								}
-								if (deltaToolCall.function?.name) {
-									fullToolCalls[index].function.name =
-										deltaToolCall.function.name;
-								}
-								if (deltaToolCall.function?.arguments) {
-									fullToolCalls[index].function.arguments +=
-										deltaToolCall.function.arguments;
-								}
-							}
 						}
 
 						// Extract usage information (usually in the last chunks)
@@ -1711,6 +1667,8 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					tools,
+					tool_choice,
 				);
 
 				await insertLog({
@@ -1719,7 +1677,6 @@ chat.openapi(completions, async (c) => {
 					responseSize: JSON.stringify(cachedStreamingResponse).length,
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
-					toolCalls: fullToolCalls.length > 0 ? fullToolCalls : null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
 					promptTokens: promptTokens?.toString() || null,
 					completionTokens: completionTokens?.toString() || null,
