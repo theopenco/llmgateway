@@ -784,41 +784,6 @@ function transformStreamingChunkToOpenAIFormat(
 			}
 			break;
 		}
-		case "perplexity": {
-			// Perplexity sends complete objects with object: "chat.completion" but we need streaming format
-			if (data.object === "chat.completion" && data.choices?.[0]) {
-				const choice = data.choices[0];
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: choice.index || 0,
-							delta: {
-								content: choice.delta?.content || "",
-								role: "assistant",
-								...(choice.delta?.reasoning_content && {
-									reasoning_content: choice.delta.reasoning_content,
-								}),
-								...(choice.message?.reasoning_content && {
-									reasoning_content: choice.message.reasoning_content,
-								}),
-							},
-							finish_reason: choice.finish_reason || null,
-						},
-					],
-					usage: data.usage || null,
-					...(data.citations && { citations: data.citations }),
-					...(data.search_results && { search_results: data.search_results }),
-				};
-			} else {
-				// Fallback to original data if it's already in proper format
-				transformedData = data;
-			}
-			break;
-		}
 		// OpenAI and other providers that already use OpenAI format
 		default: {
 			// Ensure the response has the required OpenAI format fields
@@ -2246,7 +2211,7 @@ chat.openapi(completions, async (c) => {
 							// Keep small remainder in buffer in case it's part of next JSON
 						}
 					} else {
-						// For non-Google providers, use SSE format parsing with robust JSON handling
+						// For non-Google providers, use the original line-by-line processing
 						const lines = buffer.split("\n");
 						// Keep the last line in buffer if it's incomplete (doesn't end with newline)
 						if (
@@ -2259,25 +2224,6 @@ chat.openapi(completions, async (c) => {
 							buffer = "";
 						}
 
-						// Helper function to try parsing JSON from SSE data lines
-						const tryParseSSEJSON = (line: string) => {
-							if (!line.startsWith("data: ")) {
-								return null;
-							}
-
-							const jsonStr = line.substring(6);
-							if (jsonStr === "[DONE]") {
-								return { done: true };
-							}
-
-							try {
-								return { data: JSON.parse(jsonStr), done: false };
-							} catch {
-								return null;
-							}
-						};
-
-						// Process complete lines first
 						for (const line of lines) {
 							if (line.startsWith("data: ")) {
 								if (line === "data: [DONE]") {
@@ -2343,9 +2289,8 @@ chat.openapi(completions, async (c) => {
 										id: String(eventId++),
 									});
 								} else {
-									const parseResult = tryParseSSEJSON(line);
-									if (parseResult && !parseResult.done) {
-										const data = parseResult.data;
+									try {
+										const data = JSON.parse(line.substring(6));
 
 										// Transform streaming responses to OpenAI format for all providers
 										const transformedData =
@@ -2469,17 +2414,12 @@ chat.openapi(completions, async (c) => {
 											totalTokens =
 												(promptTokens || 0) + (completionTokens || 0);
 										}
-									} else {
-										// Failed to parse complete JSON, might be partial
-										// Add to buffer for potential reconstruction
-										if (line.startsWith("data: ") && line !== "data: [DONE]") {
-											// Extract the JSON part and add to buffer if it looks like incomplete JSON
-											const jsonPart = line.substring(6);
-											if (jsonPart.includes("{") && !jsonPart.includes("}")) {
-												// Looks like start of JSON object, store for next iteration
-												buffer = line + "\n" + buffer;
-											}
-										}
+									} catch (e) {
+										console.warn("Failed to parse streaming JSON:", {
+											error: e instanceof Error ? e.message : String(e),
+											lineContent: line.substring(0, 100), // First 100 chars for debugging
+											provider: usedProvider,
+										});
 									}
 								}
 							}
