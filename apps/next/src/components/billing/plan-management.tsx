@@ -1,3 +1,5 @@
+"use client";
+
 import { useQueryClient } from "@tanstack/react-query";
 
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";

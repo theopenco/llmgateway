@@ -17,8 +17,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
-import type { Project } from "@/lib/types";
-import type { ApiKey } from "@llmgateway/db";
+import type { Project, ApiKey } from "@/lib/types";
 
 export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 	const pathname = usePathname();

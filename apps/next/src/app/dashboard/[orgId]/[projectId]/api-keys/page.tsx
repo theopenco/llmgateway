@@ -1,12 +1,12 @@
 import { ApiKeysClient } from "@/components/api-keys/api-keys-client";
 import { fetchServerData } from "@/lib/server-api";
 
-import type { ApiKey } from "@llmgateway/db";
+import type { ApiKey } from "@/lib/types";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies
 export const dynamic = "force-dynamic";
 
-export default async function ProviderKeysPage({
+export default async function ApiKeysPage({
 	params,
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
@@ -26,5 +26,5 @@ export default async function ProviderKeysPage({
 		},
 	);
 
-	return <ApiKeysClient initialData={initialData!.apiKeys || []} />;
+	return <ApiKeysClient initialData={initialData?.apiKeys || []} />;
 }

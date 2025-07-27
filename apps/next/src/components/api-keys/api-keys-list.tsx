@@ -34,8 +34,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import type { Project } from "@/lib/types";
-import type { ApiKey } from "@llmgateway/db";
+import type { Project, ApiKey } from "@/lib/types";
 
 interface ApiKeysListProps {
 	selectedProject: Project | null;
@@ -67,7 +66,7 @@ export function ApiKeysList({
 			initialData: {
 				apiKeys: initialData.map((key) => ({
 					...key,
-					maskedToken: key.token,
+					maskedToken: key.maskedToken,
 					createdAt:
 						key.createdAt instanceof Date
 							? key.createdAt.toISOString()
