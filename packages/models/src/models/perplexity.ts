@@ -10,7 +10,6 @@ export const perplexityModels = [
 		providers: [
 			{
 				providerId: "perplexity",
-				test: "only",
 				modelName: "sonar-reasoning-pro",
 				inputPrice: 0.000003,
 				outputPrice: 0.00001,
@@ -33,7 +32,6 @@ export const perplexityModels = [
 		providers: [
 			{
 				providerId: "perplexity",
-				test: "only",
 				modelName: "sonar-pro",
 				inputPrice: 0.000003,
 				outputPrice: 0.000015,
@@ -56,7 +54,6 @@ export const perplexityModels = [
 		providers: [
 			{
 				providerId: "perplexity",
-				test: "only",
 				modelName: "sonar",
 				inputPrice: 0.000001,
 				outputPrice: 0.000001,
