@@ -166,23 +166,6 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					? promptTokens + completionTokens
 					: json.usageMetadata?.totalTokenCount || null;
 			break;
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
-			content = json.choices?.[0]?.message?.content || null;
-			finishReason = json.choices?.[0]?.finish_reason || null;
-			promptTokens = json.usage?.prompt_tokens || null;
-			completionTokens = json.usage?.completion_tokens || null;
-			reasoningTokens = json.usage?.reasoning_tokens || null;
-			totalTokens =
-				promptTokens !== null && completionTokens !== null
-					? promptTokens + completionTokens
-					: json.usage?.total_tokens || null;
-			break;
 		case "mistral":
 			content = json.choices?.[0]?.message?.content || null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
@@ -219,7 +202,11 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			completionTokens = json.usage?.completion_tokens || null;
 			reasoningTokens = json.usage?.reasoning_tokens || null;
 			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
-			totalTokens = json.usage?.total_tokens || null;
+			totalTokens =
+				json.usage?.total_tokens ||
+				(promptTokens !== null && completionTokens !== null
+					? promptTokens + completionTokens
+					: null);
 	}
 
 	return {
@@ -311,13 +298,6 @@ function extractContentFromProvider(data: any, provider: Provider): string {
 				return data.delta.text;
 			}
 			return "";
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			return data.choices?.[0]?.delta?.content || "";
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.content || "";
 	}
@@ -331,13 +311,6 @@ function extractReasoningContentFromProvider(
 	provider: Provider,
 ): string {
 	switch (provider) {
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			return data.choices?.[0]?.delta?.reasoning_content || "";
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.reasoning_content || "";
 	}
@@ -370,19 +343,6 @@ function extractTokenUsage(data: any, provider: Provider) {
 				reasoningTokens = data.usage.reasoning_output_tokens || null;
 				cachedTokens = data.usage.cache_read_input_tokens || null;
 				totalTokens = (promptTokens || 0) + (completionTokens || 0);
-			}
-			break;
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			if (data.usage) {
-				promptTokens = data.usage.prompt_tokens || null;
-				completionTokens = data.usage.completion_tokens || null;
-				totalTokens = data.usage.total_tokens || null;
-				reasoningTokens = data.usage.reasoning_tokens || null;
 			}
 			break;
 		default: // OpenAI format
@@ -2359,15 +2319,6 @@ chat.openapi(completions, async (c) => {
 													finishReason = data.stop_reason || "end_turn";
 												} else if (data.delta?.stop_reason) {
 													finishReason = data.delta.stop_reason;
-												}
-												break;
-											case "inference.net":
-											case "together.ai":
-											case "groq":
-											case "deepseek":
-											case "perplexity":
-												if (data.choices && data.choices[0]?.finish_reason) {
-													finishReason = data.choices[0].finish_reason;
 												}
 												break;
 											default: // OpenAI format
