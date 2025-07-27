@@ -151,8 +151,8 @@ export function prepareRequestBody(
 		case "google-vertex":
 		case "google-ai-studio": {
 			delete requestBody.model; // Not used in body
-			delete requestBody.stream; // Handled differently
-			delete requestBody.messages; // Not used in body for Google AI Studio
+			delete requestBody.stream; // Stream is handled via URL parameter
+			delete requestBody.messages; // Not used in body for Google providers
 
 			requestBody.contents = messages.map((m) => ({
 				role: m.role === "assistant" ? "model" : "user", // get rid of system role
@@ -224,6 +224,7 @@ export function getProviderEndpoint(
 	baseUrl?: string,
 	model?: string,
 	token?: string,
+	stream?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -308,16 +309,31 @@ export function getProviderEndpoint(
 	switch (provider) {
 		case "anthropic":
 			return `${url}/v1/messages`;
-		case "google-vertex":
+		case "google-vertex": {
 			if (modelName) {
-				return `${url}/v1beta/models/${modelName}:generateContent`;
+				const endpoint = stream ? "streamGenerateContent" : "generateContent";
+				const baseEndpoint = `${url}/v1beta/models/${modelName}:${endpoint}`;
+				return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
 			}
-			return `${url}/v1beta/models/gemini-2.0-flash:generateContent`;
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
+		}
 		case "google-ai-studio": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
-				? `${url}/v1beta/models/${modelName}:generateContent`
-				: `${url}/v1beta/models/gemini-2.0-flash:generateContent`;
-			return token ? `${baseEndpoint}?key=${token}` : baseEndpoint;
+				? `${url}/v1beta/models/${modelName}:${endpoint}`
+				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			const queryParams = [];
+			if (token) {
+				queryParams.push(`key=${token}`);
+			}
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
 		}
 		case "perplexity":
 			return `${url}/chat/completions`;
@@ -430,6 +446,7 @@ export async function validateProviderKey(
 			baseUrl,
 			undefined,
 			provider === "google-ai-studio" ? token : undefined,
+			false, // validation doesn't need streaming
 		);
 
 		// Use prepareRequestBody to create the validation payload

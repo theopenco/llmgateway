@@ -360,6 +360,7 @@ function extractTokenUsage(data: any, provider: Provider) {
 				promptTokens = data.usageMetadata.promptTokenCount || null;
 				completionTokens = data.usageMetadata.candidatesTokenCount || null;
 				totalTokens = data.usageMetadata.totalTokenCount || null;
+				reasoningTokens = data.usageMetadata.thoughtsTokenCount || null;
 			}
 			break;
 		case "anthropic":
@@ -725,13 +726,13 @@ function transformStreamingChunkToOpenAIFormat(
 		case "google-ai-studio": {
 			if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
 				transformedData = {
-					id: `chatcmpl-${Date.now()}`,
+					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: usedModel,
+					model: data.modelVersion || usedModel,
 					choices: [
 						{
-							index: 0,
+							index: data.candidates[0].index || 0,
 							delta: {
 								content: data.candidates[0].content.parts[0].text,
 								role: "assistant",
@@ -739,25 +740,27 @@ function transformStreamingChunkToOpenAIFormat(
 							finish_reason: null,
 						},
 					],
-					usage:
-						data.usageMetadata && data.usageMetadata.candidatesTokenCount
-							? {
-									prompt_tokens: data.usageMetadata.promptTokenCount || 0,
-									completion_tokens: data.usageMetadata.candidatesTokenCount,
-									total_tokens: data.usageMetadata.totalTokenCount || 0,
-								}
-							: null,
+					usage: data.usageMetadata
+						? {
+								prompt_tokens: data.usageMetadata.promptTokenCount || 0,
+								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
+								total_tokens: data.usageMetadata.totalTokenCount || 0,
+								...(data.usageMetadata.thoughtsTokenCount && {
+									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
+								}),
+							}
+						: null,
 				};
 			} else if (data.candidates?.[0]?.finishReason) {
 				const finishReason = data.candidates[0].finishReason;
 				transformedData = {
-					id: `chatcmpl-${Date.now()}`,
+					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: usedModel,
+					model: data.modelVersion || usedModel,
 					choices: [
 						{
-							index: 0,
+							index: data.candidates[0].index || 0,
 							delta: {
 								role: "assistant",
 							},
@@ -767,14 +770,16 @@ function transformStreamingChunkToOpenAIFormat(
 									: finishReason?.toLowerCase() || "stop",
 						},
 					],
-					usage:
-						data.usageMetadata && data.usageMetadata.candidatesTokenCount
-							? {
-									prompt_tokens: data.usageMetadata.promptTokenCount || 0,
-									completion_tokens: data.usageMetadata.candidatesTokenCount,
-									total_tokens: data.usageMetadata.totalTokenCount || 0,
-								}
-							: null,
+					usage: data.usageMetadata
+						? {
+								prompt_tokens: data.usageMetadata.promptTokenCount || 0,
+								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
+								total_tokens: data.usageMetadata.totalTokenCount || 0,
+								...(data.usageMetadata.thoughtsTokenCount && {
+									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
+								}),
+							}
+						: null,
 				};
 			}
 			break;
@@ -1594,6 +1599,7 @@ chat.openapi(completions, async (c) => {
 			providerKey?.baseUrl || undefined,
 			usedModel,
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
+			stream,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
