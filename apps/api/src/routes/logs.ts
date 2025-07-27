@@ -37,6 +37,8 @@ const logSchema = z.object({
 	topP: z.number().nullable(),
 	frequencyPenalty: z.number().nullable(),
 	presencePenalty: z.number().nullable(),
+	tools: z.any().nullable(),
+	toolChoice: z.any().nullable(),
 	hasError: z.boolean().nullable(),
 	errorDetails: errorDetails.nullable(),
 	cost: z.number().nullable(),

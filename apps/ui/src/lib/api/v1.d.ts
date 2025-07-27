@@ -522,6 +522,8 @@ export interface paths {
 								topP: number | null;
 								frequencyPenalty: number | null;
 								presencePenalty: number | null;
+								tools?: unknown;
+								toolChoice?: unknown;
 								hasError: boolean | null;
 								errorDetails: {
 									statusCode: number;
