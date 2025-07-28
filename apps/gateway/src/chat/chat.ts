@@ -2158,6 +2158,7 @@ chat.openapi(completions, async (c) => {
 								try {
 									data = JSON.parse(line.substring(6));
 								} catch (e) {
+									streamingError = e;
 									console.warn("Failed to parse streaming JSON:", {
 										error: e instanceof Error ? e.message : String(e),
 										lineContent: line, // First 100 chars for debugging
