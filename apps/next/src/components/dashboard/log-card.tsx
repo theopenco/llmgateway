@@ -9,6 +9,7 @@ import {
 	Clock,
 	Coins,
 	Package,
+	Link as LinkIcon,
 	Zap,
 } from "lucide-react";
 import prettyBytes from "pretty-bytes";
@@ -102,6 +103,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								{log.cost ? `$${log.cost.toFixed(6)}` : log.cached ? "$0" : "?"}
 							</span>
 						</div>
+						{log.source && (
+							<div className="flex items-center gap-1">
+								<LinkIcon className="h-3.5 w-3.5" />
+								<span>{log.source}</span>
+							</div>
+						)}
 						<span className="ml-auto">{formattedTime}</span>
 					</div>
 				</div>

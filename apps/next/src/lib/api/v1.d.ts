@@ -474,6 +474,7 @@ export interface paths {
 					unifiedFinishReason?: string;
 					provider?: string;
 					model?: string;
+					source?: string;
 					cursor?: string;
 					orderBy?: "createdAt_asc" | "createdAt_desc";
 					limit?: string;
@@ -542,6 +543,7 @@ export interface paths {
 								mode: "api-keys" | "credits" | "hybrid";
 								/** @enum {string} */
 								usedMode: "api-keys" | "credits";
+								source: string | null;
 							}[];
 							/** @description Pagination metadata */
 							pagination: {
