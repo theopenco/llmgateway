@@ -2181,6 +2181,12 @@ chat.openapi(completions, async (c) => {
 
 								// Handle provider-specific finish reason extraction
 								switch (usedProvider) {
+									case "google-vertex":
+									case "google-ai-studio":
+										if (data.candidates?.[0]?.finishReason) {
+											finishReason = data.candidates[0].finishReason;
+										}
+										break;
 									case "anthropic":
 										if (
 											data.type === "message_delta" &&
