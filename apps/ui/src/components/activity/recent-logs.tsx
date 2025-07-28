@@ -152,6 +152,7 @@ export function RecentLogs() {
 						data.logs.map((log) => (
 							<LogCard
 								key={log.id}
+								// @ts-ignore
 								log={{
 									...log,
 									createdAt: new Date(log.createdAt),
