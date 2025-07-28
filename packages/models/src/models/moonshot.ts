@@ -18,6 +18,7 @@ export const moonshotModels = [
 				maxOutput: 131072,
 				streaming: true,
 				vision: false,
+				tools: true,
 			},
 			{
 				providerId: "moonshot",
@@ -30,6 +31,7 @@ export const moonshotModels = [
 				maxOutput: 128000,
 				streaming: true,
 				vision: false,
+				tools: true,
 			},
 			{
 				providerId: "cloudrift",
@@ -41,6 +43,7 @@ export const moonshotModels = [
 				maxOutput: 131072,
 				streaming: true,
 				vision: false,
+				tools: true,
 			},
 		],
 		jsonOutput: true,

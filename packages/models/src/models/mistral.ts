@@ -18,6 +18,7 @@ export const mistralModels = [
 				maxOutput: undefined,
 				streaming: true,
 				vision: false,
+				tools: true,
 			},
 		],
 		jsonOutput: false,

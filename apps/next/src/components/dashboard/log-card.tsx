@@ -69,7 +69,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 				</div>
 				<div className="flex-1 space-y-1 min-w-0">
 					<div className="flex items-start justify-between gap-4">
-						<p className="font-medium break-words max-w-none">
+						<p className="font-medium break-words max-w-none line-clamp-2">
 							{log.content || <i className="italic">–</i>}
 						</p>
 						<Badge
@@ -386,7 +386,6 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							</div>
 						</div>
 					)}
-					`
 				</div>
 			)}
 		</div>
