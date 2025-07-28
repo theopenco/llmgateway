@@ -1,4 +1,4 @@
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	AudioWaveform,
@@ -236,6 +236,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Metadata</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
+								<div className="text-muted-foreground">Date</div>
+								<div className="font-mono text-xs">
+									{format(log.createdAt!, "dd.MM.yyyy HH:mm:ss")}
+								</div>
+								<div className="text-muted-foreground">Source</div>
+								<div className="font-mono text-xs">{log.source || "-"}</div>
 								<div className="text-muted-foreground">Project ID</div>
 								<div className="font-mono text-xs">{log.projectId}</div>
 								<div className="text-muted-foreground">Organization ID</div>
