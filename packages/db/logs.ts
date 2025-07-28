@@ -470,6 +470,7 @@ export const logs: Log[] = [
 		responseSize: 0,
 		content: null,
 		finishReason: "content_filter",
+		unifiedFinishReason: "content_filter",
 		promptTokens: "567",
 		completionTokens: "0",
 		totalTokens: "567",
