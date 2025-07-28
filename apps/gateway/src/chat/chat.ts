@@ -165,7 +165,13 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 
 			// If candidatesTokenCount is missing, estimate it from the content
 			if (completionTokens === null && content) {
-				const estimation = estimateTokens(usedProvider, [], content, null, null);
+				const estimation = estimateTokens(
+					usedProvider,
+					[],
+					content,
+					null,
+					null,
+				);
 				completionTokens = estimation.calculatedCompletionTokens;
 			}
 
@@ -353,7 +359,13 @@ function extractTokenUsage(
 
 				// If candidatesTokenCount is missing and we have content, estimate it
 				if (completionTokens === null && fullContent) {
-					const estimation = estimateTokens(provider, [], fullContent, null, null);
+					const estimation = estimateTokens(
+						provider,
+						[],
+						fullContent,
+						null,
+						null,
+					);
 					completionTokens = estimation.calculatedCompletionTokens;
 				}
 			}
@@ -2084,7 +2096,13 @@ chat.openapi(completions, async (c) => {
 
 								// Estimate missing tokens if needed using helper function
 								if (finalPromptTokens === null) {
-									const estimation = estimateTokens(usedProvider, messages, null, null, null);
+									const estimation = estimateTokens(
+										usedProvider,
+										messages,
+										null,
+										null,
+										null,
+									);
 									finalPromptTokens = estimation.calculatedPromptTokens;
 								}
 
@@ -2162,8 +2180,15 @@ chat.openapi(completions, async (c) => {
 										usage.prompt_tokens === undefined
 									) {
 										// Estimate prompt tokens if not provided
-										const estimation = estimateTokens(usedProvider, messages, null, null, null);
-										const estimatedPromptTokens = estimation.calculatedPromptTokens;
+										const estimation = estimateTokens(
+											usedProvider,
+											messages,
+											null,
+											null,
+											null,
+										);
+										const estimatedPromptTokens =
+											estimation.calculatedPromptTokens;
 										transformedData.usage = {
 											prompt_tokens: estimatedPromptTokens,
 											completion_tokens: usage.output_tokens,
@@ -2273,7 +2298,13 @@ chat.openapi(completions, async (c) => {
 								// Estimate tokens if not provided and we have a finish reason
 								if (finishReason && (!promptTokens || !completionTokens)) {
 									if (!promptTokens) {
-										const estimation = estimateTokens(usedProvider, messages, null, null, null);
+										const estimation = estimateTokens(
+											usedProvider,
+											messages,
+											null,
+											null,
+											null,
+										);
 										promptTokens = estimation.calculatedPromptTokens;
 									}
 
