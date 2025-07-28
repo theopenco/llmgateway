@@ -551,7 +551,7 @@ describe("e2e", () => {
 				});
 
 				const json = await res.json();
-				if (fullMode) {
+				if (logMode) {
 					console.log("response:", JSON.stringify(json, null, 2));
 				}
 
