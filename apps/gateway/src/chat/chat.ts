@@ -360,27 +360,13 @@ function extractTokenUsage(
 				if (completionTokens === null && fullContent) {
 					try {
 						completionTokens = encode(fullContent).length;
-						console.log(
-							`Google streaming: estimated ${completionTokens} completion tokens from content: "${fullContent}"`,
-						);
 					} catch (error) {
 						// Fallback to simple estimation if encoding fails
 						console.error(
 							`Failed to encode completion text in streaming: ${error}`,
 						);
 						completionTokens = Math.max(1, Math.round(fullContent.length / 4));
-						console.log(
-							`Google streaming: fallback estimated ${completionTokens} completion tokens from content: "${fullContent}"`,
-						);
 					}
-				} else if (completionTokens === null) {
-					console.log(
-						`Google streaming: candidatesTokenCount is null and no fullContent provided`,
-					);
-				} else {
-					console.log(
-						`Google streaming: using provided candidatesTokenCount: ${completionTokens}`,
-					);
 				}
 			}
 			break;
