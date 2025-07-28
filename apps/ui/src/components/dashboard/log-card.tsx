@@ -1,4 +1,4 @@
-import { formatDistanceToNow } from "date-fns";
+import { format } from "date-fns";
 import {
 	AlertCircle,
 	AudioWaveform,
@@ -7,6 +7,7 @@ import {
 	ChevronDown,
 	ChevronUp,
 	Clock,
+	Calendar,
 	Coins,
 	Package,
 	Zap,
@@ -27,10 +28,6 @@ import type { Log } from "@llmgateway/db";
 
 export function LogCard({ log }: { log: Log }) {
 	const [isExpanded, setIsExpanded] = useState(false);
-
-	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
-		addSuffix: true,
-	});
 
 	const toggleExpand = () => {
 		setIsExpanded(!isExpanded);
@@ -102,7 +99,25 @@ export function LogCard({ log }: { log: Log }) {
 								{log.cost ? `$${log.cost.toFixed(6)}` : log.cached ? "$0" : "?"}
 							</span>
 						</div>
-						<span className="ml-auto">{formattedTime}</span>
+						<div className="flex items-center gap-4 text-xs text-gray-500">
+							<div className="flex items-center gap-1">
+								<Calendar className="h-3 w-3" />
+								<span>
+									{format(new Date(log.createdAt), "MMM d, yyyy 'at' h:mm a")}
+								</span>
+							</div>
+							<div className="flex items-center gap-1">
+								<Clock className="h-3 w-3" />
+								<span>{log.duration}ms</span>
+							</div>
+							{log.source && (
+								<div className="flex items-center gap-1">
+									<span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+										{log.source}
+									</span>
+								</div>
+							)}
+						</div>
 					</div>
 				</div>
 				<Button

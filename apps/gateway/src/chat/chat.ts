@@ -83,6 +83,7 @@ function createLogEntry(
 	presence_penalty: number | undefined,
 	tools: any[] | undefined,
 	toolChoice: any | undefined,
+	source: string | undefined,
 ) {
 	return {
 		requestId,
@@ -103,6 +104,7 @@ function createLogEntry(
 		tools: tools || null,
 		toolChoice: toolChoice || null,
 		mode: project.mode,
+		source: source || null,
 	} as const;
 }
 
@@ -1041,6 +1043,9 @@ chat.openapi(completions, async (c) => {
 	// Extract or generate request ID
 	const requestId = c.req.header("x-request-id") || shortid(40);
 
+	// Extract source from x-source header
+	const source = c.req.header("x-source");
+
 	c.header("x-request-id", requestId);
 
 	let requestedModel: Model = modelInput as Model;
@@ -1670,6 +1675,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					source,
 				);
 
 				await insertLog({
@@ -1746,6 +1752,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					source,
 				);
 
 				await insertLog({
@@ -1912,6 +1919,7 @@ chat.openapi(completions, async (c) => {
 						presence_penalty,
 						tools,
 						tool_choice,
+						source,
 					);
 
 					await insertLog({
@@ -1997,6 +2005,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					source,
 				);
 
 				await insertLog({
@@ -2647,6 +2656,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					source,
 				);
 
 				await insertLog({
@@ -2768,6 +2778,7 @@ chat.openapi(completions, async (c) => {
 			presence_penalty,
 			tools,
 			tool_choice,
+			source,
 		);
 
 		await insertLog({
@@ -2831,6 +2842,7 @@ chat.openapi(completions, async (c) => {
 			presence_penalty,
 			tools,
 			tool_choice,
+			source,
 		);
 
 		await insertLog({
@@ -2939,6 +2951,7 @@ chat.openapi(completions, async (c) => {
 		presence_penalty,
 		tools,
 		tool_choice,
+		source,
 	);
 
 	await insertLog({

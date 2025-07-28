@@ -294,6 +294,7 @@ export const log = pgTable("log", {
 	usedMode: text({
 		enum: ["api-keys", "credits"],
 	}).notNull(),
+	source: text(),
 });
 
 export const passkey = pgTable("passkey", {
