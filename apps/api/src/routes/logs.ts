@@ -51,6 +51,7 @@ const logSchema = z.object({
 	cached: z.boolean().nullable(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
+	source: z.string().nullable(),
 });
 
 const querySchema = z.object({
@@ -83,6 +84,9 @@ const querySchema = z.object({
 	}),
 	model: z.string().optional().openapi({
 		description: "Filter logs by model",
+	}),
+	source: z.string().optional().openapi({
+		description: "Filter logs by source",
 	}),
 	cursor: z.string().optional().openapi({
 		description: "Cursor for pagination (log ID to start after)",
@@ -169,6 +173,7 @@ logs.openapi(get, async (c) => {
 		unifiedFinishReason,
 		provider,
 		model,
+		source,
 		cursor,
 		orderBy = "createdAt_desc",
 		limit: queryLimit,
@@ -184,6 +189,7 @@ logs.openapi(get, async (c) => {
 		unifiedFinishReason: sanitize(query.unifiedFinishReason),
 		provider: sanitize(query.provider),
 		model: sanitize(query.model),
+		source: sanitize(query.source),
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -353,6 +359,11 @@ logs.openapi(get, async (c) => {
 	// Add providerKeyId filter if provided
 	if (providerKeyId) {
 		logsWhere.providerKeyId = providerKeyId;
+	}
+
+	// Add source filter if provided
+	if (source) {
+		logsWhere.source = source;
 	}
 
 	// Add cursor-based pagination
