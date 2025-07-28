@@ -288,6 +288,7 @@ export const log = pgTable("log", {
 	canceled: boolean().default(false),
 	streamed: boolean().default(false),
 	cached: boolean().default(false),
+	referer: text(), // HTTP referer header for tracking
 	mode: text({
 		enum: ["api-keys", "credits", "hybrid"],
 	}).notNull(),

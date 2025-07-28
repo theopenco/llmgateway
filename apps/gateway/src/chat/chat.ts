@@ -83,6 +83,7 @@ function createLogEntry(
 	presence_penalty: number | undefined,
 	tools: any[] | undefined,
 	toolChoice: any | undefined,
+	referer: string | null,
 ) {
 	return {
 		requestId,
@@ -102,6 +103,7 @@ function createLogEntry(
 		presencePenalty: presence_penalty || null,
 		tools: tools || null,
 		toolChoice: toolChoice || null,
+		referer,
 		mode: project.mode,
 	} as const;
 }
@@ -1041,6 +1043,9 @@ chat.openapi(completions, async (c) => {
 	// Extract or generate request ID
 	const requestId = c.req.header("x-request-id") || shortid(40);
 
+	// Capture referer header for tracking
+	const referer = c.req.header("referer") || null;
+
 	c.header("x-request-id", requestId);
 
 	let requestedModel: Model = modelInput as Model;
@@ -1670,6 +1675,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					referer,
 				);
 
 				await insertLog({
@@ -1746,6 +1752,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					referer,
 				);
 
 				await insertLog({
@@ -1912,6 +1919,7 @@ chat.openapi(completions, async (c) => {
 						presence_penalty,
 						tools,
 						tool_choice,
+						referer,
 					);
 
 					await insertLog({
@@ -1997,6 +2005,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					referer,
 				);
 
 				await insertLog({
@@ -2496,6 +2505,7 @@ chat.openapi(completions, async (c) => {
 					presence_penalty,
 					tools,
 					tool_choice,
+					referer,
 				);
 
 				await insertLog({
@@ -2617,6 +2627,7 @@ chat.openapi(completions, async (c) => {
 			presence_penalty,
 			tools,
 			tool_choice,
+			referer,
 		);
 
 		await insertLog({
@@ -2680,6 +2691,7 @@ chat.openapi(completions, async (c) => {
 			presence_penalty,
 			tools,
 			tool_choice,
+			referer,
 		);
 
 		await insertLog({
@@ -2788,6 +2800,7 @@ chat.openapi(completions, async (c) => {
 		presence_penalty,
 		tools,
 		tool_choice,
+		referer,
 	);
 
 	await insertLog({

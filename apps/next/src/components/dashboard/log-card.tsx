@@ -246,6 +246,10 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>{log.mode || "?"}</div>
 								<div className="text-muted-foreground">Used Mode</div>
 								<div>{log.usedMode || "?"}</div>
+								<div className="text-muted-foreground">Referer</div>
+								<div className="font-mono text-xs break-all">
+									{log.referer || "–"}
+								</div>
 							</div>
 						</div>
 					</div>
