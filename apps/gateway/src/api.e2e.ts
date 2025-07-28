@@ -22,6 +22,7 @@ function getTestOptions() {
 console.log("running with test options:", getTestOptions());
 
 const fullMode = process.env.FULL_MODE;
+const logMode = process.env.LOG_MODE;
 
 // Filter models based on test skip/only property
 const hasOnlyModels = models.some((model) =>
@@ -238,13 +239,14 @@ describe("e2e", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBeGreaterThan(0);
 
-		if (fullMode) {
+		if (logMode) {
 			console.log("logs", JSON.stringify(logs, null, 2));
 		}
 
 		const log = logs[0];
 		expect(log.usedProvider).toBeTruthy();
 
+		expect(log.errorDetails).toBeNull();
 		expect(log.finishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).toBeTruthy();
@@ -281,7 +283,7 @@ describe("e2e", () => {
 			});
 
 			const json = await res.json();
-			if (fullMode) {
+			if (logMode) {
 				console.log("response:", JSON.stringify(json, null, 2));
 			}
 
@@ -343,7 +345,7 @@ describe("e2e", () => {
 			expect(res.headers.get("content-type")).toContain("text/event-stream");
 
 			const streamResult = await readAll(res.body);
-			if (fullMode) {
+			if (logMode) {
 				console.log("streamResult", JSON.stringify(streamResult, null, 2));
 			}
 
@@ -434,7 +436,7 @@ describe("e2e", () => {
 			});
 
 			const json = await res.json();
-			if (fullMode) {
+			if (logMode) {
 				console.log("reasoning response:", JSON.stringify(json, null, 2));
 			}
 
@@ -493,7 +495,7 @@ describe("e2e", () => {
 		});
 
 		const json = await res.json();
-		if (fullMode) {
+		if (logMode) {
 			console.log("json", JSON.stringify(json, null, 2));
 		}
 		expect(res.status).toBe(200);
@@ -549,7 +551,7 @@ describe("e2e", () => {
 				});
 
 				const json = await res.json();
-				if (fullMode) {
+				if (logMode) {
 					console.log("response:", JSON.stringify(json, null, 2));
 				}
 

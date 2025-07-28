@@ -128,7 +128,7 @@ export const xaiModels = [
 				contextSize: 32768,
 				maxOutput: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],

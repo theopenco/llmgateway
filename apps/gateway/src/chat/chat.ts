@@ -806,9 +806,10 @@ function transformStreamingChunkToOpenAIFormat(
 					usage: data.usage || null,
 				};
 			} else {
-				// Even if the response has the correct format, ensure role is set in delta
+				// Even if the response has the correct format, ensure role is set in delta and object is correct for streaming
 				transformedData = {
 					...data,
+					object: "chat.completion.chunk", // Force correct object type for streaming
 					choices:
 						data.choices?.map((choice: any) => ({
 							...choice,
@@ -1834,6 +1835,7 @@ chat.openapi(completions, async (c) => {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
 			let canceled = false;
+			let streamingError: unknown = null;
 
 			// Streaming cache variables
 			const streamingChunks: Array<{
@@ -2078,24 +2080,257 @@ chat.openapi(completions, async (c) => {
 						continue;
 					}
 
-					const lines = buffer.split("\n");
-					// Keep the last line in buffer if it's incomplete (doesn't end with newline)
-					if (buffer.length > 0 && !buffer.endsWith("\n") && lines.length > 1) {
-						buffer = lines.pop() || "";
-					} else {
-						buffer = "";
-					}
+					// Process SSE events from buffer
+					let processedLength = 0;
+					const bufferCopy = buffer;
 
-					for (const line of lines) {
-						if (line.startsWith("data: ")) {
-							if (line === "data: [DONE]") {
-								// Calculate final usage if we don't have complete data
-								let finalPromptTokens = promptTokens;
-								let finalCompletionTokens = completionTokens;
-								let finalTotalTokens = totalTokens;
+					// Look for complete SSE events, handling events at buffer start
+					let searchStart = 0;
+					while (searchStart < bufferCopy.length) {
+						// Find "data: " - could be at start of buffer or after newline
+						let dataIndex = -1;
 
-								// Estimate missing tokens if needed using helper function
-								if (finalPromptTokens === null) {
+						if (searchStart === 0 && bufferCopy.startsWith("data: ")) {
+							// Event at buffer start
+							dataIndex = 0;
+						} else {
+							// Look for "\ndata: " pattern
+							const newlineDataIndex = bufferCopy.indexOf(
+								"\ndata: ",
+								searchStart,
+							);
+							if (newlineDataIndex !== -1) {
+								dataIndex = newlineDataIndex + 1; // Skip the newline
+							}
+						}
+
+						if (dataIndex === -1) {
+							break;
+						}
+
+						// Find the end of this SSE event
+						// Look for next event or proper event termination
+						let eventEnd = -1;
+
+						// First, look for the next "data: " event (after a newline)
+						const nextEventIndex = bufferCopy.indexOf(
+							"\ndata: ",
+							dataIndex + 6,
+						);
+						if (nextEventIndex !== -1) {
+							// Found next data event, but we still need to check if there are SSE fields in between
+							// For Anthropic, we might have: data: {...}\n\nevent: something\n\ndata: {...}
+							const betweenEvents = bufferCopy.slice(
+								dataIndex + 6,
+								nextEventIndex,
+							);
+							const firstNewline = betweenEvents.indexOf("\n");
+
+							if (firstNewline !== -1) {
+								// Check if JSON up to first newline is valid
+								const jsonCandidate = betweenEvents
+									.slice(0, firstNewline)
+									.trim();
+								try {
+									JSON.parse(jsonCandidate);
+									// JSON is valid - end at first newline to exclude SSE fields
+									eventEnd = dataIndex + 6 + firstNewline;
+								} catch (_e) {
+									// JSON is not complete, use the full segment to next data event
+									eventEnd = nextEventIndex;
+								}
+							} else {
+								// No newline found, use full segment
+								eventEnd = nextEventIndex;
+							}
+						} else {
+							// No next event found - check for proper event termination
+							// SSE events should end with at least one newline
+							const eventStartPos = dataIndex + 6; // Start of event data
+
+							// For Anthropic SSE format, we need to be more careful about event boundaries
+							// Try to find the end of the JSON data by looking for the closing brace
+							let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
+							if (newlinePos !== -1) {
+								// We found a newline - check if the JSON before it is valid
+								const jsonCandidate = bufferCopy
+									.slice(eventStartPos, newlinePos)
+									.trim();
+								try {
+									JSON.parse(jsonCandidate);
+									// JSON is valid - this newline marks the end of our data
+									eventEnd = newlinePos;
+								} catch (_e) {
+									// JSON is not valid, check if there's more content after the newline
+									if (newlinePos + 1 >= bufferCopy.length) {
+										// Newline is at the end of buffer - event is incomplete
+										break;
+									} else {
+										// There's content after the newline
+										// Check if it's another SSE field (like event:, id:, retry:, etc.) or if the event continues
+										const restOfBuffer = bufferCopy.slice(newlinePos + 1);
+
+										// Check for SSE field patterns (event:, id:, retry:, etc.)
+										// Handle both single and double newlines before checking for SSE fields
+										const trimmedRest = restOfBuffer.replace(/^\n+/, ""); // Remove leading newlines
+										if (
+											restOfBuffer.startsWith("\n") || // Empty line - end of event
+											restOfBuffer.startsWith("data: ") || // Next data field
+											trimmedRest.startsWith("event:") || // Event field (after newlines)
+											trimmedRest.startsWith("id:") || // ID field (after newlines)
+											trimmedRest.startsWith("retry:") || // Retry field (after newlines)
+											trimmedRest.match(/^[a-zA-Z_-]+:\s*/) // Generic SSE field pattern (after newlines, allow no space)
+										) {
+											// This is the end of our data event
+											eventEnd = newlinePos;
+										} else {
+											// Content continues on next line - use full buffer
+											eventEnd = bufferCopy.length;
+										}
+									}
+								}
+							} else {
+								// No newline found after event data - event is incomplete
+								// Try to detect if we have a complete JSON object
+								const eventDataCandidate = bufferCopy.slice(eventStartPos);
+								if (eventDataCandidate.length > 0) {
+									// Try to validate if this looks like complete JSON
+									try {
+										JSON.parse(eventDataCandidate.trim());
+										// If we can parse it, it's complete
+										eventEnd = bufferCopy.length;
+									} catch (_e) {
+										// JSON parsing failed - event is incomplete
+										break;
+									}
+								} else {
+									// No event data yet
+									break;
+								}
+							}
+						}
+
+						const eventData = bufferCopy.slice(dataIndex + 6, eventEnd).trim();
+
+						// Debug logging for troublesome events
+						if (eventData.includes("event:") || eventData.includes("id:")) {
+							console.warn("Event data contains SSE field:", {
+								eventData:
+									eventData.substring(0, 200) +
+									(eventData.length > 200 ? "..." : ""),
+								dataIndex,
+								eventEnd,
+								bufferLength: bufferCopy.length,
+								provider: usedProvider,
+							});
+						}
+
+						if (eventData === "[DONE]") {
+							// Calculate final usage if we don't have complete data
+							let finalPromptTokens = promptTokens;
+							let finalCompletionTokens = completionTokens;
+							let finalTotalTokens = totalTokens;
+
+							// Estimate missing tokens if needed using helper function
+							if (finalPromptTokens === null) {
+								const estimation = estimateTokens(
+									usedProvider,
+									messages,
+									null,
+									null,
+									null,
+								);
+								finalPromptTokens = estimation.calculatedPromptTokens;
+							}
+
+							if (finalCompletionTokens === null) {
+								finalCompletionTokens = estimateTokensFromContent(fullContent);
+							}
+
+							if (finalTotalTokens === null) {
+								finalTotalTokens =
+									(finalPromptTokens || 0) + (finalCompletionTokens || 0);
+							}
+
+							// Send final usage chunk before [DONE] if we have any usage data
+							if (
+								finalPromptTokens !== null ||
+								finalCompletionTokens !== null ||
+								finalTotalTokens !== null
+							) {
+								const finalUsageChunk = {
+									id: `chatcmpl-${Date.now()}`,
+									object: "chat.completion.chunk",
+									created: Math.floor(Date.now() / 1000),
+									model: usedModel,
+									choices: [
+										{
+											index: 0,
+											delta: {},
+											finish_reason: null,
+										},
+									],
+									usage: {
+										prompt_tokens: finalPromptTokens || 0,
+										completion_tokens: finalCompletionTokens || 0,
+										total_tokens: finalTotalTokens || 0,
+									},
+								};
+
+								await writeSSEAndCache({
+									data: JSON.stringify(finalUsageChunk),
+									id: String(eventId++),
+								});
+							}
+
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+
+							processedLength = eventEnd;
+						} else {
+							// Try to parse JSON data - it might span multiple lines
+							let data;
+							try {
+								data = JSON.parse(eventData);
+							} catch (e) {
+								// If JSON parsing fails, this might be an incomplete event
+								// Since we already validated JSON completeness above, this is likely a format issue
+								// Log the error and skip this chunk
+								streamingError = e;
+								console.warn("Failed to parse streaming JSON:", {
+									error: e instanceof Error ? e.message : String(e),
+									eventData:
+										eventData.substring(0, 200) +
+										(eventData.length > 200 ? "..." : ""),
+									provider: usedProvider,
+									eventLength: eventData.length,
+									bufferEnd: eventEnd,
+									bufferLength: bufferCopy.length,
+								});
+
+								processedLength = eventEnd;
+								searchStart = eventEnd;
+								continue;
+							}
+
+							// Transform streaming responses to OpenAI format for all providers
+							const transformedData = transformStreamingChunkToOpenAIFormat(
+								usedProvider,
+								usedModel,
+								data,
+							);
+
+							// For Anthropic, if we have partial usage data, complete it
+							if (usedProvider === "anthropic" && transformedData.usage) {
+								const usage = transformedData.usage;
+								if (
+									usage.output_tokens !== undefined &&
+									usage.prompt_tokens === undefined
+								) {
+									// Estimate prompt tokens if not provided
 									const estimation = estimateTokens(
 										usedProvider,
 										messages,
@@ -2103,219 +2338,138 @@ chat.openapi(completions, async (c) => {
 										null,
 										null,
 									);
-									finalPromptTokens = estimation.calculatedPromptTokens;
-								}
-
-								if (finalCompletionTokens === null) {
-									finalCompletionTokens =
-										estimateTokensFromContent(fullContent);
-								}
-
-								if (finalTotalTokens === null) {
-									finalTotalTokens =
-										(finalPromptTokens || 0) + (finalCompletionTokens || 0);
-								}
-
-								// Send final usage chunk before [DONE] if we have any usage data
-								if (
-									finalPromptTokens !== null ||
-									finalCompletionTokens !== null ||
-									finalTotalTokens !== null
-								) {
-									const finalUsageChunk = {
-										id: `chatcmpl-${Date.now()}`,
-										object: "chat.completion.chunk",
-										created: Math.floor(Date.now() / 1000),
-										model: usedModel,
-										choices: [
-											{
-												index: 0,
-												delta: {},
-												finish_reason: null,
-											},
-										],
-										usage: {
-											prompt_tokens: finalPromptTokens || 0,
-											completion_tokens: finalCompletionTokens || 0,
-											total_tokens: finalTotalTokens || 0,
-										},
+									const estimatedPromptTokens =
+										estimation.calculatedPromptTokens;
+									transformedData.usage = {
+										prompt_tokens: estimatedPromptTokens,
+										completion_tokens: usage.output_tokens,
+										total_tokens: estimatedPromptTokens + usage.output_tokens,
 									};
-
-									await writeSSEAndCache({
-										data: JSON.stringify(finalUsageChunk),
-										id: String(eventId++),
-									});
 								}
+							}
 
-								await writeSSEAndCache({
-									event: "done",
-									data: "[DONE]",
-									id: String(eventId++),
-								});
-							} else {
-								let data;
-								try {
-									data = JSON.parse(line.substring(6));
-								} catch (e) {
-									console.warn("Failed to parse streaming JSON:", {
-										error: e instanceof Error ? e.message : String(e),
-										lineContent: line, // First 100 chars for debugging
-										provider: usedProvider,
-									});
-									continue;
-								}
-
-								// Transform streaming responses to OpenAI format for all providers
-								const transformedData = transformStreamingChunkToOpenAIFormat(
-									usedProvider,
-									usedModel,
-									data,
-								);
-
-								// For Anthropic, if we have partial usage data, complete it
-								if (usedProvider === "anthropic" && transformedData.usage) {
-									const usage = transformedData.usage;
-									if (
-										usage.output_tokens !== undefined &&
-										usage.prompt_tokens === undefined
-									) {
-										// Estimate prompt tokens if not provided
-										const estimation = estimateTokens(
-											usedProvider,
-											messages,
-											null,
-											null,
-											null,
-										);
-										const estimatedPromptTokens =
-											estimation.calculatedPromptTokens;
-										transformedData.usage = {
-											prompt_tokens: estimatedPromptTokens,
-											completion_tokens: usage.output_tokens,
-											total_tokens: estimatedPromptTokens + usage.output_tokens,
-										};
-									}
-								}
-
-								// For Google providers, add usage information when available
-								if (
-									usedProvider === "google-vertex" ||
-									usedProvider === "google-ai-studio"
-								) {
-									const usage = extractTokenUsage(
-										data,
-										usedProvider,
-										fullContent,
-									);
-
-									// If we have usage data from Google, add it to the streaming chunk
-									if (
-										usage.promptTokens !== null ||
-										usage.completionTokens !== null ||
-										usage.totalTokens !== null
-									) {
-										transformedData.usage = {
-											prompt_tokens: usage.promptTokens,
-											completion_tokens: usage.completionTokens,
-											total_tokens: usage.totalTokens,
-										};
-									}
-								}
-
-								await writeSSEAndCache({
-									data: JSON.stringify(transformedData),
-									id: String(eventId++),
-								});
-
-								// Extract content for logging using helper function
-								const contentChunk = extractContentFromProvider(
-									data,
-									usedProvider,
-								);
-								if (contentChunk) {
-									fullContent += contentChunk;
-								}
-
-								// Extract reasoning content for logging using helper function
-								const reasoningContentChunk =
-									extractReasoningContentFromProvider(data, usedProvider);
-								if (reasoningContentChunk) {
-									fullReasoningContent += reasoningContentChunk;
-								}
-
-								// Handle provider-specific finish reason extraction
-								switch (usedProvider) {
-									case "google-vertex":
-									case "google-ai-studio":
-										if (data.candidates?.[0]?.finishReason) {
-											finishReason = data.candidates[0].finishReason;
-										}
-										break;
-									case "anthropic":
-										if (
-											data.type === "message_delta" &&
-											data.delta?.stop_reason
-										) {
-											finishReason = data.delta.stop_reason;
-										} else if (
-											data.type === "message_stop" ||
-											data.stop_reason
-										) {
-											finishReason = data.stop_reason || "end_turn";
-										} else if (data.delta?.stop_reason) {
-											finishReason = data.delta.stop_reason;
-										}
-										break;
-									default: // OpenAI format
-										if (data.choices && data.choices[0]?.finish_reason) {
-											finishReason = data.choices[0].finish_reason;
-										}
-										break;
-								}
-
-								// Extract token usage using helper function
+							// For Google providers, add usage information when available
+							if (
+								usedProvider === "google-vertex" ||
+								usedProvider === "google-ai-studio"
+							) {
 								const usage = extractTokenUsage(
 									data,
 									usedProvider,
 									fullContent,
 								);
-								if (usage.promptTokens !== null) {
-									promptTokens = usage.promptTokens;
-								}
-								if (usage.completionTokens !== null) {
-									completionTokens = usage.completionTokens;
-								}
-								if (usage.totalTokens !== null) {
-									totalTokens = usage.totalTokens;
-								}
-								if (usage.reasoningTokens !== null) {
-									reasoningTokens = usage.reasoningTokens;
-								}
-								if (usage.cachedTokens !== null) {
-									cachedTokens = usage.cachedTokens;
-								}
 
-								// Estimate tokens if not provided and we have a finish reason
-								if (finishReason && (!promptTokens || !completionTokens)) {
-									if (!promptTokens) {
-										const estimation = estimateTokens(
-											usedProvider,
-											messages,
-											null,
-											null,
-											null,
-										);
-										promptTokens = estimation.calculatedPromptTokens;
-									}
-
-									if (!completionTokens) {
-										completionTokens = estimateTokensFromContent(fullContent);
-									}
-
-									totalTokens = (promptTokens || 0) + (completionTokens || 0);
+								// If we have usage data from Google, add it to the streaming chunk
+								if (
+									usage.promptTokens !== null ||
+									usage.completionTokens !== null ||
+									usage.totalTokens !== null
+								) {
+									transformedData.usage = {
+										prompt_tokens: usage.promptTokens,
+										completion_tokens: usage.completionTokens,
+										total_tokens: usage.totalTokens,
+									};
 								}
 							}
+
+							await writeSSEAndCache({
+								data: JSON.stringify(transformedData),
+								id: String(eventId++),
+							});
+
+							// Extract content for logging using helper function
+							const contentChunk = extractContentFromProvider(
+								data,
+								usedProvider,
+							);
+							if (contentChunk) {
+								fullContent += contentChunk;
+							}
+
+							// Extract reasoning content for logging using helper function
+							const reasoningContentChunk = extractReasoningContentFromProvider(
+								data,
+								usedProvider,
+							);
+							if (reasoningContentChunk) {
+								fullReasoningContent += reasoningContentChunk;
+							}
+
+							// Handle provider-specific finish reason extraction
+							switch (usedProvider) {
+								case "google-vertex":
+								case "google-ai-studio":
+									if (data.candidates?.[0]?.finishReason) {
+										finishReason = data.candidates[0].finishReason;
+									}
+									break;
+								case "anthropic":
+									if (
+										data.type === "message_delta" &&
+										data.delta?.stop_reason
+									) {
+										finishReason = data.delta.stop_reason;
+									} else if (data.type === "message_stop" || data.stop_reason) {
+										finishReason = data.stop_reason || "end_turn";
+									} else if (data.delta?.stop_reason) {
+										finishReason = data.delta.stop_reason;
+									}
+									break;
+								default: // OpenAI format
+									if (data.choices && data.choices[0]?.finish_reason) {
+										finishReason = data.choices[0].finish_reason;
+									}
+									break;
+							}
+
+							// Extract token usage using helper function
+							const usage = extractTokenUsage(data, usedProvider, fullContent);
+							if (usage.promptTokens !== null) {
+								promptTokens = usage.promptTokens;
+							}
+							if (usage.completionTokens !== null) {
+								completionTokens = usage.completionTokens;
+							}
+							if (usage.totalTokens !== null) {
+								totalTokens = usage.totalTokens;
+							}
+							if (usage.reasoningTokens !== null) {
+								reasoningTokens = usage.reasoningTokens;
+							}
+							if (usage.cachedTokens !== null) {
+								cachedTokens = usage.cachedTokens;
+							}
+
+							// Estimate tokens if not provided and we have a finish reason
+							if (finishReason && (!promptTokens || !completionTokens)) {
+								if (!promptTokens) {
+									const estimation = estimateTokens(
+										usedProvider,
+										messages,
+										null,
+										null,
+										null,
+									);
+									promptTokens = estimation.calculatedPromptTokens;
+								}
+
+								if (!completionTokens) {
+									completionTokens = estimateTokensFromContent(fullContent);
+								}
+
+								totalTokens = (promptTokens || 0) + (completionTokens || 0);
+							}
+
+							processedLength = eventEnd;
 						}
+
+						searchStart = eventEnd;
+					}
+
+					// Remove processed data from buffer
+					if (processedLength > 0) {
+						buffer = bufferCopy.slice(processedLength);
 					}
 				}
 			} catch (error) {
@@ -2323,6 +2477,32 @@ chat.openapi(completions, async (c) => {
 					canceled = true;
 				} else {
 					console.error("Error reading stream:", error);
+
+					// Forward the error to the client
+					try {
+						await stream.writeSSE({
+							event: "error",
+							data: JSON.stringify({
+								error: {
+									message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+									type: "gateway_error",
+									param: null,
+									code: "streaming_error",
+								},
+							}),
+							id: String(eventId++),
+						});
+						await stream.writeSSE({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+					} catch (sseError) {
+						console.error("Failed to send error SSE:", sseError);
+					}
+
+					// Mark as having an error for logging
+					streamingError = error;
 				}
 			} finally {
 				// Clean up the event listeners
@@ -2481,8 +2661,17 @@ chat.openapi(completions, async (c) => {
 					totalTokens: calculatedTotalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens,
 					cachedTokens: cachedTokens?.toString() || null,
-					hasError: false,
-					errorDetails: null,
+					hasError: streamingError !== null,
+					errorDetails: streamingError
+						? {
+								statusCode: 500,
+								statusText: "Streaming Error",
+								responseText:
+									streamingError instanceof Error
+										? streamingError.message
+										: String(streamingError),
+							}
+						: null,
 					streamed: true,
 					canceled: canceled,
 					inputCost: costs.inputCost,

@@ -16,10 +16,11 @@ export const llmgatewayModels = [
 				requestPrice: undefined,
 				contextSize: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],
+		jsonOutput: true,
 	},
 	{
 		id: "auto", // native automatic routing
@@ -36,9 +37,10 @@ export const llmgatewayModels = [
 				requestPrice: undefined,
 				contextSize: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],
+		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];
