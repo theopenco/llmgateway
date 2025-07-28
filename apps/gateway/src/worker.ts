@@ -10,13 +10,7 @@ import {
 } from "@llmgateway/db";
 
 import { getProject, getOrganization } from "./lib/cache";
-import {
-	moveToProcessingQueue,
-	removeFromProcessingQueue,
-	recoverProcessingQueue,
-	LOG_QUEUE,
-	LOG_PROCESSING_QUEUE,
-} from "./lib/redis";
+import { consumeFromQueue, LOG_QUEUE } from "./lib/redis";
 import { calculateFees } from "../../api/src/lib/fee-calculator";
 import { stripe } from "../../api/src/routes/payments";
 
@@ -237,52 +231,14 @@ async function processAutoTopUp(): Promise<void> {
 }
 
 export async function processLogQueue(): Promise<void> {
-	// Move messages from main queue to processing queue
-	const messages = await moveToProcessingQueue(
-		LOG_QUEUE,
-		LOG_PROCESSING_QUEUE,
-		10,
-	);
+	const message = await consumeFromQueue(LOG_QUEUE);
 
-	if (!messages) {
+	if (!message) {
 		return;
 	}
 
 	try {
-		let logData: LogInsertData[];
-		// Parse each message individually and discard only the invalid ones
-		const parseResults: {
-			data?: LogInsertData;
-			error?: Error;
-			index: number;
-		}[] = messages.map((message, index) => {
-			try {
-				return { data: JSON.parse(message) as LogInsertData, index };
-			} catch (error) {
-				return { error: error as Error, index };
-			}
-		});
-
-		const validMessages = parseResults.filter((r) => r.data);
-		const invalidMessages = parseResults.filter((r) => r.error);
-
-		if (invalidMessages.length > 0) {
-			console.error(
-				`Error parsing ${invalidMessages.length} log messages - discarding invalid messages:`,
-				invalidMessages.map((r) => ({
-					index: r.index,
-					error: r.error?.message,
-				})),
-			);
-		}
-
-		if (validMessages.length === 0) {
-			// All messages were invalid, remove them all
-			await removeFromProcessingQueue(LOG_PROCESSING_QUEUE, messages.length);
-			return;
-		}
-
-		const logData = validMessages.map((r) => r.data!);
+		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
 
 		const processedLogData = await Promise.all(
 			logData.map(async (data) => {
@@ -301,10 +257,8 @@ export async function processLogQueue(): Promise<void> {
 			}),
 		);
 
-		// Insert logs into database
 		await db.insert(log).values(processedLogData as any);
 
-		// Update organization credits
 		for (const data of logData) {
 			if (!data.cost || data.cached) {
 				continue;
@@ -321,20 +275,8 @@ export async function processLogQueue(): Promise<void> {
 					.where(eq(organization.id, data.organizationId));
 			}
 		}
-
-		// Only remove from processing queue after successful processing
-		await removeFromProcessingQueue(LOG_PROCESSING_QUEUE, messages.length);
 	} catch (error) {
 		console.error("Error processing log message:", error);
-		// Move messages back to main queue for retry
-		try {
-			await recoverProcessingQueue(LOG_PROCESSING_QUEUE, LOG_QUEUE);
-		} catch (recoveryError) {
-			console.error("Error recovering messages to main queue:", recoveryError);
-			// If we can't recover to main queue, at least log the issue
-			// Messages will remain in processing queue and be recovered on next worker restart
-		}
-		throw error;
 	}
 }
 
@@ -350,15 +292,6 @@ export async function startWorker() {
 	isWorkerRunning = true;
 	shouldStop = false;
 	console.log("Starting log queue worker...");
-
-	// Recover any messages that were being processed when the worker died
-	try {
-		await recoverProcessingQueue(LOG_PROCESSING_QUEUE, LOG_QUEUE);
-		console.log("Recovered any pending messages from processing queue");
-	} catch (error) {
-		console.error("Error recovering processing queue on startup:", error);
-	}
-
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 
@@ -380,7 +313,6 @@ export async function startWorker() {
 			}
 		} catch (error) {
 			console.error("Error in log queue worker:", error);
-			// Wait longer on error to prevent rapid retries that could overwhelm the system
 			if (!shouldStop) {
 				await new Promise((resolve) => {
 					setTimeout(resolve, 5000);
