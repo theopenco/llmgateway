@@ -152,18 +152,11 @@ export function RecentLogs() {
 						data.logs.map((log) => (
 							<LogCard
 								key={log.id}
+								// @ts-ignore
 								log={{
 									...log,
 									createdAt: new Date(log.createdAt),
 									updatedAt: new Date(log.updatedAt),
-									messages: log.messages as any,
-									tools: (log as any).tools,
-									toolChoice: (log as any).toolChoice,
-									errorDetails: log.errorDetails as any,
-									reasoningTokens: log.reasoningTokens,
-									reasoningContent: (log as any).reasoningContent,
-									cachedTokens: (log as any).cachedTokens || null,
-									cachedInputCost: (log as any).cachedInputCost || null,
 								}}
 							/>
 						))
