@@ -2117,125 +2117,126 @@ chat.openapi(completions, async (c) => {
 									id: String(eventId++),
 								});
 							} else {
+								let data;
 								try {
-									const data = JSON.parse(line.substring(6));
-
-									// Transform streaming responses to OpenAI format for all providers
-									const transformedData = transformStreamingChunkToOpenAIFormat(
-										usedProvider,
-										usedModel,
-										data,
-									);
-
-									// For Anthropic, if we have partial usage data, complete it
-									if (usedProvider === "anthropic" && transformedData.usage) {
-										const usage = transformedData.usage;
-										if (
-											usage.output_tokens !== undefined &&
-											usage.prompt_tokens === undefined
-										) {
-											// Estimate prompt tokens if not provided
-											const estimatedPromptTokens = Math.round(
-												messages.reduce(
-													(acc, m) => acc + (m.content?.length || 0),
-													0,
-												) / 4,
-											);
-											transformedData.usage = {
-												prompt_tokens: estimatedPromptTokens,
-												completion_tokens: usage.output_tokens,
-												total_tokens:
-													estimatedPromptTokens + usage.output_tokens,
-											};
-										}
-									}
-
-									await writeSSEAndCache({
-										data: JSON.stringify(transformedData),
-										id: String(eventId++),
-									});
-
-									// Extract content for logging using helper function
-									const contentChunk = extractContentFromProvider(
-										data,
-										usedProvider,
-									);
-									if (contentChunk) {
-										fullContent += contentChunk;
-									}
-
-									// Extract reasoning content for logging using helper function
-									const reasoningContentChunk =
-										extractReasoningContentFromProvider(data, usedProvider);
-									if (reasoningContentChunk) {
-										fullReasoningContent += reasoningContentChunk;
-									}
-
-									// Handle provider-specific finish reason extraction
-									switch (usedProvider) {
-										case "anthropic":
-											if (
-												data.type === "message_delta" &&
-												data.delta?.stop_reason
-											) {
-												finishReason = data.delta.stop_reason;
-											} else if (
-												data.type === "message_stop" ||
-												data.stop_reason
-											) {
-												finishReason = data.stop_reason || "end_turn";
-											} else if (data.delta?.stop_reason) {
-												finishReason = data.delta.stop_reason;
-											}
-											break;
-										default: // OpenAI format
-											if (data.choices && data.choices[0]?.finish_reason) {
-												finishReason = data.choices[0].finish_reason;
-											}
-											break;
-									}
-
-									// Extract token usage using helper function
-									const usage = extractTokenUsage(data, usedProvider);
-									if (usage.promptTokens !== null) {
-										promptTokens = usage.promptTokens;
-									}
-									if (usage.completionTokens !== null) {
-										completionTokens = usage.completionTokens;
-									}
-									if (usage.totalTokens !== null) {
-										totalTokens = usage.totalTokens;
-									}
-									if (usage.reasoningTokens !== null) {
-										reasoningTokens = usage.reasoningTokens;
-									}
-									if (usage.cachedTokens !== null) {
-										cachedTokens = usage.cachedTokens;
-									}
-
-									// Estimate tokens if not provided and we have a finish reason
-									if (finishReason && (!promptTokens || !completionTokens)) {
-										if (!promptTokens) {
-											promptTokens = Math.round(
-												messages.reduce(
-													(acc, m) => acc + (m.content?.length || 0),
-													0,
-												) / 4,
-											);
-										}
-
-										if (!completionTokens) {
-											completionTokens = estimateTokensFromContent(fullContent);
-										}
-
-										totalTokens = (promptTokens || 0) + (completionTokens || 0);
-									}
+									data = JSON.parse(line.substring(6));
 								} catch (e) {
 									console.warn("Failed to parse streaming JSON:", {
 										error: e instanceof Error ? e.message : String(e),
-										lineContent: line.substring(0, 100), // First 100 chars for debugging
+										lineContent: line, // First 100 chars for debugging
 										provider: usedProvider,
 									});
+									continue;
+								}
+
+								// Transform streaming responses to OpenAI format for all providers
+								const transformedData = transformStreamingChunkToOpenAIFormat(
+									usedProvider,
+									usedModel,
+									data,
+								);
+
+								// For Anthropic, if we have partial usage data, complete it
+								if (usedProvider === "anthropic" && transformedData.usage) {
+									const usage = transformedData.usage;
+									if (
+										usage.output_tokens !== undefined &&
+										usage.prompt_tokens === undefined
+									) {
+										// Estimate prompt tokens if not provided
+										const estimatedPromptTokens = Math.round(
+											messages.reduce(
+												(acc, m) => acc + (m.content?.length || 0),
+												0,
+											) / 4,
+										);
+										transformedData.usage = {
+											prompt_tokens: estimatedPromptTokens,
+											completion_tokens: usage.output_tokens,
+											total_tokens: estimatedPromptTokens + usage.output_tokens,
+										};
+									}
+								}
+
+								await writeSSEAndCache({
+									data: JSON.stringify(transformedData),
+									id: String(eventId++),
+								});
+
+								// Extract content for logging using helper function
+								const contentChunk = extractContentFromProvider(
+									data,
+									usedProvider,
+								);
+								if (contentChunk) {
+									fullContent += contentChunk;
+								}
+
+								// Extract reasoning content for logging using helper function
+								const reasoningContentChunk =
+									extractReasoningContentFromProvider(data, usedProvider);
+								if (reasoningContentChunk) {
+									fullReasoningContent += reasoningContentChunk;
+								}
+
+								// Handle provider-specific finish reason extraction
+								switch (usedProvider) {
+									case "anthropic":
+										if (
+											data.type === "message_delta" &&
+											data.delta?.stop_reason
+										) {
+											finishReason = data.delta.stop_reason;
+										} else if (
+											data.type === "message_stop" ||
+											data.stop_reason
+										) {
+											finishReason = data.stop_reason || "end_turn";
+										} else if (data.delta?.stop_reason) {
+											finishReason = data.delta.stop_reason;
+										}
+										break;
+									default: // OpenAI format
+										if (data.choices && data.choices[0]?.finish_reason) {
+											finishReason = data.choices[0].finish_reason;
+										}
+										break;
+								}
+
+								// Extract token usage using helper function
+								const usage = extractTokenUsage(data, usedProvider);
+								if (usage.promptTokens !== null) {
+									promptTokens = usage.promptTokens;
+								}
+								if (usage.completionTokens !== null) {
+									completionTokens = usage.completionTokens;
+								}
+								if (usage.totalTokens !== null) {
+									totalTokens = usage.totalTokens;
+								}
+								if (usage.reasoningTokens !== null) {
+									reasoningTokens = usage.reasoningTokens;
+								}
+								if (usage.cachedTokens !== null) {
+									cachedTokens = usage.cachedTokens;
+								}
+
+								// Estimate tokens if not provided and we have a finish reason
+								if (finishReason && (!promptTokens || !completionTokens)) {
+									if (!promptTokens) {
+										promptTokens = Math.round(
+											messages.reduce(
+												(acc, m) => acc + (m.content?.length || 0),
+												0,
+											) / 4,
+										);
+									}
+
+									if (!completionTokens) {
+										completionTokens = estimateTokensFromContent(fullContent);
+									}
+
+									totalTokens = (promptTokens || 0) + (completionTokens || 0);
 								}
 							}
 						}
