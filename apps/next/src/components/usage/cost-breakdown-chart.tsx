@@ -41,7 +41,7 @@ export function CostBreakdownChart({ initialData }: CostBreakdownChartProps) {
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: daysParam ? initialData : undefined,
+			initialData,
 		},
 	);
 

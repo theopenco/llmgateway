@@ -31,7 +31,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
-import type { ActivitT } from "@/types/activity";
+import type { ActivitT, ActivityModelUsage } from "@/types/activity";
 import type { TooltipProps } from "recharts";
 
 // Helper function to get all unique models from the data
@@ -83,12 +83,7 @@ interface TooltipPayload {
 		requestCount: number;
 		totalTokens: number;
 		cost: number;
-		modelBreakdown: {
-			id: string;
-			requestCount: number;
-			cost: number;
-			totalTokens: number;
-		}[];
+		modelBreakdown: ActivityModelUsage[];
 	};
 }
 
@@ -147,7 +142,7 @@ const CustomTooltip = ({
 									: 0;
 
 							return (
-								<p key={index} className="text-xs">
+								<p key={`${entry.dataKey}-${index}`} className="text-xs">
 									<span
 										className="inline-block w-3 h-3 mr-1"
 										style={{ backgroundColor: entry.color }}
@@ -416,7 +411,7 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 						{getUniqueModels(data.activity).length > 0 ? (
 							getUniqueModels(data.activity).map((model, index) => (
 								<Bar
-									key={model}
+									key={`${model}-${index}`}
 									dataKey={model}
 									name={model}
 									stackId="models"
@@ -430,8 +425,20 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 							))
 						) : (
 							<Bar
-								dataKey="requestCount"
-								name="Requests"
+								dataKey={
+									breakdownField === "cost"
+										? "cost"
+										: breakdownField === "tokens"
+											? "totalTokens"
+											: "requestCount"
+								}
+								name={
+									breakdownField === "cost"
+										? "Cost"
+										: breakdownField === "tokens"
+											? "Tokens"
+											: "Requests"
+								}
 								fill="currentColor"
 								radius={[4, 4, 0, 0]}
 								className="fill-primary opacity-80 hover:opacity-100 transition-opacity"

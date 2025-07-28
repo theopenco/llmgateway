@@ -49,7 +49,7 @@ export function ModelUsageTable({ initialData }: ModelUsageTableProps) {
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: daysParam ? initialData : undefined,
+			initialData,
 		},
 	);
 

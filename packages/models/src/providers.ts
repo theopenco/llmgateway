@@ -24,6 +24,7 @@ export const providers = [
 			"LLMGateway is a framework for building and deploying large language models.",
 		streaming: true,
 		cancellation: true,
+		jsonOutput: true,
 		color: "#6366f1",
 		website: "https://llmgateway.io",
 		announcement: null,
@@ -67,7 +68,7 @@ export const providers = [
 		name: "Google AI Studio",
 		description:
 			"Google AI Studio is a platform for accessing Google's Gemini models.",
-		streaming: false,
+		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://ai.google.com",

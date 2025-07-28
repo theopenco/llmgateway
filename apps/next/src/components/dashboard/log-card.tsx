@@ -25,10 +25,10 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
-export function LogCard({ log }: { log: Log }) {
+export function LogCard({ log }: { log: Partial<Log> }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
+	const formattedTime = formatDistanceToNow(new Date(log?.createdAt ?? ""), {
 		addSuffix: true,
 	});
 
@@ -94,7 +94,7 @@ export function LogCard({ log }: { log: Log }) {
 						</div>
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />
-							<span>{formatDuration(log.duration)}</span>
+							<span>{formatDuration(log.duration ?? 0)}</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Coins className="h-3.5 w-3.5" />
@@ -142,7 +142,7 @@ export function LogCard({ log }: { log: Log }) {
 							<h4 className="text-sm font-medium">Response Metrics</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Duration</div>
-								<div>{formatDuration(log.duration)}</div>
+								<div>{formatDuration(log.duration ?? 0)}</div>
 								<div className="text-muted-foreground">Response Size</div>
 								<div>
 									{log.responseSize ? (
@@ -312,6 +312,37 @@ export function LogCard({ log }: { log: Log }) {
 							</TooltipProvider>
 						</div>
 					</div>
+					{((log as any).tools || (log as any).toolChoice) && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Tool Information</h4>
+							<div className="grid gap-4 md:grid-cols-1">
+								{(log as any).tools && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Available Tools
+										</h5>
+										<div className="rounded-md border p-3">
+											<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+												{JSON.stringify((log as any).tools, null, 2)}
+											</pre>
+										</div>
+									</div>
+								)}
+								{(log as any).toolChoice && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Tool Choice
+										</h5>
+										<div className="rounded-md border p-3">
+											<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+												{JSON.stringify((log as any).toolChoice, null, 2)}
+											</pre>
+										</div>
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 					{log.hasError && !!log.errorDetails && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium text-red-600">
@@ -355,6 +386,7 @@ export function LogCard({ log }: { log: Log }) {
 							</div>
 						</div>
 					)}
+					`
 				</div>
 			)}
 		</div>
