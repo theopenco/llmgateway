@@ -2206,6 +2206,31 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
+								// For Google providers, add usage information when available
+								if (
+									usedProvider === "google-vertex" ||
+									usedProvider === "google-ai-studio"
+								) {
+									const usage = extractTokenUsage(
+										data,
+										usedProvider,
+										fullContent,
+									);
+
+									// If we have usage data from Google, add it to the streaming chunk
+									if (
+										usage.promptTokens !== null ||
+										usage.completionTokens !== null ||
+										usage.totalTokens !== null
+									) {
+										transformedData.usage = {
+											prompt_tokens: usage.promptTokens,
+											completion_tokens: usage.completionTokens,
+											total_tokens: usage.totalTokens,
+										};
+									}
+								}
+
 								await writeSSEAndCache({
 									data: JSON.stringify(transformedData),
 									id: String(eventId++),
