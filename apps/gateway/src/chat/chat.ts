@@ -2118,36 +2118,75 @@ chat.openapi(completions, async (c) => {
 							dataIndex + 6,
 						);
 						if (nextEventIndex !== -1) {
-							eventEnd = nextEventIndex;
+							// Found next data event, but we still need to check if there are SSE fields in between
+							// For Anthropic, we might have: data: {...}\n\nevent: something\n\ndata: {...}
+							const betweenEvents = bufferCopy.slice(
+								dataIndex + 6,
+								nextEventIndex,
+							);
+							const firstNewline = betweenEvents.indexOf("\n");
+
+							if (firstNewline !== -1) {
+								// Check if JSON up to first newline is valid
+								const jsonCandidate = betweenEvents
+									.slice(0, firstNewline)
+									.trim();
+								try {
+									JSON.parse(jsonCandidate);
+									// JSON is valid - end at first newline to exclude SSE fields
+									eventEnd = dataIndex + 6 + firstNewline;
+								} catch (_e) {
+									// JSON is not complete, use the full segment to next data event
+									eventEnd = nextEventIndex;
+								}
+							} else {
+								// No newline found, use full segment
+								eventEnd = nextEventIndex;
+							}
 						} else {
 							// No next event found - check for proper event termination
 							// SSE events should end with at least one newline
 							const eventStartPos = dataIndex + 6; // Start of event data
 
-							// Look for a newline that would indicate event completion
+							// For Anthropic SSE format, we need to be more careful about event boundaries
+							// Try to find the end of the JSON data by looking for the closing brace
 							let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
 							if (newlinePos !== -1) {
-								// We found a newline - this could be the end of the event
-								// Check if there's more content after the newline
-								if (newlinePos + 1 >= bufferCopy.length) {
-									// Newline is at the end of buffer - event is complete
-									eventEnd = bufferCopy.length;
-								} else {
-									// There's content after the newline
-									// Check if it's another SSE field or if the event continues
-									const nextChar = bufferCopy[newlinePos + 1];
-									if (
-										nextChar === "\n" ||
-										nextChar === "d" ||
-										nextChar === "e" ||
-										nextChar === "i" ||
-										nextChar === ":"
-									) {
-										// Likely end of event (double newline or another SSE field)
-										eventEnd = newlinePos + 1;
+								// We found a newline - check if the JSON before it is valid
+								const jsonCandidate = bufferCopy
+									.slice(eventStartPos, newlinePos)
+									.trim();
+								try {
+									JSON.parse(jsonCandidate);
+									// JSON is valid - this newline marks the end of our data
+									eventEnd = newlinePos;
+								} catch (_e) {
+									// JSON is not valid, check if there's more content after the newline
+									if (newlinePos + 1 >= bufferCopy.length) {
+										// Newline is at the end of buffer - event is incomplete
+										break;
 									} else {
-										// Content continues on next line - use full buffer
-										eventEnd = bufferCopy.length;
+										// There's content after the newline
+										// Check if it's another SSE field (like event:, id:, retry:, etc.) or if the event continues
+										const restOfBuffer = bufferCopy.slice(newlinePos + 1);
+
+										// Check for SSE field patterns (event:, id:, retry:, etc.)
+										// Handle both single and double newlines before checking for SSE fields
+										const trimmedRest = restOfBuffer.replace(/^\n+/, ""); // Remove leading newlines
+										if (
+											restOfBuffer.startsWith("\n") || // Empty line - end of event
+											restOfBuffer.startsWith("data: ") || // Next data field
+											trimmedRest.startsWith("event:") || // Event field (after newlines)
+											trimmedRest.startsWith("id:") || // ID field (after newlines)
+											trimmedRest.startsWith("retry:") || // Retry field (after newlines)
+											trimmedRest.match(/^[a-zA-Z_-]+:\s*/) // Generic SSE field pattern (after newlines, allow no space)
+										) {
+											// This is the end of our data event
+											eventEnd = newlinePos;
+										} else {
+											// Content continues on next line - use full buffer
+											eventEnd = bufferCopy.length;
+										}
 									}
 								}
 							} else {
@@ -2172,6 +2211,19 @@ chat.openapi(completions, async (c) => {
 						}
 
 						const eventData = bufferCopy.slice(dataIndex + 6, eventEnd).trim();
+
+						// Debug logging for troublesome events
+						if (eventData.includes("event:") || eventData.includes("id:")) {
+							console.warn("Event data contains SSE field:", {
+								eventData:
+									eventData.substring(0, 200) +
+									(eventData.length > 200 ? "..." : ""),
+								dataIndex,
+								eventEnd,
+								bufferLength: bufferCopy.length,
+								provider: usedProvider,
+							});
+						}
 
 						if (eventData === "[DONE]") {
 							// Calculate final usage if we don't have complete data
