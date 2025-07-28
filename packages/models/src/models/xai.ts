@@ -55,8 +55,8 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-3-fast",
-				inputPrice: 0.15 / 1e6,
-				outputPrice: 0.6 / 1e6,
+				inputPrice: 5.0 / 1e6,
+				outputPrice: 25.0 / 1e6,
 				requestPrice: 0,
 				contextSize: 131072,
 				maxOutput: undefined,
