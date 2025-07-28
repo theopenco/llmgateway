@@ -806,9 +806,10 @@ function transformStreamingChunkToOpenAIFormat(
 					usage: data.usage || null,
 				};
 			} else {
-				// Even if the response has the correct format, ensure role is set in delta
+				// Even if the response has the correct format, ensure role is set in delta and object is correct for streaming
 				transformedData = {
 					...data,
+					object: "chat.completion.chunk", // Force correct object type for streaming
 					choices:
 						data.choices?.map((choice: any) => ({
 							...choice,
