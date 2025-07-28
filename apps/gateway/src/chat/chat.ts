@@ -165,13 +165,8 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 
 			// If candidatesTokenCount is missing, estimate it from the content
 			if (completionTokens === null && content) {
-				try {
-					completionTokens = encode(content).length;
-				} catch (error) {
-					// Fallback to simple estimation if encoding fails
-					console.error(`Failed to encode completion text: ${error}`);
-					completionTokens = Math.max(1, Math.round(content.length / 4));
-				}
+				const estimation = estimateTokens(usedProvider, [], content, null, null);
+				completionTokens = estimation.calculatedCompletionTokens;
 			}
 
 			// Calculate totalTokens if not provided but we have prompt and completion tokens
@@ -358,15 +353,8 @@ function extractTokenUsage(
 
 				// If candidatesTokenCount is missing and we have content, estimate it
 				if (completionTokens === null && fullContent) {
-					try {
-						completionTokens = encode(fullContent).length;
-					} catch (error) {
-						// Fallback to simple estimation if encoding fails
-						console.error(
-							`Failed to encode completion text in streaming: ${error}`,
-						);
-						completionTokens = Math.max(1, Math.round(fullContent.length / 4));
-					}
+					const estimation = estimateTokens(provider, [], fullContent, null, null);
+					completionTokens = estimation.calculatedCompletionTokens;
 				}
 			}
 			break;
@@ -2096,12 +2084,8 @@ chat.openapi(completions, async (c) => {
 
 								// Estimate missing tokens if needed using helper function
 								if (finalPromptTokens === null) {
-									finalPromptTokens = Math.round(
-										messages.reduce(
-											(acc, m) => acc + (m.content?.length || 0),
-											0,
-										) / 4,
-									);
+									const estimation = estimateTokens(usedProvider, messages, null, null, null);
+									finalPromptTokens = estimation.calculatedPromptTokens;
 								}
 
 								if (finalCompletionTokens === null) {
@@ -2178,12 +2162,8 @@ chat.openapi(completions, async (c) => {
 										usage.prompt_tokens === undefined
 									) {
 										// Estimate prompt tokens if not provided
-										const estimatedPromptTokens = Math.round(
-											messages.reduce(
-												(acc, m) => acc + (m.content?.length || 0),
-												0,
-											) / 4,
-										);
+										const estimation = estimateTokens(usedProvider, messages, null, null, null);
+										const estimatedPromptTokens = estimation.calculatedPromptTokens;
 										transformedData.usage = {
 											prompt_tokens: estimatedPromptTokens,
 											completion_tokens: usage.output_tokens,
@@ -2293,12 +2273,8 @@ chat.openapi(completions, async (c) => {
 								// Estimate tokens if not provided and we have a finish reason
 								if (finishReason && (!promptTokens || !completionTokens)) {
 									if (!promptTokens) {
-										promptTokens = Math.round(
-											messages.reduce(
-												(acc, m) => acc + (m.content?.length || 0),
-												0,
-											) / 4,
-										);
+										const estimation = estimateTokens(usedProvider, messages, null, null, null);
+										promptTokens = estimation.calculatedPromptTokens;
 									}
 
 									if (!completionTokens) {
