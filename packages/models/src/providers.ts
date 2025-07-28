@@ -24,6 +24,7 @@ export const providers = [
 			"LLMGateway is a framework for building and deploying large language models.",
 		streaming: true,
 		cancellation: true,
+		jsonOutput: true,
 		color: "#6366f1",
 		website: "https://llmgateway.io",
 		announcement: null,
