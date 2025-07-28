@@ -1,12 +1,10 @@
-"use client";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
-
+import { PaymentStatusHandler } from "./payment-status-handler";
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
 	CardContent,
@@ -14,39 +12,43 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { useToast } from "@/lib/components/use-toast";
 
-export default function BillingPage() {
-	const router = useRouter();
-	const searchParams = useSearchParams();
-	const { toast } = useToast();
-	const { buildUrl } = useDashboardNavigation();
+interface BillingPageProps {
+	params: Promise<{
+		orgId: string;
+		projectId: string;
+	}>;
+	searchParams: Promise<{
+		success?: string;
+		canceled?: string;
+	}>;
+}
 
-	const success = searchParams.get("success");
-	const canceled = searchParams.get("canceled");
+export default async function BillingPage({
+	params,
+	searchParams,
+}: BillingPageProps) {
+	const { orgId, projectId } = await params;
+	const { success, canceled } = await searchParams;
 
-	useEffect(() => {
+	if (success || canceled) {
+		const cookieStore = await cookies();
 		if (success) {
-			toast({
-				title: "Payment successful",
-				description: "Your payment has been processed successfully.",
-			});
-			// Clean up the URL
-			router.replace(buildUrl("settings/billing"));
+			cookieStore.set("payment-status", "success", { maxAge: 10 }); // 10 seconds
+		} else if (canceled) {
+			cookieStore.set("payment-status", "canceled", { maxAge: 10 });
 		}
-		if (canceled) {
-			toast({
-				title: "Payment canceled",
-				description: "Your payment was canceled.",
-				variant: "destructive",
-			});
-			// Clean up the URL
-			router.replace(buildUrl("settings/billing"));
-		}
-	}, [success, canceled, toast, router, buildUrl]);
+
+		const basePath = `/dashboard/${orgId}/${projectId}/settings/billing`;
+		redirect(basePath);
+	}
+
+	const cookieStore = await cookies();
+	const paymentStatus = cookieStore.get("payment-status")?.value;
 
 	return (
 		<div className="flex flex-col">
+			<PaymentStatusHandler paymentStatus={paymentStatus} />
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="flex items-center justify-between">
 					<h2 className="text-3xl font-bold tracking-tight">Billing</h2>

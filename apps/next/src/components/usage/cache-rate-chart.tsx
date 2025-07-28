@@ -42,7 +42,7 @@ export function CacheRateChart({ initialData }: CacheRateChartProps) {
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: daysParam ? initialData : undefined,
+			initialData,
 		},
 	);
 

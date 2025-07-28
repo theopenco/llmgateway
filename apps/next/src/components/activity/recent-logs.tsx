@@ -1,4 +1,5 @@
 import { models, providers } from "@llmgateway/models";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import { LogCard } from "../dashboard/log-card";
@@ -6,6 +7,7 @@ import {
 	type DateRange,
 	DateRangeSelect,
 } from "@/components/date-range-select";
+import { Button } from "@/lib/components/button";
 import {
 	Select,
 	SelectContent,
@@ -13,8 +15,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+
+import type { Log } from "@llmgateway/db";
 
 const UnifiedFinishReason = {
 	COMPLETED: "completed",
@@ -31,51 +34,7 @@ interface RecentLogsProps {
 	initialData?:
 		| {
 				message?: string;
-				logs: {
-					id: string;
-					requestId: string;
-					createdAt: string;
-					updatedAt: string;
-					organizationId: string;
-					projectId: string;
-					apiKeyId: string;
-					duration: number;
-					requestedModel: string;
-					requestedProvider: string | null;
-					usedModel: string;
-					usedProvider: string;
-					responseSize: number;
-					content: string | null;
-					reasoningContent: string | null;
-					unifiedFinishReason: string | null;
-					finishReason: string | null;
-					promptTokens: string | null;
-					completionTokens: string | null;
-					totalTokens: string | null;
-					reasoningTokens: string | null;
-					messages?: unknown;
-					temperature: number | null;
-					maxTokens: number | null;
-					topP: number | null;
-					frequencyPenalty: number | null;
-					presencePenalty: number | null;
-					hasError: boolean | null;
-					errorDetails: {
-						statusCode: number;
-						statusText: string;
-						responseText: string;
-					} | null;
-					cost: number | null;
-					inputCost: number | null;
-					outputCost: number | null;
-					requestCost: number | null;
-					estimatedCost: boolean | null;
-					canceled: boolean | null;
-					streamed: boolean | null;
-					cached: boolean | null;
-					mode: "api-keys" | "credits" | "hybrid";
-					usedMode: "api-keys" | "credits";
-				}[];
+				logs: Log[];
 				pagination: {
 					nextCursor: string | null;
 					hasMore: boolean;
@@ -83,20 +42,51 @@ interface RecentLogsProps {
 				};
 		  }
 		| undefined;
+	projectId: string | null;
 }
 
-export function RecentLogs({ initialData }: RecentLogsProps) {
+export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
+	const router = useRouter();
+	const searchParams = useSearchParams();
+
+	// Initialize state from URL parameters
 	const [dateRange, setDateRange] = useState<DateRange | undefined>();
-	const [finishReason, setFinishReason] = useState<string | undefined>();
+	const [finishReason, setFinishReason] = useState<string | undefined>(
+		searchParams.get("finishReason") || undefined,
+	);
 	const [unifiedFinishReason, setUnifiedFinishReason] = useState<
 		string | undefined
-	>();
-	const [provider, setProvider] = useState<string | undefined>();
-	const [model, setModel] = useState<string | undefined>();
-	const { selectedProject } = useDashboardState();
+	>(searchParams.get("unifiedFinishReason") || undefined);
+	const [provider, setProvider] = useState<string | undefined>(
+		searchParams.get("provider") || undefined,
+	);
+	const [model, setModel] = useState<string | undefined>(
+		searchParams.get("model") || undefined,
+	);
+
 	const api = useApi();
 	const scrollPositionRef = useRef<number>(0);
 	const isFilteringRef = useRef<boolean>(false);
+
+	// Function to update URL with new filter parameters
+	const updateUrlWithFilters = useCallback(
+		(newParams: Record<string, string | undefined>) => {
+			const params = new URLSearchParams(searchParams.toString());
+
+			// Update or remove parameters
+			Object.entries(newParams).forEach(([key, value]) => {
+				if (value && value !== "all") {
+					params.set(key, value);
+				} else {
+					params.delete(key);
+				}
+			});
+
+			// Update URL without triggering a page reload
+			router.push(`?${params.toString()}`, { scroll: false });
+		},
+		[router, searchParams],
+	);
 
 	// Track scroll position
 	useLayoutEffect(() => {
@@ -118,19 +108,24 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 		}
 	});
 
-	// Prevent scroll jumping when filters change
+	// Updated filter change handler that updates URL
 	const handleFilterChange = useCallback(
-		(setter: (value: string | undefined) => void) => {
+		(filterKey: string, setter: (value: string | undefined) => void) => {
 			return (value: string) => {
 				// Mark that we're filtering and save current position
 				isFilteringRef.current = true;
 				scrollPositionRef.current = window.scrollY;
 
+				const filterValue = value === "all" ? undefined : value;
+
 				// Update state
-				setter(value === "all" ? undefined : value);
+				setter(filterValue);
+
+				// Update URL
+				updateUrlWithFilters({ [filterKey]: filterValue });
 			};
 		},
-		[],
+		[updateUrlWithFilters],
 	);
 
 	// Build query parameters - only include defined values
@@ -156,11 +151,26 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 	if (model && model !== "all") {
 		queryParams.model = model;
 	}
-	if (selectedProject?.id) {
-		queryParams.projectId = selectedProject.id;
+	if (projectId) {
+		queryParams.projectId = projectId;
 	}
 
-	const { data, isLoading, error } = api.useQuery(
+	const shouldUseInitialData =
+		!dateRange && // No date range selected (date range is not in URL initially)
+		finishReason === (searchParams.get("finishReason") || undefined) &&
+		unifiedFinishReason ===
+			(searchParams.get("unifiedFinishReason") || undefined) &&
+		provider === (searchParams.get("provider") || undefined) &&
+		model === (searchParams.get("model") || undefined);
+
+	const {
+		data,
+		isLoading,
+		error,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
+	} = api.useInfiniteQuery(
 		"get",
 		"/logs",
 		{
@@ -169,25 +179,53 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!projectId,
 			initialData:
-				!dateRange &&
-				!finishReason &&
-				!unifiedFinishReason &&
-				!provider &&
-				!model
-					? initialData
+				shouldUseInitialData && initialData
+					? {
+							pages: [
+								{
+									...initialData,
+									logs: initialData.logs.map((log) => ({
+										...log,
+										createdAt:
+											log.createdAt instanceof Date
+												? log.createdAt.toISOString()
+												: log.createdAt,
+										updatedAt:
+											log.updatedAt instanceof Date
+												? log.updatedAt.toISOString()
+												: log.updatedAt,
+									})),
+								},
+							],
+							pageParams: [undefined],
+						}
 					: undefined,
+			initialPageParam: undefined,
 			refetchOnWindowFocus: false,
-			staleTime: 0, // Force refetch when filters change
+			staleTime: 5 * 60 * 1000, // 5 minutes to prevent unnecessary refetches
+			getNextPageParam: (lastPage) => {
+				return lastPage?.pagination?.hasMore
+					? lastPage.pagination.nextCursor
+					: undefined;
+			},
 		},
 	);
 
+	// Flatten all pages into a single array of logs
+	const allLogs = data?.pages.flatMap((page) => page?.logs || []) || [];
+
 	const handleDateRangeChange = (_value: string, range: DateRange) => {
 		setDateRange(range);
+		// Update URL with date range
+		updateUrlWithFilters({
+			startDate: range.start?.toISOString(),
+			endDate: range.end?.toISOString(),
+		});
 	};
 
-	if (!selectedProject) {
+	if (!projectId) {
 		return (
 			<div className="py-8 text-center text-muted-foreground">
 				<p>Please select a project to view recent logs.</p>
@@ -204,7 +242,7 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 				<DateRangeSelect onChange={handleDateRangeChange} value="24h" />
 
 				<Select
-					onValueChange={handleFilterChange(setFinishReason)}
+					onValueChange={handleFilterChange("finishReason", setFinishReason)}
 					value={finishReason || "all"}
 				>
 					<SelectTrigger className="w-[180px]">
@@ -221,7 +259,10 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 				</Select>
 
 				<Select
-					onValueChange={handleFilterChange(setUnifiedFinishReason)}
+					onValueChange={handleFilterChange(
+						"unifiedFinishReason",
+						setUnifiedFinishReason,
+					)}
 					value={unifiedFinishReason || "all"}
 				>
 					<SelectTrigger className="w-[200px]">
@@ -241,7 +282,7 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 				</Select>
 
 				<Select
-					onValueChange={handleFilterChange(setProvider)}
+					onValueChange={handleFilterChange("provider", setProvider)}
 					value={provider || "all"}
 				>
 					<SelectTrigger className="w-[160px]">
@@ -258,7 +299,7 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 				</Select>
 
 				<Select
-					onValueChange={handleFilterChange(setModel)}
+					onValueChange={handleFilterChange("model", setModel)}
 					value={model || "all"}
 				>
 					<SelectTrigger className="w-[180px]">
@@ -281,29 +322,40 @@ export function RecentLogs({ initialData }: RecentLogsProps) {
 				<div>Error loading logs</div>
 			) : (
 				<div className="space-y-4 max-w-full">
-					{data?.logs.length ? (
-						data.logs.map((log) => (
-							<LogCard
-								key={log.id}
-								log={{
-									...log,
-									createdAt: new Date(log.createdAt),
-									updatedAt: new Date(log.updatedAt),
-									messages: log.messages as any,
-									toolCalls: null,
-									errorDetails: log.errorDetails as any,
-									cachedTokens: (log as any).cachedTokens || null,
-									cachedInputCost: (log as any).cachedInputCost || null,
-								}}
-							/>
-						))
+					{allLogs.length ? (
+						<>
+							{allLogs.map((log) => (
+								<LogCard
+									key={log.id}
+									log={{
+										...log,
+										createdAt: new Date(log.createdAt),
+										updatedAt: new Date(log.updatedAt),
+										messages: log.messages,
+										tools: log.tools,
+										toolChoice: log.toolChoice,
+										errorDetails: log.errorDetails,
+									}}
+								/>
+							))}
+
+							{hasNextPage && (
+								<div className="flex justify-center pt-4">
+									<Button
+										onClick={() => fetchNextPage()}
+										disabled={isFetchingNextPage}
+										variant="outline"
+									>
+										{isFetchingNextPage ? "Loading more..." : "Load More"}
+									</Button>
+								</div>
+							)}
+						</>
 					) : (
 						<div className="py-4 text-center text-muted-foreground">
 							No logs found matching the selected filters.
-							{selectedProject && (
-								<span className="block mt-1 text-sm">
-									Project: {selectedProject.name}
-								</span>
+							{projectId && (
+								<span className="block mt-1 text-sm">Project: {projectId}</span>
 							)}
 						</div>
 					)}

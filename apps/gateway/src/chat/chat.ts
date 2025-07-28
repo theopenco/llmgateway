@@ -1,17 +1,17 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import {
+	type ApiKey,
 	db,
-	shortid,
 	type InferSelectModel,
 	type Project,
+	shortid,
 	type tables,
-	type ApiKey,
 } from "@llmgateway/db";
 import {
 	getCheapestFromAvailableProviders,
+	getModelStreamingSupport,
 	getProviderEndpoint,
 	getProviderHeaders,
-	getModelStreamingSupport,
 	type Model,
 	models,
 	prepareRequestBody,
@@ -25,19 +25,22 @@ import { streamSSE } from "hono/streaming";
 import {
 	checkCustomProviderExists,
 	generateCacheKey,
+	generateStreamingCacheKey,
 	getCache,
 	getCustomProviderKey,
 	getOrganization,
 	getProject,
 	getProviderKey,
+	getStreamingCache,
 	isCachingEnabled,
 	setCache,
+	setStreamingCache,
 } from "../lib/cache";
 import { calculateCosts } from "../lib/costs";
 import { insertLog } from "../lib/logs";
 import {
-	hasProviderEnvironmentToken,
 	getProviderEnvVar,
+	hasProviderEnvironmentToken,
 } from "../lib/provider";
 
 import type { ServerTypes } from "../vars";
@@ -78,6 +81,8 @@ function createLogEntry(
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
+	tools: any[] | undefined,
+	toolChoice: any | undefined,
 ) {
 	return {
 		requestId,
@@ -95,6 +100,8 @@ function createLogEntry(
 		topP: top_p || null,
 		frequencyPenalty: frequency_penalty || null,
 		presencePenalty: presence_penalty || null,
+		tools: tools || null,
+		toolChoice: toolChoice || null,
 		mode: project.mode,
 	} as const;
 }
@@ -154,27 +161,28 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
-			totalTokens =
-				promptTokens !== null && completionTokens !== null
-					? promptTokens + completionTokens
-					: json.usageMetadata?.totalTokenCount || null;
-			break;
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
-			content = json.choices?.[0]?.message?.content || null;
-			finishReason = json.choices?.[0]?.finish_reason || null;
-			promptTokens = json.usage?.prompt_tokens || null;
-			completionTokens = json.usage?.completion_tokens || null;
-			reasoningTokens = json.usage?.reasoning_tokens || null;
-			totalTokens =
-				promptTokens !== null && completionTokens !== null
-					? promptTokens + completionTokens
-					: json.usage?.total_tokens || null;
+			totalTokens = json.usageMetadata?.totalTokenCount || null;
+
+			// If candidatesTokenCount is missing, estimate it from the content
+			if (completionTokens === null && content) {
+				const estimation = estimateTokens(
+					usedProvider,
+					[],
+					content,
+					null,
+					null,
+				);
+				completionTokens = estimation.calculatedCompletionTokens;
+			}
+
+			// Calculate totalTokens if not provided but we have prompt and completion tokens
+			if (
+				totalTokens === null &&
+				promptTokens !== null &&
+				completionTokens !== null
+			) {
+				totalTokens = promptTokens + completionTokens + (reasoningTokens || 0);
+			}
 			break;
 		case "mistral":
 			content = json.choices?.[0]?.message?.content || null;
@@ -212,7 +220,11 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			completionTokens = json.usage?.completion_tokens || null;
 			reasoningTokens = json.usage?.reasoning_tokens || null;
 			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
-			totalTokens = json.usage?.total_tokens || null;
+			totalTokens =
+				json.usage?.total_tokens ||
+				(promptTokens !== null && completionTokens !== null
+					? promptTokens + completionTokens
+					: null);
 	}
 
 	return {
@@ -304,13 +316,6 @@ function extractContentFromProvider(data: any, provider: Provider): string {
 				return data.delta.text;
 			}
 			return "";
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			return data.choices?.[0]?.delta?.content || "";
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.content || "";
 	}
@@ -324,82 +329,19 @@ function extractReasoningContentFromProvider(
 	provider: Provider,
 ): string {
 	switch (provider) {
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			return data.choices?.[0]?.delta?.reasoning_content || "";
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.reasoning_content || "";
-	}
-}
-
-/**
- * Extracts tool calls from streaming data based on provider format
- */
-function extractToolCallsFromProvider(
-	data: any,
-	provider: Provider,
-): Array<{
-	id: string;
-	type: string;
-	function: {
-		name: string;
-		arguments: string;
-	};
-}> | null {
-	switch (provider) {
-		case "anthropic":
-			// For Anthropic, tool calls come in content_block_start and content_block_delta events
-			if (
-				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_use"
-			) {
-				return [
-					{
-						id: data.content_block.id,
-						type: "function",
-						function: {
-							name: data.content_block.name,
-							arguments: "",
-						},
-					},
-				];
-			} else if (
-				data.type === "content_block_delta" &&
-				data.delta?.partial_json
-			) {
-				// Return partial arguments for accumulation
-				return [
-					{
-						id: "", // Will be matched by index
-						type: "function",
-						function: {
-							name: "",
-							arguments: data.delta.partial_json,
-						},
-					},
-				];
-			}
-			return null;
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			return data.choices?.[0]?.delta?.tool_calls || null;
-		default: // OpenAI format
-			return data.choices?.[0]?.delta?.tool_calls || null;
 	}
 }
 
 /**
  * Extracts token usage information from streaming data based on provider format
  */
-function extractTokenUsage(data: any, provider: Provider) {
+function extractTokenUsage(
+	data: any,
+	provider: Provider,
+	fullContent?: string,
+) {
 	let promptTokens = null;
 	let completionTokens = null;
 	let totalTokens = null;
@@ -413,6 +355,19 @@ function extractTokenUsage(data: any, provider: Provider) {
 				promptTokens = data.usageMetadata.promptTokenCount || null;
 				completionTokens = data.usageMetadata.candidatesTokenCount || null;
 				totalTokens = data.usageMetadata.totalTokenCount || null;
+				reasoningTokens = data.usageMetadata.thoughtsTokenCount || null;
+
+				// If candidatesTokenCount is missing and we have content, estimate it
+				if (completionTokens === null && fullContent) {
+					const estimation = estimateTokens(
+						provider,
+						[],
+						fullContent,
+						null,
+						null,
+					);
+					completionTokens = estimation.calculatedCompletionTokens;
+				}
 			}
 			break;
 		case "anthropic":
@@ -422,19 +377,6 @@ function extractTokenUsage(data: any, provider: Provider) {
 				reasoningTokens = data.usage.reasoning_output_tokens || null;
 				cachedTokens = data.usage.cache_read_input_tokens || null;
 				totalTokens = (promptTokens || 0) + (completionTokens || 0);
-			}
-			break;
-		case "inference.net":
-		case "together.ai":
-		case "groq":
-		case "deepseek":
-		case "perplexity":
-		case "alibaba":
-			if (data.usage) {
-				promptTokens = data.usage.prompt_tokens || null;
-				completionTokens = data.usage.completion_tokens || null;
-				totalTokens = data.usage.total_tokens || null;
-				reasoningTokens = data.usage.reasoning_tokens || null;
 			}
 			break;
 		default: // OpenAI format
@@ -778,13 +720,13 @@ function transformStreamingChunkToOpenAIFormat(
 		case "google-ai-studio": {
 			if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
 				transformedData = {
-					id: `chatcmpl-${Date.now()}`,
+					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: usedModel,
+					model: data.modelVersion || usedModel,
 					choices: [
 						{
-							index: 0,
+							index: data.candidates[0].index || 0,
 							delta: {
 								content: data.candidates[0].content.parts[0].text,
 								role: "assistant",
@@ -792,25 +734,27 @@ function transformStreamingChunkToOpenAIFormat(
 							finish_reason: null,
 						},
 					],
-					usage:
-						data.usageMetadata && data.usageMetadata.candidatesTokenCount
-							? {
-									prompt_tokens: data.usageMetadata.promptTokenCount || 0,
-									completion_tokens: data.usageMetadata.candidatesTokenCount,
-									total_tokens: data.usageMetadata.totalTokenCount || 0,
-								}
-							: null,
+					usage: data.usageMetadata
+						? {
+								prompt_tokens: data.usageMetadata.promptTokenCount || 0,
+								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
+								total_tokens: data.usageMetadata.totalTokenCount || 0,
+								...(data.usageMetadata.thoughtsTokenCount && {
+									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
+								}),
+							}
+						: null,
 				};
 			} else if (data.candidates?.[0]?.finishReason) {
 				const finishReason = data.candidates[0].finishReason;
 				transformedData = {
-					id: `chatcmpl-${Date.now()}`,
+					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: usedModel,
+					model: data.modelVersion || usedModel,
 					choices: [
 						{
-							index: 0,
+							index: data.candidates[0].index || 0,
 							delta: {
 								role: "assistant",
 							},
@@ -820,14 +764,16 @@ function transformStreamingChunkToOpenAIFormat(
 									: finishReason?.toLowerCase() || "stop",
 						},
 					],
-					usage:
-						data.usageMetadata && data.usageMetadata.candidatesTokenCount
-							? {
-									prompt_tokens: data.usageMetadata.promptTokenCount || 0,
-									completion_tokens: data.usageMetadata.candidatesTokenCount,
-									total_tokens: data.usageMetadata.totalTokenCount || 0,
-								}
-							: null,
+					usage: data.usageMetadata
+						? {
+								prompt_tokens: data.usageMetadata.promptTokenCount || 0,
+								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
+								total_tokens: data.usageMetadata.totalTokenCount || 0,
+								...(data.usageMetadata.thoughtsTokenCount && {
+									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
+								}),
+							}
+						: null,
 				};
 			}
 			break;
@@ -1612,6 +1558,7 @@ chat.openapi(completions, async (c) => {
 			providerKey?.baseUrl || undefined,
 			usedModel,
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
+			stream,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -1636,9 +1583,10 @@ chat.openapi(completions, async (c) => {
 		await isCachingEnabled(project.id);
 
 	let cacheKey: string | null = null;
-	if (cachingEnabled && !stream) {
-		// Don't cache streaming responses
-		cacheKey = generateCacheKey({
+	let streamingCacheKey: string | null = null;
+
+	if (cachingEnabled) {
+		const cachePayload = {
 			model: usedModel,
 			messages,
 			temperature,
@@ -1647,56 +1595,186 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
-		});
+		};
 
-		const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
-		if (cachedResponse) {
-			// Log the cached request
-			const duration = 0; // No processing time needed
-			const baseLogEntry = createLogEntry(
-				requestId,
-				project,
-				apiKey,
-				providerKey?.id,
-				usedModel,
-				usedProvider,
-				requestedModel,
-				requestedProvider,
-				messages,
-				temperature,
-				max_tokens,
-				top_p,
-				frequency_penalty,
-				presence_penalty,
-			);
+		if (stream) {
+			streamingCacheKey = generateStreamingCacheKey(cachePayload);
+			const cachedStreamingResponse =
+				await getStreamingCache(streamingCacheKey);
+			if (cachedStreamingResponse?.metadata.completed) {
+				// Extract final content and metadata from cached chunks
+				let fullContent = "";
+				let fullReasoningContent = "";
+				let promptTokens = null;
+				let completionTokens = null;
+				let totalTokens = null;
+				let reasoningTokens = null;
+				let cachedTokens = null;
 
-			await insertLog({
-				...baseLogEntry,
-				duration,
-				responseSize: JSON.stringify(cachedResponse).length,
-				content: cachedResponse.choices?.[0]?.message?.content || null,
-				reasoningContent:
-					cachedResponse.choices?.[0]?.message?.reasoning_content || null,
-				finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
-				promptTokens: cachedResponse.usage?.prompt_tokens || null,
-				completionTokens: cachedResponse.usage?.completion_tokens || null,
-				totalTokens: cachedResponse.usage?.total_tokens || null,
-				reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost: 0,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost: 0,
-				cost: 0,
-				estimatedCost: false,
-				cached: true,
-			});
+				for (const chunk of cachedStreamingResponse.chunks) {
+					try {
+						const chunkData = JSON.parse(chunk.data);
 
-			return c.json(cachedResponse);
+						// Extract content from chunk
+						if (chunkData.choices?.[0]?.delta?.content) {
+							fullContent += chunkData.choices[0].delta.content;
+						}
+
+						// Extract reasoning content from chunk
+						if (chunkData.choices?.[0]?.delta?.reasoning_content) {
+							fullReasoningContent +=
+								chunkData.choices[0].delta.reasoning_content;
+						}
+
+						// Extract usage information (usually in the last chunks)
+						if (chunkData.usage) {
+							if (chunkData.usage.prompt_tokens) {
+								promptTokens = chunkData.usage.prompt_tokens;
+							}
+							if (chunkData.usage.completion_tokens) {
+								completionTokens = chunkData.usage.completion_tokens;
+							}
+							if (chunkData.usage.total_tokens) {
+								totalTokens = chunkData.usage.total_tokens;
+							}
+							if (chunkData.usage.reasoning_tokens) {
+								reasoningTokens = chunkData.usage.reasoning_tokens;
+							}
+							if (chunkData.usage.prompt_tokens_details?.cached_tokens) {
+								cachedTokens =
+									chunkData.usage.prompt_tokens_details.cached_tokens;
+							}
+						}
+					} catch (e) {
+						// Skip malformed chunks
+						console.warn("Failed to parse cached chunk:", e);
+					}
+				}
+
+				// Log the cached streaming request with reconstructed content
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModel,
+					usedProvider,
+					requestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					tools,
+					tool_choice,
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration: 0, // No processing time for cached response
+					responseSize: JSON.stringify(cachedStreamingResponse).length,
+					content: fullContent || null,
+					reasoningContent: fullReasoningContent || null,
+					finishReason: cachedStreamingResponse.metadata.finishReason,
+					promptTokens: promptTokens?.toString() || null,
+					completionTokens: completionTokens?.toString() || null,
+					totalTokens: totalTokens?.toString() || null,
+					reasoningTokens: reasoningTokens?.toString() || null,
+					cachedTokens: cachedTokens?.toString() || null,
+					hasError: false,
+					streamed: true,
+					canceled: false,
+					errorDetails: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					cost: 0,
+					estimatedCost: false,
+					cached: true,
+				});
+
+				// Return cached streaming response by replaying chunks with original timing
+				return streamSSE(c, async (stream) => {
+					let previousTimestamp = 0;
+
+					for (const chunk of cachedStreamingResponse.chunks) {
+						// Calculate delay based on original chunk timing
+						const delay = Math.max(0, chunk.timestamp - previousTimestamp);
+						// Cap the delay to prevent excessively long waits (max 1 second)
+						const cappedDelay = Math.min(delay, 1000);
+
+						if (cappedDelay > 0) {
+							await new Promise<void>((resolve) => {
+								setTimeout(() => resolve(), cappedDelay);
+							});
+						}
+
+						await stream.writeSSE({
+							data: chunk.data,
+							id: String(chunk.eventId),
+							event: chunk.event,
+						});
+
+						previousTimestamp = chunk.timestamp;
+					}
+				});
+			}
+		} else {
+			cacheKey = generateCacheKey(cachePayload);
+			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
+			if (cachedResponse) {
+				// Log the cached request
+				const duration = 0; // No processing time needed
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModel,
+					usedProvider,
+					requestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					tools,
+					tool_choice,
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration,
+					responseSize: JSON.stringify(cachedResponse).length,
+					content: cachedResponse.choices?.[0]?.message?.content || null,
+					reasoningContent:
+						cachedResponse.choices?.[0]?.message?.reasoning_content || null,
+					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
+					promptTokens: cachedResponse.usage?.prompt_tokens || null,
+					completionTokens: cachedResponse.usage?.completion_tokens || null,
+					totalTokens: cachedResponse.usage?.total_tokens || null,
+					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					cost: 0,
+					estimatedCost: false,
+					cached: true,
+				});
+
+				return c.json(cachedResponse);
+			}
 		}
 	}
 
@@ -1758,6 +1836,34 @@ chat.openapi(completions, async (c) => {
 			let canceled = false;
 			let streamingError: unknown = null;
 
+			// Streaming cache variables
+			const streamingChunks: Array<{
+				data: string;
+				eventId: number;
+				event?: string;
+				timestamp: number;
+			}> = [];
+			const streamStartTime = Date.now();
+
+			// Helper function to write SSE and capture for cache
+			const writeSSEAndCache = async (sseData: {
+				data: string;
+				event?: string;
+				id?: string;
+			}) => {
+				await stream.writeSSE(sseData);
+
+				// Capture for streaming cache if enabled
+				if (cachingEnabled && streamingCacheKey) {
+					streamingChunks.push({
+						data: sseData.data,
+						eventId: sseData.id ? parseInt(sseData.id, 10) : eventId,
+						event: sseData.event,
+						timestamp: Date.now() - streamStartTime,
+					});
+				}
+			};
+
 			// Set up cancellation handling
 			const controller = new AbortController();
 			// Set up a listener for the request being aborted
@@ -1803,6 +1909,8 @@ chat.openapi(completions, async (c) => {
 						top_p,
 						frequency_penalty,
 						presence_penalty,
+						tools,
+						tool_choice,
 					);
 
 					await insertLog({
@@ -1827,14 +1935,14 @@ chat.openapi(completions, async (c) => {
 					});
 
 					// Send a cancellation event to the client
-					await stream.writeSSE({
+					await writeSSEAndCache({
 						event: "canceled",
 						data: JSON.stringify({
 							message: "Request canceled by client",
 						}),
 						id: String(eventId++),
 					});
-					await stream.writeSSE({
+					await writeSSEAndCache({
 						event: "done",
 						data: "[DONE]",
 						id: String(eventId++),
@@ -1851,7 +1959,7 @@ chat.openapi(completions, async (c) => {
 					`Provider error - Status: ${res.status}, Text: ${errorResponseText}`,
 				);
 
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "error",
 					data: JSON.stringify({
 						error: {
@@ -1864,7 +1972,7 @@ chat.openapi(completions, async (c) => {
 					}),
 					id: String(eventId++),
 				});
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "done",
 					data: "[DONE]",
 					id: String(eventId++),
@@ -1886,6 +1994,8 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					tools,
+					tool_choice,
 				);
 
 				await insertLog({
@@ -1917,7 +2027,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (!res.body) {
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "error",
 					data: JSON.stringify({
 						error: {
@@ -1929,7 +2039,7 @@ chat.openapi(completions, async (c) => {
 					}),
 					id: String(eventId++),
 				});
-				await stream.writeSSE({
+				await writeSSEAndCache({
 					event: "done",
 					data: "[DONE]",
 					id: String(eventId++),
@@ -1946,14 +2056,6 @@ chat.openapi(completions, async (c) => {
 			let totalTokens = null;
 			let reasoningTokens = null;
 			let cachedTokens = null;
-			let fullToolCalls: Array<{
-				id: string;
-				type: string;
-				function: {
-					name: string;
-					arguments: string;
-				};
-			}> | null = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
@@ -1977,56 +2079,151 @@ chat.openapi(completions, async (c) => {
 						continue;
 					}
 
-					// For Google providers, handle raw JSON objects across newlines
-					if (
-						usedProvider === "google-vertex" ||
-						usedProvider === "google-ai-studio"
-					) {
-						// Google sends raw JSON objects across multiple newlines, not SSE format
-						// We need to parse complete JSON objects from the accumulated buffer
-						let processedData = false;
+					const lines = buffer.split("\n");
+					// Keep the last line in buffer if it's incomplete (doesn't end with newline)
+					if (buffer.length > 0 && !buffer.endsWith("\n") && lines.length > 1) {
+						buffer = lines.pop() || "";
+					} else {
+						buffer = "";
+					}
 
-						// Helper function to try parsing JSON from different positions
-						const tryParseJSON = (str: string, startIndex: number) => {
-							for (let i = startIndex; i < str.length; i++) {
+					for (const line of lines) {
+						if (line.startsWith("data: ")) {
+							if (line === "data: [DONE]") {
+								// Calculate final usage if we don't have complete data
+								let finalPromptTokens = promptTokens;
+								let finalCompletionTokens = completionTokens;
+								let finalTotalTokens = totalTokens;
+
+								// Estimate missing tokens if needed using helper function
+								if (finalPromptTokens === null) {
+									const estimation = estimateTokens(
+										usedProvider,
+										messages,
+										null,
+										null,
+										null,
+									);
+									finalPromptTokens = estimation.calculatedPromptTokens;
+								}
+
+								if (finalCompletionTokens === null) {
+									finalCompletionTokens =
+										estimateTokensFromContent(fullContent);
+								}
+
+								if (finalTotalTokens === null) {
+									finalTotalTokens =
+										(finalPromptTokens || 0) + (finalCompletionTokens || 0);
+								}
+
+								// Send final usage chunk before [DONE] if we have any usage data
+								if (
+									finalPromptTokens !== null ||
+									finalCompletionTokens !== null ||
+									finalTotalTokens !== null
+								) {
+									const finalUsageChunk = {
+										id: `chatcmpl-${Date.now()}`,
+										object: "chat.completion.chunk",
+										created: Math.floor(Date.now() / 1000),
+										model: usedModel,
+										choices: [
+											{
+												index: 0,
+												delta: {},
+												finish_reason: null,
+											},
+										],
+										usage: {
+											prompt_tokens: finalPromptTokens || 0,
+											completion_tokens: finalCompletionTokens || 0,
+											total_tokens: finalTotalTokens || 0,
+										},
+									};
+
+									await writeSSEAndCache({
+										data: JSON.stringify(finalUsageChunk),
+										id: String(eventId++),
+									});
+								}
+
+								await writeSSEAndCache({
+									event: "done",
+									data: "[DONE]",
+									id: String(eventId++),
+								});
+							} else {
+								let data;
 								try {
-									const substr = str.substring(startIndex, i + 1);
-									return { data: JSON.parse(substr), endIndex: i };
-								} catch {
+									data = JSON.parse(line.substring(6));
+								} catch (e) {
+									console.warn("Failed to parse streaming JSON:", {
+										error: e instanceof Error ? e.message : String(e),
+										lineContent: line, // First 100 chars for debugging
+										provider: usedProvider,
+									});
 									continue;
 								}
-							}
-							return null;
-						};
 
-						// Try to find and parse complete JSON objects
-						while (buffer.length > 0) {
-							// Find the start of a JSON object
-							const jsonStartIndex = buffer.indexOf("{");
-
-							if (jsonStartIndex === -1) {
-								// No JSON start found, clear buffer
-								buffer = "";
-								break;
-							}
-
-							// Try to parse JSON starting from this position
-							const parseResult = tryParseJSON(buffer, jsonStartIndex);
-
-							if (parseResult) {
-								// Successfully parsed a JSON object
-								const data = parseResult.data;
-								buffer = buffer.substring(parseResult.endIndex + 1);
-								processedData = true;
-
-								// Transform streaming responses to OpenAI format
+								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingChunkToOpenAIFormat(
 									usedProvider,
 									usedModel,
 									data,
 								);
 
-								await stream.writeSSE({
+								// For Anthropic, if we have partial usage data, complete it
+								if (usedProvider === "anthropic" && transformedData.usage) {
+									const usage = transformedData.usage;
+									if (
+										usage.output_tokens !== undefined &&
+										usage.prompt_tokens === undefined
+									) {
+										// Estimate prompt tokens if not provided
+										const estimation = estimateTokens(
+											usedProvider,
+											messages,
+											null,
+											null,
+											null,
+										);
+										const estimatedPromptTokens =
+											estimation.calculatedPromptTokens;
+										transformedData.usage = {
+											prompt_tokens: estimatedPromptTokens,
+											completion_tokens: usage.output_tokens,
+											total_tokens: estimatedPromptTokens + usage.output_tokens,
+										};
+									}
+								}
+
+								// For Google providers, add usage information when available
+								if (
+									usedProvider === "google-vertex" ||
+									usedProvider === "google-ai-studio"
+								) {
+									const usage = extractTokenUsage(
+										data,
+										usedProvider,
+										fullContent,
+									);
+
+									// If we have usage data from Google, add it to the streaming chunk
+									if (
+										usage.promptTokens !== null ||
+										usage.completionTokens !== null ||
+										usage.totalTokens !== null
+									) {
+										transformedData.usage = {
+											prompt_tokens: usage.promptTokens,
+											completion_tokens: usage.completionTokens,
+											total_tokens: usage.totalTokens,
+										};
+									}
+								}
+
+								await writeSSEAndCache({
 									data: JSON.stringify(transformedData),
 									id: String(eventId++),
 								});
@@ -2047,47 +2244,42 @@ chat.openapi(completions, async (c) => {
 									fullReasoningContent += reasoningContentChunk;
 								}
 
-								// Extract tool calls for logging using helper function
-								const toolCallsChunk = extractToolCallsFromProvider(
-									data,
-									usedProvider,
-								);
-								if (toolCallsChunk) {
-									if (!fullToolCalls) {
-										fullToolCalls = [];
-									}
-									// For Google providers, accumulate tool calls
-									for (const toolCall of toolCallsChunk) {
-										const existingIndex = fullToolCalls.findIndex(
-											(tc) => tc.id === toolCall.id,
-										);
-										if (existingIndex >= 0) {
-											// Update existing tool call
-											fullToolCalls[existingIndex].function.arguments +=
-												toolCall.function.arguments;
-										} else {
-											// Add new tool call
-											fullToolCalls.push(toolCall);
+								// Handle provider-specific finish reason extraction
+								switch (usedProvider) {
+									case "google-vertex":
+									case "google-ai-studio":
+										if (data.candidates?.[0]?.finishReason) {
+											finishReason = data.candidates[0].finishReason;
 										}
-									}
-								}
-
-								// Check for finish reason
-								if (data.candidates && data.candidates[0]?.finishReason) {
-									finishReason = data.candidates[0].finishReason;
-
-									// Send final chunk when we get a finish reason
-									if (finishReason) {
-										await stream.writeSSE({
-											event: "done",
-											data: "[DONE]",
-											id: String(eventId++),
-										});
-									}
+										break;
+									case "anthropic":
+										if (
+											data.type === "message_delta" &&
+											data.delta?.stop_reason
+										) {
+											finishReason = data.delta.stop_reason;
+										} else if (
+											data.type === "message_stop" ||
+											data.stop_reason
+										) {
+											finishReason = data.stop_reason || "end_turn";
+										} else if (data.delta?.stop_reason) {
+											finishReason = data.delta.stop_reason;
+										}
+										break;
+									default: // OpenAI format
+										if (data.choices && data.choices[0]?.finish_reason) {
+											finishReason = data.choices[0].finish_reason;
+										}
+										break;
 								}
 
 								// Extract token usage using helper function
-								const usage = extractTokenUsage(data, usedProvider);
+								const usage = extractTokenUsage(
+									data,
+									usedProvider,
+									fullContent,
+								);
 								if (usage.promptTokens !== null) {
 									promptTokens = usage.promptTokens;
 								}
@@ -2100,306 +2292,28 @@ chat.openapi(completions, async (c) => {
 								if (usage.reasoningTokens !== null) {
 									reasoningTokens = usage.reasoningTokens;
 								}
-
-								// For Google AI Studio, if candidatesTokenCount is not provided,
-								// we'll calculate it later from the fullContent
-								if (
-									(usedProvider === "google-ai-studio" ||
-										usedProvider === "google-vertex") &&
-									!usage.completionTokens &&
-									fullContent
-								) {
-									completionTokens = null; // Mark as missing so we calculate later
+								if (usage.cachedTokens !== null) {
+									cachedTokens = usage.cachedTokens;
 								}
-							} else {
-								// No complete JSON object found, try to find next JSON start
-								const nextStart = buffer.indexOf("{", jsonStartIndex + 1);
-								if (nextStart !== -1) {
-									// Skip to next potential JSON start
-									buffer = buffer.substring(nextStart);
-								} else {
-									// No more JSON starts found, break and wait for more data
-									break;
-								}
-							}
-						}
 
-						// If we processed data but buffer is empty or very small, keep a bit for next iteration
-						if (processedData && buffer.length < 50) {
-							// Keep small remainder in buffer in case it's part of next JSON
-						}
-					} else {
-						// For non-Google providers, use the original line-by-line processing
-						const lines = buffer.split("\n");
-						// Keep the last line in buffer if it's incomplete (doesn't end with newline)
-						if (
-							buffer.length > 0 &&
-							!buffer.endsWith("\n") &&
-							lines.length > 1
-						) {
-							buffer = lines.pop() || "";
-						} else {
-							buffer = "";
-						}
-
-						for (const line of lines) {
-							if (line.startsWith("data: ")) {
-								if (line === "data: [DONE]") {
-									// Calculate final usage if we don't have complete data
-									let finalPromptTokens = promptTokens;
-									let finalCompletionTokens = completionTokens;
-									let finalTotalTokens = totalTokens;
-
-									// Estimate missing tokens if needed using helper function
-									if (finalPromptTokens === null) {
-										finalPromptTokens = Math.round(
-											messages.reduce(
-												(acc, m) => acc + (m.content?.length || 0),
-												0,
-											) / 4,
-										);
-									}
-
-									if (finalCompletionTokens === null) {
-										finalCompletionTokens =
-											estimateTokensFromContent(fullContent);
-									}
-
-									if (finalTotalTokens === null) {
-										finalTotalTokens =
-											(finalPromptTokens || 0) + (finalCompletionTokens || 0);
-									}
-
-									// Send final usage chunk before [DONE] if we have any usage data
-									if (
-										finalPromptTokens !== null ||
-										finalCompletionTokens !== null ||
-										finalTotalTokens !== null
-									) {
-										const finalUsageChunk = {
-											id: `chatcmpl-${Date.now()}`,
-											object: "chat.completion.chunk",
-											created: Math.floor(Date.now() / 1000),
-											model: usedModel,
-											choices: [
-												{
-													index: 0,
-													delta: {},
-													finish_reason: null,
-												},
-											],
-											usage: {
-												prompt_tokens: finalPromptTokens || 0,
-												completion_tokens: finalCompletionTokens || 0,
-												total_tokens: finalTotalTokens || 0,
-											},
-										};
-
-										await stream.writeSSE({
-											data: JSON.stringify(finalUsageChunk),
-											id: String(eventId++),
-										});
-									}
-
-									await stream.writeSSE({
-										event: "done",
-										data: "[DONE]",
-										id: String(eventId++),
-									});
-								} else {
-									try {
-										const data = JSON.parse(line.substring(6));
-
-										// Transform streaming responses to OpenAI format for all providers
-										const transformedData =
-											transformStreamingChunkToOpenAIFormat(
-												usedProvider,
-												usedModel,
-												data,
-											);
-
-										// For Anthropic, if we have partial usage data, complete it
-										if (usedProvider === "anthropic" && transformedData.usage) {
-											const usage = transformedData.usage;
-											if (
-												usage.output_tokens !== undefined &&
-												usage.prompt_tokens === undefined
-											) {
-												// Estimate prompt tokens if not provided
-												const estimatedPromptTokens = Math.round(
-													messages.reduce(
-														(acc, m) => acc + (m.content?.length || 0),
-														0,
-													) / 4,
-												);
-												transformedData.usage = {
-													prompt_tokens: estimatedPromptTokens,
-													completion_tokens: usage.output_tokens,
-													total_tokens:
-														estimatedPromptTokens + usage.output_tokens,
-												};
-											}
-										}
-
-										await stream.writeSSE({
-											data: JSON.stringify(transformedData),
-											id: String(eventId++),
-										});
-
-										// Extract content for logging using helper function
-										const contentChunk = extractContentFromProvider(
-											data,
+								// Estimate tokens if not provided and we have a finish reason
+								if (finishReason && (!promptTokens || !completionTokens)) {
+									if (!promptTokens) {
+										const estimation = estimateTokens(
 											usedProvider,
+											messages,
+											null,
+											null,
+											null,
 										);
-										if (contentChunk) {
-											fullContent += contentChunk;
-										}
-
-										// Extract reasoning content for logging using helper function
-										const reasoningContentChunk =
-											extractReasoningContentFromProvider(data, usedProvider);
-										if (reasoningContentChunk) {
-											fullReasoningContent += reasoningContentChunk;
-										}
-
-										// Extract tool calls using helper function
-										const toolCallsChunk = extractToolCallsFromProvider(
-											data,
-											usedProvider,
-										);
-										if (toolCallsChunk) {
-											if (!fullToolCalls) {
-												fullToolCalls = [];
-											}
-
-											if (usedProvider === "anthropic") {
-												// For Anthropic, handle content_block_start and content_block_delta
-												for (const toolCall of toolCallsChunk) {
-													if (data.type === "content_block_start") {
-														// New tool call
-														fullToolCalls.push(toolCall);
-													} else if (data.type === "content_block_delta") {
-														// Accumulate arguments for the last tool call
-														const lastIndex = fullToolCalls.length - 1;
-														if (lastIndex >= 0) {
-															fullToolCalls[lastIndex].function.arguments +=
-																toolCall.function.arguments;
-														}
-													}
-												}
-											} else {
-												// For OpenAI format providers - these have index and delta format
-												for (const deltaToolCall of toolCallsChunk as any[]) {
-													const index = deltaToolCall.index || 0;
-
-													// Ensure we have a tool call at this index
-													while (fullToolCalls.length <= index) {
-														fullToolCalls.push({
-															id: "",
-															type: "function",
-															function: {
-																name: "",
-																arguments: "",
-															},
-														});
-													}
-
-													// Accumulate the tool call data
-													if (deltaToolCall.id) {
-														fullToolCalls[index].id = deltaToolCall.id;
-													}
-													if (deltaToolCall.type) {
-														fullToolCalls[index].type = deltaToolCall.type;
-													}
-													if (deltaToolCall.function?.name) {
-														fullToolCalls[index].function.name =
-															deltaToolCall.function.name;
-													}
-													if (deltaToolCall.function?.arguments) {
-														fullToolCalls[index].function.arguments +=
-															deltaToolCall.function.arguments;
-													}
-												}
-											}
-										}
-
-										// Handle provider-specific finish reason extraction
-										switch (usedProvider) {
-											case "anthropic":
-												if (
-													data.type === "message_delta" &&
-													data.delta?.stop_reason
-												) {
-													finishReason = data.delta.stop_reason;
-												} else if (
-													data.type === "message_stop" ||
-													data.stop_reason
-												) {
-													finishReason = data.stop_reason || "end_turn";
-												} else if (data.delta?.stop_reason) {
-													finishReason = data.delta.stop_reason;
-												}
-												break;
-											case "inference.net":
-											case "together.ai":
-											case "groq":
-											case "deepseek":
-											case "perplexity":
-												if (data.choices && data.choices[0]?.finish_reason) {
-													finishReason = data.choices[0].finish_reason;
-												}
-												break;
-											default: // OpenAI format
-												if (data.choices && data.choices[0]?.finish_reason) {
-													finishReason = data.choices[0].finish_reason;
-												}
-												break;
-										}
-
-										// Extract token usage using helper function
-										const usage = extractTokenUsage(data, usedProvider);
-										if (usage.promptTokens !== null) {
-											promptTokens = usage.promptTokens;
-										}
-										if (usage.completionTokens !== null) {
-											completionTokens = usage.completionTokens;
-										}
-										if (usage.totalTokens !== null) {
-											totalTokens = usage.totalTokens;
-										}
-										if (usage.reasoningTokens !== null) {
-											reasoningTokens = usage.reasoningTokens;
-										}
-										if (usage.cachedTokens !== null) {
-											cachedTokens = usage.cachedTokens;
-										}
-
-										// Estimate tokens if not provided and we have a finish reason
-										if (finishReason && (!promptTokens || !completionTokens)) {
-											if (!promptTokens) {
-												promptTokens = Math.round(
-													messages.reduce(
-														(acc, m) => acc + (m.content?.length || 0),
-														0,
-													) / 4,
-												);
-											}
-
-											if (!completionTokens) {
-												completionTokens =
-													estimateTokensFromContent(fullContent);
-											}
-
-											totalTokens =
-												(promptTokens || 0) + (completionTokens || 0);
-										}
-									} catch (e) {
-										console.warn("Failed to parse streaming JSON:", {
-											error: e instanceof Error ? e.message : String(e),
-											lineContent: line.substring(0, 100), // First 100 chars for debugging
-											provider: usedProvider,
-										});
+										promptTokens = estimation.calculatedPromptTokens;
 									}
+
+									if (!completionTokens) {
+										completionTokens = estimateTokensFromContent(fullContent);
+									}
+
+									totalTokens = (promptTokens || 0) + (completionTokens || 0);
 								}
 							}
 						}
@@ -2535,13 +2449,13 @@ chat.openapi(completions, async (c) => {
 							},
 						};
 
-						await stream.writeSSE({
+						await writeSSEAndCache({
 							data: JSON.stringify(finalUsageChunk),
 							id: String(eventId++),
 						});
 
 						// Send final [DONE] if we haven't already
-						await stream.writeSSE({
+						await writeSSEAndCache({
 							event: "done",
 							data: "[DONE]",
 							id: String(eventId++),
@@ -2578,6 +2492,8 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					tools,
+					tool_choice,
 				);
 
 				await insertLog({
@@ -2586,7 +2502,6 @@ chat.openapi(completions, async (c) => {
 					responseSize: fullContent.length,
 					content: fullContent,
 					reasoningContent: fullReasoningContent || null,
-					toolCalls: fullToolCalls,
 					finishReason: finishReason,
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2613,7 +2528,33 @@ chat.openapi(completions, async (c) => {
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
 					cached: false,
+					tools,
+					toolChoice: tool_choice,
 				});
+				// Save streaming cache if enabled and not canceled
+				if (cachingEnabled && streamingCacheKey && !canceled && finishReason) {
+					try {
+						const streamingCacheData = {
+							chunks: streamingChunks,
+							metadata: {
+								model: usedModel,
+								provider: usedProvider,
+								finishReason: finishReason,
+								totalChunks: streamingChunks.length,
+								duration: duration,
+								completed: true,
+							},
+						};
+
+						await setStreamingCache(
+							streamingCacheKey,
+							streamingCacheData,
+							cacheDuration,
+						);
+					} catch (error) {
+						console.error("Error saving streaming cache:", error);
+					}
+				}
 			}
 		});
 	}
@@ -2672,6 +2613,8 @@ chat.openapi(completions, async (c) => {
 			top_p,
 			frequency_penalty,
 			presence_penalty,
+			tools,
+			tool_choice,
 		);
 
 		await insertLog({
@@ -2733,6 +2676,8 @@ chat.openapi(completions, async (c) => {
 			top_p,
 			frequency_penalty,
 			presence_penalty,
+			tools,
+			tool_choice,
 		);
 
 		await insertLog({
@@ -2839,6 +2784,8 @@ chat.openapi(completions, async (c) => {
 		top_p,
 		frequency_penalty,
 		presence_penalty,
+		tools,
+		tool_choice,
 	);
 
 	await insertLog({
@@ -2847,7 +2794,6 @@ chat.openapi(completions, async (c) => {
 		responseSize: responseText.length,
 		content: content,
 		reasoningContent: reasoningContent,
-		toolCalls: toolCalls,
 		finishReason: finishReason,
 		promptTokens: calculatedPromptTokens?.toString() || null,
 		completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -2869,6 +2815,8 @@ chat.openapi(completions, async (c) => {
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		cached: false,
+		tools,
+		toolChoice: tool_choice,
 	});
 
 	// Transform response to OpenAI format for non-OpenAI providers

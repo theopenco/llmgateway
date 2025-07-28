@@ -42,7 +42,7 @@ export function UsageChart({ initialData }: UsageChartProps) {
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: daysParam ? initialData : undefined,
+			initialData,
 		},
 	);
 
