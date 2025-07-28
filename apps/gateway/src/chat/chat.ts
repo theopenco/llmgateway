@@ -2084,30 +2084,90 @@ chat.openapi(completions, async (c) => {
 					let processedLength = 0;
 					const bufferCopy = buffer;
 
-					// Look for complete SSE events (data: followed by eventual double newline or end)
+					// Look for complete SSE events, handling events at buffer start
 					let searchStart = 0;
 					while (searchStart < bufferCopy.length) {
-						const dataIndex = bufferCopy.indexOf("data: ", searchStart);
+						// Find "data: " - could be at start of buffer or after newline
+						let dataIndex = -1;
+
+						if (searchStart === 0 && bufferCopy.startsWith("data: ")) {
+							// Event at buffer start
+							dataIndex = 0;
+						} else {
+							// Look for "\ndata: " pattern
+							const newlineDataIndex = bufferCopy.indexOf(
+								"\ndata: ",
+								searchStart,
+							);
+							if (newlineDataIndex !== -1) {
+								dataIndex = newlineDataIndex + 1; // Skip the newline
+							}
+						}
+
 						if (dataIndex === -1) {
 							break;
 						}
 
-						// Find the end of this SSE event (next "data: " or end of buffer)
-						let eventEnd = bufferCopy.indexOf("\ndata: ", dataIndex + 6);
-						if (eventEnd === -1) {
-							// No next event found, check if this could be a complete event ending with \n\n or at buffer end
-							const nextDoubleNewline = bufferCopy.indexOf("\n\n", dataIndex);
-							if (nextDoubleNewline !== -1) {
-								eventEnd = nextDoubleNewline;
-							} else if (
-								bufferCopy.endsWith("\n") ||
-								dataIndex + 6 < bufferCopy.length
-							) {
-								// If buffer ends with newline or we have content after "data: ", try to process
-								eventEnd = bufferCopy.length;
+						// Find the end of this SSE event
+						// Look for next event or proper event termination
+						let eventEnd = -1;
+
+						// First, look for the next "data: " event (after a newline)
+						const nextEventIndex = bufferCopy.indexOf(
+							"\ndata: ",
+							dataIndex + 6,
+						);
+						if (nextEventIndex !== -1) {
+							eventEnd = nextEventIndex;
+						} else {
+							// No next event found - check for proper event termination
+							// SSE events should end with at least one newline
+							const eventStartPos = dataIndex + 6; // Start of event data
+
+							// Look for a newline that would indicate event completion
+							let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
+							if (newlinePos !== -1) {
+								// We found a newline - this could be the end of the event
+								// Check if there's more content after the newline
+								if (newlinePos + 1 >= bufferCopy.length) {
+									// Newline is at the end of buffer - event is complete
+									eventEnd = bufferCopy.length;
+								} else {
+									// There's content after the newline
+									// Check if it's another SSE field or if the event continues
+									const nextChar = bufferCopy[newlinePos + 1];
+									if (
+										nextChar === "\n" ||
+										nextChar === "d" ||
+										nextChar === "e" ||
+										nextChar === "i" ||
+										nextChar === ":"
+									) {
+										// Likely end of event (double newline or another SSE field)
+										eventEnd = newlinePos + 1;
+									} else {
+										// Content continues on next line - use full buffer
+										eventEnd = bufferCopy.length;
+									}
+								}
 							} else {
-								// Incomplete event, break and keep in buffer
-								break;
+								// No newline found after event data - event is incomplete
+								// Try to detect if we have a complete JSON object
+								const eventDataCandidate = bufferCopy.slice(eventStartPos);
+								if (eventDataCandidate.length > 0) {
+									// Try to validate if this looks like complete JSON
+									try {
+										JSON.parse(eventDataCandidate.trim());
+										// If we can parse it, it's complete
+										eventEnd = bufferCopy.length;
+									} catch (_e) {
+										// JSON parsing failed - event is incomplete
+										break;
+									}
+								} else {
+									// No event data yet
+									break;
+								}
 							}
 						}
 
@@ -2185,15 +2245,8 @@ chat.openapi(completions, async (c) => {
 								data = JSON.parse(eventData);
 							} catch (e) {
 								// If JSON parsing fails, this might be an incomplete event
-								// Only log error if we're at the end of buffer (complete event)
-								if (
-									eventEnd === bufferCopy.length &&
-									!bufferCopy.endsWith("\n")
-								) {
-									// Likely incomplete event, break and keep in buffer
-									break;
-								}
-
+								// Since we already validated JSON completeness above, this is likely a format issue
+								// Log the error and skip this chunk
 								streamingError = e;
 								console.warn("Failed to parse streaming JSON:", {
 									error: e instanceof Error ? e.message : String(e),
@@ -2201,6 +2254,9 @@ chat.openapi(completions, async (c) => {
 										eventData.substring(0, 200) +
 										(eventData.length > 200 ? "..." : ""),
 									provider: usedProvider,
+									eventLength: eventData.length,
+									bufferEnd: eventEnd,
+									bufferLength: bufferCopy.length,
 								});
 
 								processedLength = eventEnd;
