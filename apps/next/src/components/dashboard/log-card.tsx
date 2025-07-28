@@ -225,7 +225,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								</div>
 								<div className="text-muted-foreground">Request Cost</div>
 								<div>
-									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "?"}
+									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "0"}
 								</div>
 								<div className="text-muted-foreground">Total Cost</div>
 								<div className="font-medium">
