@@ -39,6 +39,7 @@ const modelSchema = z.object({
 			streaming: z.boolean(),
 			vision: z.boolean(),
 			cancellation: z.boolean(),
+			tools: z.boolean(),
 		}),
 	),
 	pricing: z.object({
@@ -143,6 +144,7 @@ modelsApi.openapi(listModels, async (c) => {
 						streaming: provider.streaming,
 						vision: provider.vision || false,
 						cancellation: providerDef?.cancellation || false,
+						tools: provider.tools || false,
 					};
 				}),
 				pricing: {
