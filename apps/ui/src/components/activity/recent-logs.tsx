@@ -77,7 +77,7 @@ export function RecentLogs() {
 	return (
 		<div className="space-y-4 max-w-full overflow-hidden">
 			<div className="flex flex-wrap gap-2 mb-4">
-				<DateRangeSelect onChange={handleDateRangeChange} value="24h" />
+				<DateRangeSelect onChange={handleDateRangeChange} />
 
 				<Select onValueChange={setFinishReason} value={finishReason}>
 					<SelectTrigger>
@@ -156,12 +156,12 @@ export function RecentLogs() {
 									...log,
 									createdAt: new Date(log.createdAt),
 									updatedAt: new Date(log.updatedAt),
-									messages: log.messages as any,
-									tools: (log as any).tools,
-									toolChoice: (log as any).toolChoice,
-									errorDetails: log.errorDetails as any,
+									messages: log.messages,
+									tools: log.tools,
+									toolChoice: log.toolChoice,
+									errorDetails: log.errorDetails,
 									reasoningTokens: log.reasoningTokens,
-									reasoningContent: (log as any).reasoningContent,
+									reasoningContent: log.reasoningContent,
 									cachedTokens: (log as any).cachedTokens || null,
 									cachedInputCost: (log as any).cachedInputCost || null,
 								}}

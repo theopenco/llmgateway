@@ -61,7 +61,8 @@ export default function Login() {
 		if (window.PublicKeyCredential) {
 			void signIn.passkey({ autoFill: true });
 		}
-	}, [signIn]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []); // Only run once on mount for autofill
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);

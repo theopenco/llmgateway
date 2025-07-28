@@ -25,7 +25,7 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
-export function LogCard({ log }: { log: Log }) {
+export function LogCard({ log }: { log: Log & { toolCalls?: boolean } }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
 	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
@@ -312,9 +312,7 @@ export function LogCard({ log }: { log: Log }) {
 							</TooltipProvider>
 						</div>
 					</div>
-					{((log as any).tools ||
-						(log as any).toolChoice ||
-						(log as any).toolCalls) && (
+					{(log.tools || log.toolChoice || log.toolCalls) && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Tool Information</h4>
 							<div className="grid gap-4 md:grid-cols-1">
