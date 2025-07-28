@@ -126,7 +126,7 @@ interface DateRangeSelectProps {
 }
 
 export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
-	const [selected, setSelected] = useState(value || "24h");
+	const [selected, setSelected] = useState(value);
 
 	const selectedOption = RELATIVE_TIME_OPTIONS.find(
 		(option) => option.value === selected,

@@ -20,11 +20,14 @@ export function useAuthClient() {
 export function useAuth() {
 	const authClient = useAuthClient();
 
-	return {
-		signIn: authClient.signIn,
-		signUp: authClient.signUp,
-		signOut: authClient.signOut,
-		useSession: authClient.useSession,
-		getSession: authClient.getSession,
-	};
+	return useMemo(
+		() => ({
+			signIn: authClient.signIn,
+			signUp: authClient.signUp,
+			signOut: authClient.signOut,
+			useSession: authClient.useSession,
+			getSession: authClient.getSession,
+		}),
+		[authClient],
+	);
 }

@@ -77,7 +77,7 @@ export function RecentLogs() {
 	return (
 		<div className="space-y-4 max-w-full overflow-hidden">
 			<div className="flex flex-wrap gap-2 mb-4">
-				<DateRangeSelect onChange={handleDateRangeChange} value="24h" />
+				<DateRangeSelect onChange={handleDateRangeChange} />
 
 				<Select onValueChange={setFinishReason} value={finishReason}>
 					<SelectTrigger>

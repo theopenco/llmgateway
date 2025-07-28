@@ -239,7 +239,7 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 			style={{ scrollBehavior: "auto" }}
 		>
 			<div className="flex flex-wrap gap-2 mb-4 sticky top-0 bg-background z-10 py-2">
-				<DateRangeSelect onChange={handleDateRangeChange} value="24h" />
+				<DateRangeSelect onChange={handleDateRangeChange} />
 
 				<Select
 					onValueChange={handleFilterChange("finishReason", setFinishReason)}
