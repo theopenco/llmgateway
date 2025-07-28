@@ -161,10 +161,27 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
-			totalTokens =
-				promptTokens !== null && completionTokens !== null
-					? promptTokens + completionTokens
-					: json.usageMetadata?.totalTokenCount || null;
+			totalTokens = json.usageMetadata?.totalTokenCount || null;
+
+			// If candidatesTokenCount is missing, estimate it from the content
+			if (completionTokens === null && content) {
+				try {
+					completionTokens = encode(content).length;
+				} catch (error) {
+					// Fallback to simple estimation if encoding fails
+					console.error(`Failed to encode completion text: ${error}`);
+					completionTokens = Math.max(1, Math.round(content.length / 4));
+				}
+			}
+
+			// Calculate totalTokens if not provided but we have prompt and completion tokens
+			if (
+				totalTokens === null &&
+				promptTokens !== null &&
+				completionTokens !== null
+			) {
+				totalTokens = promptTokens + completionTokens + (reasoningTokens || 0);
+			}
 			break;
 		case "mistral":
 			content = json.choices?.[0]?.message?.content || null;
@@ -319,7 +336,11 @@ function extractReasoningContentFromProvider(
 /**
  * Extracts token usage information from streaming data based on provider format
  */
-function extractTokenUsage(data: any, provider: Provider) {
+function extractTokenUsage(
+	data: any,
+	provider: Provider,
+	fullContent?: string,
+) {
 	let promptTokens = null;
 	let completionTokens = null;
 	let totalTokens = null;
@@ -334,6 +355,33 @@ function extractTokenUsage(data: any, provider: Provider) {
 				completionTokens = data.usageMetadata.candidatesTokenCount || null;
 				totalTokens = data.usageMetadata.totalTokenCount || null;
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount || null;
+
+				// If candidatesTokenCount is missing and we have content, estimate it
+				if (completionTokens === null && fullContent) {
+					try {
+						completionTokens = encode(fullContent).length;
+						console.log(
+							`Google streaming: estimated ${completionTokens} completion tokens from content: "${fullContent}"`,
+						);
+					} catch (error) {
+						// Fallback to simple estimation if encoding fails
+						console.error(
+							`Failed to encode completion text in streaming: ${error}`,
+						);
+						completionTokens = Math.max(1, Math.round(fullContent.length / 4));
+						console.log(
+							`Google streaming: fallback estimated ${completionTokens} completion tokens from content: "${fullContent}"`,
+						);
+					}
+				} else if (completionTokens === null) {
+					console.log(
+						`Google streaming: candidatesTokenCount is null and no fullContent provided`,
+					);
+				} else {
+					console.log(
+						`Google streaming: using provided candidatesTokenCount: ${completionTokens}`,
+					);
+				}
 			}
 			break;
 		case "anthropic":
@@ -2210,7 +2258,11 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Extract token usage using helper function
-								const usage = extractTokenUsage(data, usedProvider);
+								const usage = extractTokenUsage(
+									data,
+									usedProvider,
+									fullContent,
+								);
 								if (usage.promptTokens !== null) {
 									promptTokens = usage.promptTokens;
 								}
