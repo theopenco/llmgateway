@@ -245,6 +245,7 @@ describe("e2e", () => {
 		const log = logs[0];
 		expect(log.usedProvider).toBeTruthy();
 
+		expect(log.errorDetails).toBeNull();
 		expect(log.finishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).toBeTruthy();
