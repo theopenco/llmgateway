@@ -66,7 +66,11 @@ export default async function ChangelogEntryPage({
 							</div>
 						)}
 
-						<Markdown options={getMarkdownOptions()}>{entry.content}</Markdown>
+						<div className="prose prose-lg dark:prose-invert max-w-none">
+							<Markdown options={getMarkdownOptions()}>
+								{entry.content}
+							</Markdown>
+						</div>
 					</article>
 				</div>
 			</main>
