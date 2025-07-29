@@ -36,15 +36,19 @@ We went from solid to stellar:
 
 ### 🧠 Why We Switched
 
-- **Better SEO and performance** out of the box with Next.js’ built-in optimizations
-- **Simpler mental model** for routing, layouts, and deployment
-- **Edge-ready** and more compatible with our future plans (middleware, streaming, etc.)
-- **Improved observability**: CPU and memory usage became more stable and efficient after the switch
+**Better SEO and performance** out of the box with Next.js’ built-in optimizations
+
+**Simpler mental model** for routing, layouts, and deployment
+
+**Edge-ready** and more compatible with our future plans (middleware, streaming, etc.)
+
+**Improved observability**: CPU and memory usage became more stable and efficient after the switch
 
 ### 🔍 What Changed?
 
-- **Before**: Higher CPU + memory spikes, inconsistent rendering, lower SEO
-- **Now**: Lower system resource usage, sub-1.2s paint speeds, and perfect Lighthouse scores in key areas
+**Before**: Higher CPU + memory spikes, inconsistent rendering, lower SEO
+
+**Now**: Lower system resource usage, sub-1.2s paint speeds, and perfect Lighthouse scores in key areas
 
 ---
 

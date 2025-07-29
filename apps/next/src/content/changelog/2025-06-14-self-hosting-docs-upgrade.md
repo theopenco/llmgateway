@@ -17,16 +17,19 @@ We've revamped our [**self-hosting docs**](https://docs.llmgateway.io/self-host)
 
 Get started in seconds with our streamlined Docker approach:
 
-- **One-command deployment** – Single Docker image gets you running instantly
-- **Zero-config local testing** – Try everything on your machine with minimal setup
-- **Quick prototyping** – Perfect for development and small team usage
+**One-command deployment** Single Docker image gets you running instantly
+
+**Zero-config local testing** Try everything on your machine with minimal setup
+
+**Quick prototyping** Perfect for development and small team usage
 
 ## 🏗️ Production-Grade with Docker Compose
 
 For teams ready to scale and organizations with enterprise needs:
 
-- **Multi-service** – Database, Redis, Gateway, API, Docs, and UI in separate containers
-- **Keys** – Centralized key management via .env var
+**Multi-service** Database, Redis, Gateway, API, Docs, and UI in separate containers
+
+**Keys** Centralized key management via .env var
 
 All of the docker images are public so you can fully customize the hosting to your needs.
 
