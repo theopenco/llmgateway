@@ -382,4 +382,26 @@ export const googleModels = [
 		],
 		jsonOutput: true,
 	},
+	{
+		id: "gemma-3-27b",
+		name: "Gemma 3 27B",
+		family: "google",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "nebius",
+				modelName: "google/gemma-3-27b-it",
+				inputPrice: 0.27 / 1e6,
+				outputPrice: 0.27 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
 ] as const satisfies ModelDefinition[];

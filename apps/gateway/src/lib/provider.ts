@@ -17,6 +17,7 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	deepseek: "DEEPSEEK_API_KEY",
 	perplexity: "PERPLEXITY_API_KEY",
 	alibaba: "ALIBABA_API_KEY",
+	nebius: "NEBIUS_API_KEY",
 	custom: "UNUSED",
 };
 

@@ -199,6 +199,18 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "nebius",
+		name: "Nebius AI",
+		description:
+			"Nebius AI Studio - OpenAI-compatible API for large language models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#3b82f6",
+		website: "https://nebius.com",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
