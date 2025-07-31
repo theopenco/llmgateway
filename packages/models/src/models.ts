@@ -4,6 +4,7 @@ import { deepseekModels } from "./models/deepseek";
 import { googleModels } from "./models/google";
 import { llmgatewayModels } from "./models/llmgateway";
 import { metaModels } from "./models/meta";
+import { microsoftModels } from "./models/microsoft";
 import { mistralModels } from "./models/mistral";
 import { moonshotModels } from "./models/moonshot";
 import { nousresearchModels } from "./models/nousresearch";
@@ -111,6 +112,7 @@ export const models = [
 	...metaModels,
 	...deepseekModels,
 	...mistralModels,
+	...microsoftModels,
 	...moonshotModels,
 	...alibabaModels,
 	...nousresearchModels,

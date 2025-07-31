@@ -1,20 +1,20 @@
 import type { ModelDefinition } from "@llmgateway/models";
 
-export const nousresearchModels = [
+export const microsoftModels = [
 	{
-		id: "hermes-3-llama-405b",
-		name: "Hermes 3 Llama 405B",
-		family: "nousresearch",
+		id: "phi-4",
+		name: "Phi 4",
+		family: "microsoft",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "NousResearch/Hermes-3-Llama-405B",
-				inputPrice: 1.0 / 1e6,
-				outputPrice: 3.0 / 1e6,
+				modelName: "microsoft/phi-4",
+				inputPrice: 0.1 / 1e6,
+				outputPrice: 0.3 / 1e6,
 				requestPrice: 0,
-				contextSize: 131072,
+				contextSize: 16384,
 				maxOutput: undefined,
 				streaming: true,
 				vision: false,

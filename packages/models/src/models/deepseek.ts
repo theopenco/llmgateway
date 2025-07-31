@@ -35,8 +35,8 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				modelName: "deepseek-ai/DeepSeek-V3",
-				inputPrice: 0.27 / 1e6,
-				outputPrice: 1.1 / 1e6,
+				inputPrice: 0.5 / 1e6,
+				outputPrice: 1.5 / 1e6,
 				requestPrice: 0,
 				contextSize: 64000,
 				maxOutput: undefined,
@@ -81,8 +81,8 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				modelName: "deepseek-ai/DeepSeek-R1",
-				inputPrice: 0.55 / 1e6,
-				outputPrice: 2.19 / 1e6,
+				inputPrice: 0.8 / 1e6,
+				outputPrice: 2.4 / 1e6,
 				requestPrice: 0,
 				contextSize: 64000,
 				maxOutput: undefined,
@@ -127,8 +127,8 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				modelName: "deepseek-ai/DeepSeek-R1-0528",
-				inputPrice: 0.55 / 1e6,
-				outputPrice: 2.19 / 1e6,
+				inputPrice: 0.8 / 1e6,
+				outputPrice: 2.4 / 1e6,
 				requestPrice: 0,
 				contextSize: 64000,
 				maxOutput: undefined,
@@ -161,8 +161,8 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				modelName: "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-				inputPrice: 0.75 / 1e6,
-				outputPrice: 0.99 / 1e6,
+				inputPrice: 0.25 / 1e6,
+				outputPrice: 0.75 / 1e6,
 				requestPrice: 0,
 				contextSize: 131072,
 				maxOutput: undefined,

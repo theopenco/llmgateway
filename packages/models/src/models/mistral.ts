@@ -23,4 +23,26 @@ export const mistralModels = [
 		],
 		jsonOutput: false,
 	},
+	{
+		id: "mistral-nemo-instruct-2407",
+		name: "Mistral Nemo Instruct 2407",
+		family: "mistral",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "nebius",
+				modelName: "MistralAI/Mistral-Nemo-Instruct-2407",
+				inputPrice: 0.04 / 1e6,
+				outputPrice: 0.12 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
 ] as const satisfies ModelDefinition[];
