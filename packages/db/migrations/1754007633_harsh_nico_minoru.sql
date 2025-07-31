@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "tool_results" json;

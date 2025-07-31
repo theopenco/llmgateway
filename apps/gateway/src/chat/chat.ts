@@ -171,7 +171,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let totalTokens = null;
 	let reasoningTokens = null;
 	let cachedTokens = null;
-	let toolCalls = null;
+	let toolResults = null;
 
 	switch (usedProvider) {
 		case "anthropic":
@@ -185,9 +185,24 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 				json.usage?.input_tokens && json.usage?.output_tokens
 					? json.usage.input_tokens + json.usage.output_tokens
 					: null;
+			// Extract tool calls from Anthropic format
+			toolResults =
+				json.content
+					?.filter((block: any) => block.type === "tool_use")
+					?.map((block: any) => ({
+						id: block.id,
+						type: "function",
+						function: {
+							name: block.name,
+							arguments: JSON.stringify(block.input),
+						},
+					})) || null;
+			if (toolResults && toolResults.length === 0) {
+				toolResults = null;
+			}
 			break;
 		case "google-vertex":
-		case "google-ai-studio":
+		case "google-ai-studio": {
 			content = json.candidates?.[0]?.content?.parts?.[0]?.text || null;
 			finishReason = json.candidates?.[0]?.finishReason || null;
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
@@ -215,7 +230,25 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			) {
 				totalTokens = promptTokens + completionTokens + (reasoningTokens || 0);
 			}
+
+			// Extract tool calls from Google format
+			const parts = json.candidates?.[0]?.content?.parts || [];
+			toolResults =
+				parts
+					.filter((part: any) => part.functionCall)
+					.map((part: any) => ({
+						id: part.functionCall.name + "_" + Date.now(), // Google doesn't provide ID, so generate one
+						type: "function",
+						function: {
+							name: part.functionCall.name,
+							arguments: JSON.stringify(part.functionCall.args || {}),
+						},
+					})) || null;
+			if (toolResults && toolResults.length === 0) {
+				toolResults = null;
+			}
 			break;
+		}
 		case "mistral":
 			content = json.choices?.[0]?.message?.content || null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
@@ -241,9 +274,12 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					} catch (_e) {}
 				}
 			}
+
+			// Extract tool calls from Mistral format (same as OpenAI)
+			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			break;
 		default: // OpenAI format
-			toolCalls = json.choices?.[0]?.message?.tool_calls || null;
+			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			content = json.choices?.[0]?.message?.content || null;
 			// Extract reasoning content for reasoning-capable models
 			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
@@ -268,7 +304,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		totalTokens,
 		reasoningTokens,
 		cachedTokens,
-		toolCalls,
+		toolResults,
 	};
 }
 
@@ -367,6 +403,67 @@ function extractReasoningContentFromProvider(
 }
 
 /**
+ * Extracts tool calls from streaming data based on provider format
+ */
+function extractToolCallsFromProvider(
+	data: any,
+	provider: Provider,
+): any[] | null {
+	switch (provider) {
+		case "anthropic":
+			// Anthropic streaming tool calls come as content_block_start with tool_use type
+			if (
+				data.type === "content_block_start" &&
+				data.content_block?.type === "tool_use"
+			) {
+				return [
+					{
+						id: data.content_block.id,
+						type: "function",
+						function: {
+							name: data.content_block.name,
+							arguments: "",
+						},
+					},
+				];
+			}
+			// Tool arguments come as content_block_delta
+			if (data.type === "content_block_delta" && data.delta?.partial_json) {
+				return [
+					{
+						id: data.index ? `tool_${data.index}` : "tool_unknown",
+						type: "function",
+						function: {
+							name: "",
+							arguments: data.delta.partial_json,
+						},
+					},
+				];
+			}
+			return null;
+		case "google-vertex":
+		case "google-ai-studio": {
+			// Google Vertex AI tool calls in streaming
+			const parts = data.candidates?.[0]?.content?.parts || [];
+			return (
+				parts
+					.filter((part: any) => part.functionCall)
+					.map((part: any) => ({
+						id: part.functionCall.name + "_" + Date.now(),
+						type: "function",
+						function: {
+							name: part.functionCall.name,
+							arguments: JSON.stringify(part.functionCall.args || {}),
+						},
+					})) || null
+			);
+		}
+		default: // OpenAI format
+			return data.choices?.[0]?.delta?.tool_calls || null;
+	}
+}
+
+/**
  * Extracts token usage information from streaming data based on provider format
  */
 function extractTokenUsage(
@@ -446,7 +543,7 @@ function transformToOpenAIFormat(
 	totalTokens: number | null,
 	reasoningTokens: number | null,
 	cachedTokens: number | null,
-	toolCalls: any,
+	toolResults: any,
 ) {
 	let transformedResponse = json;
 
@@ -467,7 +564,7 @@ function transformToOpenAIFormat(
 							...(reasoningContent !== null && {
 								reasoning_content: reasoningContent,
 							}),
-							...(toolCalls && { tool_calls: toolCalls }),
+							...(toolResults && { tool_calls: toolResults }),
 						},
 						finish_reason:
 							finishReason === "STOP"
@@ -506,7 +603,7 @@ function transformToOpenAIFormat(
 							...(reasoningContent !== null && {
 								reasoning_content: reasoningContent,
 							}),
-							...(toolCalls && { tool_calls: toolCalls }),
+							...(toolResults && { tool_calls: toolResults }),
 						},
 						finish_reason:
 							finishReason === "end_turn"
@@ -1731,6 +1828,8 @@ chat.openapi(completions, async (c) => {
 					cost: 0,
 					estimatedCost: false,
 					cached: true,
+					toolResults:
+						(cachedStreamingResponse.metadata as any)?.toolResults || null,
 				});
 
 				// Return cached streaming response by replaying chunks with original timing
@@ -1809,6 +1908,7 @@ chat.openapi(completions, async (c) => {
 					cost: 0,
 					estimatedCost: false,
 					cached: true,
+					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
 				});
 
 				return c.json(cachedResponse);
@@ -1971,6 +2071,7 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						cached: false,
+						toolResults: null,
 					});
 
 					// Send a cancellation event to the client
@@ -2061,6 +2162,7 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: null,
 					requestCost: null,
 					cached: false,
+					toolResults: null,
 				});
 
 				return;
@@ -2096,6 +2198,7 @@ chat.openapi(completions, async (c) => {
 			let totalTokens = null;
 			let reasoningTokens = null;
 			let cachedTokens = null;
+			let streamingToolCalls = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
@@ -2435,6 +2538,33 @@ chat.openapi(completions, async (c) => {
 								fullReasoningContent += reasoningContentChunk;
 							}
 
+							// Extract and accumulate tool calls
+							const toolCallsChunk = extractToolCallsFromProvider(
+								data,
+								usedProvider,
+							);
+							if (toolCallsChunk && toolCallsChunk.length > 0) {
+								if (!streamingToolCalls) {
+									streamingToolCalls = [];
+								}
+								// Merge tool calls (accumulating function arguments)
+								for (const newCall of toolCallsChunk) {
+									const existingCall = streamingToolCalls.find(
+										(call) => call.id === newCall.id,
+									);
+									if (existingCall) {
+										// Accumulate function arguments
+										if (newCall.function?.arguments) {
+											existingCall.function.arguments =
+												(existingCall.function.arguments || "") +
+												newCall.function.arguments;
+										}
+									} else {
+										streamingToolCalls.push({ ...newCall });
+									}
+								}
+							}
+
 							// Handle provider-specific finish reason extraction
 							switch (usedProvider) {
 								case "google-vertex":
@@ -2722,6 +2852,7 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: costs.estimatedCost,
 					cached: false,
 					tools,
+					toolResults: streamingToolCalls,
 					toolChoice: tool_choice,
 				});
 				// Save streaming cache if enabled and not canceled
@@ -2831,6 +2962,7 @@ chat.openapi(completions, async (c) => {
 			requestCost: null,
 			estimatedCost: false,
 			cached: false,
+			toolResults: null,
 		});
 
 		return c.json(
@@ -2899,6 +3031,7 @@ chat.openapi(completions, async (c) => {
 			requestCost: null,
 			estimatedCost: false,
 			cached: false,
+			toolResults: null,
 		});
 
 		// Return a 500 error response
@@ -2940,7 +3073,7 @@ chat.openapi(completions, async (c) => {
 		totalTokens,
 		reasoningTokens,
 		cachedTokens,
-		toolCalls,
+		toolResults,
 	} = parseProviderResponse(usedProvider, json);
 
 	// Estimate tokens if not provided by the API
@@ -3012,6 +3145,7 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		cached: false,
 		tools,
+		toolResults,
 		toolChoice: tool_choice,
 	});
 
@@ -3028,7 +3162,7 @@ chat.openapi(completions, async (c) => {
 		(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0),
 		reasoningTokens,
 		cachedTokens,
-		toolCalls,
+		toolResults,
 	);
 
 	if (cachingEnabled && cacheKey && !stream) {
