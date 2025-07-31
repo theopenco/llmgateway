@@ -494,6 +494,20 @@ export const AlibabaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+export const NebiusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		className={cn("h-10 w-10 text-black dark:text-white", props.className)}
+		fill="currentColor"
+		fillRule="evenodd"
+		viewBox="0 0 24 24"
+		xmlns="http://www.w3.org/2000/svg"
+	>
+		<path d="M20 2.306v16.797s4-.242 4-4.815V2.306h-4zM4 22.001V5.204s-4 .242-4 4.816V22h4z" />
+		<path d="M16.318 16.51 11.286 4.94c-.824-1.872-2.168-2.926-4.077-2.926-1.908 0-3.211 1.54-3.211 3.19 0 0 2.405-.333 3.68 2.593l5.036 11.57c.821 1.87 2.168 2.926 4.075 2.926 1.905 0 3.211-1.541 3.211-3.19 0 0-2.406.333-3.682-2.594z" />
+	</svg>
+);
+
 // Export all icons as a map for easy access
 export const ProviderIcons = {
 	anthropic: AnthropicIcon,
@@ -511,6 +525,7 @@ export const ProviderIcons = {
 	moonshot: MoonshotIcon,
 	novita: NovitaIcon,
 	alibaba: AlibabaIcon,
+	nebius: NebiusIcon,
 } as const;
 
 // Type for provider icon keys

@@ -59,6 +59,7 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Ai Studio", providerId: "google-ai-studio" },
 	{ name: "Moonshot", providerId: "moonshot" },
 	{ name: "Novita", providerId: "novita" },
+	{ name: "Nebius", providerId: "nebius" },
 ];
 
 // TypeScript code example

@@ -20,6 +20,7 @@ export const providerLogoUrls: Partial<
 	moonshot: ProviderIcons.moonshot,
 	novita: ProviderIcons.novita,
 	alibaba: ProviderIcons.alibaba,
+	nebius: ProviderIcons.nebius,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
