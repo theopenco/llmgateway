@@ -465,6 +465,8 @@ export async function validateProviderKey(
 
 		const validationModel = getCheapestModelForProvider(provider);
 
+		console.log("using validationModel", provider, validationModel);
+
 		if (!validationModel) {
 			throw new Error(
 				`No model with pricing information found for provider ${provider}`,

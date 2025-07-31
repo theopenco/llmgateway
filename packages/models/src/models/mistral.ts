@@ -32,7 +32,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "MistralAI/Mistral-Nemo-Instruct-2407",
+				modelName: "mistralai/Mistral-Nemo-Instruct-2407",
 				inputPrice: 0.04 / 1e6,
 				outputPrice: 0.12 / 1e6,
 				requestPrice: 0,

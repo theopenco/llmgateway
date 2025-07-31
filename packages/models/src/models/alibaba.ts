@@ -76,7 +76,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "QwQ-32B",
+				modelName: "Qwen/QwQ-32B",
 				inputPrice: 0.15 / 1e6,
 				outputPrice: 0.45 / 1e6,
 				requestPrice: 0,
@@ -186,7 +186,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen2.5-Coder-7B",
+				modelName: "Qwen/Qwen2.5-Coder-7B",
 				inputPrice: 0.01 / 1e6,
 				outputPrice: 0.03 / 1e6,
 				requestPrice: 0,
@@ -208,7 +208,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen2.5-32B-Instruct",
+				modelName: "Qwen/Qwen2.5-32B-Instruct",
 				inputPrice: 0.06 / 1e6,
 				outputPrice: 0.2 / 1e6,
 				requestPrice: 0,
@@ -230,7 +230,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen2.5-72B-Instruct",
+				modelName: "Qwen/Qwen2.5-72B-Instruct",
 				inputPrice: 0.13 / 1e6,
 				outputPrice: 0.4 / 1e6,
 				requestPrice: 0,
@@ -252,7 +252,29 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen2-VL-72B-Instruct",
+				modelName: "Qwen/Qwen2-VL-72B-Instruct",
+				inputPrice: 0.13 / 1e6,
+				outputPrice: 0.4 / 1e6,
+				requestPrice: 0,
+				contextSize: 32768,
+				maxOutput: 8192,
+				streaming: true,
+				vision: true,
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
+		id: "qwen2-5-vl-72b-instruct",
+		name: "Qwen2.5 VL 72B Instruct",
+		family: "alibaba",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "nebius",
+				modelName: "Qwen/Qwen2.5-VL-72B-Instruct",
 				inputPrice: 0.13 / 1e6,
 				outputPrice: 0.4 / 1e6,
 				requestPrice: 0,
