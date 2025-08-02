@@ -107,6 +107,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				organizationId: organization.id,
 				plan: "pro",
 				billingCycle,
+				userEmail: user.email,
 			},
 			subscription_data: {
 				trial_period_days: 7,
@@ -114,6 +115,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 					organizationId: organization.id,
 					plan: "pro",
 					billingCycle,
+					userEmail: user.email,
 				},
 			},
 		});

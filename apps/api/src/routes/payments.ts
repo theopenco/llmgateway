@@ -91,6 +91,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 				organizationId,
 				baseAmount: amount.toString(),
 				totalFees: feeBreakdown.totalFees.toString(),
+				userEmail: user.email,
 			},
 		});
 
@@ -539,6 +540,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 				organizationId: userOrganization.organization.id,
 				baseAmount: amount.toString(),
 				totalFees: feeBreakdown.totalFees.toString(),
+				userEmail: user.email,
 			},
 		});
 
