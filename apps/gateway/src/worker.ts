@@ -123,6 +123,18 @@ async function processAutoTopUp(): Promise<void> {
 
 				const topUpAmount = Number(org.autoTopUpAmount || "10");
 
+				// Get the first user associated with this organization for email metadata
+				const orgUser = await db.query.userOrganization.findFirst({
+					where: {
+						organizationId: {
+							eq: org.id,
+						},
+					},
+					with: {
+						user: true,
+					},
+				});
+
 				const stripePaymentMethod = await stripe.paymentMethods.retrieve(
 					defaultPaymentMethod.stripePaymentMethodId,
 				);
@@ -170,6 +182,7 @@ async function processAutoTopUp(): Promise<void> {
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							totalFees: feeBreakdown.totalFees.toString(),
+							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
 					});
 
