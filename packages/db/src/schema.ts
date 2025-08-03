@@ -21,6 +21,7 @@ export const UnifiedFinishReason = {
 	TOOL_CALLS: "tool_calls",
 	GATEWAY_ERROR: "gateway_error",
 	UPSTREAM_ERROR: "upstream_error",
+	CLIENT_ERROR: "client_error",
 	CANCELED: "canceled",
 	UNKNOWN: "unknown",
 } as const;
