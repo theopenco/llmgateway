@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
 import { Key } from "lucide-react";
+import Link from "next/link";
 
 import { ModelSelector } from "./model-selector";
 import { Button } from "@/lib/components/button";
@@ -46,7 +46,7 @@ export function ChatHeader({
 				</Button>
 			</div>
 			<div className="flex items-center gap-4 ml-auto">
-				<Link to="/dashboard">
+				<Link href="/dashboard" prefetch={true}>
 					<span className="text-nowrap">Go to Dashboard</span>
 				</Link>
 			</div>

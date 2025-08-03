@@ -1,4 +1,6 @@
+"use client";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -11,19 +13,27 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/lib/components/table";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
-import type { ActivityModelUsage } from "@/types/activity";
+import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
 type SortColumn = "id" | "provider" | "requestCount" | "totalTokens";
 type SortDirection = "asc" | "desc";
 
-export function ModelUsageTable() {
-	const [days, setDays] = useState<7 | 30>(7);
+interface ModelUsageTableProps {
+	initialData?: ActivitT;
+}
+
+export function ModelUsageTable({ initialData }: ModelUsageTableProps) {
+	const searchParams = useSearchParams();
 	const [sortColumn, setSortColumn] = useState<SortColumn>("totalTokens");
 	const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-	const { selectedProject } = useDashboardContext();
+	const { selectedProject } = useDashboardState();
+
+	// Get days from URL parameter
+	const daysParam = searchParams.get("days");
+	const days = daysParam === "30" ? 30 : 7;
 
 	const api = useApi();
 	const { data, isLoading, error } = api.useQuery(
@@ -39,6 +49,7 @@ export function ModelUsageTable() {
 		},
 		{
 			enabled: !!selectedProject?.id,
+			initialData,
 		},
 	);
 
@@ -145,22 +156,6 @@ export function ModelUsageTable() {
 
 	return (
 		<div>
-			<div className="flex items-center justify-end space-x-2 mb-4">
-				<Button
-					variant={days === 7 ? "default" : "outline"}
-					size="sm"
-					onClick={() => setDays(7)}
-				>
-					7 Days
-				</Button>
-				<Button
-					variant={days === 30 ? "default" : "outline"}
-					size="sm"
-					onClick={() => setDays(30)}
-				>
-					30 Days
-				</Button>
-			</div>
 			<Table>
 				<TableHeader>
 					<TableRow>

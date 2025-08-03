@@ -1,5 +1,7 @@
-import { useNavigate } from "@tanstack/react-router";
+"use client";
+
 import { Check, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
@@ -26,9 +28,9 @@ interface SubscriptionStatus {
 }
 
 export function PricingPlans() {
-	const navigate = useNavigate();
 	const { user } = useUser();
 	const { toast } = useToast();
+	const router = useRouter();
 	const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">(
 		"monthly",
 	);
@@ -59,12 +61,7 @@ export function PricingPlans() {
 
 	const handleCreateProSubscription = async () => {
 		if (!user) {
-			navigate({
-				to: "/signup",
-				search: {
-					nextUrl: "/pricing?plan=pro",
-				},
-			});
+			router.push("/signup?nextUrl=/pricing?plan=pro");
 			return;
 		}
 
@@ -94,12 +91,13 @@ export function PricingPlans() {
 
 			// Redirect to Stripe Checkout
 			window.location.href = checkoutUrl;
-		} catch (error: any) {
+		} catch (error: unknown) {
 			toast({
 				title: "Subscription failed",
 				description:
-					error.message ||
-					"Failed to create checkout session. Please try again.",
+					error instanceof Error
+						? error.message
+						: "Failed to create checkout session. Please try again.",
 				variant: "destructive",
 			});
 			setLoading(null);
@@ -132,11 +130,13 @@ export function PricingPlans() {
 					"Your subscription will remain active until the end of the billing period.",
 			});
 			await fetchSubscriptionStatus();
-		} catch (error: any) {
+		} catch (error: unknown) {
 			toast({
 				title: "Cancellation failed",
 				description:
-					error.message || "Failed to cancel subscription. Please try again.",
+					error instanceof Error
+						? error.message
+						: "Failed to cancel subscription. Please try again.",
 				variant: "destructive",
 			});
 		} finally {
@@ -169,11 +169,13 @@ export function PricingPlans() {
 				description: "Your Pro subscription has been reactivated.",
 			});
 			await fetchSubscriptionStatus();
-		} catch (error: any) {
+		} catch (error: unknown) {
 			toast({
 				title: "Resume failed",
 				description:
-					error.message || "Failed to resume subscription. Please try again.",
+					error instanceof Error
+						? error.message
+						: "Failed to resume subscription. Please try again.",
 				variant: "destructive",
 			});
 		} finally {
@@ -184,13 +186,10 @@ export function PricingPlans() {
 	const handlePlanSelection = (planName: string) => {
 		switch (planName) {
 			case "Self-Host":
-				navigate({ href: "https://docs.llmgateway.io", reloadDocument: true });
+				router.push("https://docs.llmgateway.io");
 				return;
 			case "Enterprise":
-				navigate({
-					href: "mailto:contact@llmgateway.io",
-					reloadDocument: true,
-				});
+				router.push("mailto:contact@llmgateway.io");
 				return;
 			case "Pro":
 				handleCreateProSubscription();
@@ -198,9 +197,9 @@ export function PricingPlans() {
 		}
 
 		if (!user) {
-			navigate({ to: "/signup" });
+			router.push("/signup");
 		} else {
-			navigate({ to: "/dashboard" });
+			router.push("/dashboard");
 		}
 	};
 
@@ -250,7 +249,6 @@ export function PricingPlans() {
 				annual: "$500",
 			},
 			features: [
-				"Free 7-day trial",
 				"Use your own API keys without surcharges",
 				"NO fees on credit usage",
 				"90-day data retention",
@@ -360,7 +358,7 @@ export function PricingPlans() {
 								{plan.popular && (
 									<div className="absolute top-0 right-0 transform translate-x-2 -translate-y-2">
 										<Badge className="bg-primary hover:bg-primary">
-											Most Popular
+											Free 7-day trial
 										</Badge>
 									</div>
 								)}

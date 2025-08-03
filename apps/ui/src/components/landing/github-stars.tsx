@@ -1,8 +1,9 @@
+"use client";
 import { useQuery } from "@tanstack/react-query";
 import { Star } from "lucide-react";
 
 import { Button } from "@/lib/components/button";
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 
 async function fetchGitHubStars(repo: string): Promise<number> {
 	const res = await fetch(`https://api.github.com/repos/${repo}`);
@@ -38,13 +39,13 @@ function formatNumber(num: number | undefined): string {
 }
 
 export function GitHubStars() {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const { data: stars, isLoading, isError } = useGitHubStars(REPO);
 
 	return (
 		<Button variant="secondary" className="w-full md:w-fit" asChild>
 			<a
-				href={config.githubUrl}
+				href={config.githubUrl ?? ""}
 				target="_blank"
 				rel="noopener noreferrer"
 				className="group"

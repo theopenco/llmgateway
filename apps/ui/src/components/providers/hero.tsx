@@ -4,7 +4,7 @@ import {
 } from "@llmgateway/models";
 
 import { AuthLink } from "../shared/auth-link";
-import { providerLogoComponents } from "@/components/provider-keys/provider-logo";
+import { providerLogoUrls } from "@/components/provider-keys/provider-logo";
 import { Button } from "@/lib/components/button";
 import Logo from "@/lib/icons/Logo";
 
@@ -16,9 +16,9 @@ export function Hero({ providerId }: HeroProps) {
 	const provider = providerDefinitions.find((p) => p.id === providerId)!;
 
 	const getProviderIcon = (providerId: ProviderId) => {
-		const ProviderLogo = providerLogoComponents[providerId];
-		if (ProviderLogo) {
-			return <ProviderLogo className="h-24 w-24" />;
+		const LogoComponent = providerLogoUrls[providerId];
+		if (LogoComponent) {
+			return <LogoComponent className="h-24 w-24 object-contain" />;
 		}
 
 		return <Logo className="h-24 w-24" />;
@@ -27,7 +27,7 @@ export function Hero({ providerId }: HeroProps) {
 	return (
 		<div className="relative isolate overflow-hidden bg-background">
 			<div className="mx-auto container px-6 pb-24 pt-10 sm:pb-32 lg:grid lg:grid-cols-2 lg:gap-x-8 lg:px-0 lg:py-40">
-				<div className="mx-auto max-w-2xl mb-20 lg:mb-0 lg:mx-0 lg:max-w-xl lg:pt-8">
+				<div className="mx-auto max-w-2xl lg:mx-0 lg:max-w-xl lg:pt-8">
 					{provider.announcement !== null && (
 						<div className="mt-24 sm:mt-32 lg:mt-16">
 							<div className="inline-flex space-x-6">
@@ -45,7 +45,7 @@ export function Hero({ providerId }: HeroProps) {
 					</p>
 					<div className="mt-10 flex items-center gap-x-6">
 						<Button asChild>
-							<AuthLink>Get started</AuthLink>
+							<AuthLink href="/signup">Get started</AuthLink>
 						</Button>
 						<Button variant="outline" asChild>
 							<a

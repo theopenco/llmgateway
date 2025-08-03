@@ -1,4 +1,5 @@
-import { Link } from "@tanstack/react-router";
+"use client";
+import Link from "next/link";
 import React from "react";
 
 import { AuthLink } from "../shared/auth-link";
@@ -150,7 +151,7 @@ export function HeroCompare({ content }: HeroCompareProps) {
 													</span>
 												</a>
 											) : (
-												<AuthLink>
+												<AuthLink href={heroContent.cta.primary.href}>
 													<span className="text-nowrap">
 														{heroContent.cta.primary.text}
 													</span>
@@ -176,7 +177,10 @@ export function HeroCompare({ content }: HeroCompareProps) {
 												</span>
 											</a>
 										) : (
-											<Link to={heroContent.cta.secondary.href}>
+											<Link
+												href={heroContent.cta.secondary.href}
+												prefetch={true}
+											>
 												<span className="text-nowrap">
 													{heroContent.cta.secondary.text}
 												</span>

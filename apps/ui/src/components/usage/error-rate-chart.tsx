@@ -1,5 +1,6 @@
+"use client";
 import { addDays, format, parseISO, subDays } from "date-fns";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
 	Line,
 	LineChart,
@@ -10,13 +11,22 @@ import {
 	CartesianGrid,
 } from "recharts";
 
-import { Button } from "@/lib/components/button";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
-export function ErrorRateChart() {
-	const [days, setDays] = useState<7 | 30>(7);
-	const { selectedProject } = useDashboardContext();
+import type { ActivitT } from "@/types/activity";
+
+interface ErrorRateChartProps {
+	initialData?: ActivitT;
+}
+
+export function ErrorRateChart({ initialData }: ErrorRateChartProps) {
+	const searchParams = useSearchParams();
+	const { selectedProject } = useDashboardState();
+
+	// Get days from URL parameter
+	const daysParam = searchParams.get("days");
+	const days = daysParam === "30" ? 30 : 7;
 
 	const api = useApi();
 	const { data, isLoading, error } = api.useQuery(
@@ -32,6 +42,7 @@ export function ErrorRateChart() {
 		},
 		{
 			enabled: !!selectedProject?.id,
+			initialData,
 		},
 	);
 
@@ -105,22 +116,6 @@ export function ErrorRateChart() {
 
 	return (
 		<div className="flex flex-col">
-			<div className="flex items-center justify-end space-x-2 mb-4">
-				<Button
-					variant={days === 7 ? "default" : "outline"}
-					size="sm"
-					onClick={() => setDays(7)}
-				>
-					7 Days
-				</Button>
-				<Button
-					variant={days === 30 ? "default" : "outline"}
-					size="sm"
-					onClick={() => setDays(30)}
-				>
-					30 Days
-				</Button>
-			</div>
 			<ResponsiveContainer width="100%" height={350}>
 				<LineChart
 					data={chartData}

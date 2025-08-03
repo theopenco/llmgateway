@@ -28,7 +28,7 @@ import {
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 const formSchema = z.object({
@@ -39,7 +39,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export function ProviderKeyStep() {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const { data: organization } = useDefaultOrganization();
@@ -70,11 +70,13 @@ export function ProviderKeyStep() {
 				title: "Provider key added",
 				description: "Your provider key has been added successfully.",
 			});
-		} catch (error: any) {
+		} catch (error: unknown) {
 			toast({
 				title: "Error",
 				description:
-					error?.message || "Failed to add provider key. Please try again.",
+					error instanceof Error
+						? error.message
+						: "Failed to add provider key. Please try again.",
 				variant: "destructive",
 			});
 		} finally {

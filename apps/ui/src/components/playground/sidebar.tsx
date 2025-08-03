@@ -1,5 +1,5 @@
+"use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
 import { format } from "date-fns";
 import {
 	Plus,
@@ -9,6 +9,8 @@ import {
 	LogOutIcon,
 	MoreVerticalIcon,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
@@ -61,7 +63,7 @@ export function ChatSidebar({
 	className,
 }: ChatSidebarProps) {
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
+	const router = useRouter();
 	const posthog = usePostHog();
 	const { user } = useUser();
 	const { signOut } = useAuth();
@@ -82,7 +84,7 @@ export function ChatSidebar({
 			fetchOptions: {
 				onSuccess: () => {
 					queryClient.clear();
-					navigate({ to: "/login" });
+					router.push("/login");
 				},
 			},
 		});
@@ -303,7 +305,11 @@ export function ChatSidebar({
 		<Sidebar className={className}>
 			<SidebarHeader>
 				<div className="flex flex-col items-center gap-4 mb-4">
-					<Link to="/" className="flex self-start items-center gap-2 my-2">
+					<Link
+						href="/"
+						className="flex self-start items-center gap-2 my-2"
+						prefetch={true}
+					>
 						<Logo className="h-10 w-10" />
 						<h1 className="text-xl font-semibold">LLM Gateway</h1>
 					</Link>

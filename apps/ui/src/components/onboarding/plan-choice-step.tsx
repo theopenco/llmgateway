@@ -12,20 +12,19 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { Step } from "@/lib/components/stepper";
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 
 interface PlanChoiceStepProps {
 	onSelectCredits: () => void;
 	onSelectBYOK: () => void;
-	hasSelectedPlan: boolean;
+	hasSelectedPlan?: boolean;
 }
 
 export function PlanChoiceStep({
 	onSelectCredits,
 	onSelectBYOK,
-	hasSelectedPlan: _hasSelectedPlan,
 }: PlanChoiceStepProps) {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const { data: organization } = useDefaultOrganization();
 	const isProPlan = organization?.plan === "pro";
 
@@ -35,8 +34,8 @@ export function PlanChoiceStep({
 				<div className="flex flex-col gap-2 text-center">
 					<h1 className="text-2xl font-bold">Choose Your Approach</h1>
 					<p className="text-muted-foreground">
-						Select how you'd like to use LLM Gateway, or skip to continue with
-						the free plan
+						Select how you&apos;d like to use LLM Gateway, or skip to continue
+						with the free plan
 					</p>
 				</div>
 

@@ -1,4 +1,5 @@
-import { Link } from "@tanstack/react-router";
+import Image from "next/image";
+import Link from "next/link";
 
 import { AppHeader } from "./app-header";
 import Footer from "@/components/landing/footer";
@@ -48,7 +49,7 @@ export function ChangelogComponent({ entries }: ChangelogComponentProps = {}) {
 							<div className="space-y-8">
 								<div className="space-y-4">
 									<h2 className="text-2xl font-medium text-foreground hover:text-muted-foreground transition-colors">
-										<Link to="/changelog/$slug" params={{ slug: entry.slug }}>
+										<Link href={`/changelog/${entry.slug}`} prefetch={true}>
 											{entry.title}
 										</Link>
 									</h2>
@@ -56,21 +57,21 @@ export function ChangelogComponent({ entries }: ChangelogComponentProps = {}) {
 										{entry.summary}
 									</p>
 									<Link
-										to="/changelog/$slug"
-										params={{ slug: entry.slug }}
+										href={`/changelog/${entry.slug}`}
 										className="text-sm text-primary hover:text-primary/80"
+										prefetch={true}
 									>
 										Read more &rarr;
 									</Link>
 								</div>
 								<div className="bg-card border border-border rounded-lg overflow-hidden">
-									<Link to="/changelog/$slug" params={{ slug: entry.slug }}>
-										<img
+									<Link href={`/changelog/${entry.slug}`} prefetch={true}>
+										<Image
 											src={entry.image.src}
 											alt={entry.image.alt}
 											width={entry.image.width}
 											height={entry.image.height}
-											className="w-full h-64 object-cover hover:opacity-90 transition-opacity"
+											className="w-full h-64 object-cover hover:opacity-90 transition-opacity rounded-lg"
 										/>
 									</Link>
 								</div>

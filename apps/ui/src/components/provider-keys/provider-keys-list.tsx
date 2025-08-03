@@ -1,9 +1,11 @@
-import { providers, type ProviderId } from "@llmgateway/models";
+"use client";
+
+import { providers } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyIcon, MoreHorizontal } from "lucide-react";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
-import { providerLogoComponents } from "@/components/provider-keys/provider-logo";
+import { ProviderIcons } from "@/components/ui/providers-icons";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -32,15 +34,43 @@ import type { Organization } from "@/lib/types";
 
 interface ProviderKeysListProps {
 	selectedOrganization: Organization | null;
+	initialData?: {
+		providerKeys: {
+			id: string;
+			createdAt: string;
+			updatedAt: string;
+			provider: string;
+			name: string | null;
+			baseUrl: string | null;
+			status: "active" | "inactive" | "deleted" | null;
+			organizationId: string;
+			maskedToken: string;
+		}[];
+	};
 }
 
 export function ProviderKeysList({
 	selectedOrganization,
+	initialData,
 }: ProviderKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
-	// Show message if no organization is selected
+	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
+
+	const { data } = api.useQuery(
+		"get",
+		"/keys/provider",
+		{},
+		{
+			initialData,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+		},
+	);
+	const deleteMutation = api.useMutation("delete", "/keys/provider/{id}");
+	const toggleMutation = api.useMutation("patch", "/keys/provider/{id}");
+
 	if (!selectedOrganization) {
 		return (
 			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
@@ -53,12 +83,6 @@ export function ProviderKeysList({
 			</div>
 		);
 	}
-
-	const { data } = api.useSuspenseQuery("get", "/keys/provider");
-	const deleteMutation = api.useMutation("delete", "/keys/provider/{id}");
-	const toggleMutation = api.useMutation("patch", "/keys/provider/{id}");
-
-	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 
 	// Filter provider keys by selected organization
 	const organizationKeys =
@@ -82,7 +106,7 @@ export function ProviderKeysList({
 			{
 				onSuccess: () => {
 					toast({ title: "Deleted", description: "Provider key removed" });
-					void queryClient.invalidateQueries({ queryKey });
+					queryClient.invalidateQueries({ queryKey });
 				},
 				onError: () =>
 					toast({
@@ -135,7 +159,8 @@ export function ProviderKeysList({
 
 			<div className="space-y-2">
 				{availableProviders.map((provider) => {
-					const Logo = providerLogoComponents[provider.id as ProviderId];
+					const LogoComponent =
+						ProviderIcons[provider.id as keyof typeof ProviderIcons];
 					const existingKey = existingKeysMap.get(provider.id);
 					const hasKey = !!existingKey;
 
@@ -146,14 +171,26 @@ export function ProviderKeysList({
 						>
 							<div className="flex items-center gap-3">
 								<div className="flex items-center justify-center w-10 h-10 rounded-lg bg-background border">
-									{Logo ? (
-										<Logo className="h-6 w-6" />
+									{LogoComponent ? (
+										<LogoComponent className="h-6 w-6" />
 									) : (
 										<div className="w-6 h-6 bg-muted rounded" />
 									)}
 								</div>
 								<div className="flex flex-col">
-									<span className="font-medium">{provider.name}</span>
+									<div className="flex items-center gap-2">
+										<span className="font-medium">{provider.name}</span>
+										{hasKey && existingKey.name && (
+											<Badge variant="outline" className="text-xs">
+												{existingKey.name}
+											</Badge>
+										)}
+										{hasKey && existingKey.baseUrl && (
+											<Badge variant="outline" className="text-xs">
+												{existingKey.baseUrl}
+											</Badge>
+										)}
+									</div>
 									{hasKey && (
 										<div className="flex items-center gap-2 mt-1">
 											<Badge
@@ -233,6 +270,7 @@ export function ProviderKeysList({
 									<CreateProviderKeyDialog
 										selectedOrganization={selectedOrganization}
 										preselectedProvider={provider.id}
+										existingProviderKeys={data?.providerKeys || []}
 									>
 										<Button variant="outline" size="sm">
 											Add

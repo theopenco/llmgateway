@@ -2,13 +2,13 @@ import createFetchClient from "openapi-fetch";
 import createClient from "openapi-react-query";
 import { useMemo } from "react";
 
-import { Route } from "@/routes/__root";
+import { useAppConfig } from "./config";
 
 import type { paths } from "./api/v1";
 
 // React hook to get the fetch client
 export function useFetchClient() {
-	const config = Route.useLoaderData();
+	const config = useAppConfig();
 
 	return useMemo(() => {
 		return createFetchClient<paths>({

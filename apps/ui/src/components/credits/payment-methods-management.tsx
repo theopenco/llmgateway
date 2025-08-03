@@ -1,3 +1,5 @@
+"use client";
+
 import {
 	CardElement,
 	Elements,
@@ -27,7 +29,18 @@ import type React from "react";
 export function PaymentMethodsManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
-	const { data } = api.useSuspenseQuery("get", "/payments/payment-methods");
+
+	// Use regular query instead of suspense query to prevent infinite re-rendering
+	const { data, isLoading, error } = api.useQuery(
+		"get",
+		"/payments/payment-methods",
+	);
+
+	// Generate query key once and reuse it
+	const paymentMethodsQueryKey = api.queryOptions(
+		"get",
+		"/payments/payment-methods",
+	).queryKey;
 
 	const { mutate: setDefaultMutation, isPending: isDefaultMethodPending } =
 		api.useMutation("post", "/payments/payment-methods/default");
@@ -36,24 +49,41 @@ export function PaymentMethodsManagement() {
 
 	const paymentMethods = data?.paymentMethods || [];
 
+	// Handle loading state
+	if (isLoading) {
+		return (
+			<div className="space-y-4">
+				<div className="text-center p-4">
+					<p className="text-muted-foreground">Loading payment methods...</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Handle error state
+	if (error) {
+		return (
+			<div className="space-y-4">
+				<div className="text-center p-4">
+					<p className="text-destructive">Failed to load payment methods</p>
+				</div>
+			</div>
+		);
+	}
+
 	const handleSetDefault = async (paymentMethodId: string) => {
 		setDefaultMutation(
 			{ body: { paymentMethodId } },
 			{
 				onSuccess: () => {
-					const queryKey = api.queryOptions(
-						"get",
-						"/payments/payment-methods",
-					).queryKey;
-
-					queryClient.invalidateQueries({ queryKey });
+					queryClient.invalidateQueries({ queryKey: paymentMethodsQueryKey });
 
 					toast({
 						title: "Success",
 						description: "Default payment method updated",
 					});
 				},
-				onError: (error: any) => {
+				onError: (error: Error) => {
 					toast({
 						title: "Error",
 						description:
@@ -80,19 +110,14 @@ export function PaymentMethodsManagement() {
 			},
 			{
 				onSuccess: () => {
-					const queryKey = api.queryOptions(
-						"get",
-						"/payments/payment-methods",
-					).queryKey;
-
-					queryClient.invalidateQueries({ queryKey });
+					queryClient.invalidateQueries({ queryKey: paymentMethodsQueryKey });
 
 					toast({
 						title: "Success",
 						description: "Payment method deleted",
 					});
 				},
-				onError: (error: any) => {
+				onError: (error: Error) => {
 					toast({
 						title: "Error",
 						description:
@@ -196,6 +221,12 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 	const [loading, setLoading] = useState(false);
 	const api = useApi();
 
+	// Generate query key once and reuse it
+	const paymentMethodsQueryKey = api.queryOptions(
+		"get",
+		"/payments/payment-methods",
+	).queryKey;
+
 	const { mutateAsync: setupIntentMutation } = api.useMutation(
 		"post",
 		"/payments/create-setup-intent",
@@ -227,8 +258,7 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 				});
 			} else {
 				await queryClient.invalidateQueries({
-					queryKey: api.queryOptions("get", "/payments/payment-methods")
-						.queryKey,
+					queryKey: paymentMethodsQueryKey,
 				});
 				toast({
 					title: "Success",

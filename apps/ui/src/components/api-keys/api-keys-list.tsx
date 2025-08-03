@@ -34,15 +34,60 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import type { Project } from "@/lib/types";
+import type { Project, ApiKey } from "@/lib/types";
 
 interface ApiKeysListProps {
 	selectedProject: Project | null;
+	initialData: ApiKey[];
 }
 
-export function ApiKeysList({ selectedProject }: ApiKeysListProps) {
+export function ApiKeysList({
+	selectedProject,
+	initialData,
+}: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+
+	// All hooks must be called before any conditional returns
+	const { data, isLoading, error } = api.useQuery(
+		"get",
+		"/keys/api",
+		{
+			params: {
+				query: { projectId: selectedProject?.id || "" },
+			},
+		},
+		{
+			enabled: !!selectedProject?.id,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+			refetchOnMount: false,
+			refetchInterval: false,
+			initialData: {
+				apiKeys: initialData.map((key) => ({
+					...key,
+					maskedToken: key.maskedToken,
+					createdAt:
+						key.createdAt instanceof Date
+							? key.createdAt.toISOString()
+							: key.createdAt,
+					updatedAt:
+						key.updatedAt instanceof Date
+							? key.updatedAt.toISOString()
+							: key.updatedAt,
+				})),
+			},
+		},
+	);
+
+	const { mutate: deleteMutation } = api.useMutation(
+		"delete",
+		"/keys/api/{id}",
+	);
+	const { mutate: toggleKeyStatus } = api.useMutation(
+		"patch",
+		"/keys/api/{id}",
+	);
 
 	// Show message if no project is selected
 	if (!selectedProject) {
@@ -58,22 +103,33 @@ export function ApiKeysList({ selectedProject }: ApiKeysListProps) {
 		);
 	}
 
-	const { data } = api.useSuspenseQuery("get", "/keys/api", {
-		params: {
-			query: { projectId: selectedProject.id },
-		},
-	});
-
-	const { mutate: deleteMutation } = api.useMutation(
-		"delete",
-		"/keys/api/{id}",
-	);
-	const { mutate: toggleKeyStatus } = api.useMutation(
-		"patch",
-		"/keys/api/{id}",
-	);
-
 	const keys = data?.apiKeys.filter((key) => key.status !== "deleted");
+
+	// Handle loading state
+	if (isLoading) {
+		return (
+			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
+				<div className="mb-4">
+					<KeyIcon className="h-10 w-10 text-gray-500" />
+				</div>
+				<p className="text-gray-400 mb-6">Loading API keys...</p>
+			</div>
+		);
+	}
+
+	// Handle error state
+	if (error) {
+		return (
+			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
+				<div className="mb-4">
+					<KeyIcon className="h-10 w-10 text-gray-500" />
+				</div>
+				<p className="text-gray-400 mb-6">
+					Failed to load API keys. Please try again.
+				</p>
+			</div>
+		);
+	}
 
 	const deleteKey = (id: string) => {
 		deleteMutation(

@@ -1,9 +1,10 @@
-import { motion } from "framer-motion";
+"use client";
+
 import React from "react";
 
+import { motion, type Variants } from "@/components/motion-wrapper";
 import { cn } from "@/lib/utils";
 
-import type { Variants } from "framer-motion";
 import type { ReactNode } from "react";
 
 type PresetType =

@@ -23,10 +23,15 @@ import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { cn } from "@/lib/utils";
 
-import type { Message } from "@/routes/playground";
+interface MessageType {
+	id: string;
+	role: "user" | "assistant" | "system";
+	content: string;
+	timestamp: Date;
+}
 
 interface ChatUiProps {
-	messages: Message[];
+	messages: MessageType[];
 	isLoading: boolean;
 	error: string | null;
 	onSendMessage: (content: string) => Promise<void>;
@@ -135,7 +140,7 @@ export function ChatUi({
 	};
 
 	return (
-		<div className={cn("flex flex-col h-full bg-muted/30", className)}>
+		<div className={cn("flex flex-col h-full", className)}>
 			{/* Error Alert */}
 			{error && (
 				<div className="p-4 border-b">
@@ -150,7 +155,7 @@ export function ChatUi({
 			<ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
 				{messages.length === 0 ? (
 					<div className="flex items-center justify-center h-full">
-						<div className="max-w-2xl w-full space-y-8">
+						<div className="w-full space-y-8">
 							{/* Welcome Section */}
 							<div className="text-center space-y-4">
 								<Bot className="h-16 w-16 mx-auto text-muted-foreground/50" />
@@ -222,7 +227,7 @@ export function ChatUi({
 						</div>
 					</div>
 				) : (
-					<div className="space-y-6 max-w-4xl mx-auto">
+					<div className="space-y-6 w-full">
 						{messages.map((message) => (
 							<div
 								key={message.id}
@@ -338,7 +343,7 @@ export function ChatUi({
 
 			{/* Input Form */}
 			<div className="border-t bg-background p-4">
-				<div className="max-w-4xl mx-auto">
+				<div className="w-full">
 					{/* Clear button */}
 					{messages.length > 0 && (
 						<div className="flex justify-end mb-2">

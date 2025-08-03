@@ -17,6 +17,7 @@ interface ModelSelectorProps {
 
 interface LocalModel {
 	id: string;
+	name?: string;
 	jsonOutput: boolean;
 	providers: Array<{
 		providerId: string;
@@ -61,6 +62,7 @@ export function ModelSelector({
 		const typedModel = model as ModelDefinition;
 		return {
 			id: typedModel.id,
+			name: typedModel.name,
 			jsonOutput: typedModel.jsonOutput ?? false,
 			providers: modelProviders,
 		};
@@ -86,7 +88,7 @@ export function ModelSelector({
 							/>
 						)}
 						<span className="truncate">
-							{currentModelInfo?.id || selectedModel}
+							{currentModelInfo?.name || currentModelInfo?.id || selectedModel}
 						</span>
 					</div>
 					<ChevronDown className="h-4 w-4 opacity-50" />
@@ -110,7 +112,7 @@ export function ModelSelector({
 										/>
 									))}
 								</div>
-								<span className="font-medium">{model.id}</span>
+								<span className="font-medium">{model.name || model.id}</span>
 								{model.id === selectedModel && (
 									<Check className="h-4 w-4 text-green-600" />
 								)}

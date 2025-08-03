@@ -1,53 +1,28 @@
-import React from "react";
-
-import AlibabaLogo from "@/assets/models/alibaba.svg?react";
-import anthropicLogo from "@/assets/models/anthropic.svg?react";
-import CloudRiftLogo from "@/assets/models/cloudrift.svg?react";
-import DeepSeekLogo from "@/assets/models/deepseek.svg?react";
-import GoogleStudioAiLogo from "@/assets/models/google-studio-ai.svg?react";
-import GoogleVertexLogo from "@/assets/models/google-vertex-ai.svg?react";
-import GroqLogo from "@/assets/models/groq.svg?react";
-import InferenceLogo from "@/assets/models/inference-net.svg?react";
-import LLMGatewayLogo from "@/assets/models/llmgateway.svg?react";
-import MistralLogo from "@/assets/models/mistral.svg?react";
-import MoonshotLogo from "@/assets/models/moonshot.svg?react";
-import NovitaLogo from "@/assets/models/novita.svg?react";
-import OpenAiLogo from "@/assets/models/openai.svg?react";
-import PerplexityLogo from "@/assets/models/perplexity.svg?react";
-import TogetherAiLogo from "@/assets/models/together-ai.svg?react";
-import XaiLogo from "@/assets/models/xai.svg?react";
+import { ProviderIcons } from "@/components/ui/providers-icons";
 
 import type { ProviderId } from "@llmgateway/models";
 
-// Custom provider logo component
-const CustomProviderLogo: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
-	return React.createElement(
-		"svg",
-		{ viewBox: "0 0 24 24", fill: "currentColor", ...props },
-		React.createElement("path", {
-			d: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
-		}),
-	);
+export const providerLogoUrls: Partial<
+	Record<ProviderId, React.FC<React.SVGProps<SVGSVGElement>>>
+> = {
+	openai: ProviderIcons.openai,
+	anthropic: ProviderIcons.anthropic,
+	"google-vertex": ProviderIcons["google-vertex"],
+	"google-ai-studio": ProviderIcons["google-ai-studio"],
+	"inference.net": ProviderIcons["inference.net"],
+	"together.ai": ProviderIcons["together.ai"],
+	cloudrift: ProviderIcons.cloudrift,
+	mistral: ProviderIcons.mistral,
+	groq: ProviderIcons.groq,
+	xai: ProviderIcons.xai,
+	deepseek: ProviderIcons.deepseek,
+	perplexity: ProviderIcons.perplexity,
+	moonshot: ProviderIcons.moonshot,
+	novita: ProviderIcons.novita,
+	alibaba: ProviderIcons.alibaba,
+	nebius: ProviderIcons.nebius,
 };
 
-export const providerLogoComponents: Partial<
-	Record<ProviderId, React.FC<React.SVGProps<SVGSVGElement>> | null>
-> = {
-	llmgateway: LLMGatewayLogo,
-	openai: OpenAiLogo,
-	anthropic: anthropicLogo,
-	"google-vertex": GoogleVertexLogo,
-	"inference.net": InferenceLogo,
-	"together.ai": TogetherAiLogo,
-	"google-ai-studio": GoogleStudioAiLogo,
-	cloudrift: CloudRiftLogo,
-	mistral: MistralLogo,
-	groq: GroqLogo,
-	xai: XaiLogo,
-	deepseek: DeepSeekLogo,
-	perplexity: PerplexityLogo,
-	moonshot: MoonshotLogo,
-	novita: NovitaLogo,
-	alibaba: AlibabaLogo,
-	custom: CustomProviderLogo,
+export const getProviderLogoDarkModeClasses = () => {
+	return "";
 };

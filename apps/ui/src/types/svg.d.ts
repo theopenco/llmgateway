@@ -1,4 +1,4 @@
-declare module "*.svg?react" {
-	const content: React.FC<React.SVGProps<SVGSVGElement>>;
+declare module "*.svg" {
+	const content: string;
 	export default content;
 }

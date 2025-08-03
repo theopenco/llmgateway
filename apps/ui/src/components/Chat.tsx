@@ -1,3 +1,5 @@
+"use client";
+
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -8,7 +10,7 @@ import { Card } from "@/lib/components/card";
 import { Input } from "@/lib/components/input";
 import { ScrollArea } from "@/lib/components/scroll-area";
 import { toast } from "@/lib/components/use-toast";
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 
 interface Message {
 	role: "user" | "assistant";
@@ -16,7 +18,7 @@ interface Message {
 }
 
 export function Chat() {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);

@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import Link from "next/link";
 
 import { Button } from "@/lib/components/button";
 import Logo from "@/lib/icons/Logo";
@@ -9,28 +9,32 @@ export const AppHeader = () => (
 			<div className="flex items-center justify-between h-16">
 				<div className="flex items-center space-x-8">
 					<Link
-						to="/"
+						href="/"
 						className="flex items-center space-x-2 text-lg font-semibold text-foreground"
+						prefetch={true}
 					>
 						<Logo className="h-6 w-6" />
 						<span>LLM Gateway</span>
 					</Link>
 					<nav className="hidden md:flex items-center space-x-6 text-sm font-medium text-muted-foreground">
 						<Link
-							to="/models"
+							href="/models"
 							className="hover:text-foreground transition-colors"
+							prefetch={true}
 						>
 							Models
 						</Link>
 						<Link
-							to="/playground"
+							href="/playground"
 							className="hover:text-foreground transition-colors"
+							prefetch={true}
 						>
 							Playground
 						</Link>
 						<Link
-							to="/changelog"
+							href="/changelog"
 							className="hover:text-foreground transition-colors"
+							prefetch={true}
 						>
 							Changelog
 						</Link>
@@ -38,8 +42,9 @@ export const AppHeader = () => (
 				</div>
 				<div className="flex items-center space-x-4">
 					<Link
-						to="/login"
+						href="/login"
 						className="hidden sm:inline-block text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+						prefetch={true}
 					>
 						Log in
 					</Link>
@@ -48,7 +53,9 @@ export const AppHeader = () => (
 						variant="secondary"
 						className="rounded-md text-sm font-medium"
 					>
-						<Link to="/signup">Sign up</Link>
+						<Link href="/signup" prefetch={true}>
+							Sign up
+						</Link>
 					</Button>
 				</div>
 			</div>

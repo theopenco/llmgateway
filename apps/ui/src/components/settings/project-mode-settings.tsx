@@ -1,3 +1,4 @@
+"use client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { useState } from "react";
@@ -8,14 +9,14 @@ import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Separator } from "@/lib/components/separator";
 import { useToast } from "@/lib/components/use-toast";
-import { useAppConfigValue } from "@/lib/config";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { useAppConfig } from "@/lib/config";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 export function ProjectModeSettings() {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const { toast } = useToast();
-	const { selectedProject, selectedOrganization } = useDashboardContext();
+	const { selectedProject, selectedOrganization } = useDashboardState();
 	const queryClient = useQueryClient();
 
 	const api = useApi();

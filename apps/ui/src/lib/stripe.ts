@@ -1,3 +1,4 @@
+"use client";
 import { loadStripe } from "@stripe/stripe-js/pure";
 import { useEffect, useState } from "react";
 

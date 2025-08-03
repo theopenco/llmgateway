@@ -29,5 +29,14 @@ export type User = {
 	id: string;
 	email: string;
 	name: string | null;
-	emailVerified: boolean;
 } | null;
+
+export interface ApiKey {
+	id: string;
+	createdAt: Date;
+	updatedAt: Date;
+	maskedToken: string;
+	status: "active" | "inactive" | "deleted" | null;
+	description: string;
+	projectId: string;
+}

@@ -2,11 +2,11 @@ import { passkeyClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { useMemo } from "react";
 
-import { Route } from "@/routes/__root";
+import { useAppConfig } from "./config";
 
 // React hook to get the auth client
 export function useAuthClient() {
-	const config = Route.useLoaderData();
+	const config = useAppConfig();
 
 	return useMemo(() => {
 		return createAuthClient({
@@ -20,12 +20,14 @@ export function useAuthClient() {
 export function useAuth() {
 	const authClient = useAuthClient();
 
-	return {
-		signIn: authClient.signIn,
-		signUp: authClient.signUp,
-		signOut: authClient.signOut,
-		useSession: authClient.useSession,
-		getSession: authClient.getSession,
-		sendVerificationEmail: authClient.sendVerificationEmail,
-	};
+	return useMemo(
+		() => ({
+			signIn: authClient.signIn,
+			signUp: authClient.signUp,
+			signOut: authClient.signOut,
+			useSession: authClient.useSession,
+			getSession: authClient.getSession,
+		}),
+		[authClient],
+	);
 }

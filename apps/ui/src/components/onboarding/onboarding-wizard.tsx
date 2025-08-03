@@ -1,6 +1,7 @@
+"use client";
 import { Elements } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import * as React from "react";
 import { useState } from "react";
@@ -42,7 +43,7 @@ export function OnboardingWizard() {
 	const [flowType, setFlowType] = useState<FlowType>(null);
 	const [hasSelectedPlan, setHasSelectedPlan] = useState(false);
 	const [isPaymentSuccessful, setIsPaymentSuccessful] = useState(false);
-	const navigate = useNavigate();
+	const router = useRouter();
 	const posthog = usePostHog();
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
@@ -63,8 +64,9 @@ export function OnboardingWizard() {
 					skippedAt: "plan_choice",
 				});
 				await completeOnboarding.mutateAsync({});
-				queryClient.clear();
-				navigate({ to: "/dashboard" });
+				const queryKey = api.queryOptions("get", "/user/me").queryKey;
+				await queryClient.invalidateQueries({ queryKey });
+				router.push("/dashboard");
 				return;
 			}
 			// If plan is selected, continue to next step
@@ -77,8 +79,9 @@ export function OnboardingWizard() {
 			});
 
 			await completeOnboarding.mutateAsync({});
-			queryClient.clear();
-			navigate({ to: "/dashboard" });
+			const queryKey = api.queryOptions("get", "/user/me").queryKey;
+			await queryClient.invalidateQueries({ queryKey });
+			router.push("/dashboard");
 			return;
 		}
 		setActiveStep(step);

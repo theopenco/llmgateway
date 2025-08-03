@@ -1,33 +1,27 @@
-import { Link } from "@tanstack/react-router";
+"use client";
+
 import { ArrowRight, ChevronRight, Copy } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Highlight, themes } from "prism-react-renderer";
-import React from "react";
+import { useEffect, useState } from "react";
 
 import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
+import {
+	providerLogoUrls,
+	getProviderLogoDarkModeClasses,
+} from "../provider-keys/provider-logo";
 import { AuthLink } from "../shared/auth-link";
-import AnthropicLogo from "@/assets/models/anthropic.svg?react";
-import CloudriftLogo from "@/assets/models/cloudrift.svg?react";
-import DeepSeekLogo from "@/assets/models/deepseek.svg?react";
-import GoogleVertexAILogo from "@/assets/models/google-vertex-ai.svg?react";
-import GroqLogo from "@/assets/models/groq.svg?react";
-import InferenceNetLogo from "@/assets/models/inference-net.svg?react";
-import MistralLogo from "@/assets/models/mistral.svg?react";
-import MoonshotLogo from "@/assets/models/moonshot.svg?react";
-import NovitaLogo from "@/assets/models/novita.svg?react";
-import OpenAILogo from "@/assets/models/openai.svg?react";
-import PerplexityLogo from "@/assets/models/perplexity.svg?react";
-import TogetherAILogo from "@/assets/models/together-ai.svg?react";
-import XaiLogo from "@/assets/models/xai.svg?react";
-import heroImageLight from "@/assets/new-hero-light.png";
-import heroImageDark from "@/assets/new-hero.png";
 import { Button } from "@/lib/components/button";
 import { toast } from "@/lib/components/use-toast";
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import type { Language } from "prism-react-renderer";
+import type { ProviderId } from "@llmgateway/models";
+import type { Language, Token } from "prism-react-renderer";
+import type { CSSProperties } from "react";
 
 const transitionVariants = {
 	item: {
@@ -50,21 +44,23 @@ const transitionVariants = {
 };
 
 // Provider logos configuration
-const PROVIDER_LOGOS = [
-	{ name: "OpenAI", component: OpenAILogo },
-	{ name: "Anthropic", component: AnthropicLogo },
-	{ name: "Google Vertex AI", component: GoogleVertexAILogo },
-	{ name: "Mistral", component: MistralLogo },
-	{ name: "Together AI", component: TogetherAILogo },
-	{ name: "Cloudrift", component: CloudriftLogo },
-	{ name: "Inference Net", component: InferenceNetLogo },
-	{ name: "Groq", component: GroqLogo },
-	{ name: "xAI", component: XaiLogo },
-	{ name: "DeepSeek", component: DeepSeekLogo },
-	{ name: "Perplexity", component: PerplexityLogo },
-	{ name: "Moonshot", component: MoonshotLogo },
-	{ name: "Novita", component: NovitaLogo },
-] as const;
+const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
+	{ name: "OpenAI", providerId: "openai" },
+	{ name: "Anthropic", providerId: "anthropic" },
+	{ name: "Google Vertex AI", providerId: "google-vertex" },
+	{ name: "Mistral", providerId: "mistral" },
+	{ name: "Together AI", providerId: "together.ai" },
+	{ name: "Cloudrift", providerId: "cloudrift" },
+	{ name: "Inference Net", providerId: "inference.net" },
+	{ name: "Groq", providerId: "groq" },
+	{ name: "xAI", providerId: "xai" },
+	{ name: "DeepSeek", providerId: "deepseek" },
+	{ name: "Perplexity", providerId: "perplexity" },
+	{ name: "Ai Studio", providerId: "google-ai-studio" },
+	{ name: "Moonshot", providerId: "moonshot" },
+	{ name: "Novita", providerId: "novita" },
+	{ name: "Nebius", providerId: "nebius" },
+];
 
 // TypeScript code example
 const typescriptExample = {
@@ -88,8 +84,13 @@ console.log(response.choices[0].message.content);`,
 };
 
 export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const { resolvedTheme } = useTheme();
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
 
 	const copyToClipboard = async (text: string) => {
 		try {
@@ -110,6 +111,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 			});
 		}
 	};
+
 	return (
 		<>
 			<Navbar />
@@ -125,48 +127,6 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 					</div>
 					<section>
 						<div className="relative pt-24 md:pt-36">
-							<AnimatedGroup
-								variants={{
-									container: {
-										visible: {
-											transition: {
-												delayChildren: 1,
-											},
-										},
-									},
-									item: {
-										hidden: {
-											opacity: 0,
-											y: 20,
-										},
-										visible: {
-											opacity: 1,
-											y: 0,
-											transition: {
-												type: "spring",
-												bounce: 0.3,
-												duration: 2,
-											},
-										},
-									},
-								}}
-								className="absolute inset-0 -z-20"
-							>
-								<img
-									src={heroImageDark}
-									alt="background"
-									className="absolute inset-x-0 top-56 -z-20 hidden lg:top-32 dark:block"
-									width="3276"
-									height="4095"
-								/>
-								<img
-									src={heroImageLight}
-									alt="background"
-									className="absolute inset-x-0 top-56 -z-20 block lg:top-32 dark:hidden"
-									width="3276"
-									height="4095"
-								/>
-							</AnimatedGroup>
 							<div
 								aria-hidden
 								className="absolute inset-0 -z-10 size-full [background:radial-gradient(125%_125%_at_50%_100%,transparent_0%,var(--background)_75%)]"
@@ -176,7 +136,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 								<div className="mb-10 lg:mb-12">
 									<AnimatedGroup variants={transitionVariants}>
 										<a
-											href="https://github.com/theopenco/llmgateway"
+											href={config.githubUrl ?? ""}
 											target="_blank"
 											className="mx-auto lg:mx-0 hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
@@ -237,7 +197,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 													size="lg"
 													className="rounded-xl px-5 text-base"
 												>
-													<AuthLink>
+													<AuthLink href="/signup">
 														<span className="text-nowrap">
 															Get your API key
 														</span>
@@ -251,7 +211,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 												variant="ghost"
 												className="h-10.5 rounded-xl px-5"
 											>
-												<a href={config.docsUrl} target="_blank">
+												<a href={config.docsUrl ?? ""} target="_blank">
 													<span className="text-nowrap">
 														View documentation
 													</span>
@@ -294,7 +254,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 														code={typescriptExample.code}
 														language={typescriptExample.language as Language}
 														theme={
-															resolvedTheme === "dark"
+															mounted && resolvedTheme === "dark"
 																? themes.dracula
 																: themes.github
 														}
@@ -307,10 +267,16 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 															getTokenProps,
 														}: {
 															className: string;
-															style: React.CSSProperties;
-															tokens: any[];
-															getLineProps: (props: any) => any;
-															getTokenProps: (props: any) => any;
+															style: CSSProperties;
+															tokens: Token[][];
+															getLineProps: (input: {
+																line: Token[];
+																key?: React.Key;
+															}) => React.HTMLAttributes<HTMLElement>;
+															getTokenProps: (input: {
+																token: Token;
+																key?: React.Key;
+															}) => React.HTMLAttributes<HTMLElement>;
 														}) => (
 															<pre
 																className={cn(
@@ -323,15 +289,16 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 																	overflowX: "auto",
 																}}
 															>
-																{tokens.map((line: any, i: number) => {
+																{tokens.map((line, i: number) => {
 																	const isHighlighted =
 																		typescriptExample.highlightedLines?.includes(
 																			i + 1,
 																		);
+																	const lineProps = getLineProps({ line });
 																	return (
 																		<div
 																			key={i}
-																			{...getLineProps({ line, key: i })}
+																			{...lineProps}
 																			className={cn(
 																				"px-4",
 																				isHighlighted
@@ -339,12 +306,14 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 																					: "",
 																			)}
 																		>
-																			{line.map((token: any, key: number) => (
-																				<span
-																					key={key}
-																					{...getTokenProps({ token, key })}
-																				/>
-																			))}
+																			{line.map((token, key: number) => {
+																				const tokenProps = getTokenProps({
+																					token,
+																				});
+																				return (
+																					<span key={key} {...tokenProps} />
+																				);
+																			})}
 																		</div>
 																	);
 																})}
@@ -377,19 +346,19 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 										className="bg-gradient-to-b to-background absolute inset-0 z-10 from-transparent from-35%"
 									/>
 									<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
-										<img
+										<Image
 											className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
-											src={heroImageDark}
+											src="/new-hero.png"
 											alt="app screen"
-											width="2696"
-											height="1386"
+											width={2696}
+											height={1386}
 										/>
-										<img
+										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
-											src={heroImageLight}
+											src="/new-hero-light.png"
 											alt="app screen"
-											width="2696"
-											height="1386"
+											width={2696}
+											height={1386}
 										/>
 									</div>
 								</div>
@@ -400,8 +369,9 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 						<div className="group relative m-auto max-w-5xl px-6">
 							<div className="absolute inset-0 z-10 flex scale-95 items-center justify-center opacity-0 duration-500 group-hover:scale-100 group-hover:opacity-100">
 								<Link
-									to="/models"
+									href="/models"
 									className="block text-sm duration-150 hover:opacity-75"
+									prefetch={true}
 								>
 									<span>View All Providers</span>
 									<ChevronRight className="ml-1 inline-block size-3" />
@@ -409,10 +379,19 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 							</div>
 							<div className="group-hover:blur-xs mx-auto mt-12 grid max-w-2xl grid-cols-5 gap-x-12 gap-y-8 transition-all duration-500 group-hover:opacity-50 sm:gap-x-16 sm:gap-y-14">
 								{PROVIDER_LOGOS.map((provider) => {
-									const LogoComponent = provider.component;
+									const LogoComponent = providerLogoUrls[provider.providerId];
+									const darkModeClasses = getProviderLogoDarkModeClasses();
+
 									return (
 										<div key={provider.name} className="flex">
-											<LogoComponent className="mx-auto h-16 w-fit" />
+											{LogoComponent && (
+												<LogoComponent
+													className={cn(
+														"mx-auto h-16 w-fit object-contain",
+														darkModeClasses,
+													)}
+												/>
+											)}
 										</div>
 									);
 								})}

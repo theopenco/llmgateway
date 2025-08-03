@@ -1,3 +1,5 @@
+"use client";
+
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 
@@ -13,7 +15,7 @@ import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { useToast } from "@/lib/components/use-toast";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 
@@ -22,7 +24,7 @@ function AutoTopUpSettings() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
-	const { selectedOrganization } = useDashboardContext();
+	const { selectedOrganization } = useDashboardState();
 	const { data: paymentMethods } = api.useQuery(
 		"get",
 		"/payments/payment-methods",

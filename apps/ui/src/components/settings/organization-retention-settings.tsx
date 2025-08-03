@@ -1,3 +1,4 @@
+"use client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { useState } from "react";
@@ -6,14 +7,13 @@ import { Button } from "@/lib/components/button";
 import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Separator } from "@/lib/components/separator";
-import { useToast } from "@/lib/components/use-toast";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { toast } from "@/lib/components/use-toast";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 export function OrganizationRetentionSettings() {
-	const { toast } = useToast();
 	const queryClient = useQueryClient();
-	const { selectedOrganization } = useDashboardContext();
+	const { selectedOrganization } = useDashboardState();
 
 	const api = useApi();
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {

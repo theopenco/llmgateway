@@ -1,5 +1,13 @@
 import { addDays, format, parseISO, subDays } from "date-fns";
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import {
+	Bar,
+	BarChart,
+	CartesianGrid,
+	ResponsiveContainer,
+	Tooltip,
+	XAxis,
+	YAxis,
+} from "recharts";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -44,6 +52,7 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 	const chartData = dateRange.map((date) => {
 		if (dataByDate.has(date)) {
 			return {
+				date,
 				name: format(parseISO(date), "MMM d"),
 				total: dataByDate.get(date)!.requestCount,
 				tokens: dataByDate.get(date)!.totalTokens,
@@ -52,6 +61,7 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 		}
 
 		return {
+			date,
 			name: format(parseISO(date), "MMM d"),
 			total: 0,
 			tokens: 0,
@@ -61,9 +71,19 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 
 	return (
 		<ResponsiveContainer width="100%" height={350}>
-			<BarChart data={chartData}>
+			<BarChart
+				data={chartData}
+				margin={{
+					top: 5,
+					right: 10,
+					left: 10,
+					bottom: 0,
+				}}
+			>
+				<CartesianGrid strokeDasharray="3 3" vertical={false} />
 				<XAxis
-					dataKey="name"
+					dataKey="date"
+					tickFormatter={(value) => format(parseISO(value), "MMM d")}
 					stroke="#888888"
 					fontSize={12}
 					tickLine={false}
@@ -76,11 +96,15 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 					axisLine={false}
 					tickFormatter={(value) => `${value}`}
 				/>
+				<Tooltip
+					formatter={(value) => [value, "Requests"]}
+					labelFormatter={(label) => format(parseISO(label), "MMM d, yyyy")}
+				/>
 				<Bar
 					dataKey="total"
 					fill="currentColor"
-					radius={[4, 4, 0, 0]}
 					className="fill-primary"
+					radius={[4, 4, 0, 0]}
 				/>
 			</BarChart>
 		</ResponsiveContainer>
