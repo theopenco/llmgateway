@@ -152,7 +152,10 @@ export function ChatUi({
 			)}
 
 			{/* Chat Messages */}
-			<ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
+			<ScrollArea
+				className="flex-1 p-4 max-h-[calc(100vh-200px)]"
+				ref={scrollAreaRef}
+			>
 				{messages.length === 0 ? (
 					<div className="flex items-center justify-center h-full">
 						<div className="w-full space-y-8">
@@ -295,7 +298,7 @@ export function ChatUi({
 											<Button
 												variant="ghost"
 												size="sm"
-												className={`absolute -bottom-8 opacity-0 group-hover/message:opacity-100 transition-opacity ${
+												className={`absolute -bottom-8 ${
 													message.role === "user" ? "right-0" : "left-0"
 												}`}
 												onClick={() =>
