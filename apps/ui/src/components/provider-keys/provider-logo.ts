@@ -21,6 +21,7 @@ export const providerLogoUrls: Partial<
 	novita: ProviderIcons.novita,
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
+	zai: ProviderIcons.zai,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

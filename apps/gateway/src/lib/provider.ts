@@ -18,6 +18,7 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	perplexity: "PERPLEXITY_API_KEY",
 	alibaba: "ALIBABA_API_KEY",
 	nebius: "NEBIUS_API_KEY",
+	zai: "Z_AI_API_KEY",
 	custom: "UNUSED",
 };
 

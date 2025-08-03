@@ -211,6 +211,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "zai",
+		name: "Z AI",
+		description: "Z AI's OpenAI-compatible large language models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#22c55e",
+		website: "https://z.ai",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

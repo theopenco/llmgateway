@@ -508,6 +508,22 @@ export const NebiusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// Zai Icon
+export const ZaiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		className={cn("h-10 w-10 text-black dark:text-white", props.className)}
+		fill="none"
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 161 129"
+	>
+		<path
+			d="M161 0h-59.685L0 129h59.6854L161 0ZM148.564 109.447H89.5L74 129.001h59.064l15.5-19.554ZM84.5635-.00018068H25.5L10 19.5536h59.0635l15.5-19.55378068Z"
+			fill="currentColor"
+		/>
+	</svg>
+);
+
 // Export all icons as a map for easy access
 export const ProviderIcons = {
 	anthropic: AnthropicIcon,
@@ -526,6 +542,7 @@ export const ProviderIcons = {
 	novita: NovitaIcon,
 	alibaba: AlibabaIcon,
 	nebius: NebiusIcon,
+	zai: ZaiIcon,
 } as const;
 
 // Type for provider icon keys
