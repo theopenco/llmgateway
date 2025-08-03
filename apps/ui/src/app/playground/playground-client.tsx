@@ -2,6 +2,7 @@
 
 import { getModelStreamingSupport } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
+import { Info } from "lucide-react";
 import { useState, useEffect } from "react";
 
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
@@ -17,6 +18,7 @@ import {
 	useChats,
 } from "@/hooks/useChats";
 import { useUser } from "@/hooks/useUser";
+import { Alert, AlertDescription } from "@/lib/components/alert";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
@@ -345,6 +347,14 @@ export function PlaygroundClient() {
 						onModelSelect={handleModelSelect}
 						onManageApiKey={() => setShowApiKeyManager(true)}
 					/>
+					<div className="max-w-2xl mx-auto px-4 pt-4">
+						<Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+							<Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+							<AlertDescription className="text-blue-800 dark:text-blue-200">
+								We're revamping the playground. Stay tuned for V2!
+							</AlertDescription>
+						</Alert>
+					</div>
 					<div className="flex-1 max-w-2xl mx-auto">
 						<ChatUi
 							messages={messages}

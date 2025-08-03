@@ -1,10 +1,11 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, Info } from "lucide-react";
 import { useState } from "react";
 
 import { ApiKeyManager } from "./playground/api-key-manager";
 import { ChatHeader } from "./playground/chat-header";
+import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
 import { Input } from "@/lib/components/input";
@@ -95,6 +96,14 @@ export function Chat() {
 				onModelSelect={handleModelSelect}
 				onManageApiKey={() => setShowApiKeyManager(true)}
 			/>
+			<div className="mx-4 mt-4">
+				<Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+					<Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+					<AlertDescription className="text-blue-800 dark:text-blue-200">
+						We're revamping the playground. Stay tuned for V2!
+					</AlertDescription>
+				</Alert>
+			</div>
 			<Card className="flex-1 mx-4 my-4 p-4">
 				<ScrollArea className="h-[calc(100vh-12rem)] pr-4">
 					<div className="space-y-4">
@@ -142,6 +151,7 @@ export function Chat() {
 			<ApiKeyManager
 				open={showApiKeyManager}
 				onOpenChange={setShowApiKeyManager}
+				selectedModel={selectedModel}
 			/>
 		</div>
 	);
