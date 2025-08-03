@@ -57,7 +57,7 @@ export function Hero({ providerId }: HeroProps) {
 						</Button>
 					</div>
 				</div>
-				<div className="flex items-center justify-center gap-8 relative">
+				<div className="flex items-center justify-center gap-8 relative mt-20 lg:mt-0">
 					<div className="h-24 w-24 relative -top-12">
 						<Logo className="h-full w-full" />
 					</div>
