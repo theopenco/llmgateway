@@ -28,6 +28,7 @@ export function getProviderHeaders(
 		case "moonshot":
 		case "alibaba":
 		case "nebius":
+		case "zai":
 		case "custom":
 		default:
 			return {
@@ -79,6 +80,7 @@ export function prepareRequestBody(
 		case "moonshot":
 		case "alibaba":
 		case "nebius":
+		case "zai":
 		case "custom": {
 			if (stream) {
 				requestBody.stream_options = {
@@ -300,6 +302,9 @@ export function getProviderEndpoint(
 			case "nebius":
 				url = "https://api.studio.nebius.com";
 				break;
+			case "zai":
+				url = "https://api.z.ai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -344,6 +349,8 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
+		case "zai":
+			return `${url}/api/paas/v4/chat/completions`;
 		case "inference.net":
 		case "openai":
 		case "llmgateway":

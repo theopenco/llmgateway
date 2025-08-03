@@ -11,6 +11,7 @@ import { nousresearchModels } from "./models/nousresearch";
 import { openaiModels } from "./models/openai";
 import { perplexityModels } from "./models/perplexity";
 import { xaiModels } from "./models/xai";
+import { zaiModels } from "./models/zai";
 
 import type { providers } from "./providers";
 
@@ -116,4 +117,5 @@ export const models = [
 	...moonshotModels,
 	...alibabaModels,
 	...nousresearchModels,
+	...zaiModels,
 ] as const satisfies ModelDefinition[];
