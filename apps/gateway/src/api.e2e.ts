@@ -616,6 +616,57 @@ describe("e2e", () => {
 		await db.delete(tables.providerKey);
 	});
 
+	test("JSON output mode error when 'json' not mentioned in messages", async () => {
+		const envVarName = getProviderEnvVar("openai");
+		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		if (!envVarValue) {
+			console.log(
+				"Skipping JSON output client error test - no OpenAI API key provided",
+			);
+			return;
+		}
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "Hello, give me a greeting response",
+					},
+				],
+				response_format: { type: "json_object" },
+			}),
+		});
+
+		expect(res.status).toBe(400);
+
+		const json = await res.json();
+		expect(json).toHaveProperty("error");
+		expect(json.error).toHaveProperty("message");
+		expect(json.error.message).toContain("'messages' must contain");
+		expect(json.error.message).toContain("the word 'json'");
+		expect(json.error).toHaveProperty("type", "invalid_request_error");
+
+		// Wait for logs to be processed
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+
+		const log = logs[0];
+		expect(log.unifiedFinishReason).toBe("client_error");
+		expect(log.errorDetails).not.toBeNull();
+		expect(log.errorDetails).toHaveProperty("message");
+		expect((log.errorDetails as any).message).toContain(
+			"'messages' must contain",
+		);
+		expect((log.errorDetails as any).message).toContain("the word 'json'");
+	});
+
 	test("completions with llmgateway/auto in credits mode", async () => {
 		// require all provider keys to be set
 		for (const provider of providers) {

@@ -55,12 +55,31 @@ interface ChatMessage {
 const DEFAULT_TOKENIZER_MODEL = "gpt-4";
 
 /**
- * Determines the appropriate finish reason based on HTTP status code
+ * Determines the appropriate finish reason based on HTTP status code and error message
  * 5xx status codes indicate upstream provider errors
  * 4xx status codes indicate client/gateway errors
+ * Special client errors (like JSON format validation) are classified as client_error
  */
-function getFinishReasonForError(statusCode: number): string {
-	return statusCode >= 500 ? "upstream_error" : "gateway_error";
+function getFinishReasonForError(
+	statusCode: number,
+	errorText?: string,
+): string {
+	if (statusCode >= 500) {
+		return "upstream_error";
+	}
+
+	// Check for specific client validation errors from providers
+	if (statusCode === 400 && errorText) {
+		// OpenAI JSON format validation error
+		if (
+			errorText.includes("'messages' must contain") &&
+			errorText.includes("the word 'json'")
+		) {
+			return "client_error";
+		}
+	}
+
+	return "gateway_error";
 }
 
 /**
@@ -2131,17 +2150,44 @@ chat.openapi(completions, async (c) => {
 					`Provider error - Status: ${res.status}, Text: ${errorResponseText}`,
 				);
 
-				await writeSSEAndCache({
-					event: "error",
-					data: JSON.stringify({
+				// Determine the finish reason for error handling
+				const finishReason = getFinishReasonForError(
+					res.status,
+					errorResponseText,
+				);
+
+				// For client errors, return the original provider error response
+				let errorData;
+				if (finishReason === "client_error") {
+					try {
+						errorData = JSON.parse(errorResponseText);
+					} catch {
+						// If we can't parse the original error, fall back to our format
+						errorData = {
+							error: {
+								message: `Error from provider: ${res.status} ${res.statusText}`,
+								type: finishReason,
+								param: null,
+								code: finishReason,
+								responseText: errorResponseText,
+							},
+						};
+					}
+				} else {
+					errorData = {
 						error: {
 							message: `Error from provider: ${res.status} ${res.statusText}`,
-							type: getFinishReasonForError(res.status),
+							type: finishReason,
 							param: null,
-							code: getFinishReasonForError(res.status),
+							code: finishReason,
 							responseText: errorResponseText,
 						},
-					}),
+					};
+				}
+
+				await writeSSEAndCache({
+					event: "error",
+					data: JSON.stringify(errorData),
 					id: String(eventId++),
 				});
 				await writeSSEAndCache({
@@ -2177,7 +2223,7 @@ chat.openapi(completions, async (c) => {
 					responseSize: errorResponseText.length,
 					content: null,
 					reasoningContent: null,
-					finishReason: getFinishReasonForError(res.status),
+					finishReason: getFinishReasonForError(res.status, errorResponseText),
 					promptTokens: null,
 					completionTokens: null,
 					totalTokens: null,
@@ -3018,6 +3064,9 @@ chat.openapi(completions, async (c) => {
 			`Provider error - Status: ${res.status}, Text: ${errorResponseText}`,
 		);
 
+		// Determine the finish reason first
+		const finishReason = getFinishReasonForError(res.status, errorResponseText);
+
 		// Log the error in the database
 		const baseLogEntry = createLogEntry(
 			requestId,
@@ -3045,7 +3094,7 @@ chat.openapi(completions, async (c) => {
 			responseSize: errorResponseText.length,
 			content: null,
 			reasoningContent: null,
-			finishReason: getFinishReasonForError(res.status),
+			finishReason,
 			promptTokens: null,
 			completionTokens: null,
 			totalTokens: null,
@@ -3054,11 +3103,27 @@ chat.openapi(completions, async (c) => {
 			hasError: true,
 			streamed: false,
 			canceled: false,
-			errorDetails: {
-				statusCode: res.status,
-				statusText: res.statusText,
-				responseText: errorResponseText,
-			},
+			errorDetails: (() => {
+				// For client errors, try to parse the original error and include the message
+				if (finishReason === "client_error") {
+					try {
+						const originalError = JSON.parse(errorResponseText);
+						return {
+							statusCode: res.status,
+							statusText: res.statusText,
+							responseText: errorResponseText,
+							message: originalError.error?.message || errorResponseText,
+						};
+					} catch {
+						// If parsing fails, use default format
+					}
+				}
+				return {
+					statusCode: res.status,
+					statusText: res.statusText,
+					responseText: errorResponseText,
+				};
+			})(),
 			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
@@ -3066,14 +3131,26 @@ chat.openapi(completions, async (c) => {
 			toolResults: null,
 		});
 
-		// Return a 500 error response
+		// Use the already determined finish reason for response logic
+
+		// For client errors, return the original provider error response
+		if (finishReason === "client_error") {
+			try {
+				const originalError = JSON.parse(errorResponseText);
+				return c.json(originalError, res.status as 400);
+			} catch {
+				// If we can't parse the original error, fall back to our format
+			}
+		}
+
+		// Return our wrapped error response for non-client errors
 		return c.json(
 			{
 				error: {
 					message: `Error from provider: ${res.status} ${res.statusText}`,
-					type: getFinishReasonForError(res.status),
+					type: finishReason,
 					param: null,
-					code: getFinishReasonForError(res.status),
+					code: finishReason,
 					requestedProvider,
 					usedProvider,
 					requestedModel,
