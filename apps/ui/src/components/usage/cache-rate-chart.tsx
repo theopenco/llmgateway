@@ -18,9 +18,13 @@ import type { ActivitT } from "@/types/activity";
 
 interface CacheRateChartProps {
 	initialData?: ActivitT;
+	projectId: string | undefined;
 }
 
-export function CacheRateChart({ initialData }: CacheRateChartProps) {
+export function CacheRateChart({
+	initialData,
+	projectId,
+}: CacheRateChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardState();
 
@@ -36,17 +40,17 @@ export function CacheRateChart({ initialData }: CacheRateChartProps) {
 			params: {
 				query: {
 					days: String(days),
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(projectId ? { projectId: projectId } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!projectId,
 			initialData,
 		},
 	);
 
-	if (!selectedProject) {
+	if (!projectId) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
 				<p className="text-muted-foreground">

@@ -34,6 +34,28 @@ const updateProjectCachingSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
 
+const getProject = createRoute({
+	method: "get",
+	path: "/{id}",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						project: projectSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Project retrieved successfully.",
+		},
+	},
+});
+
 const updateProject = createRoute({
 	method: "patch",
 	path: "/{id}",
@@ -82,6 +104,51 @@ const updateProject = createRoute({
 			description: "Project not found.",
 		},
 	},
+});
+
+projects.openapi(getProject, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: {
+				eq: user.id,
+			},
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const orgIds = userOrgs.map((uo) => uo.organization!.id);
+
+	const project = await db.query.project.findFirst({
+		where: {
+			id: {
+				eq: id,
+			},
+			organizationId: {
+				in: orgIds,
+			},
+		},
+	});
+
+	if (!project || project.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	return c.json({
+		project,
+	});
 });
 
 projects.openapi(updateProject, async (c) => {

@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
 		// TODO TEMP!!!!!
 		ignoreBuildErrors: true,
 	},
+	experimental: {
+		typedRoutes: true,
+		clientSegmentCache: true,
+		devtoolSegmentExplorer: true,
+		globalNotFound: true,
+	},
 };
 
 // withContentCollections must be the outermost plugin

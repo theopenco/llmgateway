@@ -1,3 +1,5 @@
+"use client";
+
 import { models, providers } from "@llmgateway/models";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -321,7 +323,7 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 			) : error ? (
 				<div>Error loading logs</div>
 			) : (
-				<div className="space-y-4 max-w-full">
+				<div className="space-y-4 @container">
 					{allLogs.length ? (
 						<>
 							{allLogs.map((log) => (

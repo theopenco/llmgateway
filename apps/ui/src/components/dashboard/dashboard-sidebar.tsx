@@ -5,6 +5,7 @@ import {
 	Activity,
 	BarChart3,
 	BotMessageSquare,
+	ChartColumnBig,
 	ChevronUp,
 	ComputerIcon,
 	CreditCard,
@@ -86,6 +87,11 @@ const PROJECT_NAVIGATION = [
 		href: "activity",
 		label: "Activity",
 		icon: Activity,
+	},
+	{
+		href: "model-usage",
+		label: "Model Usage",
+		icon: ChartColumnBig,
 	},
 	{
 		href: "usage",

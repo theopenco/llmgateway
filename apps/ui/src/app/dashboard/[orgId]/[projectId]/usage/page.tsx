@@ -33,5 +33,10 @@ export default async function UsagePage({
 			})
 		: null;
 
-	return <UsageClient initialActivityData={initialActivityData || undefined} />;
+	return (
+		<UsageClient
+			initialActivityData={initialActivityData || undefined}
+			projectId={projectId}
+		/>
+	);
 }

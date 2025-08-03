@@ -28,9 +28,13 @@ import type { ActivitT } from "@/types/activity";
 
 interface UsageClientProps {
 	initialActivityData?: ActivitT;
+	projectId: string | undefined;
 }
 
-export function UsageClient({ initialActivityData }: UsageClientProps) {
+export function UsageClient({
+	initialActivityData,
+	projectId,
+}: UsageClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
@@ -94,7 +98,10 @@ export function UsageClient({ initialActivityData }: UsageClientProps) {
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">
-								<UsageChart initialData={initialActivityData} />
+								<UsageChart
+									initialData={initialActivityData}
+									projectId={projectId}
+								/>
 							</CardContent>
 						</Card>
 					</TabsContent>
@@ -105,7 +112,10 @@ export function UsageClient({ initialActivityData }: UsageClientProps) {
 								<CardDescription>Usage breakdown by model</CardDescription>
 							</CardHeader>
 							<CardContent>
-								<ModelUsageTable initialData={initialActivityData} />
+								<ModelUsageTable
+									initialData={initialActivityData}
+									projectId={projectId}
+								/>
 							</CardContent>
 						</Card>
 					</TabsContent>
@@ -118,7 +128,10 @@ export function UsageClient({ initialActivityData }: UsageClientProps) {
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">
-								<ErrorRateChart initialData={initialActivityData} />
+								<ErrorRateChart
+									initialData={initialActivityData}
+									projectId={projectId}
+								/>
 							</CardContent>
 						</Card>
 					</TabsContent>
@@ -131,7 +144,10 @@ export function UsageClient({ initialActivityData }: UsageClientProps) {
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">
-								<CacheRateChart initialData={initialActivityData} />
+								<CacheRateChart
+									initialData={initialActivityData}
+									projectId={projectId}
+								/>
 							</CardContent>
 						</Card>
 					</TabsContent>
@@ -144,7 +160,10 @@ export function UsageClient({ initialActivityData }: UsageClientProps) {
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">
-								<CostBreakdownChart initialData={initialActivityData} />
+								<CostBreakdownChart
+									initialData={initialActivityData}
+									projectId={projectId}
+								/>
 							</CardContent>
 						</Card>
 					</TabsContent>

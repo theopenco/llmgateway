@@ -2,7 +2,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
-import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -20,8 +19,8 @@ import {
 import { Input } from "@/lib/components/input";
 import { Separator } from "@/lib/components/separator";
 import { useToast } from "@/lib/components/use-toast";
-import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import type { CachingSettingsData } from "@/types/settings";
 
 const cachingFormSchema = z.object({
 	cachingEnabled: z.boolean(),
@@ -37,59 +36,48 @@ const cachingFormSchema = z.object({
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
 
-export function CachingSettings() {
+interface CachingSettingsProps {
+	initialData: CachingSettingsData;
+	orgId: string;
+	projectId: string;
+	projectName: string;
+}
+
+export function CachingSettings({
+	initialData,
+	orgId,
+	projectId,
+	projectName,
+}: CachingSettingsProps) {
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
-	const { selectedProject, selectedOrganization } = useDashboardState();
 
 	const form = useForm<CachingFormData>({
 		resolver: zodResolver(cachingFormSchema),
 		defaultValues: {
-			cachingEnabled: false,
-			cacheDurationSeconds: 60,
+			cachingEnabled:
+				initialData.preferences.preferences.cachingEnabled || false,
+			cacheDurationSeconds:
+				initialData.preferences.preferences.cacheDurationSeconds || 60,
 		},
 	});
 
 	const cachingEnabled = form.watch("cachingEnabled");
 
-	// Update form values when selectedProject changes
-	useEffect(() => {
-		if (selectedProject) {
-			form.setValue("cachingEnabled", selectedProject.cachingEnabled || false);
-			form.setValue(
-				"cacheDurationSeconds",
-				selectedProject.cacheDurationSeconds || 60,
-			);
-		}
-	}, [selectedProject, form]);
-
 	const api = useApi();
 	const updateProject = api.useMutation("patch", "/projects/{id}", {
 		onSuccess: (data) => {
-			if (selectedOrganization) {
-				const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
-					params: { path: { id: data.project.organizationId } },
-				}).queryKey;
-				queryClient.invalidateQueries({ queryKey });
-			}
+			const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
+				params: { path: { id: orgId } },
+			}).queryKey;
+			queryClient.invalidateQueries({ queryKey });
 		},
 	});
-
-	if (!selectedProject) {
-		return (
-			<div className="space-y-2">
-				<h3 className="text-lg font-medium">Request Caching</h3>
-				<p className="text-muted-foreground text-sm">
-					Please select a project to configure caching settings.
-				</p>
-			</div>
-		);
-	}
 
 	const onSubmit = async (data: CachingFormData) => {
 		try {
 			await updateProject.mutateAsync({
-				params: { path: { id: selectedProject.id } },
+				params: { path: { id: projectId } },
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
@@ -116,11 +104,9 @@ export function CachingSettings() {
 				<p className="text-muted-foreground text-sm">
 					Configure caching for identical LLM requests
 				</p>
-				{selectedProject && (
-					<p className="text-muted-foreground text-sm mt-1">
-						Project: {selectedProject.name}
-					</p>
-				)}
+				<p className="text-muted-foreground text-sm mt-1">
+					Project: {projectName}
+				</p>
 			</div>
 
 			<Separator />
