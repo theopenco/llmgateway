@@ -580,4 +580,42 @@ describe("test", () => {
 		expect(logs[0].finishReason).toBe("stop");
 		expect(logs[0].usedProvider).toBe("inference.net");
 	});
+
+	// test for inactive key error response
+	test("/v1/chat/completions with a disabled key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			status: "inactive",
+		});
+
+		// Create provider key for OpenAI with mock server URL as baseUrl
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "Hello with explicit provider!",
+					},
+				],
+			}),
+		});
+		expect(res.status).toBe(401);
+	});
 });
