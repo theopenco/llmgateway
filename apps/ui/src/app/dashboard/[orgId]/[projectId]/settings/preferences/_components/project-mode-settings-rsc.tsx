@@ -1,7 +1,8 @@
 import { ProjectModeSettings } from "@/components/settings/project-mode-settings";
 import { fetchServerData } from "@/lib/server-api";
-import type { ProjectModeSettingsData } from "@/types/settings";
+
 import type { Project, Organization } from "@/lib/types";
+import type { ProjectModeSettingsData } from "@/types/settings";
 
 interface ProjectData {
 	project: Project;

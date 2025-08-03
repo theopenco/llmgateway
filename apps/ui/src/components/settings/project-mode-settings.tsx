@@ -12,7 +12,6 @@ import {
 	FormControl,
 	FormField,
 	FormItem,
-	FormLabel,
 	FormMessage,
 } from "@/lib/components/form";
 import { Label } from "@/lib/components/label";
@@ -21,6 +20,7 @@ import { Separator } from "@/lib/components/separator";
 import { useToast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
 import type { ProjectModeSettingsData } from "@/types/settings";
 
 const projectModeFormSchema = z.object({
@@ -66,7 +66,6 @@ export function ProjectModeSettings({
 	});
 
 	const isProPlan = organizationPlan === "pro";
-	const mode = form.watch("mode");
 
 	const onSubmit = async (data: ProjectModeFormData) => {
 		// Check if trying to set api-keys or hybrid mode without pro plan (only if paid mode is enabled)

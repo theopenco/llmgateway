@@ -1,3 +1,9 @@
+import { Suspense } from "react";
+
+import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
+import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
+import { CachingSettingsSkeleton } from "./_skeletons/caching-settings-skeleton";
+import { ProjectModeSkeleton } from "./_skeletons/project-mode-skeleton";
 import {
 	Card,
 	CardContent,
@@ -5,11 +11,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Suspense } from "react";
-import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
-import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
-import { ProjectModeSkeleton } from "./_skeletons/project-mode-skeleton";
-import { CachingSettingsSkeleton } from "./_skeletons/caching-settings-skeleton";
 
 export default async function PreferencesPage({
 	params,

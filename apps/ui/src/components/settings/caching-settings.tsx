@@ -20,6 +20,7 @@ import { Input } from "@/lib/components/input";
 import { Separator } from "@/lib/components/separator";
 import { useToast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
 import type { CachingSettingsData } from "@/types/settings";
 
 const cachingFormSchema = z.object({

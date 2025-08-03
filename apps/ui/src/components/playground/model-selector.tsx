@@ -103,7 +103,7 @@ export function ModelSelector({
 						>
 							<div className="flex items-center gap-2">
 								<div className="flex items-center gap-2">
-									{model.providers.map((provider, index) => (
+									{model.providers.map((provider) => (
 										<div
 											key={provider.providerId}
 											className="w-3 h-3 rounded-full"

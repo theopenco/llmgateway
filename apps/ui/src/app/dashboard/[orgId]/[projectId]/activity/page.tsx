@@ -1,15 +1,8 @@
+import { RecentLogs } from "@/components/activity/recent-logs";
+import { Card, CardContent } from "@/lib/components/card";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { LogsData } from "@/types/activity";
-
-import { RecentLogs } from "@/components/activity/recent-logs";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/lib/components/card";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies
 export const dynamic = "force-dynamic";

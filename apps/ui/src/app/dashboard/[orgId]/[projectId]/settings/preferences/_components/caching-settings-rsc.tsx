@@ -1,7 +1,8 @@
 import { CachingSettings } from "@/components/settings/caching-settings";
 import { fetchServerData } from "@/lib/server-api";
-import type { CachingSettingsData } from "@/types/settings";
+
 import type { Project } from "@/lib/types";
+import type { CachingSettingsData } from "@/types/settings";
 
 interface ProjectData {
 	project: Project;

@@ -1,4 +1,4 @@
-export type CachingSettingsData = {
+export interface CachingSettingsData {
 	preferences: {
 		organizationId: string;
 		projectId: string;
@@ -7,12 +7,12 @@ export type CachingSettingsData = {
 			cacheDurationSeconds: number;
 		};
 	};
-};
+}
 
-export type ProjectModeSettingsData = {
+export interface ProjectModeSettingsData {
 	project: {
 		id: string;
 		name: string;
 		mode: "api-keys" | "credits" | "hybrid";
 	};
-};
+}
