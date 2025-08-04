@@ -222,7 +222,15 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			break;
 		case "google-vertex":
 		case "google-ai-studio": {
-			content = json.candidates?.[0]?.content?.parts?.[0]?.text || null;
+			// Extract content and reasoning content from Google response parts
+			const parts = json.candidates?.[0]?.content?.parts || [];
+			const contentParts = parts.filter((part: any) => !part.thought);
+			const reasoningParts = parts.filter((part: any) => part.thought);
+
+			content = contentParts.map((part: any) => part.text).join("") || null;
+			reasoningContent =
+				reasoningParts.map((part: any) => part.text).join("") || null;
+
 			finishReason = json.candidates?.[0]?.finishReason || null;
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
@@ -250,8 +258,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 				totalTokens = promptTokens + completionTokens + (reasoningTokens || 0);
 			}
 
-			// Extract tool calls from Google format
-			const parts = json.candidates?.[0]?.content?.parts || [];
+			// Extract tool calls from Google format - reuse the same parts array
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
@@ -394,8 +401,11 @@ function estimateTokensFromContent(content: string): number {
 function extractContentFromProvider(data: any, provider: Provider): string {
 	switch (provider) {
 		case "google-vertex":
-		case "google-ai-studio":
-			return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+		case "google-ai-studio": {
+			const parts = data.candidates?.[0]?.content?.parts || [];
+			const contentParts = parts.filter((part: any) => !part.thought);
+			return contentParts.map((part: any) => part.text).join("") || "";
+		}
 		case "anthropic":
 			if (data.type === "content_block_delta" && data.delta?.text) {
 				return data.delta.text;
@@ -416,6 +426,12 @@ function extractReasoningContentFromProvider(
 	provider: Provider,
 ): string {
 	switch (provider) {
+		case "google-vertex":
+		case "google-ai-studio": {
+			const parts = data.candidates?.[0]?.content?.parts || [];
+			const reasoningParts = parts.filter((part: any) => part.thought);
+			return reasoningParts.map((part: any) => part.text).join("") || "";
+		}
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.reasoning_content || "";
 	}

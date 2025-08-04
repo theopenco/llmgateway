@@ -167,7 +167,7 @@ export function prepareRequestBody(
 									text: i.text,
 								};
 							}
-							throw new Error("No support for non-text parts yet");
+							throw new Error(`Not supported content type yet: ${i.type}`);
 						})
 					: [
 							{
@@ -188,6 +188,11 @@ export function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
 			}
+
+			// Enable thinking/reasoning content exposure for Google models
+			requestBody.generationConfig.thinkingConfig = {
+				includeThoughts: true,
+			};
 
 			break;
 		}
