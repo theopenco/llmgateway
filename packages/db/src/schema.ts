@@ -192,7 +192,7 @@ export const project = pgTable("project", {
 		enum: ["api-keys", "credits", "hybrid"],
 	})
 		.notNull()
-		.default("credits"),
+		.default("hybrid"),
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
