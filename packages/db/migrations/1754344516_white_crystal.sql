@@ -1,0 +1,1 @@
+ALTER TABLE "project" ALTER COLUMN "mode" SET DEFAULT 'hybrid';
