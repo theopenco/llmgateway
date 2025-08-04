@@ -219,13 +219,14 @@ projects.openapi(updateProject, async (c) => {
 				});
 			}
 
-			// For hybrid mode, allow switching back to hybrid if the project is already in hybrid mode
-			if (mode === "hybrid" && project.mode === "hybrid") {
-				// Allow switching back to hybrid mode
+			// Always allow switching to hybrid mode for free users
+			if (mode === "hybrid") {
+				// Hybrid mode is always allowed for free users
 			} else if (organization.plan !== "pro") {
-				const modeLabel = mode === "api-keys" ? "API Keys" : "Hybrid";
+				// Only API Keys mode requires pro plan
 				throw new HTTPException(403, {
-					message: `${modeLabel} mode is only available on the Pro plan. Please upgrade to Pro or switch to Credits mode.`,
+					message:
+						"API Keys mode is only available on the Pro plan. Please upgrade to Pro or switch to Credits mode.",
 				});
 			}
 		}

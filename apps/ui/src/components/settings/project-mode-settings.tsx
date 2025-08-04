@@ -154,10 +154,7 @@ export function ProjectModeSettings({
 													requiresPro &&
 													config.hosted &&
 													!isProPlan &&
-													!(
-														allowSwitchBack &&
-														initialData.project.mode === "hybrid"
-													);
+													!allowSwitchBack; // Always allow hybrid for free users
 												return (
 													<div key={id} className="flex items-start space-x-2">
 														<RadioGroupItem
