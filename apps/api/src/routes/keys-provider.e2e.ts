@@ -8,7 +8,7 @@ import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers"
 import { createTestUser, deleteAll } from "../testing";
 
 function getTestOptions() {
-	return process.env.CI ? { retry: 5 } : {};
+	return process.env.CI ? { retry: 3 } : {};
 }
 
 describe("e2e tests for provider keys", getTestOptions(), () => {

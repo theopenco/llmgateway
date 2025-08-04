@@ -16,7 +16,7 @@ import {
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions() {
-	return process.env.CI ? { retry: 5 } : {};
+	return process.env.CI ? { retry: 3 } : {};
 }
 
 console.log("running with test options:", getTestOptions());
