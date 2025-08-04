@@ -2016,6 +2016,11 @@ chat.openapi(completions, async (c) => {
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
+	// Check if the model supports reasoning for Google providers
+	const supportsReasoning = modelInfo.providers.some(
+		(provider) => (provider as any).reasoning === true,
+	);
+
 	const requestBody = prepareRequestBody(
 		usedProvider,
 		usedModel,
@@ -2030,6 +2035,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		reasoning_effort,
+		supportsReasoning,
 	);
 
 	const startTime = Date.now();
