@@ -158,6 +158,7 @@ export function prepareRequestBody(
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
 			requestBody.contents = messages.map((m) => ({
 				role: m.role === "assistant" ? "model" : "user", // get rid of system role
@@ -176,6 +177,19 @@ export function prepareRequestBody(
 							},
 						],
 			}));
+
+			// Transform tools from OpenAI format to Google format
+			if (tools && tools.length > 0) {
+				requestBody.tools = [
+					{
+						functionDeclarations: tools.map((tool: any) => ({
+							name: tool.function.name,
+							description: tool.function.description,
+							parameters: tool.function.parameters,
+						})),
+					},
+				];
+			}
 
 			requestBody.generationConfig = {};
 

@@ -617,7 +617,9 @@ function transformToOpenAIFormat(
 						},
 						finish_reason:
 							finishReason === "STOP"
-								? "stop"
+								? toolResults && toolResults.length > 0
+									? "tool_calls"
+									: "stop"
 								: finishReason?.toLowerCase() || "stop",
 					},
 				],
@@ -929,6 +931,10 @@ function transformStreamingChunkToOpenAIFormat(
 				};
 			} else if (data.candidates?.[0]?.finishReason) {
 				const finishReason = data.candidates[0].finishReason;
+				// Check if there are function calls in this response
+				const hasFunctionCalls = data.candidates?.[0]?.content?.parts?.some(
+					(part: any) => part.functionCall,
+				);
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -942,7 +948,9 @@ function transformStreamingChunkToOpenAIFormat(
 							},
 							finish_reason:
 								finishReason === "STOP"
-									? "stop"
+									? hasFunctionCalls
+										? "tool_calls"
+										: "stop"
 									: finishReason?.toLowerCase() || "stop",
 						},
 					],
