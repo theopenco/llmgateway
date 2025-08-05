@@ -150,7 +150,6 @@ export const anthropicModels = [
 				vision: true,
 				reasoning: true,
 				tools: true,
-				test: "only",
 			},
 		],
 	},
