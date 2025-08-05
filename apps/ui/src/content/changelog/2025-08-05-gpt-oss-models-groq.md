@@ -47,4 +47,4 @@ A more efficient 20-billion parameter model for lighter workloads:
 
 Ideal for general tasks, chat applications, and cost-conscious deployments.
 
-Read [OpenAI official release](https://openai.com/index/introducing-gpt-oss/) to learn more about these models.
+Read [OpenAI official release](https://openai.com/index/introducing-gpt-oss?utm_source=llmgateway.io) to learn more about these models.
