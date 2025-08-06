@@ -9,7 +9,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4.5",
 				inputPrice: 0.11 / 1e6,
@@ -32,7 +31,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4.5-air",
 				inputPrice: 0.11 / 1e6,
@@ -55,7 +53,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4.5-x",
 				inputPrice: 0.11 / 1e6,
@@ -78,7 +75,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4.5-airx",
 				inputPrice: 0.11 / 1e6,
@@ -89,6 +85,7 @@ export const zaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				test: "skip",
 			},
 		],
 		jsonOutput: true,
@@ -101,7 +98,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4.5-flash",
 				inputPrice: 0.11 / 1e6,
@@ -124,7 +120,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4-32b-0414-128k",
 				inputPrice: 0.11 / 1e6,
