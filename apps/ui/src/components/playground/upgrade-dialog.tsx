@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import {
 	Key,
 	Zap,
@@ -7,6 +6,7 @@ import {
 	Infinity as InfinityIcon,
 	ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -156,8 +156,9 @@ export function UpgradeDialog({
 						<p className="text-xs text-muted-foreground">
 							You can also manage your account in{" "}
 							<Link
-								to="/dashboard"
+								href="/dashboard"
 								className="text-foreground hover:underline font-medium"
+								prefetch={true}
 							>
 								The Dashboard
 							</Link>

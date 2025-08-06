@@ -1,5 +1,6 @@
+"use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
@@ -19,19 +20,24 @@ export interface UseUserOptions {
 	redirectTo?: string;
 	redirectWhen?: "authenticated" | "unauthenticated";
 	checkOnboarding?: boolean;
-	checkEmailVerification?: boolean;
 }
 
 export function useUser(options?: UseUserOptions) {
 	const posthog = usePostHog();
-	const navigate = useNavigate();
-	const routerState = useRouterState();
+	const router = useRouter();
 	const api = useApi();
+	const pathname = usePathname();
 
-	const { data, isLoading, error } = api.useQuery("get", "/user/me", {
-		retry: 0,
-		gcTime: 0,
-	});
+	const { data, isLoading, error } = api.useQuery(
+		"get",
+		"/user/me",
+		{},
+		{
+			retry: 0,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+		},
+	);
 
 	if (data) {
 		posthog.identify(data.user.id, {
@@ -46,7 +52,7 @@ export function useUser(options?: UseUserOptions) {
 			return;
 		}
 
-		const currentPath = routerState.location.pathname;
+		const currentPath = pathname;
 		const isAuthPage = ["/login", "/signup", "/onboarding"].includes(
 			currentPath,
 		);
@@ -59,9 +65,9 @@ export function useUser(options?: UseUserOptions) {
 
 		// Redirect to onboarding if user hasn't completed it
 		if (!data.user.onboardingCompleted) {
-			navigate({ to: "/onboarding", replace: true });
+			router.push("/onboarding");
 		}
-	}, [data?.user, isLoading, navigate, routerState.location.pathname]);
+	}, [data?.user, isLoading, router]);
 
 	// Handle existing redirect logic
 	useEffect(() => {
@@ -73,29 +79,27 @@ export function useUser(options?: UseUserOptions) {
 		const hasUser = !!data?.user;
 
 		if (redirectWhen === "authenticated" && hasUser) {
-			if (
-				checkOnboarding &&
-				!data.user.onboardingCompleted &&
-				routerState.location.pathname !== "/onboarding"
-			) {
-				navigate({ to: "/onboarding" });
+			if (checkOnboarding && !data.user.onboardingCompleted) {
+				router.push("/onboarding");
 			} else {
-				navigate({ to: redirectTo });
+				router.push(redirectTo);
 			}
 		} else if (
 			redirectWhen === "unauthenticated" &&
 			!isLoading &&
 			(!hasUser || error)
 		) {
-			navigate({ to: redirectTo, replace: true });
+			router.push(redirectTo);
 		}
 	}, [
-		data,
+		data?.user,
 		isLoading,
 		error,
-		navigate,
+		router,
+		options?.redirectTo,
+		options?.redirectWhen,
+		options?.checkOnboarding,
 		options,
-		routerState.location.pathname,
 	]);
 
 	return {

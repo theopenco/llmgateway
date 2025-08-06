@@ -69,13 +69,26 @@ export function NewProjectDialog({
 			});
 		},
 		onError: (error) => {
-			// Show error toast
-			toast({
-				title: "Failed to create project",
-				description:
-					error.message || "An unexpected error occurred. Please try again.",
-				variant: "destructive",
-			});
+			// Check if it's a max projects limit error
+			if (
+				error.message?.includes("maximum") ||
+				error.message?.includes("limit")
+			) {
+				toast({
+					title: "Project limit reached",
+					description:
+						"You've reached the maximum number of projects for your plan. Please contact us to upgrade to Enterprise.",
+					variant: "destructive",
+				});
+			} else {
+				// Generic error toast
+				toast({
+					title: "Failed to create project",
+					description:
+						error.message || "An unexpected error occurred. Please try again.",
+					variant: "destructive",
+				});
+			}
 		},
 	});
 

@@ -1,19 +1,22 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import {
-	db,
-	errorDetails,
-	tables,
-	sql,
-	inArray,
-	eq,
-	gte,
-	lte,
-	gt,
-	lt,
 	and,
-	or,
 	asc,
+	db,
 	desc,
+	eq,
+	errorDetails,
+	gt,
+	gte,
+	inArray,
+	lt,
+	lte,
+	or,
+	sql,
+	tables,
+	toolChoice,
+	toolResults,
+	tools,
 } from "@llmgateway/db";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -52,6 +55,9 @@ const logSchema = z.object({
 	topP: z.number().nullable(),
 	frequencyPenalty: z.number().nullable(),
 	presencePenalty: z.number().nullable(),
+	tools: tools.nullable(),
+	toolChoice: toolChoice.nullable(),
+	toolResults: toolResults.nullable(),
 	hasError: z.boolean().nullable(),
 	errorDetails: errorDetails.nullable(),
 	cost: z.number().nullable(),
@@ -65,6 +71,7 @@ const logSchema = z.object({
 	customHeaders: z.any().nullable(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
+	source: z.string().nullable(),
 });
 
 const querySchema = z.object({
@@ -97,6 +104,9 @@ const querySchema = z.object({
 	}),
 	model: z.string().optional().openapi({
 		description: "Filter logs by model",
+	}),
+	source: z.string().optional().openapi({
+		description: "Filter logs by source",
 	}),
 	cursor: z.string().optional().openapi({
 		description: "Cursor for pagination (log ID to start after)",
@@ -192,6 +202,7 @@ logs.openapi(get, async (c) => {
 		unifiedFinishReason,
 		provider,
 		model,
+		source,
 		cursor,
 		orderBy = "createdAt_desc",
 		limit: queryLimit,
@@ -209,6 +220,7 @@ logs.openapi(get, async (c) => {
 		unifiedFinishReason: sanitize(query.unifiedFinishReason),
 		provider: sanitize(query.provider),
 		model: sanitize(query.model),
+		source: sanitize(query.source),
 		customHeaderKey: sanitize(query.customHeaderKey),
 		customHeaderValue: sanitize(query.customHeaderValue),
 	};
@@ -387,8 +399,17 @@ logs.openapi(get, async (c) => {
 	// Add custom header filter
 	if (customHeaderKey && customHeaderValue) {
 		whereConditions.push(
-			sql`${tables.log.customHeaders} ->> ${customHeaderKey} = ${customHeaderValue}`,
+			sql`${tables.log.customHeaders}
+			->>
+			${customHeaderKey}
+			=
+			${customHeaderValue}`,
 		);
+	}
+
+	// Add source filter if provided
+	if (source) {
+		logsWhere.source = source;
 	}
 
 	// Add cursor-based pagination conditions

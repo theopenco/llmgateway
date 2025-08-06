@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useCallback } from "react";
 
 const API_KEY_STORAGE_KEY = "llmgateway_user_api_key";

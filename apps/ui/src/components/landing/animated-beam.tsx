@@ -1,6 +1,8 @@
-import { motion } from "framer-motion";
+"use client";
+
 import { useEffect, useId, useState } from "react";
 
+import { motion } from "@/components/motion-wrapper";
 import { cn } from "@/lib/utils";
 
 import type { RefObject } from "react";

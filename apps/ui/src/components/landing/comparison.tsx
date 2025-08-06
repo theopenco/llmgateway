@@ -1,5 +1,6 @@
-import { Link } from "@tanstack/react-router";
+"use client";
 import { Check, X } from "lucide-react";
+import Link from "next/link";
 
 import { AuthLink } from "../shared/auth-link";
 import { Badge } from "@/lib/components/badge";
@@ -98,7 +99,7 @@ const comparisonData = [
 ];
 
 export function Comparison() {
-	const renderFeatureValue = (value: any) => {
+	const renderFeatureValue = (value: boolean | string) => {
 		if (typeof value === "boolean") {
 			return value ? (
 				<Check className="h-5 w-5 text-green-600 dark:text-green-400" />
@@ -225,12 +226,10 @@ export function Comparison() {
 				<div className="text-center mt-8">
 					<div className="flex flex-col sm:flex-row gap-4 justify-center">
 						<Button size="lg" className="bg-primary hover:bg-primary/90">
-							<AuthLink>Start Free with LLM Gateway</AuthLink>
+							<AuthLink href="/signup">Start Free with LLM Gateway</AuthLink>
 						</Button>
 						<Button size="lg" variant="outline">
-							<Link to="/" hash="#pricing">
-								View Pricing Details
-							</Link>
+							<Link href="/#pricing">View Pricing Details</Link>
 						</Button>
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">

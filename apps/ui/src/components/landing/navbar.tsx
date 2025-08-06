@@ -1,21 +1,22 @@
-import { Link } from "@tanstack/react-router";
+"use client";
 import { Menu, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { GitHubStars } from "./github-stars";
 import { ThemeToggle } from "./theme-toggle";
 import { AuthLink } from "../shared/auth-link";
 import { Button } from "@/lib/components/button";
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
 export const Navbar = () => {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 
 	const menuItems = [
 		{ name: "Pricing", href: "/#pricing", external: false },
-		{ name: "Docs", href: config.docsUrl, external: true },
+		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Models", href: "/models", external: false },
 		{ name: "Playground", href: "/playground", external: false },
 		{ name: "Changelog", href: "/changelog", external: false },
@@ -48,9 +49,10 @@ export const Navbar = () => {
 						{/* Logo and Title */}
 						<div className="flex w-full justify-between lg:w-auto">
 							<Link
-								to="/"
+								href="/"
 								aria-label="home"
 								className="flex items-center space-x-2"
+								prefetch={true}
 							>
 								<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
 								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
@@ -83,8 +85,9 @@ export const Navbar = () => {
 											</a>
 										) : (
 											<Link
-												to={item.href}
+												href={item.href}
 												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+												prefetch={true}
 											>
 												{item.name}
 											</Link>
@@ -110,8 +113,9 @@ export const Navbar = () => {
 												</a>
 											) : (
 												<Link
-													to={item.href}
+													href={item.href}
 													className="text-muted-foreground hover:text-accent-foreground block duration-150"
+													prefetch={true}
 												>
 													{item.name}
 												</Link>
@@ -129,7 +133,7 @@ export const Navbar = () => {
 										"bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit",
 									)}
 								>
-									<AuthLink>Get Started</AuthLink>
+									<AuthLink href="/signup">Get Started</AuthLink>
 								</Button>
 								<ThemeToggle />
 							</div>

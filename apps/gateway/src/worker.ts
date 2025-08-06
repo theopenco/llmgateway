@@ -7,6 +7,7 @@ import {
 	and,
 	lt,
 	tables,
+	apiKey,
 } from "@llmgateway/db";
 
 import { getProject, getOrganization } from "./lib/cache";
@@ -123,6 +124,18 @@ async function processAutoTopUp(): Promise<void> {
 
 				const topUpAmount = Number(org.autoTopUpAmount || "10");
 
+				// Get the first user associated with this organization for email metadata
+				const orgUser = await db.query.userOrganization.findFirst({
+					where: {
+						organizationId: {
+							eq: org.id,
+						},
+					},
+					with: {
+						user: true,
+					},
+				});
+
 				const stripePaymentMethod = await stripe.paymentMethods.retrieve(
 					defaultPaymentMethod.stripePaymentMethodId,
 				);
@@ -170,6 +183,7 @@ async function processAutoTopUp(): Promise<void> {
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							totalFees: feeBreakdown.totalFees.toString(),
+							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
 					});
 
@@ -274,6 +288,14 @@ export async function processLogQueue(): Promise<void> {
 					})
 					.where(eq(organization.id, data.organizationId));
 			}
+
+			// update key usage
+			await db
+				.update(apiKey)
+				.set({
+					usage: sql`${apiKey.usage} + ${data.cost}`,
+				})
+				.where(eq(apiKey.id, data.apiKeyId));
 		}
 	} catch (error) {
 		console.error("Error processing log message:", error);

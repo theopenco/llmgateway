@@ -474,6 +474,7 @@ export interface paths {
 					unifiedFinishReason?: string;
 					provider?: string;
 					model?: string;
+					source?: string;
 					cursor?: string;
 					orderBy?: "createdAt_asc" | "createdAt_desc";
 					limit?: string;
@@ -524,6 +525,42 @@ export interface paths {
 								topP: number | null;
 								frequencyPenalty: number | null;
 								presencePenalty: number | null;
+								tools:
+									| {
+											/** @enum {string} */
+											type: "function";
+											function: {
+												name: string;
+												description?: string;
+												parameters?: {
+													[key: string]: unknown;
+												};
+											};
+									  }[]
+									| null;
+								toolChoice:
+									| "none"
+									| "auto"
+									| "required"
+									| {
+											/** @enum {string} */
+											type: "function";
+											function: {
+												name: string;
+											};
+									  }
+									| unknown;
+								toolResults:
+									| {
+											id: string;
+											/** @enum {string} */
+											type: "function";
+											function: {
+												name: string;
+												arguments: string;
+											};
+									  }[]
+									| null;
 								hasError: boolean | null;
 								errorDetails: {
 									statusCode: number;
@@ -543,6 +580,7 @@ export interface paths {
 								mode: "api-keys" | "credits" | "hybrid";
 								/** @enum {string} */
 								usedMode: "api-keys" | "credits";
+								source: string | null;
 							}[];
 							/** @description Pagination metadata */
 							pagination: {
@@ -661,6 +699,8 @@ export interface paths {
 								description: string;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
 								projectId: string;
 								maskedToken: string;
 							}[];
@@ -682,6 +722,7 @@ export interface paths {
 					"application/json": {
 						description: string;
 						projectId: string;
+						usageLimit: string | null;
 					};
 				};
 			};
@@ -700,6 +741,8 @@ export interface paths {
 								description: string;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
 								projectId: string;
 								token: string;
 							};
@@ -805,6 +848,87 @@ export interface paths {
 								description: string;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
+								projectId: string;
+								maskedToken: string;
+							};
+						};
+					};
+				};
+				/** @description Unauthorized. */
+				401: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							message: string;
+						};
+					};
+				};
+				/** @description API key not found. */
+				404: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							message: string;
+						};
+					};
+				};
+			};
+		};
+		trace?: never;
+	};
+	"/keys/api/limit/{id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path: {
+					id: string;
+				};
+				cookie?: never;
+			};
+			requestBody?: {
+				content: {
+					"application/json": {
+						usageLimit: string | null;
+					};
+				};
+			};
+			responses: {
+				/** @description API key usage limit updated successfully. */
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							message: string;
+							apiKey: {
+								id: string;
+								createdAt: string;
+								updatedAt: string;
+								description: string;
+								/** @enum {string|null} */
+								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
 								projectId: string;
 								maskedToken: string;
 							};
@@ -1060,7 +1184,42 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		get?: never;
+		get: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path: {
+					id: string;
+				};
+				cookie?: never;
+			};
+			requestBody?: never;
+			responses: {
+				/** @description Project retrieved successfully. */
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							project: {
+								id: string;
+								createdAt: string;
+								updatedAt: string;
+								name: string;
+								organizationId: string;
+								cachingEnabled: boolean;
+								cacheDurationSeconds: number;
+								/** @enum {string} */
+								mode: "api-keys" | "credits" | "hybrid";
+								/** @enum {string|null} */
+								status: "active" | "inactive" | "deleted" | null;
+							};
+						};
+					};
+				};
+			};
+		};
 		put?: never;
 		post?: never;
 		delete: {

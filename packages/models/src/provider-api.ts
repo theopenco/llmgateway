@@ -14,6 +14,7 @@ export function getProviderHeaders(
 			return {
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
+				"anthropic-beta": "tools-2024-04-04",
 			};
 		case "google-ai-studio":
 			return {};
@@ -27,6 +28,8 @@ export function getProviderHeaders(
 		case "novita":
 		case "moonshot":
 		case "alibaba":
+		case "nebius":
+		case "zai":
 		case "custom":
 		default:
 			return {
@@ -52,6 +55,7 @@ export function prepareRequestBody(
 	tools?: any[],
 	tool_choice?: string | { type: string; function: { name: string } },
 	reasoning_effort?: "low" | "medium" | "high",
+	supportsReasoning?: boolean,
 ) {
 	const requestBody: any = {
 		model: usedModel,
@@ -77,6 +81,8 @@ export function prepareRequestBody(
 		case "novita":
 		case "moonshot":
 		case "alibaba":
+		case "nebius":
+		case "zai":
 		case "custom": {
 			if (stream) {
 				requestBody.stream_options = {
@@ -109,6 +115,9 @@ export function prepareRequestBody(
 			break;
 		}
 		case "anthropic": {
+			// Remove generic tool_choice that was added earlier
+			delete requestBody.tool_choice;
+
 			requestBody.max_tokens = max_tokens || 1024; // Set a default if not provided
 			requestBody.messages = messages.map((m) => ({
 				role:
@@ -133,6 +142,38 @@ export function prepareRequestBody(
 					: m.content,
 			}));
 
+			// Transform tools from OpenAI format to Anthropic format
+			if (tools && tools.length > 0) {
+				requestBody.tools = tools.map((tool: any) => ({
+					name: tool.function.name,
+					description: tool.function.description,
+					input_schema: tool.function.parameters,
+				}));
+			}
+
+			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
+			if (tool_choice) {
+				if (
+					typeof tool_choice === "object" &&
+					tool_choice.type === "function"
+				) {
+					// Transform OpenAI format to Anthropic format
+					requestBody.tool_choice = {
+						type: "tool",
+						name: tool_choice.function.name,
+					};
+				} else if (tool_choice === "auto") {
+					// "auto" is the default behavior for Anthropic, omit it
+					// Anthropic doesn't need explicit "auto" tool_choice
+				} else if (tool_choice === "none") {
+					// "none" should work as-is
+					requestBody.tool_choice = tool_choice;
+				} else {
+					// Other string values (though not standard)
+					requestBody.tool_choice = tool_choice;
+				}
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;
@@ -151,8 +192,9 @@ export function prepareRequestBody(
 		case "google-vertex":
 		case "google-ai-studio": {
 			delete requestBody.model; // Not used in body
-			delete requestBody.stream; // Handled differently
-			delete requestBody.messages; // Not used in body for Google AI Studio
+			delete requestBody.stream; // Stream is handled via URL parameter
+			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
 			requestBody.contents = messages.map((m) => ({
 				role: m.role === "assistant" ? "model" : "user", // get rid of system role
@@ -163,7 +205,7 @@ export function prepareRequestBody(
 									text: i.text,
 								};
 							}
-							throw new Error("No support for non-text parts yet");
+							throw new Error(`Not supported content type yet: ${i.type}`);
 						})
 					: [
 							{
@@ -171,6 +213,19 @@ export function prepareRequestBody(
 							},
 						],
 			}));
+
+			// Transform tools from OpenAI format to Google format
+			if (tools && tools.length > 0) {
+				requestBody.tools = [
+					{
+						functionDeclarations: tools.map((tool: any) => ({
+							name: tool.function.name,
+							description: tool.function.description,
+							parameters: tool.function.parameters,
+						})),
+					},
+				];
+			}
 
 			requestBody.generationConfig = {};
 
@@ -183,6 +238,13 @@ export function prepareRequestBody(
 			}
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
+			}
+
+			// Enable thinking/reasoning content exposure for Google models that support reasoning
+			if (supportsReasoning) {
+				requestBody.generationConfig.thinkingConfig = {
+					includeThoughts: true,
+				};
 			}
 
 			break;
@@ -224,6 +286,7 @@ export function getProviderEndpoint(
 	baseUrl?: string,
 	model?: string,
 	token?: string,
+	stream?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -294,6 +357,12 @@ export function getProviderEndpoint(
 			case "alibaba":
 				url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
 				break;
+			case "nebius":
+				url = "https://api.studio.nebius.com";
+				break;
+			case "zai":
+				url = "https://api.z.ai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -308,21 +377,38 @@ export function getProviderEndpoint(
 	switch (provider) {
 		case "anthropic":
 			return `${url}/v1/messages`;
-		case "google-vertex":
+		case "google-vertex": {
 			if (modelName) {
-				return `${url}/v1beta/models/${modelName}:generateContent`;
+				const endpoint = stream ? "streamGenerateContent" : "generateContent";
+				const baseEndpoint = `${url}/v1beta/models/${modelName}:${endpoint}`;
+				return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
 			}
-			return `${url}/v1beta/models/gemini-2.0-flash:generateContent`;
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
+		}
 		case "google-ai-studio": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
-				? `${url}/v1beta/models/${modelName}:generateContent`
-				: `${url}/v1beta/models/gemini-2.0-flash:generateContent`;
-			return token ? `${baseEndpoint}?key=${token}` : baseEndpoint;
+				? `${url}/v1beta/models/${modelName}:${endpoint}`
+				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			const queryParams = [];
+			if (token) {
+				queryParams.push(`key=${token}`);
+			}
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
 		}
 		case "perplexity":
 			return `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
+		case "zai":
+			return `${url}/api/paas/v4/chat/completions`;
 		case "inference.net":
 		case "openai":
 		case "llmgateway":
@@ -332,6 +418,7 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "alibaba":
+		case "nebius":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
@@ -430,6 +517,7 @@ export async function validateProviderKey(
 			baseUrl,
 			undefined,
 			provider === "google-ai-studio" ? token : undefined,
+			false, // validation doesn't need streaming
 		);
 
 		// Use prepareRequestBody to create the validation payload
@@ -441,6 +529,8 @@ export async function validateProviderKey(
 		const messages = [systemMessage, minimalMessage];
 
 		const validationModel = getCheapestModelForProvider(provider);
+
+		console.log("using validationModel", provider, validationModel);
 
 		if (!validationModel) {
 			throw new Error(
@@ -462,6 +552,7 @@ export async function validateProviderKey(
 			undefined, // tools
 			undefined, // tool_choice
 			undefined, // reasoning_effort
+			false, // supportsReasoning - disable for validation
 		);
 
 		const headers = getProviderHeaders(provider, token);

@@ -21,7 +21,7 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { useToast } from "@/lib/components/use-toast";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 import { useStripe } from "@/lib/stripe";
@@ -56,15 +56,20 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const api = useApi();
 
-	const { data: paymentMethodsData } = api.useSuspenseQuery(
-		"get",
-		"/payments/payment-methods",
-	);
+	const { data: paymentMethodsData, isLoading: paymentMethodsLoading } =
+		api.useQuery(
+			"get",
+			"/payments/payment-methods",
+			{},
+			{
+				enabled: open, // Only fetch when dialog is open
+			},
+		);
 
 	const hasPaymentMethods =
 		paymentMethodsData?.paymentMethods &&
 		paymentMethodsData.paymentMethods.length > 0;
-	const defaultPaymentMethod = paymentMethodsData?.paymentMethods.find(
+	const defaultPaymentMethod = paymentMethodsData?.paymentMethods?.find(
 		(pm) => pm.isDefault,
 	);
 
@@ -91,6 +96,9 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						amount={amount}
 						setAmount={setAmount}
 						onNext={() => {
+							if (paymentMethodsLoading) {
+								return; // Don't proceed if still loading
+							}
 							if (hasPaymentMethods) {
 								setStep("select-payment");
 							} else {
@@ -155,7 +163,7 @@ function AmountStep({
 	onCancel: () => void;
 }) {
 	const presetAmounts = [10, 25, 50, 100];
-	const { selectedOrganization } = useDashboardContext();
+	const { selectedOrganization } = useDashboardState();
 	const api = useApi();
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
@@ -459,7 +467,16 @@ function SelectPaymentStep({
 	onCancel,
 }: {
 	amount: number;
-	paymentMethods: any[];
+	paymentMethods: {
+		id: string;
+		stripePaymentMethodId: string;
+		type: string;
+		isDefault: boolean;
+		cardBrand?: string;
+		cardLast4?: string;
+		expiryMonth?: number;
+		expiryYear?: number;
+	}[];
 	selectedPaymentMethod: string | null;
 	setSelectedPaymentMethod: (id: string) => void;
 	onUseSelected: () => void;
@@ -551,7 +568,7 @@ function ConfirmPaymentStep({
 	setLoading: (loading: boolean) => void;
 }) {
 	const { toast } = useToast();
-	const { selectedOrganization } = useDashboardContext();
+	const { selectedOrganization } = useDashboardState();
 	const api = useApi();
 	const { mutateAsync: topUpMutation } = api.useMutation(
 		"post",

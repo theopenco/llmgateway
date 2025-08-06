@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
-import type { errorDetails } from "./types";
+import type { errorDetails, tools, toolChoice, toolResults } from "./types";
 import type z from "zod";
 
 export const UnifiedFinishReason = {
@@ -21,6 +21,7 @@ export const UnifiedFinishReason = {
 	TOOL_CALLS: "tool_calls",
 	GATEWAY_ERROR: "gateway_error",
 	UPSTREAM_ERROR: "upstream_error",
+	CLIENT_ERROR: "client_error",
 	CANCELED: "canceled",
 	UNKNOWN: "unknown",
 } as const;
@@ -191,7 +192,7 @@ export const project = pgTable("project", {
 		enum: ["api-keys", "credits", "hybrid"],
 	})
 		.notNull()
-		.default("credits"),
+		.default("hybrid"),
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
@@ -209,6 +210,8 @@ export const apiKey = pgTable("api_key", {
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
+	usageLimit: decimal(),
+	usage: decimal().notNull().default("0"),
 	projectId: text()
 		.notNull()
 		.references(() => project.id, { onDelete: "cascade" }),
@@ -262,7 +265,9 @@ export const log = pgTable("log", {
 	responseSize: integer().notNull(),
 	content: text(),
 	reasoningContent: text(),
-	toolCalls: json(),
+	tools: json().$type<z.infer<typeof tools>>(),
+	toolChoice: json().$type<z.infer<typeof toolChoice>>(),
+	toolResults: json().$type<z.infer<typeof toolResults>>(),
 	finishReason: text(),
 	unifiedFinishReason: text(),
 	promptTokens: decimal(),
@@ -293,6 +298,7 @@ export const log = pgTable("log", {
 	usedMode: text({
 		enum: ["api-keys", "credits"],
 	}).notNull(),
+	source: text(),
 	customHeaders: json(), // JSON object to store X-LLMGateway-* headers as key-value pairs
 });
 

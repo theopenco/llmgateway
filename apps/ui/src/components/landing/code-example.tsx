@@ -1,13 +1,16 @@
+"use client";
+
 import { Copy } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Highlight, themes } from "prism-react-renderer";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { Button } from "@/lib/components/button";
 import { toast } from "@/lib/components/use-toast";
 import { cn } from "@/lib/utils";
 
 import type { Language } from "prism-react-renderer";
+import type { CSSProperties } from "react";
 
 const codeExamples = {
 	curl: {
@@ -198,6 +201,11 @@ export function CodeExample() {
 	const [activeTab, setActiveTab] =
 		useState<keyof typeof codeExamples>("python");
 	const { resolvedTheme } = useTheme();
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
 
 	const copyToClipboard = async (text: string, language: string) => {
 		try {
@@ -240,7 +248,7 @@ export function CodeExample() {
 								<button
 									key={key}
 									onClick={() => setActiveTab(key as keyof typeof codeExamples)}
-									className={`px-3 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer ${
+									className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
 										activeTab === key
 											? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
 											: "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
@@ -277,7 +285,9 @@ export function CodeExample() {
 								code={currentExample.code}
 								language={currentExample.language as Language}
 								theme={
-									resolvedTheme === "dark" ? themes.dracula : themes.github
+									mounted && resolvedTheme === "dark"
+										? themes.dracula
+										: themes.github
 								}
 							>
 								{({
@@ -288,7 +298,7 @@ export function CodeExample() {
 									getTokenProps,
 								}: {
 									className: string;
-									style: React.CSSProperties;
+									style: CSSProperties;
 									tokens: any[];
 									getLineProps: (props: any) => any;
 									getTokenProps: (props: any) => any;
@@ -305,13 +315,17 @@ export function CodeExample() {
 											overflowX: "auto",
 										}}
 									>
-										{tokens.map((line: any, i: number) => (
-											<div key={i} {...getLineProps({ line, key: i })}>
-												{line.map((token: any, key: number) => (
-													<span key={key} {...getTokenProps({ token, key })} />
-												))}
-											</div>
-										))}
+										{tokens.map((line: any, i: number) => {
+											const lineProps = getLineProps({ line });
+											return (
+												<div key={i} {...lineProps}>
+													{line.map((token: any, key: number) => {
+														const tokenProps = getTokenProps({ token });
+														return <span key={key} {...tokenProps} />;
+													})}
+												</div>
+											);
+										})}
 									</pre>
 								)}
 							</Highlight>

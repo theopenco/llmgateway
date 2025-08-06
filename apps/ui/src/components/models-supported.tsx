@@ -4,7 +4,6 @@ import {
 	providers as providerDefinitions,
 	type ProviderId,
 } from "@llmgateway/models";
-import { Link } from "@tanstack/react-router";
 import {
 	ExternalLink,
 	Copy,
@@ -13,14 +12,17 @@ import {
 	GitBranch,
 	Filter,
 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
-import { providerLogoComponents } from "./provider-keys/provider-logo";
+import { providerLogoUrls } from "./provider-keys/provider-logo";
+import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
 	CardDescription,
+	CardFooter,
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
@@ -31,8 +33,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { useAppConfigValue } from "@/lib/config";
-import Logo from "@/lib/icons/Logo";
+import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
 
 interface ProviderModel {
@@ -45,24 +46,135 @@ interface ProviderModel {
 	contextSize?: number;
 }
 
+// Component for rendering individual provider-model cards
+interface ProviderModelCardProps {
+	model: ProviderModel;
+	copiedText: string | null;
+	onCopy: (text: string) => void;
+}
+
+function ProviderModelCard({
+	model,
+	copiedText,
+	onCopy,
+}: ProviderModelCardProps) {
+	const providerModelName = `${model.providerId}/${model.id}`;
+
+	return (
+		<Card
+			key={`${model.providerId}-${model.id}`}
+			className="flex flex-col h-full hover:shadow-md transition-shadow"
+		>
+			<CardHeader className="pb-2">
+				<div className="flex items-start justify-between gap-2">
+					<div className="flex-1 min-w-0">
+						<CardTitle className="text-base leading-tight line-clamp-1">
+							{model.id}
+						</CardTitle>
+						<CardDescription className="text-xs">
+							{model.providerName}
+						</CardDescription>
+					</div>
+				</div>
+			</CardHeader>
+			<CardContent className="mt-auto space-y-2">
+				{/* Model Name Copy Section */}
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex-1 min-w-0">
+						<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all">
+							{providerModelName}
+						</code>
+					</div>
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-6 w-6 p-0 shrink-0"
+						onClick={() => onCopy(providerModelName)}
+						title="Copy provider/model name"
+					>
+						{copiedText === providerModelName ? (
+							<Check className="h-3 w-3 text-green-600" />
+						) : (
+							<Copy className="h-3 w-3" />
+						)}
+					</Button>
+				</div>
+
+				{model.contextSize && (
+					<p className="text-xs text-muted-foreground">
+						Context:{" "}
+						<span className="font-mono text-foreground font-bold">
+							{formatContextSize(model.contextSize)}
+						</span>
+					</p>
+				)}
+				{(model.inputPrice !== undefined ||
+					model.outputPrice !== undefined ||
+					model.requestPrice !== undefined) && (
+					<p className="text-xs text-muted-foreground">
+						{model.inputPrice !== undefined && (
+							<>
+								<span className="font-mono text-foreground font-bold">
+									${(model.inputPrice * 1e6).toFixed(2)}
+								</span>{" "}
+								<span className="text-muted-foreground">in</span>
+							</>
+						)}
+
+						{model.outputPrice !== undefined && (
+							<>
+								<span className="text-muted-foreground mx-2">/</span>
+								<span className="font-mono text-foreground font-bold">
+									${(model.outputPrice * 1e6).toFixed(2)}
+								</span>{" "}
+								<span className="text-muted-foreground">out</span>
+							</>
+						)}
+						{model.requestPrice !== undefined &&
+							model.requestPrice !== 0 &&
+							` / $${(model.requestPrice * 1000).toFixed(2)} per 1K req`}
+					</p>
+				)}
+			</CardContent>
+			<CardFooter className="mt-auto pt-4">
+				<Button asChild variant="secondary" className="w-full">
+					<Link href={`/models/${encodeURIComponent(model.id)}`}>
+						See more details
+					</Link>
+				</Button>
+			</CardFooter>
+		</Card>
+	);
+}
+
 const getProviderLogo = (providerId: ProviderId) => {
-	const LogoComponent = providerLogoComponents[providerId];
+	const LogoComponent = providerLogoUrls[providerId];
 
 	if (LogoComponent) {
 		return <LogoComponent className="h-10 w-10 object-contain" />;
 	}
 
-	return <Logo className="h-10 w-10" />;
+	const IconComponent = getProviderIcon(providerId);
+	return IconComponent ? (
+		<IconComponent className="h-10 w-10" />
+	) : (
+		<div className="h-10 w-10 bg-gray-200 rounded" />
+	);
 };
 
 const getProviderLogoSmall = (providerId: ProviderId) => {
-	const LogoComponent = providerLogoComponents[providerId];
+	const LogoComponent = providerLogoUrls[providerId];
 
 	if (LogoComponent) {
 		return <LogoComponent className="h-5 w-5 object-contain" />;
 	}
 
-	return <Logo className="h-5 w-5" />;
+	const IconComponent = getProviderIcon(providerId);
+	return IconComponent ? (
+		<IconComponent className="h-5 w-5" />
+	) : (
+		<div className="h-5 w-5 bg-gray-200 rounded" />
+	);
 };
 
 const groupedProviders = modelDefinitions.reduce<
@@ -97,7 +209,7 @@ const totalModels = modelDefinitions.length;
 const totalProviders = sortedProviderEntries.length;
 
 export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const [copiedText, setCopiedText] = useState<string | null>(null);
 	const [selectedProvider, setSelectedProvider] = useState<string>("all");
 
@@ -293,10 +405,9 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 					return (
 						<div key={providerName} className="space-y-6">
 							<Link
-								to="/providers/$id"
-								params={{ id: providerId }}
+								href={`/providers/${providerId}`}
 								className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-								preload="intent"
+								prefetch={true}
 							>
 								{getProviderLogo(providerId)}
 								<h2 className="text-2xl font-semibold">{providerName}</h2>
@@ -305,94 +416,14 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 								</span>
 							</Link>
 							<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-								{models.map((model) => {
-									const providerModelName = `${model.providerId}/${model.id}`;
-
-									return (
-										<Card
-											key={`${model.providerId}-${model.id}`}
-											className="flex flex-col h-full hover:shadow-md transition-shadow"
-										>
-											<CardHeader className="pb-2">
-												<div className="flex items-start justify-between gap-2">
-													<div className="flex-1 min-w-0">
-														<CardTitle className="text-base leading-tight line-clamp-1">
-															{model.id}
-														</CardTitle>
-														<CardDescription className="text-xs">
-															{model.providerName}
-														</CardDescription>
-													</div>
-												</div>
-											</CardHeader>
-											<CardContent className="mt-auto space-y-2">
-												{/* Model Name Copy Section */}
-												<div className="flex items-center justify-between gap-2">
-													<div className="flex-1 min-w-0">
-														<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all">
-															{providerModelName}
-														</code>
-													</div>
-													<Button
-														variant="ghost"
-														size="sm"
-														className="h-6 w-6 p-0 shrink-0"
-														onClick={() => copyToClipboard(providerModelName)}
-														title="Copy provider/model name"
-													>
-														{copiedText === providerModelName ? (
-															<Check className="h-3 w-3 text-green-600" />
-														) : (
-															<Copy className="h-3 w-3" />
-														)}
-													</Button>
-												</div>
-
-												{model.contextSize && (
-													<p className="text-xs text-muted-foreground">
-														Context:{" "}
-														<span className="font-mono text-foreground font-bold">
-															{formatContextSize(model.contextSize)}
-														</span>
-													</p>
-												)}
-												{(model.inputPrice !== undefined ||
-													model.outputPrice !== undefined ||
-													model.requestPrice !== undefined) && (
-													<p className="text-xs text-muted-foreground">
-														{model.inputPrice !== undefined && (
-															<>
-																<span className="font-mono text-foreground font-bold">
-																	${(model.inputPrice * 1e6).toFixed(2)}
-																</span>{" "}
-																<span className="text-muted-foreground">
-																	in
-																</span>
-															</>
-														)}
-
-														{model.outputPrice !== undefined && (
-															<>
-																<span className="text-muted-foreground mx-2">
-																	/
-																</span>
-																<span className="font-mono text-foreground font-bold">
-																	${(model.outputPrice * 1e6).toFixed(2)}
-																</span>{" "}
-																<span className="text-muted-foreground">
-																	out
-																</span>
-															</>
-														)}
-														{model.requestPrice !== undefined &&
-															model.requestPrice !== 0 &&
-															` / $${(model.requestPrice * 1000).toFixed(2)} per 1K req`}
-													</p>
-												)}
-											</CardContent>
-										</Card>
-									);
-								})}
+								{models.map((model) => (
+									<ProviderModelCard
+										key={`${model.providerId}-${model.id}`}
+										model={model}
+										copiedText={copiedText}
+										onCopy={copyToClipboard}
+									/>
+								))}
 							</div>
 						</div>
 					);

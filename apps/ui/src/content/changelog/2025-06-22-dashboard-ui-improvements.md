@@ -15,11 +15,15 @@ image:
 
 Manage everything with dedicated contexts:
 
-- **Organization switcher** in the sidebar
-- **Project switcher** in the top bar
-- **API keys** belong to projects
-- **Provider keys** belong to organizations
-- **Usage, activity and settings** reflect the chosen context
+**Organization switcher** in the sidebar
+
+**Project switcher** in the top bar
+
+**API keys** belong to projects
+
+**Provider keys** belong to organizations
+
+**Usage, activity and settings** reflect the chosen context
 
 ## 📊 Focused Statistics
 

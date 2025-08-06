@@ -82,14 +82,6 @@ async function seed() {
 		description: "Test API Key",
 	});
 
-	// Insert provider key
-	await upsert(tables.providerKey, {
-		id: "test-provider-key-id",
-		token: "test-provider-token",
-		provider: "openai",
-		organizationId: "test-org-id",
-	});
-
 	// Insert logs
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 

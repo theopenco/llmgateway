@@ -1,4 +1,7 @@
+"use client";
+
 import { addDays, format, parseISO, subDays } from "date-fns";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
 	Bar,
@@ -11,7 +14,7 @@ import {
 	YAxis,
 } from "recharts";
 
-import { Button } from "@/lib/components/button";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
 	CardContent,
@@ -26,14 +29,15 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { useDashboardContext } from "@/lib/dashboard-context";
 import { useApi } from "@/lib/fetch-client";
 
-import type { ActivityModelUsage, DailyActivity } from "@/types/activity";
+import type { ActivitT, ActivityModelUsage } from "@/types/activity";
 import type { TooltipProps } from "recharts";
 
 // Helper function to get all unique models from the data
-function getUniqueModels(data: any[]): string[] {
+function getUniqueModels(
+	data: { modelBreakdown: { id: string }[] }[],
+): string[] {
 	if (!data || data.length === 0) {
 		return [];
 	}
@@ -41,7 +45,7 @@ function getUniqueModels(data: any[]): string[] {
 	const allModels = new Set<string>();
 	data.forEach((day) => {
 		if (day.modelBreakdown && day.modelBreakdown.length > 0) {
-			day.modelBreakdown.forEach((model: any) => {
+			day.modelBreakdown.forEach((model) => {
 				allModels.add(model.id);
 			});
 		}
@@ -70,9 +74,22 @@ function getModelColor(model: string, index: number): string {
 	return colors[index % colors.length];
 }
 
+interface TooltipPayload {
+	dataKey: string;
+	name: string;
+	value: number;
+	color: string;
+	payload: {
+		requestCount: number;
+		totalTokens: number;
+		cost: number;
+		modelBreakdown: ActivityModelUsage[];
+	};
+}
+
 interface CustomTooltipProps extends TooltipProps<number, string> {
 	active?: boolean;
-	payload?: any[];
+	payload?: TooltipPayload[];
 	label?: string;
 	breakdownField?: "requests" | "cost" | "tokens";
 }
@@ -125,7 +142,7 @@ const CustomTooltip = ({
 									: 0;
 
 							return (
-								<p key={index} className="text-xs">
+								<p key={`${entry.dataKey}-${index}`} className="text-xs">
 									<span
 										className="inline-block w-3 h-3 mr-1"
 										style={{ backgroundColor: entry.color }}
@@ -152,13 +169,21 @@ const CustomTooltip = ({
 	return null;
 };
 
-export function ActivityChart() {
-	const [days, setDays] = useState<7 | 30>(7);
+interface ActivityChartProps {
+	initialData?: ActivitT;
+}
+
+export function ActivityChart({ initialData }: ActivityChartProps) {
+	const searchParams = useSearchParams();
 	const [breakdownField, setBreakdownField] = useState<
 		"requests" | "cost" | "tokens"
 	>("requests");
-	const { selectedProject } = useDashboardContext();
+	const { selectedProject } = useDashboardNavigation();
 	const api = useApi();
+
+	// Get days from URL parameter
+	const daysParam = searchParams.get("days");
+	const days = daysParam === "30" ? 30 : 7;
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -173,6 +198,7 @@ export function ActivityChart() {
 		},
 		{
 			enabled: !!selectedProject?.id,
+			initialData: initialData,
 		},
 	);
 
@@ -273,11 +299,19 @@ export function ActivityChart() {
 			const dayData = dataByDate.get(date)!;
 
 			// Process model breakdown data for stacked bars
-			const result = {
+			const result: Record<
+				string,
+				| string
+				| number
+				| {
+						id: string;
+						requestCount: number;
+						cost: number;
+						totalTokens: number;
+				  }[]
+			> = {
 				...dayData,
 				formattedDate: format(parseISO(date), "MMM d"),
-			} as DailyActivity & {
-				[key: string]: number | string | ActivityModelUsage[];
 			};
 
 			// Add each model's selected metric as a separate property for stacking
@@ -340,22 +374,6 @@ export function ActivityChart() {
 							<SelectItem value="tokens">Tokens</SelectItem>
 						</SelectContent>
 					</Select>
-					<div className="flex space-x-2">
-						<Button
-							variant={days === 7 ? "default" : "outline"}
-							size="sm"
-							onClick={() => setDays(7)}
-						>
-							7 Days
-						</Button>
-						<Button
-							variant={days === 30 ? "default" : "outline"}
-							size="sm"
-							onClick={() => setDays(30)}
-						>
-							30 Days
-						</Button>
-					</div>
 				</div>
 			</CardHeader>
 			<CardContent>
@@ -393,7 +411,7 @@ export function ActivityChart() {
 						{getUniqueModels(data.activity).length > 0 ? (
 							getUniqueModels(data.activity).map((model, index) => (
 								<Bar
-									key={model}
+									key={`${model}-${index}`}
 									dataKey={model}
 									name={model}
 									stackId="models"
@@ -407,8 +425,20 @@ export function ActivityChart() {
 							))
 						) : (
 							<Bar
-								dataKey="requestCount"
-								name="Requests"
+								dataKey={
+									breakdownField === "cost"
+										? "cost"
+										: breakdownField === "tokens"
+											? "totalTokens"
+											: "requestCount"
+								}
+								name={
+									breakdownField === "cost"
+										? "Cost"
+										: breakdownField === "tokens"
+											? "Tokens"
+											: "Requests"
+								}
 								fill="currentColor"
 								radius={[4, 4, 0, 0]}
 								className="fill-primary opacity-80 hover:opacity-100 transition-opacity"

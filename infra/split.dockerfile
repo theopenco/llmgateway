@@ -23,7 +23,6 @@ COPY ../.npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY ../apps/api/package.json ./apps/api/
 COPY ../apps/gateway/package.json ./apps/gateway/
 COPY ../apps/ui/package.json ./apps/ui/
-COPY ../apps/next/package.json ./apps/next/
 COPY ../apps/docs/package.json ./apps/docs/
 COPY ../packages/auth/package.json ./packages/auth/
 COPY ../packages/db/package.json ./packages/db/
@@ -87,19 +86,6 @@ COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-
 RUN pnpm --filter=ui --prod deploy ../dist/ui
 RUN rm -rf /app/temp
 WORKDIR /app/dist/ui
-EXPOSE 80
-ENV PORT=80
-ENV NODE_ENV=production
-CMD ["pnpm", "start"]
-
-FROM runtime AS next
-WORKDIR /app/temp
-COPY --from=builder /app/apps ./apps
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-RUN pnpm --filter=next --prod deploy ../dist/next
-RUN rm -rf /app/temp
-WORKDIR /app/dist/next
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production

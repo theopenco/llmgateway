@@ -1,8 +1,18 @@
-import { Link } from "@tanstack/react-router";
+"use client";
+
+import Link from "next/link";
 
 import { useUser } from "@/hooks/useUser";
 
-export function AuthLink(props: Omit<React.ComponentProps<typeof Link>, "to">) {
+type AuthLinkProps = Omit<React.ComponentProps<typeof Link>, "to">;
+
+export function AuthLink(props: AuthLinkProps) {
 	const { user, isLoading } = useUser();
-	return <Link {...props} to={user && !isLoading ? "/dashboard" : "/signup"} />;
+	return (
+		<Link
+			{...props}
+			href={user && !isLoading ? "/dashboard" : "/signup"}
+			prefetch={true}
+		/>
+	);
 }

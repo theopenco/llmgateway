@@ -1,16 +1,17 @@
+"use client";
 import { providers as providerDefinitions } from "@llmgateway/models";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
-import { Link } from "@tanstack/react-router";
 import { GithubIcon, TwitterIcon } from "lucide-react";
+import Link from "next/link";
 
-import { useAppConfigValue } from "@/lib/config";
+import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 
 const DISCORD_URL = "https://discord.gg/gcqcZeYWEz";
 const X_URL = "https://x.com/llmgateway";
 
 export default function Footer() {
-	const config = useAppConfigValue();
+	const config = useAppConfig();
 	const filteredProviders = providerDefinitions.filter(
 		(p) => p.name !== "LLM Gateway",
 	);
@@ -31,7 +32,7 @@ export default function Footer() {
 						</p>
 						<div className="flex items-center space-x-4 mt-4">
 							<a
-								href={config.githubUrl}
+								href={config.githubUrl ?? ""}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -40,7 +41,7 @@ export default function Footer() {
 								<GithubIcon className="h-5 w-5" />
 							</a>
 							<a
-								href={X_URL}
+								href={X_URL ?? ""}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -49,7 +50,7 @@ export default function Footer() {
 								<TwitterIcon className="h-5 w-5" />
 							</a>
 							<a
-								href={DISCORD_URL}
+								href={DISCORD_URL ?? ""}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -76,24 +77,27 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										to="/models"
+										href="/models"
 										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
 									>
 										Models
 									</Link>
 								</li>
 								<li>
 									<Link
-										to="/playground"
+										href="/playground"
 										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
 									>
 										Playground
 									</Link>
 								</li>
 								<li>
 									<Link
-										to="/changelog"
+										href="/changelog"
 										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
 									>
 										Changelog
 									</Link>
@@ -108,7 +112,7 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href={config.docsUrl}
+										href={config.docsUrl ?? ""}
 										target="_blank"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>
@@ -117,7 +121,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href={config.githubUrl}
+										href={config.githubUrl ?? ""}
 										target="_blank"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>
@@ -143,7 +147,7 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href={X_URL}
+										href={X_URL ?? ""}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:text-black dark:hover:text-white"
@@ -153,7 +157,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href={DISCORD_URL}
+										href={DISCORD_URL ?? ""}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:text-black dark:hover:text-white"
@@ -171,8 +175,9 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<Link
-										to="/compare/open-router"
+										href="/compare/open-router"
 										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
 									>
 										OpenRouter
 									</Link>
@@ -188,9 +193,9 @@ export default function Footer() {
 								{filteredProviders.map((provider) => (
 									<li key={provider.id}>
 										<Link
-											to="/providers/$id"
-											params={{ id: provider.id }}
+											href={`/providers/${provider.id}`}
 											className="text-sm hover:text-black dark:hover:text-white"
+											prefetch={true}
 										>
 											{provider.name}
 										</Link>

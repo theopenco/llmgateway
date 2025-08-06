@@ -1,14 +1,11 @@
+"use client";
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
-import { Link } from "@tanstack/react-router";
 import { MonitorSmartphone, HelpCircle, Plus } from "lucide-react";
+import Link from "next/link";
 import React, { forwardRef, useId, useRef } from "react";
 
 import { AnimatedBeam } from "./animated-beam";
-import AnthropicLogo from "@/assets/models/anthropic.svg?react";
-import CloudriftLogo from "@/assets/models/cloudrift.svg?react";
-import GoogleVertexLogo from "@/assets/models/google-vertex-ai.svg?react";
-import OpenAiLogo from "@/assets/models/openai.svg?react";
-import XaiLogo from "@/assets/models/xai.svg?react";
+import { ProviderIcons } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
 	Tooltip,
@@ -52,13 +49,19 @@ export function Graph() {
 		useRef<HTMLDivElement>(null),
 	];
 
+	const OpenAIIcon = ProviderIcons.openai;
+	const AnthropicIcon = ProviderIcons.anthropic;
+	const GoogleVertexIcon = ProviderIcons["google-vertex"];
+	const XAIIcon = ProviderIcons.xai;
+	const CloudriftIcon = ProviderIcons.cloudrift;
+
 	const logos = [
-		<OpenAiLogo key={useId()} />,
-		<AnthropicLogo key={useId()} />,
-		<GoogleVertexLogo key={useId()} />,
-		<XaiLogo key={useId()} />,
+		<OpenAIIcon key={useId()} className="w-6 h-6 object-contain" />,
+		<AnthropicIcon key={useId()} className="w-6 h-6 object-contain" />,
+		<GoogleVertexIcon key={useId()} className="w-6 h-6 object-contain" />,
+		<XAIIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<DotsHorizontalIcon key={useId()} />,
-		<CloudriftLogo key={useId()} />,
+		<CloudriftIcon key={useId()} className="w-6 h-6 object-contain" />,
 	];
 
 	return (
@@ -133,7 +136,9 @@ export function Graph() {
 
 			<div className="mt-12 flex justify-center space-x-6">
 				<Button asChild>
-					<Link to="/models">View all models</Link>
+					<Link href="/models" prefetch={true}>
+						View all models
+					</Link>
 				</Button>
 				<Button variant="outline" asChild>
 					<a

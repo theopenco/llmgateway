@@ -1,6 +1,7 @@
+"use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { ChevronUp, Settings, User2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 
 import { useUser } from "@/hooks/useUser";
@@ -40,7 +41,7 @@ const items = [
 
 export function AppSidebar() {
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
+	const router = useRouter();
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 
@@ -55,7 +56,7 @@ export function AppSidebar() {
 			fetchOptions: {
 				onSuccess: () => {
 					queryClient.clear();
-					navigate({ to: "/login" });
+					router.push("/login");
 				},
 			},
 		});

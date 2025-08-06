@@ -1,3 +1,5 @@
+import type { Log } from "@llmgateway/db";
+
 export interface ActivityModelUsage {
 	id: string;
 	provider: string;
@@ -26,4 +28,35 @@ export interface DailyActivity {
 
 export interface ActivityResponse {
 	activity: DailyActivity[];
+}
+
+export type ActivitT =
+	| {
+			activity: {
+				date: string;
+				requestCount: number;
+				inputTokens: number;
+				outputTokens: number;
+				totalTokens: number;
+				cost: number;
+				inputCost: number;
+				outputCost: number;
+				requestCost: number;
+				errorCount: number;
+				errorRate: number;
+				cacheCount: number;
+				cacheRate: number;
+				modelBreakdown: ActivityModelUsage[];
+			}[];
+	  }
+	| undefined;
+
+export interface LogsData {
+	message?: string;
+	logs: Log[];
+	pagination: {
+		nextCursor: string | null;
+		hasMore: boolean;
+		limit: number;
+	};
 }

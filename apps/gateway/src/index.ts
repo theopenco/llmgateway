@@ -95,7 +95,15 @@ const root = createRoute({
 	operationId: "health",
 	method: "get",
 	path: "/",
-	request: {},
+	request: {
+		query: z.object({
+			skip: z.string().optional().openapi({
+				description:
+					"Comma-separated list of health checks to skip. Options: redis, database",
+				example: "redis,database",
+			}),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -125,28 +133,41 @@ const root = createRoute({
 });
 
 app.openapi(root, async (c) => {
+	const { skip } = c.req.valid("query");
+	const skipChecks = skip
+		? skip.split(",").map((s) => s.trim().toLowerCase())
+		: [];
+
 	const health = {
 		status: "ok",
 		redis: { connected: false, error: undefined as string | undefined },
 		database: { connected: false, error: undefined as string | undefined },
 	};
 
-	try {
-		await redisClient.ping();
+	if (!skipChecks.includes("redis")) {
+		try {
+			await redisClient.ping();
+			health.redis.connected = true;
+		} catch (error) {
+			health.status = "error";
+			health.redis.error = "Redis connection failed";
+			console.error("Redis healthcheck failed:", error);
+		}
+	} else {
 		health.redis.connected = true;
-	} catch (error) {
-		health.status = "error";
-		health.redis.error = "Redis connection failed";
-		console.error("Redis healthcheck failed:", error);
 	}
 
-	try {
-		await db.query.user.findFirst({});
+	if (!skipChecks.includes("database")) {
+		try {
+			await db.query.user.findFirst({});
+			health.database.connected = true;
+		} catch (error) {
+			health.status = "error";
+			health.database.error = "Database connection failed";
+			console.error("Database healthcheck failed:", error);
+		}
+	} else {
 		health.database.connected = true;
-	} catch (error) {
-		health.status = "error";
-		health.database.error = "Database connection failed";
-		console.error("Database healthcheck failed:", error);
 	}
 
 	return c.json({

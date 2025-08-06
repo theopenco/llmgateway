@@ -19,10 +19,13 @@ image:
 
 Access the best AI models through one consistent interface:
 
-- **OpenAI-compatible API** - Drop-in replacement for OpenAI's API
-- **Unified `/v1/chat/completions` endpoint** - Same endpoint for all providers
-- **Consistent authentication** - One API key for all models
-- **Standard response format** - Predictable JSON responses across providers
+**OpenAI-compatible API** Drop-in replacement for OpenAI's API
+
+**Unified `/v1/chat/completions` endpoint** Same endpoint for all providers
+
+**Consistent authentication** One API key for all models
+
+**Standard response format** Predictable JSON responses across providers
 
 ### 8 Supported Providers
 
@@ -34,10 +37,13 @@ We launch with comprehensive provider support:
 
 Smart routing ensures optimal performance:
 
-- **Automatic failover** - Seamless switching when providers are down
-- **Load balancing** - Distribute requests across multiple providers
-- **Cost optimization** - Route to most cost-effective provider
-- **Auto model selection** - Use `llmgateway/auto` for intelligent model routing
+**Automatic failover** Seamless switching when providers are down
+
+**Load balancing** Distribute requests across multiple providers
+
+**Cost optimization** Route to most cost-effective provider
+
+**Auto model selection** Use `llmgateway/auto` for intelligent model routing
 
 ### Provider-Specific Routing
 
@@ -59,18 +65,23 @@ model: "llmgateway/auto";
 
 Simple, transparent pricing:
 
-- **Pay-as-you-go** - Only pay for what you use
-- **No monthly minimums** - Perfect for experimentation
-- **Transparent pricing** - See exact costs before making requests
-- **Auto top-up** - Never run out of credits with configurable thresholds
+**Pay-as-you-go** Only pay for what you use
+
+**No monthly minimums** Perfect for experimentation
+
+**Transparent pricing** See exact costs before making requests
+
+**Auto top-up** Never run out of credits with configurable thresholds
 
 ### Three Project Modes
 
 Choose the billing approach that works for you:
 
-1. **Credits Mode** - Use our credit system with transparent pricing
-2. **API Keys Mode** - Use your own provider API keys (Pro plan)
-3. **Hybrid Mode** - Automatic fallback between API keys and credits
+**Credits Mode** - Use our credit system with transparent pricing
+
+**API Keys Mode** - Use your own provider API keys (Pro plan)
+
+**Hybrid Mode** - Automatic fallback between API keys and credits
 
 ## 📊 Comprehensive Analytics
 
@@ -78,19 +89,25 @@ Choose the billing approach that works for you:
 
 Track every API call with detailed insights:
 
-- **Request logs** - Complete request/response data with 90-day retention
-- **Performance metrics** - Response times, success rates, and error tracking
-- **Cost analytics** - Real-time spending across all providers
-- **Usage patterns** - Identify peak usage times and optimization opportunities
+**Request logs** Complete request/response data with 90-day retention
+
+**Performance metrics** Response times, success rates, and error tracking
+
+**Cost analytics** Real-time spending across all providers
+
+**Usage patterns** Identify peak usage times and optimization opportunities
 
 ### Advanced Filtering
 
 Multi-dimensional analytics:
 
-- **Date ranges** - Custom time periods from hours to months
-- **Provider comparison** - Performance across different providers
-- **Model utilization** - See which models are most popular
-- **Error analysis** - Detailed error tracking and debugging
+**Date ranges** Custom time periods from hours to months
+
+**Provider comparison** Performance across different providers
+
+**Model utilization** See which models are most popular
+
+**Error analysis** Detailed error tracking and debugging
 
 ## 🔧 Pro Plan Features
 
@@ -98,17 +115,23 @@ Multi-dimensional analytics:
 
 The biggest Pro feature - use your own provider keys **without any surcharges**:
 
-- **Direct cost control** - Pay providers directly at their rates
-- **0% LLM Gateway fees** - No markup on your API key usage
-- **Hybrid mode** - Automatic fallback to credits when keys hit limits
-- **Full transparency** - See exactly what you're paying each provider
+**Direct cost control** Pay providers directly at their rates
+
+**0% LLM Gateway fees** No markup on your API key usage
+
+**Hybrid mode** Automatic fallback to credits when keys hit limits
+
+**Full transparency** See exactly what you're paying each provider
 
 ### Enhanced Billing Management
 
-- **Flexible billing** - Monthly ($50) or yearly ($500, save 20%)
-- **Auto top-up** - Configurable credit thresholds and amounts
-- **Transaction history** - Complete payment records and invoices
-- **Subscription management** - Easy upgrades, downgrades, and cancellations
+**Flexible billing** Monthly ($50) or yearly ($500, save 20%)
+
+**Auto top-up** Configurable credit thresholds and amounts
+
+**Transaction history** Complete payment records and invoices
+
+**Subscription management** Easy upgrades, downgrades, and cancellations
 
 ## 🎯 Getting Started
 
@@ -116,19 +139,25 @@ The biggest Pro feature - use your own provider keys **without any surcharges**:
 
 Start using LLM Gateway in minutes:
 
-1. **Sign up** - Create your free account at [llmgateway.io](/)
-2. **Get API key** - Generate your authentication key
-3. **Make first request** - Start with $5 free credits
-4. **Explore models** - Try different providers and models
+**Sign up** - Create your free account at [llmgateway.io](/)
+
+**Get API key** - Generate your authentication key
+
+**Make first request** - Start with $5 free credits
+
+**Explore models** - Try different providers and models
 
 ### Free Tier Benefits
 
 Generous free tier to get started:
 
-- **$5 free credits** - Enough for thousands of requests
-- **All providers** - Access to every supported provider
-- **Full features** - No limitations on functionality
-- **3-day data retention** - Request logs and analytics
+**$5 free credits** Enough for thousands of requests
+
+**All providers** Access to every supported provider
+
+**Full features** No limitations on functionality
+
+**3-day data retention** Request logs and analytics
 
 ### OpenAI Drop-in Replacement
 
@@ -146,19 +175,25 @@ const openai = new OpenAI({
 
 Built with security in mind:
 
-- **SOC 2 compliance** - Enterprise security standards
-- **TLS encryption** - All data encrypted in transit
-- **API key authentication** - Secure access control
-- **GDPR compliant** - Privacy-first data handling
+**SOC 2 compliance** Enterprise security standards
+
+**TLS encryption** All data encrypted in transit
+
+**API key authentication** Secure access control
+
+**GDPR compliant** Privacy-first data handling
 
 ## 🌐 High Availability
 
 Reliable service you can depend on:
 
-- **99.9% uptime SLA** - Reliable service guarantee
-- **Multi-region deployment** - Global availability
-- **Automatic scaling** - Handle traffic spikes seamlessly
-- **Proactive monitoring** - Real-time issue detection and resolution
+**99.9% uptime SLA** Reliable service guarantee
+
+**Multi-region deployment** Global availability
+
+**Automatic scaling** Handle traffic spikes seamlessly
+
+**Proactive monitoring** Real-time issue detection and resolution
 
 ---
 

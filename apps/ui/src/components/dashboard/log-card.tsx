@@ -1,4 +1,4 @@
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	AudioWaveform,
@@ -9,6 +9,7 @@ import {
 	Clock,
 	Coins,
 	Package,
+	Link as LinkIcon,
 	Zap,
 } from "lucide-react";
 import prettyBytes from "pretty-bytes";
@@ -25,10 +26,10 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
-export function LogCard({ log }: { log: Log }) {
+export function LogCard({ log }: { log: Partial<Log> }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
+	const formattedTime = formatDistanceToNow(new Date(log?.createdAt ?? ""), {
 		addSuffix: true,
 	});
 
@@ -69,7 +70,7 @@ export function LogCard({ log }: { log: Log }) {
 				</div>
 				<div className="flex-1 space-y-1 min-w-0">
 					<div className="flex items-start justify-between gap-4">
-						<p className="font-medium break-words max-w-none">
+						<p className="font-medium break-words max-w-none line-clamp-2">
 							{log.content || <i className="italic">–</i>}
 						</p>
 						<Badge
@@ -94,7 +95,7 @@ export function LogCard({ log }: { log: Log }) {
 						</div>
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />
-							<span>{formatDuration(log.duration)}</span>
+							<span>{formatDuration(log.duration ?? 0)}</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Coins className="h-3.5 w-3.5" />
@@ -102,6 +103,12 @@ export function LogCard({ log }: { log: Log }) {
 								{log.cost ? `$${log.cost.toFixed(6)}` : log.cached ? "$0" : "?"}
 							</span>
 						</div>
+						{log.source && (
+							<div className="flex items-center gap-1">
+								<LinkIcon className="h-3.5 w-3.5" />
+								<span>{log.source}</span>
+							</div>
+						)}
 						<span className="ml-auto">{formattedTime}</span>
 					</div>
 				</div>
@@ -142,7 +149,7 @@ export function LogCard({ log }: { log: Log }) {
 							<h4 className="text-sm font-medium">Response Metrics</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Duration</div>
-								<div>{formatDuration(log.duration)}</div>
+								<div>{formatDuration(log.duration ?? 0)}</div>
 								<div className="text-muted-foreground">Response Size</div>
 								<div>
 									{log.responseSize ? (
@@ -225,7 +232,7 @@ export function LogCard({ log }: { log: Log }) {
 								</div>
 								<div className="text-muted-foreground">Request Cost</div>
 								<div>
-									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "?"}
+									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "0"}
 								</div>
 								<div className="text-muted-foreground">Total Cost</div>
 								<div className="font-medium">
@@ -236,6 +243,12 @@ export function LogCard({ log }: { log: Log }) {
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Metadata</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
+								<div className="text-muted-foreground">Date</div>
+								<div className="font-mono text-xs">
+									{format(log.createdAt!, "dd.MM.yyyy HH:mm:ss")}
+								</div>
+								<div className="text-muted-foreground">Source</div>
+								<div className="font-mono text-xs">{log.source || "-"}</div>
 								<div className="text-muted-foreground">Project ID</div>
 								<div className="font-mono text-xs">{log.projectId}</div>
 								<div className="text-muted-foreground">Organization ID</div>
@@ -312,6 +325,86 @@ export function LogCard({ log }: { log: Log }) {
 							</TooltipProvider>
 						</div>
 					</div>
+					{(log.tools || log.toolChoice || log.toolResults) && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Tool Information</h4>
+							<div className="grid gap-4 md:grid-cols-1">
+								{log.tools && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Available Tools
+										</h5>
+										<div className="rounded-md border p-3">
+											<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+												{JSON.stringify(log.tools, null, 2)}
+											</pre>
+										</div>
+									</div>
+								)}
+								{log.toolChoice && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Tool Choice
+										</h5>
+										<div className="rounded-md border p-3">
+											<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+												{JSON.stringify(log.toolChoice, null, 2)}
+											</pre>
+										</div>
+									</div>
+								)}
+								{log.toolResults && (
+									<div className="space-y-2">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Tool Calls
+										</h5>
+										<div className="space-y-2">
+											{Array.isArray(log.toolResults) ? (
+												log.toolResults.map((toolCall, index: number) => (
+													<div key={index} className="rounded-md border p-3">
+														<div className="grid gap-2 text-xs">
+															<div className="flex justify-between">
+																<span className="font-medium">
+																	{toolCall.function?.name ||
+																		"Unknown Function"}
+																</span>
+																<span className="text-muted-foreground">
+																	ID: {toolCall.id || "N/A"}
+																</span>
+															</div>
+															{toolCall.function?.arguments && (
+																<div className="space-y-1">
+																	<div className="text-muted-foreground">
+																		Arguments:
+																	</div>
+																	<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32">
+																		{typeof toolCall.function.arguments ===
+																		"string"
+																			? toolCall.function.arguments
+																			: JSON.stringify(
+																					toolCall.function.arguments,
+																					null,
+																					2,
+																				)}
+																	</pre>
+																</div>
+															)}
+														</div>
+													</div>
+												))
+											) : (
+												<div className="rounded-md border p-3">
+													<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+														{JSON.stringify(log.toolResults, null, 2)}
+													</pre>
+												</div>
+											)}
+										</div>
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 					{log.hasError && !!log.errorDetails && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium text-red-600">
@@ -348,7 +441,7 @@ export function LogCard({ log }: { log: Log }) {
 					{log.reasoningContent && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Reasoning Content</h4>
-							<div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+							<div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-900 p-3">
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
 									{log.reasoningContent}
 								</pre>

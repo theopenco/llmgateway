@@ -1,4 +1,5 @@
-import { providerLogoComponents } from "@/components/provider-keys/provider-logo";
+"use client";
+import { providerLogoUrls } from "@/components/provider-keys/provider-logo";
 import {
 	Select,
 	SelectContent,
@@ -45,13 +46,11 @@ export function ProviderSelect({
 					</SelectItem>
 				) : providers.length > 0 ? (
 					providers.map((provider) => {
-						const Logo = providerLogoComponents[provider.id as ProviderId];
+						const LogoComponent = providerLogoUrls[provider.id as ProviderId];
 						return (
 							<SelectItem key={provider.id} value={provider.id}>
 								<div className="flex items-center gap-2">
-									{Logo && (
-										<Logo className="h-4 w-4 text-black dark:text-white" />
-									)}
+									{LogoComponent && <LogoComponent className="h-4 w-4" />}
 									<span>{provider.name}</span>
 								</div>
 							</SelectItem>

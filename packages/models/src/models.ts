@@ -4,11 +4,14 @@ import { deepseekModels } from "./models/deepseek";
 import { googleModels } from "./models/google";
 import { llmgatewayModels } from "./models/llmgateway";
 import { metaModels } from "./models/meta";
+import { microsoftModels } from "./models/microsoft";
 import { mistralModels } from "./models/mistral";
 import { moonshotModels } from "./models/moonshot";
+import { nousresearchModels } from "./models/nousresearch";
 import { openaiModels } from "./models/openai";
 import { perplexityModels } from "./models/perplexity";
 import { xaiModels } from "./models/xai";
+import { zaiModels } from "./models/zai";
 
 import type { providers } from "./providers";
 
@@ -60,6 +63,10 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether this specific model supports tool calling for this provider
+	 */
+	tools?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
@@ -106,6 +113,9 @@ export const models = [
 	...metaModels,
 	...deepseekModels,
 	...mistralModels,
+	...microsoftModels,
 	...moonshotModels,
 	...alibabaModels,
+	...nousresearchModels,
+	...zaiModels,
 ] as const satisfies ModelDefinition[];

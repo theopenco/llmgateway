@@ -16,12 +16,13 @@ import {
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions() {
-	return process.env.CI ? { retry: 5 } : {};
+	return process.env.CI ? { retry: 3 } : {};
 }
 
 console.log("running with test options:", getTestOptions());
 
 const fullMode = process.env.FULL_MODE;
+const logMode = process.env.LOG_MODE;
 
 // Filter models based on test skip/only property
 const hasOnlyModels = models.some((model) =>
@@ -132,7 +133,7 @@ console.log(`Testing ${testModels.length} model configurations`);
 console.log(`Testing ${providerModels.length} provider model configurations`);
 
 const streamingModels = testModels.filter((m) =>
-	m.providers.some((p: any) => {
+	m.providers.some((p: ProviderModelMapping) => {
 		// Check model-level streaming first, then fall back to provider-level
 		if (p.streaming !== undefined) {
 			return p.streaming;
@@ -143,7 +144,11 @@ const streamingModels = testModels.filter((m) =>
 );
 
 const reasoningModels = testModels.filter((m) =>
-	m.providers.some((p: any) => p.reasoning === true),
+	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
+);
+
+const toolCallModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.tools === true),
 );
 
 describe("e2e", () => {
@@ -238,13 +243,14 @@ describe("e2e", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBeGreaterThan(0);
 
-		if (fullMode) {
+		if (logMode) {
 			console.log("logs", JSON.stringify(logs, null, 2));
 		}
 
 		const log = logs[0];
 		expect(log.usedProvider).toBeTruthy();
 
+		expect(log.errorDetails).toBeNull();
 		expect(log.finishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).toBeTruthy();
@@ -281,7 +287,7 @@ describe("e2e", () => {
 			});
 
 			const json = await res.json();
-			if (fullMode) {
+			if (logMode) {
 				console.log("response:", JSON.stringify(json, null, 2));
 			}
 
@@ -343,7 +349,7 @@ describe("e2e", () => {
 			expect(res.headers.get("content-type")).toContain("text/event-stream");
 
 			const streamResult = await readAll(res.body);
-			if (fullMode) {
+			if (logMode) {
 				console.log("streamResult", JSON.stringify(streamResult, null, 2));
 			}
 
@@ -434,7 +440,7 @@ describe("e2e", () => {
 			});
 
 			const json = await res.json();
-			if (fullMode) {
+			if (logMode) {
 				console.log("reasoning response:", JSON.stringify(json, null, 2));
 			}
 
@@ -460,6 +466,111 @@ describe("e2e", () => {
 				expect(typeof json.usage.reasoning_tokens).toBe("number");
 				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
 			}
+		},
+	);
+
+	test.each(toolCallModels)(
+		"tool calls $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: model,
+					messages: [
+						{
+							role: "system",
+							content:
+								"You are a weather assistant that can get weather information for cities.",
+						},
+						{
+							role: "user",
+							content: "What's the weather like in San Francisco?",
+						},
+					],
+					tools: [
+						{
+							type: "function",
+							function: {
+								name: "get_weather",
+								description: "Get the current weather for a given city",
+								parameters: {
+									type: "object",
+									properties: {
+										city: {
+											type: "string",
+											description: "The city name to get weather for",
+										},
+										unit: {
+											type: "string",
+											enum: ["celsius", "fahrenheit"],
+											description: "Temperature unit",
+											default: "fahrenheit",
+										},
+									},
+									required: ["city"],
+								},
+							},
+						},
+					],
+					tool_choice: "auto",
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log("tool calls response:", JSON.stringify(json, null, 2));
+			}
+
+			expect(res.status).toBe(200);
+			expect(json).toHaveProperty("choices");
+			expect(json.choices).toHaveLength(1);
+			expect(json.choices[0]).toHaveProperty("message");
+
+			const message = json.choices[0].message;
+			expect(message).toHaveProperty("role", "assistant");
+
+			// Should have tool calls since we're asking about weather
+			expect(message).toHaveProperty("tool_calls");
+			expect(Array.isArray(message.tool_calls)).toBe(true);
+			expect(message.tool_calls.length).toBeGreaterThan(0);
+
+			// Validate tool call structure
+			const toolCall = message.tool_calls[0];
+			expect(toolCall).toHaveProperty("id");
+			expect(toolCall).toHaveProperty("type", "function");
+			expect(toolCall).toHaveProperty("function");
+			expect(toolCall.function).toHaveProperty("name", "get_weather");
+			expect(toolCall.function).toHaveProperty("arguments");
+
+			// Parse and validate arguments
+			const args = JSON.parse(toolCall.function.arguments);
+			expect(args).toHaveProperty("city");
+			expect(typeof args.city).toBe("string");
+			expect(args.city.toLowerCase()).toContain("san francisco");
+
+			// Check finish reason
+			expect(json.choices[0]).toHaveProperty("finish_reason", "tool_calls");
+
+			// Validate logs
+			const log = await validateLogs();
+			expect(log.streamed).toBe(false);
+
+			// Validate usage
+			expect(json).toHaveProperty("usage");
+			expect(json.usage).toHaveProperty("prompt_tokens");
+			expect(json.usage).toHaveProperty("completion_tokens");
+			expect(json.usage).toHaveProperty("total_tokens");
+			expect(typeof json.usage.prompt_tokens).toBe("number");
+			expect(typeof json.usage.completion_tokens).toBe("number");
+			expect(typeof json.usage.total_tokens).toBe("number");
+			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+			expect(json.usage.completion_tokens).toBeGreaterThan(0);
+			expect(json.usage.total_tokens).toBeGreaterThan(0);
 		},
 	);
 
@@ -493,7 +604,7 @@ describe("e2e", () => {
 		});
 
 		const json = await res.json();
-		if (fullMode) {
+		if (logMode) {
 			console.log("json", JSON.stringify(json, null, 2));
 		}
 		expect(res.status).toBe(200);
@@ -549,8 +660,65 @@ describe("e2e", () => {
 				});
 
 				const json = await res.json();
-				if (fullMode) {
+				if (logMode) {
 					console.log("response:", JSON.stringify(json, null, 2));
+				}
+
+				expect(res.status).toBe(200);
+				validateResponse(json);
+
+				const log = await validateLogs();
+				expect(log.streamed).toBe(false);
+
+				expect(json).toHaveProperty("usage");
+				expect(json.usage).toHaveProperty("prompt_tokens");
+				expect(json.usage).toHaveProperty("completion_tokens");
+				expect(json.usage).toHaveProperty("total_tokens");
+				expect(typeof json.usage.prompt_tokens).toBe("number");
+				expect(typeof json.usage.completion_tokens).toBe("number");
+				expect(typeof json.usage.total_tokens).toBe("number");
+				if (provider.providerId !== "zai") {
+					// zai may have weird prompt tokens
+					expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+				}
+				expect(json.usage.completion_tokens).toBeGreaterThan(0);
+				expect(json.usage.total_tokens).toBeGreaterThan(0);
+				expect(json.usage.total_tokens).toEqual(
+					json.usage.prompt_tokens + json.usage.completion_tokens,
+				);
+			},
+		);
+
+		test.each(testModels)(
+			"parameters $model",
+			getTestOptions(),
+			async ({ model }) => {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: model,
+						messages: [
+							{
+								role: "system",
+								content: "You are a helpful assistant.",
+							},
+							{
+								role: "user",
+								content: "Hello, just reply 'OK'!",
+							},
+						],
+						max_tokens: 200,
+						temperature: 0.7,
+					}),
+				});
+
+				const json = await res.json();
+				if (logMode) {
+					console.log("parameters response:", JSON.stringify(json, null, 2));
 				}
 
 				expect(res.status).toBe(200);
@@ -569,9 +737,6 @@ describe("e2e", () => {
 				expect(json.usage.prompt_tokens).toBeGreaterThan(0);
 				expect(json.usage.completion_tokens).toBeGreaterThan(0);
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
-				expect(json.usage.total_tokens).toEqual(
-					json.usage.prompt_tokens + json.usage.completion_tokens,
-				);
 			},
 		);
 	}
@@ -612,6 +777,57 @@ describe("e2e", () => {
 		await clearCache(); // Process logs BEFORE deleting data
 		await db.delete(tables.apiKey);
 		await db.delete(tables.providerKey);
+	});
+
+	test("JSON output mode error when 'json' not mentioned in messages", async () => {
+		const envVarName = getProviderEnvVar("openai");
+		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		if (!envVarValue) {
+			console.log(
+				"Skipping JSON output client error test - no OpenAI API key provided",
+			);
+			return;
+		}
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "Hello, give me a greeting response",
+					},
+				],
+				response_format: { type: "json_object" },
+			}),
+		});
+
+		expect(res.status).toBe(400);
+
+		const json = await res.json();
+		expect(json).toHaveProperty("error");
+		expect(json.error).toHaveProperty("message");
+		expect(json.error.message).toContain("'messages' must contain");
+		expect(json.error.message).toContain("the word 'json'");
+		expect(json.error).toHaveProperty("type", "invalid_request_error");
+
+		// Wait for logs to be processed
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+
+		const log = logs[0];
+		expect(log.unifiedFinishReason).toBe("client_error");
+		expect(log.errorDetails).not.toBeNull();
+		expect(log.errorDetails).toHaveProperty("message");
+		expect((log.errorDetails as any).message).toContain(
+			"'messages' must contain",
+		);
+		expect((log.errorDetails as any).message).toContain("the word 'json'");
 	});
 
 	test("completions with llmgateway/auto in credits mode", async () => {

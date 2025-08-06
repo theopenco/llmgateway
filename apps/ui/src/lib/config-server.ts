@@ -1,5 +1,3 @@
-import { createServerFn } from "@tanstack/react-start";
-
 export interface AppConfig {
 	hosted: boolean;
 	apiUrl: string;
@@ -10,9 +8,7 @@ export interface AppConfig {
 	crispId?: string;
 }
 
-export const getConfig = createServerFn({
-	method: "GET",
-}).handler((): AppConfig => {
+export function getConfig(): AppConfig {
 	return {
 		hosted: process.env.HOSTED === "true",
 		apiUrl: process.env.API_URL || "http://localhost:4002",
@@ -23,4 +19,4 @@ export const getConfig = createServerFn({
 		posthogHost: process.env.POSTHOG_HOST,
 		crispId: process.env.CRISP_ID,
 	};
-});
+}

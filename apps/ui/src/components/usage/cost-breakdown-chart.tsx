@@ -1,5 +1,6 @@
+"use client";
 import { providers } from "@llmgateway/models";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
 	Cell,
 	Legend,
@@ -9,13 +10,26 @@ import {
 	Tooltip,
 } from "recharts";
 
-import { Button } from "@/lib/components/button";
-import { useDashboardContext } from "@/lib/dashboard-context";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
-export function CostBreakdownChart() {
-	const [days, setDays] = useState<7 | 30>(7);
-	const { selectedProject } = useDashboardContext();
+import type { ActivitT } from "@/types/activity";
+
+interface CostBreakdownChartProps {
+	initialData?: ActivitT;
+	projectId: string | undefined;
+}
+
+export function CostBreakdownChart({
+	initialData,
+	projectId,
+}: CostBreakdownChartProps) {
+	const searchParams = useSearchParams();
+	const { selectedProject } = useDashboardState();
+
+	// Get days from URL parameter
+	const daysParam = searchParams.get("days");
+	const days = daysParam === "30" ? 30 : 7;
 
 	const api = useApi();
 	const { data, isLoading, error } = api.useQuery(
@@ -25,16 +39,17 @@ export function CostBreakdownChart() {
 			params: {
 				query: {
 					days: String(days),
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(projectId ? { projectId: projectId } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!projectId,
+			initialData,
 		},
 	);
 
-	if (!selectedProject) {
+	if (!projectId) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
 				<p className="text-muted-foreground">
@@ -106,22 +121,6 @@ export function CostBreakdownChart() {
 
 	return (
 		<div>
-			<div className="flex items-center justify-end space-x-2 mb-4">
-				<Button
-					variant={days === 7 ? "default" : "outline"}
-					size="sm"
-					onClick={() => setDays(7)}
-				>
-					7 Days
-				</Button>
-				<Button
-					variant={days === 30 ? "default" : "outline"}
-					size="sm"
-					onClick={() => setDays(30)}
-				>
-					30 Days
-				</Button>
-			</div>
 			<ResponsiveContainer width="100%" height={350}>
 				<PieChart>
 					<Pie
