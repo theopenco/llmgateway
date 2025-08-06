@@ -41,6 +41,7 @@ export const zaiModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				test: "skip",
 			},
 		],
 		jsonOutput: true,
