@@ -200,10 +200,10 @@ const groupedProviders = modelDefinitions.reduce<
 
 const sortedProviderEntries = Object.entries(groupedProviders)
 	.sort(([a], [b]) => a.localeCompare(b))
-	.map(([providerName, models]) => [
-		providerName,
-		[...models].sort((a, b) => a.id.localeCompare(b.id)),
-	]) as [string, ProviderModel[]][];
+	.map(([providerName, models]) => [providerName, [...models].reverse()]) as [
+	string,
+	ProviderModel[],
+][];
 
 const totalModels = modelDefinitions.length;
 const totalProviders = sortedProviderEntries.length;
