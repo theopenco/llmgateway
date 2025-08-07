@@ -1292,9 +1292,6 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		reasoning_effort,
 	} = validationResult.data;
-	console.log("messages", messages);
-	console.log("tools", tools);
-	console.log("tool_choice", tool_choice);
 
 	// Extract and validate source from x-source header
 	const source = validateAndNormalizeSource(c.req.header("x-source"));
