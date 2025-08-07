@@ -93,8 +93,8 @@ export const xaiModels = [
 		id: "grok-2-1212",
 		name: "Grok-2 (1212)",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deprecatedAt: new Date("2025-08-08"),
+		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				providerId: "xai",
@@ -115,8 +115,8 @@ export const xaiModels = [
 		id: "grok-2-vision-1212",
 		name: "Grok-2 Vision (1212)",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deprecatedAt: new Date("2025-08-08"),
+		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				providerId: "xai",
