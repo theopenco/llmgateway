@@ -1012,26 +1012,28 @@ describe("e2e", () => {
 		expect(res.status).toBe(200);
 
 		const json = await res.json();
-		
+
 		// Verify we have usage information
 		expect(json).toHaveProperty("usage");
 		expect(json.usage).toHaveProperty("prompt_tokens");
 		expect(json.usage).toHaveProperty("completion_tokens");
 		expect(json.usage).toHaveProperty("total_tokens");
-		
+
 		// Verify types are numbers
 		expect(typeof json.usage.prompt_tokens).toBe("number");
 		expect(typeof json.usage.completion_tokens).toBe("number");
 		expect(typeof json.usage.total_tokens).toBe("number");
-		
+
 		// Most importantly: prompt_tokens should never be 0, even if provider returns 0
 		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
-		
+
 		// Completion tokens can be non-zero as set by mock
 		expect(json.usage.completion_tokens).toBeGreaterThan(0);
-		
+
 		// Total tokens should be at least as large as prompt tokens
-		expect(json.usage.total_tokens).toBeGreaterThanOrEqual(json.usage.prompt_tokens);
+		expect(json.usage.total_tokens).toBeGreaterThanOrEqual(
+			json.usage.prompt_tokens,
+		);
 	});
 
 	test("Prompt tokens are calculated for streaming when provider returns 0", async () => {
@@ -1056,11 +1058,11 @@ describe("e2e", () => {
 		expect(res.status).toBe(200);
 
 		const result = await readAll(res.body);
-		
+
 		// Find a usage chunk
 		const usageChunk = result.chunks.find((chunk: any) => chunk.usage);
 		expect(usageChunk).toBeDefined();
-		
+
 		if (usageChunk) {
 			// Verify prompt tokens are calculated and greater than 0
 			expect(usageChunk.usage.prompt_tokens).toBeGreaterThan(0);

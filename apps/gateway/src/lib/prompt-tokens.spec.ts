@@ -28,7 +28,7 @@ describe("Prompt token calculation", () => {
 					0,
 				);
 				return Math.max(1, Math.round(totalChars / 4));
-			} catch (error) {
+			} catch (_error) {
 				return 1; // Minimum fallback
 			}
 		};

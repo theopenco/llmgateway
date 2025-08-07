@@ -650,7 +650,10 @@ function transformToOpenAIFormat(
 				usage: {
 					prompt_tokens: Math.max(1, promptTokens || 1),
 					completion_tokens: completionTokens || 0,
-					total_tokens: Math.max(1, totalTokens || Math.max(1, promptTokens || 1)),
+					total_tokens: Math.max(
+						1,
+						totalTokens || Math.max(1, promptTokens || 1),
+					),
 					...(reasoningTokens !== null && {
 						reasoning_tokens: reasoningTokens,
 					}),
@@ -691,7 +694,10 @@ function transformToOpenAIFormat(
 				usage: {
 					prompt_tokens: Math.max(1, promptTokens || 1),
 					completion_tokens: completionTokens || 0,
-					total_tokens: Math.max(1, totalTokens || Math.max(1, promptTokens || 1)),
+					total_tokens: Math.max(
+						1,
+						totalTokens || Math.max(1, promptTokens || 1),
+					),
 					...(reasoningTokens !== null && {
 						reasoning_tokens: reasoningTokens,
 					}),
@@ -729,7 +735,10 @@ function transformToOpenAIFormat(
 					usage: {
 						prompt_tokens: Math.max(1, promptTokens || 1),
 						completion_tokens: completionTokens || 0,
-						total_tokens: Math.max(1, totalTokens || Math.max(1, promptTokens || 1)),
+						total_tokens: Math.max(
+							1,
+							totalTokens || Math.max(1, promptTokens || 1),
+						),
 						...(reasoningTokens !== null && {
 							reasoning_tokens: reasoningTokens,
 						}),
@@ -751,12 +760,21 @@ function calculatePromptTokensFromMessages(messages: any[]): number {
 	try {
 		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
 			role: m.role,
-			content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+			content:
+				typeof m.content === "string" ? m.content : JSON.stringify(m.content),
 			name: m.name,
 		}));
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch (error) {
-		return Math.max(1, Math.round(messages.reduce((acc: number, m: any) => acc + (m.content?.length || 0), 0) / 4));
+	} catch (_error) {
+		return Math.max(
+			1,
+			Math.round(
+				messages.reduce(
+					(acc: number, m: any) => acc + (m.content?.length || 0),
+					0,
+				) / 4,
+			),
+		);
 	}
 }
 
@@ -957,16 +975,16 @@ function transformStreamingChunkToOpenAIFormat(
 					],
 					usage: data.usageMetadata
 						? {
-								prompt_tokens: data.usageMetadata.promptTokenCount > 0 
-									? data.usageMetadata.promptTokenCount 
-									: calculatePromptTokensFromMessages(messages),
+								prompt_tokens:
+									data.usageMetadata.promptTokenCount > 0
+										? data.usageMetadata.promptTokenCount
+										: calculatePromptTokensFromMessages(messages),
 								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
 								// Calculate total including reasoning tokens for Google models
 								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0 
-										? data.usageMetadata.promptTokenCount 
-										: calculatePromptTokensFromMessages(messages)
-									) +
+									(data.usageMetadata.promptTokenCount > 0
+										? data.usageMetadata.promptTokenCount
+										: calculatePromptTokensFromMessages(messages)) +
 									(data.usageMetadata.candidatesTokenCount || 0) +
 									(data.usageMetadata.thoughtsTokenCount || 0),
 								...(data.usageMetadata.thoughtsTokenCount && {
@@ -1002,16 +1020,16 @@ function transformStreamingChunkToOpenAIFormat(
 					],
 					usage: data.usageMetadata
 						? {
-								prompt_tokens: data.usageMetadata.promptTokenCount > 0 
-									? data.usageMetadata.promptTokenCount 
-									: calculatePromptTokensFromMessages(messages),
+								prompt_tokens:
+									data.usageMetadata.promptTokenCount > 0
+										? data.usageMetadata.promptTokenCount
+										: calculatePromptTokensFromMessages(messages),
 								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
 								// Calculate total including reasoning tokens for Google models
 								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0 
-										? data.usageMetadata.promptTokenCount 
-										: calculatePromptTokensFromMessages(messages)
-									) +
+									(data.usageMetadata.promptTokenCount > 0
+										? data.usageMetadata.promptTokenCount
+										: calculatePromptTokensFromMessages(messages)) +
 									(data.usageMetadata.candidatesTokenCount || 0) +
 									(data.usageMetadata.thoughtsTokenCount || 0),
 								...(data.usageMetadata.thoughtsTokenCount && {
@@ -2656,7 +2674,10 @@ chat.openapi(completions, async (c) => {
 									usage: {
 										prompt_tokens: Math.max(1, finalPromptTokens || 1),
 										completion_tokens: finalCompletionTokens || 0,
-										total_tokens: Math.max(1, finalTotalTokens || Math.max(1, finalPromptTokens || 1)),
+										total_tokens: Math.max(
+											1,
+											finalTotalTokens || Math.max(1, finalPromptTokens || 1),
+										),
 									},
 								};
 
@@ -2999,14 +3020,26 @@ chat.openapi(completions, async (c) => {
 								},
 							],
 							usage: {
-								prompt_tokens: Math.max(1, Math.round(
-									(promptTokens && promptTokens > 0) ? promptTokens : calculatedPromptTokens || 1,
-								)),
+								prompt_tokens: Math.max(
+									1,
+									Math.round(
+										promptTokens && promptTokens > 0
+											? promptTokens
+											: calculatedPromptTokens || 1,
+									),
+								),
 								completion_tokens: Math.round(
 									completionTokens || calculatedCompletionTokens || 0,
 								),
 								total_tokens: Math.round(
-									totalTokens || calculatedTotalTokens || Math.max(1, (promptTokens && promptTokens > 0) ? promptTokens : calculatedPromptTokens || 1),
+									totalTokens ||
+										calculatedTotalTokens ||
+										Math.max(
+											1,
+											promptTokens && promptTokens > 0
+												? promptTokens
+												: calculatedPromptTokens || 1,
+										),
 								),
 								...(cachedTokens !== null && {
 									prompt_tokens_details: {

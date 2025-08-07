@@ -74,11 +74,13 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				},
 			},
 		],
-		usage: shouldReturnZeroTokens ? {
-			prompt_tokens: 0,
-			completion_tokens: 20,
-			total_tokens: 20,
-		} : sampleChatCompletionResponse.usage,
+		usage: shouldReturnZeroTokens
+			? {
+					prompt_tokens: 0,
+					completion_tokens: 20,
+					total_tokens: 20,
+				}
+			: sampleChatCompletionResponse.usage,
 	};
 
 	return c.json(response);
