@@ -1980,6 +1980,7 @@ chat.openapi(completions, async (c) => {
 					tools,
 					tool_choice,
 					source,
+					customHeaders,
 				);
 
 				await insertLog({
@@ -2059,6 +2060,7 @@ chat.openapi(completions, async (c) => {
 					tools,
 					tool_choice,
 					source,
+					customHeaders,
 				);
 
 				await insertLog({
