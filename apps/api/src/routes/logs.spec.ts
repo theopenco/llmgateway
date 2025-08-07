@@ -181,6 +181,59 @@ describe("logs route", () => {
 			expect(json.pagination.nextCursor).toBeNull();
 			expect(json.pagination.limit).toBe(50);
 		});
+
+		test("should filter logs by custom header", async () => {
+			// First, add a log with a custom header
+			await db.insert(tables.log).values({
+				id: "test-log-id-custom-header",
+				requestId: "test-log-id-custom-header",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				content: "Test response with custom header",
+				finishReason: "stop",
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				temperature: 0.7,
+				maxTokens: 100,
+				messages: JSON.stringify([
+					{ role: "user", content: "Hello with custom header" },
+				]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+				customHeaders: { "test-header": "test-value" },
+			});
+
+			// Query logs with custom header filter
+			const params = new URLSearchParams({
+				customHeaderKey: "test-header",
+				customHeaderValue: "test-value",
+			});
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs.length).toBe(1);
+			expect(json.logs[0].id).toBe("test-log-id-custom-header");
+			expect(json.logs[0].customHeaders).toEqual({
+				"test-header": "test-value",
+			});
+			expect(json.pagination).toBeDefined();
+			expect(json.pagination.hasMore).toBe(false);
+			expect(json.pagination.nextCursor).toBeNull();
+		});
 	});
 
 	// Tests for pagination functionality

@@ -113,6 +113,28 @@ function validateAndNormalizeSource(
 }
 
 /**
+ * Extracts X-LLMGateway-* headers from the request context
+ * Returns a key-value object where keys are the suffix after x-llmgateway- and values are header values
+ */
+function extractCustomHeaders(c: any): Record<string, string> {
+	const customHeaders: Record<string, string> = {};
+
+	// Get all headers from the raw request
+	const headers = c.req.raw.headers;
+
+	// Iterate through all headers
+	for (const [key, value] of headers.entries()) {
+		if (key.toLowerCase().startsWith("x-llmgateway-")) {
+			// Extract the suffix after x-llmgateway- and store with lowercase key
+			const suffix = key.toLowerCase().substring("x-llmgateway-".length);
+			customHeaders[suffix] = value;
+		}
+	}
+
+	return customHeaders;
+}
+
+/**
  * Creates a partial log entry with common fields to reduce duplication
  */
 function createLogEntry(
@@ -133,6 +155,7 @@ function createLogEntry(
 	tools: any[] | undefined,
 	toolChoice: any | undefined,
 	source: string | undefined,
+	customHeaders: Record<string, string>,
 ) {
 	return {
 		requestId,
@@ -154,6 +177,7 @@ function createLogEntry(
 		toolChoice: toolChoice || null,
 		mode: project.mode,
 		source: source || null,
+		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
 	} as const;
 }
 
@@ -1274,6 +1298,9 @@ chat.openapi(completions, async (c) => {
 
 	c.header("x-request-id", requestId);
 
+	// Extract custom X-LLMGateway-* headers
+	const customHeaders = extractCustomHeaders(c);
+
 	let requestedModel: Model = modelInput as Model;
 	let requestedProvider: Provider | undefined;
 	let customProviderName: string | undefined;
@@ -1480,6 +1507,12 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(401, {
 			message:
 				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
+		throw new HTTPException(401, {
+			message: "Unauthorized: LLMGateway API key reached its usage limit.",
 		});
 	}
 
@@ -1887,6 +1920,11 @@ chat.openapi(completions, async (c) => {
 
 				for (const chunk of cachedStreamingResponse.chunks) {
 					try {
+						// Skip "[DONE]" markers as they are not JSON
+						if (chunk.data === "[DONE]") {
+							continue;
+						}
+
 						const chunkData = JSON.parse(chunk.data);
 
 						// Extract content from chunk
@@ -1944,6 +1982,7 @@ chat.openapi(completions, async (c) => {
 					tools,
 					tool_choice,
 					source,
+					customHeaders,
 				);
 
 				await insertLog({
@@ -2023,6 +2062,7 @@ chat.openapi(completions, async (c) => {
 					tools,
 					tool_choice,
 					source,
+					customHeaders,
 				);
 
 				await insertLog({
@@ -2197,6 +2237,7 @@ chat.openapi(completions, async (c) => {
 						tools,
 						tool_choice,
 						source,
+						customHeaders,
 					);
 
 					await insertLog({
@@ -2311,6 +2352,7 @@ chat.openapi(completions, async (c) => {
 					tools,
 					tool_choice,
 					source,
+					customHeaders,
 				);
 
 				await insertLog({
@@ -2994,6 +3036,7 @@ chat.openapi(completions, async (c) => {
 					tools,
 					tool_choice,
 					source,
+					customHeaders,
 				);
 
 				await insertLog({
@@ -3117,6 +3160,7 @@ chat.openapi(completions, async (c) => {
 			tools,
 			tool_choice,
 			source,
+			customHeaders,
 		);
 
 		await insertLog({
@@ -3185,6 +3229,7 @@ chat.openapi(completions, async (c) => {
 			tools,
 			tool_choice,
 			source,
+			customHeaders,
 		);
 
 		await insertLog({
@@ -3323,6 +3368,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		source,
+		customHeaders,
 	);
 
 	await insertLog({

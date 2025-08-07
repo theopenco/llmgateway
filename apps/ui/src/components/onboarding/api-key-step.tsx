@@ -106,6 +106,7 @@ export function ApiKeyStep() {
 				body: {
 					description: values.name,
 					projectId: defaultProject.id,
+					usageLimit: null,
 				},
 			});
 			setApiKey(response.apiKey.token);

@@ -10,6 +10,7 @@ import {
 	DateRangeSelect,
 } from "@/components/date-range-select";
 import { Button } from "@/lib/components/button";
+import { Input } from "@/lib/components/input";
 import {
 	Select,
 	SelectContent,
@@ -64,6 +65,12 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 	);
 	const [model, setModel] = useState<string | undefined>(
 		searchParams.get("model") || undefined,
+	);
+	const [customHeaderKey, setCustomHeaderKey] = useState<string>(
+		searchParams.get("customHeaderKey") || "",
+	);
+	const [customHeaderValue, setCustomHeaderValue] = useState<string>(
+		searchParams.get("customHeaderValue") || "",
 	);
 
 	const api = useApi();
@@ -153,6 +160,12 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 	if (model && model !== "all") {
 		queryParams.model = model;
 	}
+	if (customHeaderKey.trim()) {
+		queryParams.customHeaderKey = customHeaderKey.trim();
+	}
+	if (customHeaderValue.trim()) {
+		queryParams.customHeaderValue = customHeaderValue.trim();
+	}
 	if (projectId) {
 		queryParams.projectId = projectId;
 	}
@@ -163,7 +176,9 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 		unifiedFinishReason ===
 			(searchParams.get("unifiedFinishReason") || undefined) &&
 		provider === (searchParams.get("provider") || undefined) &&
-		model === (searchParams.get("model") || undefined);
+		model === (searchParams.get("model") || undefined) &&
+		customHeaderKey === (searchParams.get("customHeaderKey") || "") &&
+		customHeaderValue === (searchParams.get("customHeaderValue") || "");
 
 	const {
 		data,
@@ -316,6 +331,36 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 						))}
 					</SelectContent>
 				</Select>
+
+				<Input
+					placeholder="Custom header key (e.g., uid)"
+					value={customHeaderKey}
+					onChange={(e) => {
+						isFilteringRef.current = true;
+						scrollPositionRef.current = window.scrollY;
+						setCustomHeaderKey(e.target.value);
+						// Update URL immediately
+						updateUrlWithFilters({
+							customHeaderKey: e.target.value || undefined,
+						});
+					}}
+					className="w-[200px]"
+				/>
+
+				<Input
+					placeholder="Custom header value (e.g., 12345)"
+					value={customHeaderValue}
+					onChange={(e) => {
+						isFilteringRef.current = true;
+						scrollPositionRef.current = window.scrollY;
+						setCustomHeaderValue(e.target.value);
+						// Update URL immediately
+						updateUrlWithFilters({
+							customHeaderValue: e.target.value || undefined,
+						});
+					}}
+					className="w-[200px]"
+				/>
 			</div>
 
 			{isLoading ? (
@@ -334,6 +379,7 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 										createdAt: new Date(log.createdAt),
 										updatedAt: new Date(log.updatedAt),
 										toolChoice: log.toolChoice as any, // somehow toolChoice is unknown
+										customHeaders: log.customHeaders as any, // somehow customHeaders is unknown
 									}}
 								/>
 							))}

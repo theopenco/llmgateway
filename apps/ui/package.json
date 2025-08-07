@@ -16,7 +16,7 @@
 	"dependencies": {
 		"@content-collections/core": "0.9.1",
 		"@content-collections/next": "0.2.1",
-		"@hey-api/client-fetch": "0.10.1",
+		"@hey-api/client-fetch": "0.13.1",
 		"@hookform/resolvers": "5.1.1",
 		"@llmgateway/models": "workspace:*",
 		"@radix-ui/react-accordion": "1.2.11",
@@ -72,7 +72,7 @@
 		"tailwindcss-animate": "1.0.7"
 	},
 	"devDependencies": {
-		"@tanstack/react-query-devtools": "5.81.5",
+		"@tanstack/react-query-devtools": "5.84.1",
 		"@types/node": "^20",
 		"@types/react": "^19.1.9",
 		"@types/react-dom": "^19.1.7",

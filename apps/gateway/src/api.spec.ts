@@ -618,4 +618,54 @@ describe("test", () => {
 		});
 		expect(res.status).toBe(401);
 	});
+
+	test("/v1/chat/completions with custom X-LLMGateway headers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+		});
+
+		// Create provider key with mock server URL as baseUrl
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+				"X-LLMGateway-UID": "12345",
+				"X-LLMGateway-SessionId": "session-abc-123",
+				"X-LLMGateway-Environment": "production",
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [
+					{
+						role: "user",
+						content: "Hello!",
+					},
+				],
+			}),
+		});
+		const json = await res.json();
+		expect(res.status).toBe(200);
+		expect(json).toHaveProperty("choices.[0].message.content");
+
+		// Wait for the worker to process the log and check that custom headers were stored
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].customHeaders).toEqual({
+			uid: "12345",
+			sessionid: "session-abc-123",
+			environment: "production",
+		});
+	});
 });

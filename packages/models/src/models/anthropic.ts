@@ -119,8 +119,8 @@ export const anthropicModels = [
 			{
 				providerId: "anthropic",
 				modelName: "claude-opus-4-20250514",
-				inputPrice: 3.0 / 1e6,
-				outputPrice: 15.0 / 1e6,
+				inputPrice: 15.0 / 1e6,
+				outputPrice: 75.0 / 1e6,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: undefined,
