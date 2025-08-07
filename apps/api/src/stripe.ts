@@ -334,6 +334,14 @@ async function handlePaymentIntentSucceeded(
 	// Convert amount from cents to dollars
 	const totalAmountInDollars = amount / 100;
 
+	// Check if this is a subscription payment (pro plan payments don't have baseAmount)
+	if (metadata?.plan === "pro") {
+		console.log(
+			`Payment intent ${paymentIntent.id} is for pro subscription, skipping credit processing`,
+		);
+		return; // Pro subscription payments are handled by invoice.payment_succeeded webhook
+	}
+
 	// Get the credit amount (base amount without fees) from metadata
 	const creditAmount = parseFloat(paymentIntent.metadata.baseAmount);
 	if (!creditAmount) {
