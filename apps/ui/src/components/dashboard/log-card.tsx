@@ -247,6 +247,8 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div className="font-mono text-xs">
 									{format(log.createdAt!, "dd.MM.yyyy HH:mm:ss")}
 								</div>
+								<div className="text-muted-foreground">Request ID</div>
+								<div className="font-mono text-xs">{log.requestId}</div>
 								<div className="text-muted-foreground">Source</div>
 								<div className="font-mono text-xs">{log.source || "-"}</div>
 								<div className="text-muted-foreground">Project ID</div>
