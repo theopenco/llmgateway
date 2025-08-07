@@ -538,13 +538,27 @@ export async function validateProviderKey(
 			);
 		}
 
+		// Find the model definition and check if max_tokens is supported
+		const modelDef = models.find((m) =>
+			m.providers.some(
+				(p) => p.providerId === provider && p.modelName === validationModel,
+			),
+		);
+		const providerMapping = modelDef?.providers.find(
+			(p) => p.providerId === provider && p.modelName === validationModel,
+		);
+		const supportedParameters = (providerMapping as any)
+			?.supportedParameters as string[] | undefined;
+		const supportsMaxTokens =
+			supportedParameters?.includes("max_tokens") ?? true;
+
 		const payload = prepareRequestBody(
 			provider,
 			validationModel,
 			messages,
 			false, // stream
 			undefined, // temperature
-			1, // max_tokens - minimal for validation
+			supportsMaxTokens ? 1 : undefined, // max_tokens - minimal for validation, undefined if not supported
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
