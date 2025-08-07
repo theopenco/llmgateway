@@ -299,7 +299,7 @@ export const log = pgTable("log", {
 		enum: ["api-keys", "credits"],
 	}).notNull(),
 	source: text(),
-	customHeaders: json(), // JSON object to store X-LLMGateway-* headers as key-value pairs
+	customHeaders: json().$type<{ [key: string]: string }>(),
 });
 
 export const passkey = pgTable("passkey", {

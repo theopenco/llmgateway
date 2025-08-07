@@ -260,6 +260,30 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div className="text-muted-foreground">Used Mode</div>
 								<div>{log.usedMode || "?"}</div>
 							</div>
+							{log.customHeaders &&
+								Object.keys(log.customHeaders).length > 0 && (
+									<div className="mt-3">
+										<h5 className="text-xs font-medium text-muted-foreground mb-2">
+											Custom Headers
+										</h5>
+										<div className="rounded-md border p-3">
+											<div className="grid grid-cols-2 gap-2 text-sm">
+												{Object.entries(log.customHeaders).map(
+													([key, value]) => (
+														<div key={key} className="contents">
+															<div className="text-muted-foreground font-mono text-xs">
+																{key}
+															</div>
+															<div className="font-mono text-xs break-words">
+																{String(value)}
+															</div>
+														</div>
+													),
+												)}
+											</div>
+										</div>
+									</div>
+								)}
 						</div>
 					</div>
 					<div className="space-y-2">
