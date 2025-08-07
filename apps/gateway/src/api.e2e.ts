@@ -991,6 +991,83 @@ describe("e2e", () => {
 		expect(logs[0].usedModel).toBe("custom");
 	});
 
+	test("Prompt tokens are never zero even when provider returns 0", async () => {
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer mock-token`,
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "ZERO_TOKENS test message",
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		
+		// Verify we have usage information
+		expect(json).toHaveProperty("usage");
+		expect(json.usage).toHaveProperty("prompt_tokens");
+		expect(json.usage).toHaveProperty("completion_tokens");
+		expect(json.usage).toHaveProperty("total_tokens");
+		
+		// Verify types are numbers
+		expect(typeof json.usage.prompt_tokens).toBe("number");
+		expect(typeof json.usage.completion_tokens).toBe("number");
+		expect(typeof json.usage.total_tokens).toBe("number");
+		
+		// Most importantly: prompt_tokens should never be 0, even if provider returns 0
+		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+		
+		// Completion tokens can be non-zero as set by mock
+		expect(json.usage.completion_tokens).toBeGreaterThan(0);
+		
+		// Total tokens should be at least as large as prompt tokens
+		expect(json.usage.total_tokens).toBeGreaterThanOrEqual(json.usage.prompt_tokens);
+	});
+
+	test("Prompt tokens are calculated for streaming when provider returns 0", async () => {
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer mock-token`,
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "ZERO_TOKENS streaming test message",
+					},
+				],
+				stream: true,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const result = await analyzeStream(res);
+		
+		// Find a usage chunk
+		const usageChunk = result.chunks.find(chunk => chunk.usage);
+		expect(usageChunk).toBeDefined();
+		
+		if (usageChunk) {
+			// Verify prompt tokens are calculated and greater than 0
+			expect(usageChunk.usage.prompt_tokens).toBeGreaterThan(0);
+			expect(typeof usageChunk.usage.prompt_tokens).toBe("number");
+		}
+	});
+
 	test("Success when requesting multi-provider model without prefix", async () => {
 		const multiProviderModel = models.find((m) => m.providers.length > 1);
 		if (!multiProviderModel) {

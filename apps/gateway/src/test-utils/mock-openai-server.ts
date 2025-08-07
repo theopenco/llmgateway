@@ -53,6 +53,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		return c.json(sampleErrorResponse);
 	}
 
+	// Check if this request should trigger zero tokens response
+	const shouldReturnZeroTokens = body.messages.some(
+		(msg: any) => msg.role === "user" && msg.content.includes("ZERO_TOKENS"),
+	);
+
 	// Get the user's message to include in the response
 	const userMessage =
 		body.messages.find((msg: any) => msg.role === "user")?.content || "";
@@ -69,6 +74,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				},
 			},
 		],
+		usage: shouldReturnZeroTokens ? {
+			prompt_tokens: 0,
+			completion_tokens: 20,
+			total_tokens: 20,
+		} : sampleChatCompletionResponse.usage,
 	};
 
 	return c.json(response);
