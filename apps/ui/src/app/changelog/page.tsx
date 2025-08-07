@@ -8,6 +8,7 @@ export default async function ChangelogPage() {
 			(a: Changelog, b: Changelog) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		)
+		.filter((entry: Changelog) => !entry?.draft)
 		.map(({ ...entry }: Changelog) => entry);
 
 	return (

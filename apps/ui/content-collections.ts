@@ -11,6 +11,7 @@ const changelog = defineCollection({
 		date: z.string(),
 		title: z.string(),
 		summary: z.string(),
+		draft: z.boolean().optional(),
 		image: z.object({
 			src: z.string(),
 			alt: z.string(),
