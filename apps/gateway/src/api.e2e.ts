@@ -1055,10 +1055,10 @@ describe("e2e", () => {
 
 		expect(res.status).toBe(200);
 
-		const result = await analyzeStream(res);
+		const result = await readAll(res.body);
 		
 		// Find a usage chunk
-		const usageChunk = result.chunks.find(chunk => chunk.usage);
+		const usageChunk = result.chunks.find((chunk: any) => chunk.usage);
 		expect(usageChunk).toBeDefined();
 		
 		if (usageChunk) {

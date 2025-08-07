@@ -746,10 +746,25 @@ function transformToOpenAIFormat(
 /**
  * Transforms streaming chunk to OpenAI format for non-OpenAI providers
  */
+// Helper function to calculate prompt tokens when missing or 0
+function calculatePromptTokensFromMessages(messages: any[]): number {
+	try {
+		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
+			role: m.role,
+			content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+			name: m.name,
+		}));
+		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
+	} catch (error) {
+		return Math.max(1, Math.round(messages.reduce((acc: number, m: any) => acc + (m.content?.length || 0), 0) / 4));
+	}
+}
+
 function transformStreamingChunkToOpenAIFormat(
 	usedProvider: Provider,
 	usedModel: string,
 	data: any,
+	messages: any[],
 ): any {
 	let transformedData = data;
 
@@ -944,36 +959,13 @@ function transformStreamingChunkToOpenAIFormat(
 						? {
 								prompt_tokens: data.usageMetadata.promptTokenCount > 0 
 									? data.usageMetadata.promptTokenCount 
-									: (() => {
-										// Calculate prompt tokens if missing or 0
-										try {
-											const chatMessages: ChatMessage[] = messages.map((m) => ({
-												role: m.role,
-												content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-												name: m.name,
-											}));
-											return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-										} catch (error) {
-											return Math.max(1, Math.round(messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4));
-										}
-									})(),
+									: calculatePromptTokensFromMessages(messages),
 								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
 								// Calculate total including reasoning tokens for Google models
 								total_tokens:
 									(data.usageMetadata.promptTokenCount > 0 
 										? data.usageMetadata.promptTokenCount 
-										: (() => {
-											try {
-												const chatMessages: ChatMessage[] = messages.map((m) => ({
-													role: m.role,
-													content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-													name: m.name,
-												}));
-												return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-											} catch (error) {
-												return Math.max(1, Math.round(messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4));
-											}
-										})()
+										: calculatePromptTokensFromMessages(messages)
 									) +
 									(data.usageMetadata.candidatesTokenCount || 0) +
 									(data.usageMetadata.thoughtsTokenCount || 0),
@@ -1012,36 +1004,13 @@ function transformStreamingChunkToOpenAIFormat(
 						? {
 								prompt_tokens: data.usageMetadata.promptTokenCount > 0 
 									? data.usageMetadata.promptTokenCount 
-									: (() => {
-										// Calculate prompt tokens if missing or 0
-										try {
-											const chatMessages: ChatMessage[] = messages.map((m) => ({
-												role: m.role,
-												content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-												name: m.name,
-											}));
-											return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-										} catch (error) {
-											return Math.max(1, Math.round(messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4));
-										}
-									})(),
+									: calculatePromptTokensFromMessages(messages),
 								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
 								// Calculate total including reasoning tokens for Google models
 								total_tokens:
 									(data.usageMetadata.promptTokenCount > 0 
 										? data.usageMetadata.promptTokenCount 
-										: (() => {
-											try {
-												const chatMessages: ChatMessage[] = messages.map((m) => ({
-													role: m.role,
-													content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-													name: m.name,
-												}));
-												return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-											} catch (error) {
-												return Math.max(1, Math.round(messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4));
-											}
-										})()
+										: calculatePromptTokensFromMessages(messages)
 									) +
 									(data.usageMetadata.candidatesTokenCount || 0) +
 									(data.usageMetadata.thoughtsTokenCount || 0),
@@ -2735,6 +2704,7 @@ chat.openapi(completions, async (c) => {
 								usedProvider,
 								usedModel,
 								data,
+								messages,
 							);
 
 							// For Anthropic, if we have partial usage data, complete it
