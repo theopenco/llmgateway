@@ -996,7 +996,7 @@ describe("e2e", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer mock-token`,
+				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
 				model: "openai/gpt-4o-mini",
@@ -1041,7 +1041,7 @@ describe("e2e", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer mock-token`,
+				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
 				model: "openai/gpt-4o-mini",
