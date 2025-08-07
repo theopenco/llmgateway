@@ -409,7 +409,7 @@ logs.openapi(get, async (c) => {
 
 	// Add source filter if provided
 	if (source) {
-		logsWhere.source = source;
+		whereConditions.push(eq(tables.log.source, source));
 	}
 
 	// Add cursor-based pagination conditions
