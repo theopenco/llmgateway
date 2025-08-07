@@ -49,8 +49,8 @@ export const xaiModels = [
 		id: "grok-3-fast",
 		name: "Grok-3 Fast",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deprecatedAt: new Date("2025-08-08"),
+		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				providerId: "xai",
@@ -71,8 +71,8 @@ export const xaiModels = [
 		id: "grok-3-mini-fast",
 		name: "Grok-3 Mini Fast",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deprecatedAt: new Date("2025-08-08"),
+		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				providerId: "xai",
