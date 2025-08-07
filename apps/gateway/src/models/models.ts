@@ -162,8 +162,8 @@ modelsApi.openapi(listModels, async (c) => {
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize || 0)) ||
 					undefined,
-				// TODO: supported_parameters should come from model definitions when available
-				supported_parameters: getSupportedParameters(model.id),
+				// Get supported parameters from model definitions with fallback to defaults
+				supported_parameters: getSupportedParametersFromModel(model),
 				// Add model-level capabilities
 				json_output: model.jsonOutput || false,
 				deprecated_at: model.deprecatedAt?.toISOString(),
@@ -178,25 +178,31 @@ modelsApi.openapi(listModels, async (c) => {
 	}
 });
 
-// Helper function to determine supported parameters based on model name
-// TODO: This should be moved to model definitions instead of hardcoded logic
-function getSupportedParameters(modelName: string): string[] {
-	const baseParams = [
+// Helper function to determine supported parameters from model definitions
+// Falls back to common default parameters if not explicitly defined
+function getSupportedParametersFromModel(model: ModelDefinition): string[] {
+	// Default common parameters that most models support
+	const defaultCommonParams = [
 		"temperature",
 		"max_tokens",
 		"top_p",
 		"frequency_penalty",
 		"presence_penalty",
+		"response_format",
+		"tools",
+		"tool_choice",
 	];
 
-	// Add model-specific parameters
-	if (modelName.includes("gpt-4") || modelName.includes("gpt-3.5")) {
-		baseParams.push("response_format", "tools");
+	// Look for supported parameters in any provider mapping for this model
+	for (const provider of model.providers) {
+		const supportedParameters = (provider as any)?.supportedParameters as
+			| string[]
+			| undefined;
+		if (supportedParameters && supportedParameters.length > 0) {
+			return supportedParameters;
+		}
 	}
 
-	if (modelName.includes("llama")) {
-		baseParams.push("top_k");
-	}
-
-	return baseParams;
+	// If no provider has explicit supported parameters, return defaults
+	return defaultCommonParams;
 }

@@ -391,7 +391,6 @@ export const openaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "openai",
 				modelName: "gpt-5-nano",
 				inputPrice: 0.05 / 1e6,
