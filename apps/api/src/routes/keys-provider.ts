@@ -131,7 +131,7 @@ keysProvider.openapi(create, async (c) => {
 	if (process.env.PAID_MODE === "true" && organization?.plan !== "pro") {
 		throw new HTTPException(403, {
 			message:
-				"Provider keys are only available on the Pro plan. Please upgrade to use your own API keys.",
+				"Provider keys are only available on the Pro plan. Please upgrade to Pro or use Credits mode.",
 		});
 	}
 
@@ -147,7 +147,7 @@ keysProvider.openapi(create, async (c) => {
 		if (isHosted && isPaidMode && !isProPlan) {
 			throw new HTTPException(403, {
 				message:
-					"Custom providers are only available on the Pro plan. Please upgrade to use custom OpenAI-compatible providers.",
+					"Custom providers are only available on the Pro plan. Please upgrade to Pro or use Credits mode with standard providers.",
 			});
 		}
 	}

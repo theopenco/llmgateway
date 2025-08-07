@@ -68,20 +68,19 @@ export function ProjectModeSettings({
 	const isProPlan = organizationPlan === "pro";
 
 	const onSubmit = async (data: ProjectModeFormData) => {
-		// Check if trying to set api-keys or hybrid mode without pro plan (only if paid mode is enabled)
-		if (
-			(data.mode === "api-keys" || data.mode === "hybrid") &&
-			config.hosted &&
-			!isProPlan
-		) {
+		// Check if trying to set api-keys mode without pro plan (only if paid mode is enabled)
+		// Allow switching back to hybrid for free users, but prevent switching to api-keys
+		if (data.mode === "api-keys" && config.hosted && !isProPlan) {
 			toast({
 				title: "Upgrade Required",
 				description:
-					"Provider keys are only available on the Pro plan. Please upgrade to use API keys mode.",
+					"API Keys mode is only available on the Pro plan. Please upgrade to use API keys mode or switch to Credits mode.",
 				variant: "destructive",
 			});
 			return;
 		}
+
+		// Always allow switching to hybrid mode for free users (no restrictions)
 
 		try {
 			await updateProject.mutateAsync({
@@ -147,40 +146,50 @@ export function ProjectModeSettings({
 												label: "Hybrid",
 												desc: "Use your own API keys when available, fall back to credits when needed",
 												requiresPro: true,
+												allowSwitchBack: true, // Allow switching back to hybrid for free users
 											},
-										].map(({ id, label, desc, requiresPro }) => (
-											<div key={id} className="flex items-start space-x-2">
-												<RadioGroupItem
-													value={id}
-													id={id}
-													disabled={requiresPro && config.hosted && !isProPlan}
-												/>
-												<div className="space-y-1 flex-1">
-													<div className="flex items-center gap-2">
-														<Label
-															htmlFor={id}
-															className={`font-medium ${requiresPro && config.hosted && !isProPlan ? "text-muted-foreground" : ""}`}
-														>
-															{label}
-														</Label>
-														{requiresPro && config.hosted && !isProPlan && (
-															<Badge variant="outline" className="text-xs">
-																Pro Only
-															</Badge>
-														)}
+										].map(
+											({ id, label, desc, requiresPro, allowSwitchBack }) => {
+												const isDisabled =
+													requiresPro &&
+													config.hosted &&
+													!isProPlan &&
+													!allowSwitchBack; // Always allow hybrid for free users
+												return (
+													<div key={id} className="flex items-start space-x-2">
+														<RadioGroupItem
+															value={id}
+															id={id}
+															disabled={isDisabled}
+														/>
+														<div className="space-y-1 flex-1">
+															<div className="flex items-center gap-2">
+																<Label
+																	htmlFor={id}
+																	className={`font-medium ${isDisabled ? "text-muted-foreground" : ""}`}
+																>
+																	{label}
+																</Label>
+																{isDisabled && (
+																	<Badge variant="outline" className="text-xs">
+																		Pro Only
+																	</Badge>
+																)}
+															</div>
+															<p
+																className={`text-sm ${
+																	isDisabled
+																		? "text-muted-foreground"
+																		: "text-muted-foreground"
+																}`}
+															>
+																{desc}
+															</p>
+														</div>
 													</div>
-													<p
-														className={`text-sm ${
-															requiresPro && config.hosted && !isProPlan
-																? "text-muted-foreground"
-																: "text-muted-foreground"
-														}`}
-													>
-														{desc}
-													</p>
-												</div>
-											</div>
-										))}
+												);
+											},
+										)}
 									</RadioGroup>
 								</FormControl>
 								<FormMessage />

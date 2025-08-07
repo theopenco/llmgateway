@@ -696,6 +696,8 @@ export interface paths {
 								description: string;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
 								projectId: string;
 								maskedToken: string;
 							}[];
@@ -717,6 +719,7 @@ export interface paths {
 					"application/json": {
 						description: string;
 						projectId: string;
+						usageLimit: string | null;
 					};
 				};
 			};
@@ -735,6 +738,8 @@ export interface paths {
 								description: string;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
 								projectId: string;
 								token: string;
 							};
@@ -840,6 +845,87 @@ export interface paths {
 								description: string;
 								/** @enum {string|null} */
 								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
+								projectId: string;
+								maskedToken: string;
+							};
+						};
+					};
+				};
+				/** @description Unauthorized. */
+				401: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							message: string;
+						};
+					};
+				};
+				/** @description API key not found. */
+				404: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							message: string;
+						};
+					};
+				};
+			};
+		};
+		trace?: never;
+	};
+	"/keys/api/limit/{id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path: {
+					id: string;
+				};
+				cookie?: never;
+			};
+			requestBody?: {
+				content: {
+					"application/json": {
+						usageLimit: string | null;
+					};
+				};
+			};
+			responses: {
+				/** @description API key usage limit updated successfully. */
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content: {
+						"application/json": {
+							message: string;
+							apiKey: {
+								id: string;
+								createdAt: string;
+								updatedAt: string;
+								description: string;
+								/** @enum {string|null} */
+								status: "active" | "inactive" | "deleted" | null;
+								usageLimit: string | null;
+								usage: string;
 								projectId: string;
 								maskedToken: string;
 							};

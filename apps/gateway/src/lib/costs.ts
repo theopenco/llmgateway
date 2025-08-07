@@ -70,7 +70,7 @@ export function calculateCosts(
 					).length;
 				} catch (error) {
 					// If encoding fails, leave as null
-					console.error(`Failed to encode chat messages: ${error}`);
+					console.error(`Failed to encode chat messages in costs: ${error}`);
 				}
 			} else if (fullOutput.prompt) {
 				// For text prompt

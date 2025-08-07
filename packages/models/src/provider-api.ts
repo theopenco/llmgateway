@@ -14,6 +14,7 @@ export function getProviderHeaders(
 			return {
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
+				"anthropic-beta": "tools-2024-04-04",
 			};
 		case "google-ai-studio":
 			return {};
@@ -114,6 +115,9 @@ export function prepareRequestBody(
 			break;
 		}
 		case "anthropic": {
+			// Remove generic tool_choice that was added earlier
+			delete requestBody.tool_choice;
+
 			requestBody.max_tokens = max_tokens || 1024; // Set a default if not provided
 			requestBody.messages = messages.map((m) => ({
 				role:
@@ -138,6 +142,38 @@ export function prepareRequestBody(
 					: m.content,
 			}));
 
+			// Transform tools from OpenAI format to Anthropic format
+			if (tools && tools.length > 0) {
+				requestBody.tools = tools.map((tool: any) => ({
+					name: tool.function.name,
+					description: tool.function.description,
+					input_schema: tool.function.parameters,
+				}));
+			}
+
+			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
+			if (tool_choice) {
+				if (
+					typeof tool_choice === "object" &&
+					tool_choice.type === "function"
+				) {
+					// Transform OpenAI format to Anthropic format
+					requestBody.tool_choice = {
+						type: "tool",
+						name: tool_choice.function.name,
+					};
+				} else if (tool_choice === "auto") {
+					// "auto" is the default behavior for Anthropic, omit it
+					// Anthropic doesn't need explicit "auto" tool_choice
+				} else if (tool_choice === "none") {
+					// "none" should work as-is
+					requestBody.tool_choice = tool_choice;
+				} else {
+					// Other string values (though not standard)
+					requestBody.tool_choice = tool_choice;
+				}
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;
@@ -158,6 +194,7 @@ export function prepareRequestBody(
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
+			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
 			requestBody.contents = messages.map((m) => ({
 				role: m.role === "assistant" ? "model" : "user", // get rid of system role
@@ -176,6 +213,19 @@ export function prepareRequestBody(
 							},
 						],
 			}));
+
+			// Transform tools from OpenAI format to Google format
+			if (tools && tools.length > 0) {
+				requestBody.tools = [
+					{
+						functionDeclarations: tools.map((tool: any) => ({
+							name: tool.function.name,
+							description: tool.function.description,
+							parameters: tool.function.parameters,
+						})),
+					},
+				];
+			}
 
 			requestBody.generationConfig = {};
 

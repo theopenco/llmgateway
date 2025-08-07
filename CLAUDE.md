@@ -88,7 +88,7 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 
 - Use Drizzle ORM with latest object syntax
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- For schema changes: Use `pnpm push` instead of manual migrations
+- For schema changes: Use `pnpm push` instead of writing migrations which will generate .sql files
 - Always sync schema with `pnpm push` after table/column changes
 
 ### Code Standards
