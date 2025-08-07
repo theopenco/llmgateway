@@ -7,6 +7,7 @@ import {
 	and,
 	lt,
 	tables,
+	apiKey,
 } from "@llmgateway/db";
 
 import { getProject, getOrganization } from "./lib/cache";
@@ -287,6 +288,14 @@ export async function processLogQueue(): Promise<void> {
 					})
 					.where(eq(organization.id, data.organizationId));
 			}
+
+			// update key usage
+			await db
+				.update(apiKey)
+				.set({
+					usage: sql`${apiKey.usage} + ${data.cost}`,
+				})
+				.where(eq(apiKey.id, data.apiKeyId));
 		}
 	} catch (error) {
 		console.error("Error processing log message:", error);

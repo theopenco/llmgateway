@@ -203,6 +203,34 @@ projects.openapi(updateProject, async (c) => {
 	}
 
 	if (mode !== undefined) {
+		// Check if pro plan is required for API keys or hybrid mode in hosted environment
+		const isHosted = process.env.HOSTED === "true";
+		const isPaidMode = process.env.PAID_MODE === "true";
+
+		if ((mode === "api-keys" || mode === "hybrid") && isHosted && isPaidMode) {
+			// Find the organization for this project
+			const organization = userOrgs.find(
+				(uo) => uo.organization!.id === project.organizationId,
+			)?.organization;
+
+			if (!organization) {
+				throw new HTTPException(500, {
+					message: "Could not find organization",
+				});
+			}
+
+			// Always allow switching to hybrid mode for free users
+			if (mode === "hybrid") {
+				// Hybrid mode is always allowed for free users
+			} else if (organization.plan !== "pro") {
+				// Only API Keys mode requires pro plan
+				throw new HTTPException(403, {
+					message:
+						"API Keys mode is only available on the Pro plan. Please upgrade to Pro or switch to Credits mode.",
+				});
+			}
+		}
+
 		updateData.mode = mode;
 	}
 

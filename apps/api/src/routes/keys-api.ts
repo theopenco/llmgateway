@@ -18,6 +18,8 @@ const apiKeySchema = z.object({
 	token: z.string(),
 	description: z.string(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	usageLimit: z.string().nullable(),
+	usage: z.string(),
 	projectId: z.string(),
 });
 
@@ -25,6 +27,7 @@ const apiKeySchema = z.object({
 const createApiKeySchema = z.object({
 	description: z.string().min(1).max(255),
 	projectId: z.string().min(1),
+	usageLimit: z.string().nullable(),
 });
 
 // Schema for listing API keys
@@ -37,6 +40,11 @@ const listApiKeysQuerySchema = z.object({
 // Schema for updating an API key status
 const updateApiKeyStatusSchema = z.object({
 	status: z.enum(["active", "inactive"]),
+});
+
+// Schema for updating an API key usage limit
+const updateApiKeyUsageLimitSchema = z.object({
+	usageLimit: z.string().nullable(),
 });
 
 // Create a new API key
@@ -79,7 +87,7 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
-	const { description, projectId } = c.req.valid("json");
+	const { description, projectId, usageLimit } = c.req.valid("json");
 
 	// Get the user's organizations
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -128,6 +136,7 @@ keysApi.openapi(create, async (c) => {
 			token,
 			projectId,
 			description,
+			usageLimit,
 		})
 		.returning();
 
@@ -454,6 +463,133 @@ keysApi.openapi(updateStatus, async (c) => {
 
 	return c.json({
 		message: `API key status updated to ${status}`,
+		apiKey: {
+			...updatedApiKey,
+			maskedToken: maskToken(updatedApiKey.token),
+			token: undefined,
+		},
+	});
+});
+
+// Update API key usage limit
+const updateUsageLimit = createRoute({
+	method: "patch",
+	path: "/api/limit/{id}",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateApiKeyUsageLimitSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						apiKey: apiKeySchema
+							.omit({ token: true })
+							.extend({
+								maskedToken: z.string(),
+							})
+							.openapi({}),
+					}),
+				},
+			},
+			description: "API key usage limit updated successfully.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "API key not found.",
+		},
+	},
+});
+
+keysApi.openapi(updateUsageLimit, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+	const { usageLimit } = c.req.valid("json");
+
+	// Get the user's projects
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: {
+				eq: user.id,
+			},
+		},
+		with: {
+			organization: {
+				with: {
+					projects: true,
+				},
+			},
+		},
+	});
+
+	// Get all project IDs the user has access to
+	const projectIds = userOrgs.flatMap((org) =>
+		org
+			.organization!.projects.filter((project) => project.status !== "deleted")
+			.map((project) => project.id),
+	);
+
+	// Find the API key
+	const apiKey = await db.query.apiKey.findFirst({
+		where: {
+			id: {
+				eq: id,
+			},
+			projectId: {
+				in: projectIds,
+			},
+		},
+	});
+
+	if (!apiKey) {
+		throw new HTTPException(404, {
+			message: "API key not found",
+		});
+	}
+
+	// Update the API key usage limit
+	const [updatedApiKey] = await db
+		.update(tables.apiKey)
+		.set({
+			usageLimit,
+		})
+		.where(eq(tables.apiKey.id, id))
+		.returning();
+
+	return c.json({
+		message: `API key usage limit updated to ${usageLimit}`,
 		apiKey: {
 			...updatedApiKey,
 			maskedToken: maskToken(updatedApiKey.token),

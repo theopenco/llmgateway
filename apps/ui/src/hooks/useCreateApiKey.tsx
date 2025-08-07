@@ -23,6 +23,7 @@ export function useCreateApiKey() {
 				body: {
 					description: name,
 					projectId: defaultProject.id,
+					usageLimit: null,
 				},
 			},
 			{

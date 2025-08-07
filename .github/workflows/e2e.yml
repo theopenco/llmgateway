@@ -14,6 +14,6 @@ jobs:
   e2e:
     uses: ./.github/workflows/run.yml
     secrets: inherit
-    if: ${{ github.actor != 'dependabot[bot]' }}
+    if: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
     with:
       cmd: pnpm run setup && pnpm test:e2e

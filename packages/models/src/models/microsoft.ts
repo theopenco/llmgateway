@@ -18,7 +18,7 @@ export const microsoftModels = [
 				maxOutput: undefined,
 				streaming: true,
 				vision: false,
-				tools: true,
+				tools: false,
 			},
 		],
 		jsonOutput: true,

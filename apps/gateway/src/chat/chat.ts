@@ -359,7 +359,10 @@ function estimateTokens(
 				// Convert messages to the format expected by gpt-tokenizer
 				const chatMessages: ChatMessage[] = messages.map((m) => ({
 					role: m.role,
-					content: m.content || "",
+					content:
+						typeof m.content === "string"
+							? m.content
+							: JSON.stringify(m.content),
 					name: m.name,
 				}));
 				calculatedPromptTokens = encodeChat(
@@ -368,7 +371,9 @@ function estimateTokens(
 				).length;
 			} catch (error) {
 				// Fallback to simple estimation if encoding fails
-				console.error(`Failed to encode chat messages: ${error}`);
+				console.error(
+					`Failed to encode chat messages in estimate tokens: ${error}`,
+				);
 				calculatedPromptTokens =
 					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
 			}
@@ -612,7 +617,9 @@ function transformToOpenAIFormat(
 						},
 						finish_reason:
 							finishReason === "STOP"
-								? "stop"
+								? toolResults && toolResults.length > 0
+									? "tool_calls"
+									: "stop"
 								: finishReason?.toLowerCase() || "stop",
 					},
 				],
@@ -652,7 +659,9 @@ function transformToOpenAIFormat(
 						finish_reason:
 							finishReason === "end_turn"
 								? "stop"
-								: finishReason?.toLowerCase() || "stop",
+								: finishReason === "tool_use"
+									? "tool_calls"
+									: finishReason?.toLowerCase() || "stop",
 					},
 				],
 				usage: {
@@ -924,6 +933,10 @@ function transformStreamingChunkToOpenAIFormat(
 				};
 			} else if (data.candidates?.[0]?.finishReason) {
 				const finishReason = data.candidates[0].finishReason;
+				// Check if there are function calls in this response
+				const hasFunctionCalls = data.candidates?.[0]?.content?.parts?.some(
+					(part: any) => part.functionCall,
+				);
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -937,7 +950,9 @@ function transformStreamingChunkToOpenAIFormat(
 							},
 							finish_reason:
 								finishReason === "STOP"
-									? "stop"
+									? hasFunctionCalls
+										? "tool_calls"
+										: "stop"
 									: finishReason?.toLowerCase() || "stop",
 						},
 					],
@@ -1468,6 +1483,12 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
+		throw new HTTPException(401, {
+			message: "Unauthorized: LLMGateway API key reached its usage limit.",
+		});
+	}
+
 	// Get the project to determine mode for routing decisions
 	const project = await getProject(apiKey.projectId);
 
@@ -1681,6 +1702,27 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (project.mode === "api-keys") {
+		// Check if pro plan is required for API keys mode in hosted environment
+		const isHosted = process.env.HOSTED === "true";
+		const isPaidMode = process.env.PAID_MODE === "true";
+
+		if (isHosted && isPaidMode) {
+			const organization = await getOrganization(project.organizationId);
+
+			if (!organization) {
+				throw new HTTPException(500, {
+					message: "Could not find organization",
+				});
+			}
+
+			if (organization.plan !== "pro") {
+				throw new HTTPException(402, {
+					message:
+						"API Keys mode requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
+				});
+			}
+		}
+
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
 			providerKey = await getCustomProviderKey(
@@ -1731,9 +1773,30 @@ chat.openapi(completions, async (c) => {
 		}
 
 		if (providerKey) {
+			// Check if pro plan is required when using API keys in hybrid mode in hosted environment
+			const isHosted = process.env.HOSTED === "true";
+			const isPaidMode = process.env.PAID_MODE === "true";
+
+			if (isHosted && isPaidMode) {
+				const organization = await getOrganization(project.organizationId);
+
+				if (!organization) {
+					throw new HTTPException(500, {
+						message: "Could not find organization",
+					});
+				}
+
+				if (organization.plan !== "pro") {
+					throw new HTTPException(402, {
+						message:
+							"Hybrid mode with API keys requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
+					});
+				}
+			}
+
 			usedToken = providerKey.token;
 		} else {
-			// Check if the organization has enough credits
+			// No API key available, fall back to credits - no pro plan required
 			const organization = await getOrganization(project.organizationId);
 
 			if (!organization) {

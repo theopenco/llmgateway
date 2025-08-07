@@ -251,7 +251,7 @@ organization.openapi(createOrganization, async (c) => {
 	await db.insert(tables.project).values({
 		name: "Default Project",
 		organizationId: newOrganization.id,
-		mode: process.env.HOSTED === "true" ? "credits" : "hybrid",
+		mode: "hybrid",
 	});
 
 	return c.json({

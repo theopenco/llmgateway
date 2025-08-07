@@ -37,6 +37,8 @@ export interface ApiKey {
 	updatedAt: Date;
 	maskedToken: string;
 	status: "active" | "inactive" | "deleted" | null;
+	usageLimit: string | null;
+	usage: string;
 	description: string;
 	projectId: string;
 }
