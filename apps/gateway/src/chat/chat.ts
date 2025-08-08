@@ -1159,6 +1159,11 @@ const completions = createRoute({
 	description: "Create a completion for the chat conversation",
 	method: "post",
 	path: "/completions",
+	security: [
+		{
+			bearerAuth: [],
+		},
+	],
 	request: {
 		body: {
 			content: {
