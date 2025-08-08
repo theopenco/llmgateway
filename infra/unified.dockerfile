@@ -1,21 +1,66 @@
-FROM node:20.10-alpine AS base
+FROM debian:12-slim AS base
 
-# Build stage
-FROM base AS builder
-RUN apk add curl
+# Install base dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    bash \
+    tar \
+    xz-utils \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
 
+# Copy .tool-versions to get Node.js and pnpm versions
 COPY .tool-versions ./
-RUN PNPM_VERSION=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2) && \
+
+# Install Node.js and pnpm based on .tool-versions
+RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
+    PNPM_VERSION=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2) && \
     ARCH=$(uname -m) && \
+    echo "Installing Node.js v${NODE_VERSION} and pnpm v${PNPM_VERSION} for ${ARCH}" && \
+    \
+    # Map architecture names for Node.js official builds
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-arm64" -o /bin/pnpm; \
+        NODE_ARCH="arm64"; \
+    elif [ "$ARCH" = "x86_64" ]; then \
+        NODE_ARCH="x64"; \
     else \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-x64" -o /bin/pnpm; \
+        echo "Unsupported architecture: ${ARCH}" && exit 1; \
     fi && \
-    chmod +x /bin/pnpm;
+    \
+    # Download and install official Node.js glibc build
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o node-official.tar.xz && \
+    tar -xJf node-official.tar.xz --strip-components=1 -C /usr/local && \
+    rm node-official.tar.xz && \
+    \
+    # Install pnpm
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-arm64" -o /usr/local/bin/pnpm; \
+    else \
+        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-x64" -o /usr/local/bin/pnpm; \
+    fi && \
+    chmod +x /usr/local/bin/pnpm && \
+    \
+    # Verify installations
+    echo "Final versions installed:" && \
+    node -v && \
+    pnpm -v && \
+    \
+    # verify that node -v matches .tool-versions nodejs version
+    if [ "$(node -v)" != "v${NODE_VERSION}" ]; then \
+        echo "Node.js version mismatch"; \
+        exit 1; \
+    fi && \
+    # verify that pnpm -v matches .tool-versions pnpm version
+    if [ "$(pnpm -v)" != "${PNPM_VERSION}" ]; then \
+        echo "pnpm version mismatch"; \
+        exit 1; \
+    fi
+
+# Build stage
+FROM base AS builder
 
 # Copy package files and install dependencies
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -36,24 +81,26 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm build
 
 # Runtime stage with all services
-FROM alpine:3.19 AS runtime
+FROM base AS runtime
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
-# Install required packages
-RUN apk add --no-cache \
-    nodejs \
-    npm \
+# Install required packages (excluding nodejs/npm as we'll copy from builder)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql \
-    redis \
+    redis-server \
     supervisor \
     tini \
     curl \
     bash \
-    su-exec
+    gosu \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm
-COPY --from=builder /bin/pnpm /bin/pnpm
+# Copy pnpm from builder stage
+COPY --from=builder /usr/local/bin/pnpm /usr/local/bin/pnpm
+
+# Verify installations
+RUN node -v && pnpm -v
 
 # Create directories
 RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data
@@ -109,7 +156,7 @@ ENV TELEMETRY_ACTIVE=true
 ENV RUN_MIGRATIONS=true
 
 # Use tini as init system
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 # Start all services
 CMD ["/start.sh"]
