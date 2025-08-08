@@ -5,6 +5,7 @@ declare module "content-collections" {
 		date: string;
 		title: string;
 		summary: string;
+		draft?: boolean;
 		image: {
 			src: string;
 			alt: string;

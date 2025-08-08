@@ -67,6 +67,10 @@ export interface ProviderModelMapping {
 	 */
 	tools?: boolean;
 	/**
+	 * List of supported API parameters for this model/provider combination
+	 */
+	supportedParameters?: string[];
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";

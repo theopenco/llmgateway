@@ -319,6 +319,12 @@ async function handlePaymentIntentSucceeded(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
+	// Get the credit amount (base amount without fees) from metadata
+	const creditAmount = parseFloat(paymentIntent.metadata.baseAmount);
+	if (!creditAmount) {
+		return;
+	}
+
 	const result = await resolveOrganizationFromStripeEvent({
 		metadata,
 		customer: paymentIntent.customer as string,
@@ -328,17 +334,10 @@ async function handlePaymentIntentSucceeded(
 		console.error("Could not resolve organization from payment intent");
 		return;
 	}
-
 	const { organizationId, organization } = result;
 
 	// Convert amount from cents to dollars
 	const totalAmountInDollars = amount / 100;
-
-	// Get the credit amount (base amount without fees) from metadata
-	const creditAmount = parseFloat(paymentIntent.metadata.baseAmount);
-	if (!creditAmount) {
-		throw new Error("Credit amount not found in payment intent metadata");
-	}
 
 	// Update organization credits with credit amount only (fees are not added as credits)
 	await db
@@ -511,7 +510,9 @@ async function handleSetupIntentSucceeded(
 	const organizationId = metadata?.organizationId;
 
 	if (!organizationId || !payment_method) {
-		console.error("Missing organizationId or payment_method in setupIntent");
+		console.error(
+			`Missing organizationId or payment_method in setupIntent: ${event.id} ${setupIntent.id}`,
+		);
 		return;
 	}
 
@@ -519,7 +520,7 @@ async function handleSetupIntentSucceeded(
 	try {
 		stripeCustomerId = await ensureStripeCustomer(organizationId);
 	} catch (error) {
-		console.error(`Error ensuring Stripe customer: ${error}`);
+		console.error(`Error ensuring Stripe customer: ${error} ${organizationId}`);
 		return;
 	}
 
