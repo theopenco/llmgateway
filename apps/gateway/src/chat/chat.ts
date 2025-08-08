@@ -1613,6 +1613,22 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode
+	const isHosted = process.env.HOSTED === "true";
+	const isPaidMode = process.env.PAID_MODE === "true";
+	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
+		const organization = await getOrganization(project.organizationId);
+		if (!organization) {
+			throw new HTTPException(500, { message: "Could not find organization" });
+		}
+		if (organization.plan !== "pro") {
+			throw new HTTPException(402, {
+				message:
+					"Custom headers (X-LLMGateway-*) require a Pro plan. Please upgrade to Pro or remove these headers.",
+			});
+		}
+	}
+
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
 		const customProviderExists = await checkCustomProviderExists(
