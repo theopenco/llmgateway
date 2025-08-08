@@ -1053,7 +1053,7 @@ export const chat = new OpenAPIHono<ServerTypes>();
 
 const completionsRequestSchema = z.object({
 	model: z.string().openapi({
-		example: "gpt-4o",
+		example: "gpt-5",
 	}),
 	messages: z.array(
 		z.object({
@@ -1110,11 +1110,46 @@ const completionsRequestSchema = z.object({
 				}),
 		}),
 	),
-	temperature: z.number().optional(),
-	max_tokens: z.number().optional(),
-	top_p: z.number().optional(),
-	frequency_penalty: z.number().optional(),
-	presence_penalty: z.number().optional(),
+	temperature: z
+		.number()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			example: 0.7,
+		}),
+	max_tokens: z
+		.number()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			example: 1000,
+		}),
+	top_p: z
+		.number()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			example: 0.9,
+		}),
+	frequency_penalty: z
+		.number()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			example: 0.0,
+		}),
+	presence_penalty: z
+		.number()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			example: 0.0,
+		}),
 	response_format: z
 		.object({
 			type: z.enum(["text", "json_object"]).openapi({
@@ -1147,10 +1182,15 @@ const completionsRequestSchema = z.object({
 			}),
 		])
 		.optional(),
-	reasoning_effort: z.enum(["low", "medium", "high"]).optional().openapi({
-		description: "Controls the reasoning effort for reasoning-capable models",
-		example: "medium",
-	}),
+	reasoning_effort: z
+		.enum(["low", "medium", "high"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null || (val as any) === "" ? undefined : val))
+		.openapi({
+			description: "Controls the reasoning effort for reasoning-capable models",
+			example: "medium",
+		}),
 });
 
 const completions = createRoute({
