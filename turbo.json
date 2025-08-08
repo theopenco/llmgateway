@@ -6,6 +6,7 @@
 	},
 	"dangerouslyDisablePackageManagerCheck": true,
 	"globalDependencies": [
+		".tool-versions",
 		".npmrc",
 		"package.json",
 		"pnpm-lock.yaml",
