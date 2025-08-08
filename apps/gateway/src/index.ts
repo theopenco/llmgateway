@@ -16,6 +16,9 @@ export const config = {
 		{
 			url: process.env.API_URL || "https://api.llmgateway.io",
 		},
+		{
+			url: process.env.API_URL || "http://localhost:4001",
+		},
 	],
 	openapi: "3.0.0",
 	info: {
