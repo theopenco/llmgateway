@@ -1,7 +1,7 @@
 {
-  "commands": {
-    "install": "pnpm install",
-    "build": "pnpm build",
-    "format": "pnpm format"
-  }
+	"commands": {
+		"install": "pnpm install",
+		"build": "pnpm build",
+		"format": "pnpm format"
+	}
 }
