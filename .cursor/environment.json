@@ -1,0 +1,7 @@
+{
+  "commands": {
+    "install": "pnpm install",
+    "build": "pnpm build",
+    "format": "pnpm format"
+  }
+}
