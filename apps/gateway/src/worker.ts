@@ -251,7 +251,7 @@ async function processAutoTopUp(): Promise<void> {
 	}
 }
 
-async function processBatchCreditDeductions(): Promise<void> {
+async function batchProcessLogs(): Promise<void> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -264,7 +264,7 @@ async function processBatchCreditDeductions(): Promise<void> {
 				SELECT l.id, l.organization_id, l.project_id, l.cost, l.cached, l.api_key_id, p.mode as project_mode
 				FROM log l
 				LEFT JOIN project p ON l.project_id = p.id
-				WHERE l.processed_at IS NULL 
+				WHERE l.processed_at IS NULL
 				ORDER BY l.created_at ASC
 				LIMIT ${BATCH_SIZE}
 				FOR UPDATE SKIP LOCKED
@@ -425,7 +425,7 @@ export async function startWorker() {
 
 			creditProcessingCounter++;
 			if (creditProcessingCounter >= BATCH_PROCESSING_INTERVAL_SECONDS) {
-				await processBatchCreditDeductions();
+				await batchProcessLogs();
 				creditProcessingCounter = 0;
 			}
 
