@@ -93,6 +93,18 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<Clock className="h-3.5 w-3.5" />
 							<span>{log.totalTokens} tokens</span>
 						</div>
+						{log.promptTokens && (
+							<div className="flex items-center gap-1">
+								<Clock className="h-3.5 w-3.5" />
+								<span>Prompt: {log.promptTokens}</span>
+							</div>
+						)}
+						{log.reasoningTokens && (
+							<div className="flex items-center gap-1">
+								<Clock className="h-3.5 w-3.5" />
+								<span>Reasoning: {log.reasoningTokens}</span>
+							</div>
+						)}
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />
 							<span>{formatDuration(log.duration ?? 0)}</span>
@@ -347,6 +359,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										</TooltipContent>
 									</Tooltip>
 									<span>{log.frequencyPenalty}</span>
+								</div>
+								<div className="flex items-center justify-between gap-2">
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="text-muted-foreground">
+												Reasoning Effort
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="max-w-xs text-xs">
+												Requested chain-of-thought effort for reasoning-capable
+												models
+											</p>
+										</TooltipContent>
+									</Tooltip>
+									<span>{log.reasoningEffort || "-"}</span>
 								</div>
 							</TooltipProvider>
 						</div>
