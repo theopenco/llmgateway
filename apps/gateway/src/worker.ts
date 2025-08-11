@@ -11,7 +11,7 @@ import {
 	inArray,
 } from "@llmgateway/db";
 
-import { getProject, getOrganization } from "./lib/cache";
+import { getOrganization } from "./lib/cache";
 import { consumeFromQueue, LOG_QUEUE } from "./lib/redis";
 import { calculateFees } from "../../api/src/lib/fee-calculator";
 import { stripe } from "../../api/src/routes/payments";
@@ -261,10 +261,11 @@ async function processBatchCreditDeductions(): Promise<void> {
 		await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
 			const unprocessedLogs = await tx.execute(sql`
-				SELECT id, organization_id, project_id, cost, cached
-				FROM log 
-				WHERE processed_at IS NULL 
-				ORDER BY created_at ASC
+				SELECT l.id, l.organization_id, l.project_id, l.cost, l.cached, p.mode as project_mode
+				FROM log l
+				LEFT JOIN project p ON l.project_id = p.id
+				WHERE l.processed_at IS NULL 
+				ORDER BY l.created_at ASC
 				LIMIT ${BATCH_SIZE}
 				FOR UPDATE SKIP LOCKED
 			`);
@@ -288,16 +289,15 @@ async function processBatchCreditDeductions(): Promise<void> {
 					projectId: row[2] as string,
 					cost: row[3] as string | null,
 					cached: row[4] as boolean | null,
+					projectMode: row[5] as string | null,
 				};
-
-				const project = await getProject(logData.projectId);
 
 				// Only deduct credits for non-cached logs with cost and non-api-key projects
 				if (
 					logData.cost &&
 					Number(logData.cost) > 0 &&
 					!logData.cached &&
-					project?.mode !== "api-keys"
+					logData.projectMode !== "api-keys"
 				) {
 					const currentCost = orgCosts.get(logData.organizationId) || 0;
 					orgCosts.set(
