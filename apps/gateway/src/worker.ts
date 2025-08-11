@@ -261,7 +261,7 @@ async function processBatchCreditDeductions(): Promise<void> {
 		await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
 			const unprocessedLogs = await tx.execute(sql`
-				SELECT l.id, l.organization_id, l.project_id, l.cost, l.cached, p.mode as project_mode
+				SELECT l.id, l.organization_id, l.project_id, l.cost, l.cached, l.api_key_id, p.mode as project_mode
 				FROM log l
 				LEFT JOIN project p ON l.project_id = p.id
 				WHERE l.processed_at IS NULL 
@@ -275,11 +275,12 @@ async function processBatchCreditDeductions(): Promise<void> {
 			}
 
 			console.log(
-				`Processing ${unprocessedLogs.rows.length} logs for credit deduction`,
+				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
 			);
 
-			// Group logs by organization and project to calculate total costs
+			// Group logs by organization and api key to calculate total costs
 			const orgCosts = new Map<string, number>();
+			const apiKeyCosts = new Map<string, number>();
 			const logIds: string[] = [];
 
 			for (const row of unprocessedLogs.rows) {
@@ -289,21 +290,26 @@ async function processBatchCreditDeductions(): Promise<void> {
 					projectId: row[2] as string,
 					cost: row[3] as string | null,
 					cached: row[4] as boolean | null,
-					projectMode: row[5] as string | null,
+					apiKeyId: row[5] as string,
+					projectMode: row[6] as string | null,
 				};
 
-				// Only deduct credits for non-cached logs with cost and non-api-key projects
-				if (
-					logData.cost &&
-					Number(logData.cost) > 0 &&
-					!logData.cached &&
-					logData.projectMode !== "api-keys"
-				) {
-					const currentCost = orgCosts.get(logData.organizationId) || 0;
-					orgCosts.set(
-						logData.organizationId,
-						currentCost + Number(logData.cost),
+				if (logData.cost && Number(logData.cost) > 0 && !logData.cached) {
+					// Always update API key usage for non-cached logs with cost
+					const currentApiKeyCost = apiKeyCosts.get(logData.apiKeyId) || 0;
+					apiKeyCosts.set(
+						logData.apiKeyId,
+						currentApiKeyCost + Number(logData.cost),
 					);
+
+					// Only deduct organization credits for non-api-key projects
+					if (logData.projectMode !== "api-keys") {
+						const currentOrgCost = orgCosts.get(logData.organizationId) || 0;
+						orgCosts.set(
+							logData.organizationId,
+							currentOrgCost + Number(logData.cost),
+						);
+					}
 				}
 
 				logIds.push(logData.id);
@@ -322,6 +328,20 @@ async function processBatchCreditDeductions(): Promise<void> {
 					console.log(
 						`Deducted ${totalCost} credits from organization ${orgId}`,
 					);
+				}
+			}
+
+			// Batch update API key usage within the same transaction
+			for (const [apiKeyId, totalCost] of apiKeyCosts.entries()) {
+				if (totalCost > 0) {
+					await tx
+						.update(apiKey)
+						.set({
+							usage: sql`${apiKey.usage} + ${totalCost}`,
+						})
+						.where(eq(apiKey.id, apiKeyId));
+
+					console.log(`Added ${totalCost} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -369,22 +389,8 @@ export async function processLogQueue(): Promise<void> {
 			}),
 		);
 
-		// Insert logs without processing credits - they will be processed in batches
+		// Insert logs without processing credits or API key usage - they will be processed in batches
 		await db.insert(log).values(processedLogData as any);
-
-		// Update API key usage immediately (not batched to avoid complex aggregation)
-		for (const data of logData) {
-			if (!data.cost || data.cached) {
-				continue;
-			}
-
-			await db
-				.update(apiKey)
-				.set({
-					usage: sql`${apiKey.usage} + ${data.cost}`,
-				})
-				.where(eq(apiKey.id, data.apiKeyId));
-		}
 	} catch (error) {
 		console.error("Error processing log message:", error);
 	}
