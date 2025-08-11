@@ -204,7 +204,9 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 			const params = [...supportedParameters];
 			// If any provider supports reasoning, expose the reasoning parameter
 			if (model.providers.some((p: any) => p?.reasoning)) {
-				if (!params.includes("reasoning")) params.push("reasoning");
+				if (!params.includes("reasoning")) {
+					params.push("reasoning");
+				}
 			}
 			return params;
 		}
