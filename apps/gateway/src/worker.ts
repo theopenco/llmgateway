@@ -258,75 +258,83 @@ async function processBatchCreditDeductions(): Promise<void> {
 	}
 
 	try {
-		// Get unprocessed logs in batches
-		const unprocessedLogs = await db.query.log.findMany({
-			where: {
-				processedAt: {
-					isNull: true,
-				},
-			},
-			limit: BATCH_SIZE,
-			columns: {
-				id: true,
-				organizationId: true,
-				projectId: true,
-				cost: true,
-				cached: true,
-			},
+		await db.transaction(async (tx) => {
+			// Get unprocessed logs with row-level locking to prevent concurrent processing
+			const unprocessedLogs = await tx.execute(sql`
+				SELECT id, organization_id, project_id, cost, cached
+				FROM log 
+				WHERE processed_at IS NULL 
+				ORDER BY created_at ASC
+				LIMIT ${BATCH_SIZE}
+				FOR UPDATE SKIP LOCKED
+			`);
+
+			if (unprocessedLogs.rows.length === 0) {
+				return;
+			}
+
+			console.log(
+				`Processing ${unprocessedLogs.rows.length} logs for credit deduction`,
+			);
+
+			// Group logs by organization and project to calculate total costs
+			const orgCosts = new Map<string, number>();
+			const logIds: string[] = [];
+
+			for (const row of unprocessedLogs.rows) {
+				const logData = {
+					id: row[0] as string,
+					organizationId: row[1] as string,
+					projectId: row[2] as string,
+					cost: row[3] as string | null,
+					cached: row[4] as boolean | null,
+				};
+
+				const project = await getProject(logData.projectId);
+
+				// Only deduct credits for non-cached logs with cost and non-api-key projects
+				if (
+					logData.cost &&
+					Number(logData.cost) > 0 &&
+					!logData.cached &&
+					project?.mode !== "api-keys"
+				) {
+					const currentCost = orgCosts.get(logData.organizationId) || 0;
+					orgCosts.set(
+						logData.organizationId,
+						currentCost + Number(logData.cost),
+					);
+				}
+
+				logIds.push(logData.id);
+			}
+
+			// Batch update organization credits within the same transaction
+			for (const [orgId, totalCost] of orgCosts.entries()) {
+				if (totalCost > 0) {
+					await tx
+						.update(organization)
+						.set({
+							credits: sql`${organization.credits} - ${totalCost}`,
+						})
+						.where(eq(organization.id, orgId));
+
+					console.log(
+						`Deducted ${totalCost} credits from organization ${orgId}`,
+					);
+				}
+			}
+
+			// Mark all logs as processed within the same transaction
+			await tx
+				.update(log)
+				.set({
+					processedAt: new Date(),
+				})
+				.where(inArray(log.id, logIds));
+
+			console.log(`Marked ${logIds.length} logs as processed`);
 		});
-
-		if (unprocessedLogs.length === 0) {
-			return;
-		}
-
-		console.log(
-			`Processing ${unprocessedLogs.length} logs for credit deduction`,
-		);
-
-		// Group logs by organization and project to calculate total costs
-		const orgCosts = new Map<string, number>();
-		const logIds: string[] = [];
-
-		for (const log of unprocessedLogs) {
-			const project = await getProject(log.projectId);
-
-			// Only deduct credits for non-cached logs with cost and non-api-key projects
-			if (
-				log.cost &&
-				Number(log.cost) > 0 &&
-				!log.cached &&
-				project?.mode !== "api-keys"
-			) {
-				const currentCost = orgCosts.get(log.organizationId) || 0;
-				orgCosts.set(log.organizationId, currentCost + Number(log.cost));
-			}
-
-			logIds.push(log.id);
-		}
-
-		// Batch update organization credits
-		for (const [orgId, totalCost] of orgCosts.entries()) {
-			if (totalCost > 0) {
-				await db
-					.update(organization)
-					.set({
-						credits: sql`${organization.credits} - ${totalCost}`,
-					})
-					.where(eq(organization.id, orgId));
-
-				console.log(`Deducted ${totalCost} credits from organization ${orgId}`);
-			}
-		}
-
-		// Mark all logs as processed
-		await db
-			.update(log)
-			.set({
-				processedAt: new Date(),
-			})
-			.where(inArray(log.id, logIds));
-
-		console.log(`Marked ${logIds.length} logs as processed`);
 	} catch (error) {
 		console.error("Error processing batch credit deductions:", error);
 	} finally {
