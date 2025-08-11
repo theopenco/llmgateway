@@ -300,6 +300,7 @@ export const log = pgTable("log", {
 	}).notNull(),
 	source: text(),
 	customHeaders: json().$type<{ [key: string]: string }>(),
+	processedAt: timestamp(),
 });
 
 export const passkey = pgTable("passkey", {
