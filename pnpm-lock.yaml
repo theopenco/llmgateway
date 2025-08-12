@@ -3,7 +3,6 @@ lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
-  injectWorkspacePackages: true
 
 importers:
 
@@ -98,7 +97,7 @@ importers:
         version: link:../../packages/auth
       '@llmgateway/db':
         specifier: workspace:*
-        version: file:packages/db(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)
+        version: link:../../packages/db
       bcrypt-ts:
         specifier: 7.0.0
         version: 7.0.0
@@ -156,7 +155,7 @@ importers:
         version: 15.6.10(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(next@15.4.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(tailwindcss@4.1.8)
       gateway:
         specifier: workspace:*
-        version: file:apps/gateway(openapi-types@12.1.3)
+        version: link:../gateway
       lucide-react:
         specifier: ^0.539.0
         version: 0.539.0(react@19.1.1)
@@ -238,7 +237,7 @@ importers:
         version: 0.7.0(hono@4.7.11)(zod@3.25.75)
       '@llmgateway/db':
         specifier: workspace:*
-        version: file:packages/db(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)
+        version: link:../../packages/db
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
@@ -365,7 +364,7 @@ importers:
         version: 8.21.3(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       api:
         specifier: workspace:*
-        version: file:apps/api(@types/node@20.19.7)(@types/pg@8.15.2)(drizzle-orm@1.0.0-beta.1-c0277c0(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.2))(gel@2.1.0)(kysely@0.27.6)(openapi-types@12.1.3)
+        version: link:../api
       better-auth:
         specifier: 1.2.7
         version: 1.2.7
@@ -485,8 +484,8 @@ importers:
         specifier: 1.2.7
         version: 1.2.7
       nodemailer:
-        specifier: ^6.9.8
-        version: 6.10.1
+        specifier: ^7.0.5
+        version: 7.0.5
 
   packages/db:
     dependencies:
@@ -1808,8 +1807,8 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
 
-  '@jridgewell/gen-mapping@0.3.12':
-    resolution: {integrity: sha512-OuLGC46TjB5BbN1dH8JULVVZY4WTdkF7tV9Ys6wLL1rubZnCMstOhNHueU5bLCrnRuDhKPDM4g6sw4Bel5Gzqg==}
+  '@jridgewell/gen-mapping@0.3.13':
+    resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
   '@jridgewell/gen-mapping@0.3.8':
     resolution: {integrity: sha512-imAbBGkb+ebQyxKgzv5Hu2nmROxoDOXHh80evxdoXNOrvAnVx7zimzc1Oo5h9RlfV4vPXaE2iM5pOFbvOCClWA==}
@@ -1823,35 +1822,26 @@ packages:
     resolution: {integrity: sha512-R8gLRTZeyp03ymzP/6Lil/28tGeGEzhx1q2k703KGWRAI1VdvPIXdG70VJc2pAMw3NA6JKL5hhFu1sJX0Mnn/A==}
     engines: {node: '>=6.0.0'}
 
-  '@jridgewell/source-map@0.3.10':
-    resolution: {integrity: sha512-0pPkgz9dY+bijgistcTTJ5mR+ocqRXLuhXHYdzoMmmoJ2C9S46RCm2GMUbatPEUK9Yjy26IrAy8D/M00lLkv+Q==}
+  '@jridgewell/source-map@0.3.11':
+    resolution: {integrity: sha512-ZMp1V8ZFcPG5dIWnQLr3NSI1MiCU7UETdS/A0G8V/XWHvJv3ZsFqutJn1Y5RPmAPX6F3BiE397OqveU/9NCuIA==}
 
   '@jridgewell/sourcemap-codec@1.5.0':
     resolution: {integrity: sha512-gv3ZRaISU3fjPAgNsriBRqGWQL6quFx04YMPW/zD8XMLsU32mhCCbfbO6KZFLjvYpCZ8zyDEgqsgf+PwPaM7GQ==}
 
-  '@jridgewell/sourcemap-codec@1.5.4':
-    resolution: {integrity: sha512-VT2+G1VQs/9oz078bLrYbecdZKs912zQlkelYpuf+SXF+QvZDYJlbx/LSx+meSAwdDFnF8FVXW92AVjjkVmgFw==}
+  '@jridgewell/sourcemap-codec@1.5.5':
+    resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
   '@jridgewell/trace-mapping@0.3.25':
     resolution: {integrity: sha512-vNk6aEwybGtawWmy/PzwnGDOjCkLWSD2wqvjGGAgOAwCGWySYXfYoxt00IJkTF+8Lb57DwOb3Aa0o9CApepiYQ==}
 
-  '@jridgewell/trace-mapping@0.3.29':
-    resolution: {integrity: sha512-uw6guiW/gcAGPDhLmd77/6lW8QLeiV5RUTsAX46Db6oLhGaVj4lhnPwb184s1bkc8kdVg/+h988dro8GRDpmYQ==}
+  '@jridgewell/trace-mapping@0.3.30':
+    resolution: {integrity: sha512-GQ7Nw5G2lTu/BtHTKfXhKHok2WGetd4XYcVKGx00SjAk8GMwgJM3zr6zORiPGuOE+/vkc90KtTosSSvaCjKb2Q==}
 
   '@jsdevtools/ono@7.1.3':
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@levischuck/tiny-cbor@0.2.11':
     resolution: {integrity: sha512-llBRm4dT4Z89aRsm6u2oEZ8tfwL/2l6BwpZ7JcyieouniDECM5AqNgr/y08zalEIvW3RSK4upYyybDcmjXqAow==}
-
-  '@llmgateway/auth@file:packages/auth':
-    resolution: {directory: packages/auth, type: directory}
-
-  '@llmgateway/db@file:packages/db':
-    resolution: {directory: packages/db, type: directory}
-
-  '@llmgateway/models@file:packages/models':
-    resolution: {directory: packages/models, type: directory}
 
   '@mdx-js/mdx@3.1.0':
     resolution: {integrity: sha512-/QxEhPAvGwbQmy1Px8F899L5Uc2KZ6JtXwlCgJmjSTBedwOZkByYcBG4GceIGPXRDsmfxhHazuS+hlOShRLeDw==}
@@ -3568,9 +3558,6 @@ packages:
     resolution: {integrity: sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw==}
     engines: {node: '>= 8'}
 
-  api@file:apps/api:
-    resolution: {directory: apps/api, type: directory}
-
   argparse@1.0.10:
     resolution: {integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==}
 
@@ -4890,9 +4877,6 @@ packages:
   functions-have-names@1.2.3:
     resolution: {integrity: sha512-xckBUXyTIqT97tq2x2AMb+g163b5JFysYk0x4qxNFwbfQkmNZoiRHb6sPzI9/QV33WeuvVYBUIiD4NzNIyqaRQ==}
 
-  gateway@file:apps/gateway:
-    resolution: {directory: apps/gateway, type: directory}
-
   gel@2.1.0:
     resolution: {integrity: sha512-HCeRqInCt6BjbMmeghJ6BKeYwOj7WJT5Db6IWWAA3IMUUa7or7zJfTUEkUWCxiOtoXnwnm96sFK9Fr47Yh2hOA==}
     engines: {node: '>= 18.0.0'}
@@ -5997,8 +5981,8 @@ packages:
   node-releases@2.0.19:
     resolution: {integrity: sha512-xxOWJsBKtzAq7DY0J+DTzuz58K8e7sJbdgwkbMWQe8UYB6ekmsQ45q0M/tJDsGaZmbC+l7n57UV8Hl5tHxO9uw==}
 
-  nodemailer@6.10.1:
-    resolution: {integrity: sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==}
+  nodemailer@7.0.5:
+    resolution: {integrity: sha512-nsrh2lO3j4GkLLXoeEksAMgAOqxOv6QumNRVQTJwKH4nuiww6iC2y7GyANs9kRAxCexg3+lTWM3PZ91iLlVjfg==}
     engines: {node: '>=6.0.0'}
 
   nodemon@3.1.10:
@@ -8565,10 +8549,10 @@ snapshots:
     dependencies:
       minipass: 7.1.2
 
-  '@jridgewell/gen-mapping@0.3.12':
+  '@jridgewell/gen-mapping@0.3.13':
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.4
-      '@jridgewell/trace-mapping': 0.3.29
+      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/trace-mapping': 0.3.30
     optional: true
 
   '@jridgewell/gen-mapping@0.3.8':
@@ -8581,15 +8565,15 @@ snapshots:
 
   '@jridgewell/set-array@1.2.1': {}
 
-  '@jridgewell/source-map@0.3.10':
+  '@jridgewell/source-map@0.3.11':
     dependencies:
-      '@jridgewell/gen-mapping': 0.3.12
-      '@jridgewell/trace-mapping': 0.3.29
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.30
     optional: true
 
   '@jridgewell/sourcemap-codec@1.5.0': {}
 
-  '@jridgewell/sourcemap-codec@1.5.4':
+  '@jridgewell/sourcemap-codec@1.5.5':
     optional: true
 
   '@jridgewell/trace-mapping@0.3.25':
@@ -8597,95 +8581,15 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.0
 
-  '@jridgewell/trace-mapping@0.3.29':
+  '@jridgewell/trace-mapping@0.3.30':
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
-      '@jridgewell/sourcemap-codec': 1.5.4
+      '@jridgewell/sourcemap-codec': 1.5.5
     optional: true
 
   '@jsdevtools/ono@7.1.3': {}
 
   '@levischuck/tiny-cbor@0.2.11': {}
-
-  '@llmgateway/auth@file:packages/auth':
-    dependencies:
-      '@types/nodemailer': 6.4.17
-      better-auth: 1.2.7
-      nodemailer: 6.10.1
-
-  '@llmgateway/db@file:packages/db':
-    dependencies:
-      drizzle-orm: 1.0.0-beta.1-7946562(pg@8.16.2)
-      nanoid: 5.1.5
-      pg: 8.16.2
-      zod: 3.25.75
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@llmgateway/db@file:packages/db(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)':
-    dependencies:
-      drizzle-orm: 1.0.0-beta.1-7946562(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.2)
-      nanoid: 5.1.5
-      pg: 8.16.2
-      zod: 3.25.75
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@llmgateway/models@file:packages/models': {}
 
   '@mdx-js/mdx@3.1.0(acorn@8.14.1)':
     dependencies:
@@ -10431,71 +10335,6 @@ snapshots:
       normalize-path: 3.0.0
       picomatch: 2.3.1
 
-  api@file:apps/api(@types/node@20.19.7)(@types/pg@8.15.2)(drizzle-orm@1.0.0-beta.1-c0277c0(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.2))(gel@2.1.0)(kysely@0.27.6)(openapi-types@12.1.3):
-    dependencies:
-      '@hono/node-server': 1.18.0(hono@4.7.11)
-      '@hono/swagger-ui': 0.5.1(hono@4.7.11)
-      '@hono/zod-openapi': 0.19.8(hono@4.7.11)(zod@3.25.75)
-      '@hono/zod-validator': 0.7.0(hono@4.7.11)(zod@3.25.75)
-      '@llmgateway/auth': file:packages/auth
-      '@llmgateway/db': file:packages/db(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)
-      bcrypt-ts: 7.0.0
-      better-auth: 1.2.7
-      drizzle-zod: 0.7.1(drizzle-orm@1.0.0-beta.1-c0277c0(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.2))(zod@3.25.75)
-      gateway: file:apps/gateway(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(openapi-types@12.1.3)
-      hono: 4.7.11
-      hono-openapi: 0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
-      openai: 4.104.0(zod@3.25.75)
-      posthog-node: 4.18.0
-      stripe: 18.1.1(@types/node@20.19.7)
-      zod: 3.25.75
-      zod-openapi: 4.2.4(zod@3.25.75)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@hono/arktype-validator'
-      - '@hono/effect-validator'
-      - '@hono/typebox-validator'
-      - '@hono/valibot-validator'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@sinclair/typebox'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/node'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@valibot/to-json-schema'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - arktype
-      - better-sqlite3
-      - bun-types
-      - debug
-      - drizzle-orm
-      - effect
-      - encoding
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - openapi-types
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-      - valibot
-      - ws
-
   argparse@1.0.10:
     dependencies:
       sprintf-js: 1.0.3
@@ -11094,17 +10933,6 @@ snapshots:
       gel: 2.1.0
       kysely: 0.27.6
       pg: 8.16.0
-
-  drizzle-orm@1.0.0-beta.1-7946562(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.2):
-    optionalDependencies:
-      '@types/pg': 8.15.2
-      gel: 2.1.0
-      kysely: 0.27.6
-      pg: 8.16.2
-
-  drizzle-orm@1.0.0-beta.1-7946562(pg@8.16.2):
-    optionalDependencies:
-      pg: 8.16.2
 
   drizzle-orm@1.0.0-beta.1-c0277c0(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.2):
     optionalDependencies:
@@ -12118,118 +11946,6 @@ snapshots:
       is-callable: 1.2.7
 
   functions-have-names@1.2.3: {}
-
-  gateway@file:apps/gateway(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)(openapi-types@12.1.3):
-    dependencies:
-      '@hono/node-server': 1.18.0(hono@4.7.11)
-      '@hono/swagger-ui': 0.5.1(hono@4.7.11)
-      '@hono/zod-openapi': 0.19.8(hono@4.7.11)(zod@3.25.75)
-      '@hono/zod-validator': 0.7.0(hono@4.7.11)(zod@3.25.75)
-      '@llmgateway/db': file:packages/db(@types/pg@8.15.2)(gel@2.1.0)(kysely@0.27.6)
-      '@llmgateway/models': file:packages/models
-      gpt-tokenizer: 3.0.1
-      hono: 4.7.11
-      hono-openapi: 0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
-      ioredis: 5.6.1
-      redis: 5.5.6
-      zod: 3.25.75
-      zod-openapi: 4.2.4(zod@3.25.75)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@hono/arktype-validator'
-      - '@hono/effect-validator'
-      - '@hono/typebox-validator'
-      - '@hono/valibot-validator'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@sinclair/typebox'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@valibot/to-json-schema'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - arktype
-      - better-sqlite3
-      - bun-types
-      - effect
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - openapi-types
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-      - valibot
-
-  gateway@file:apps/gateway(openapi-types@12.1.3):
-    dependencies:
-      '@hono/node-server': 1.18.0(hono@4.7.11)
-      '@hono/swagger-ui': 0.5.1(hono@4.7.11)
-      '@hono/zod-openapi': 0.19.8(hono@4.7.11)(zod@3.25.75)
-      '@hono/zod-validator': 0.7.0(hono@4.7.11)(zod@3.25.75)
-      '@llmgateway/db': file:packages/db
-      '@llmgateway/models': file:packages/models
-      gpt-tokenizer: 3.0.1
-      hono: 4.7.11
-      hono-openapi: 0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
-      ioredis: 5.6.1
-      redis: 5.5.6
-      zod: 3.25.75
-      zod-openapi: 4.2.4(zod@3.25.75)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@hono/arktype-validator'
-      - '@hono/effect-validator'
-      - '@hono/typebox-validator'
-      - '@hono/valibot-validator'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@sinclair/typebox'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@valibot/to-json-schema'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - arktype
-      - better-sqlite3
-      - bun-types
-      - effect
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - openapi-types
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-      - valibot
 
   gel@2.1.0:
     dependencies:
@@ -13551,7 +13267,7 @@ snapshots:
 
   node-releases@2.0.19: {}
 
-  nodemailer@6.10.1: {}
+  nodemailer@7.0.5: {}
 
   nodemon@3.1.10:
     dependencies:
@@ -13791,7 +13507,8 @@ snapshots:
 
   pg-connection-string@2.9.0: {}
 
-  pg-connection-string@2.9.1: {}
+  pg-connection-string@2.9.1:
+    optional: true
 
   pg-int8@1.0.1: {}
 
@@ -13804,12 +13521,14 @@ snapshots:
   pg-pool@3.10.1(pg@8.16.2):
     dependencies:
       pg: 8.16.2
+    optional: true
 
   pg-protocol@1.10.0: {}
 
   pg-protocol@1.10.2: {}
 
-  pg-protocol@1.10.3: {}
+  pg-protocol@1.10.3:
+    optional: true
 
   pg-types@2.2.0:
     dependencies:
@@ -13848,6 +13567,7 @@ snapshots:
       pgpass: 1.0.5
     optionalDependencies:
       pg-cloudflare: 1.2.7
+    optional: true
 
   pgpass@1.0.5:
     dependencies:
@@ -14673,12 +14393,6 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
-  stripe@18.1.1(@types/node@20.19.7):
-    dependencies:
-      qs: 6.14.0
-    optionalDependencies:
-      '@types/node': 20.19.7
-
   stripe@18.1.1(@types/node@24.0.3):
     dependencies:
       qs: 6.14.0
@@ -14760,7 +14474,7 @@ snapshots:
 
   terser@5.40.0:
     dependencies:
-      '@jridgewell/source-map': 0.3.10
+      '@jridgewell/source-map': 0.3.11
       acorn: 8.15.0
       commander: 2.20.3
       source-map-support: 0.5.21
