@@ -281,7 +281,6 @@ export const log = pgTable("log", {
 	topP: real(),
 	frequencyPenalty: real(),
 	presencePenalty: real(),
-	// Add reasoning effort selection for reasoning-capable models
 	reasoningEffort: text(),
 	hasError: boolean().default(false),
 	errorDetails: json().$type<z.infer<typeof errorDetails>>(),
