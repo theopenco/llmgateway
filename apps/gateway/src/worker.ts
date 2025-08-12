@@ -21,7 +21,7 @@ import type { LogInsertData } from "./lib/logs";
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
-const LOCK_DURATION_MINUTES = 10;
+const LOCK_DURATION_MINUTES = 1;
 
 // Configuration for batch processing
 const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
