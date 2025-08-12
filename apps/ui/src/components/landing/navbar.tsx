@@ -3,7 +3,6 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { GitHubStars } from "./github-stars";
 import { ThemeToggle } from "./theme-toggle";
 import { AuthLink } from "../shared/auth-link";
 import { Button } from "@/lib/components/button";
@@ -11,7 +10,7 @@ import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
-export const Navbar = () => {
+export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 	const config = useAppConfig();
 
 	const menuItems = [
@@ -126,7 +125,7 @@ export const Navbar = () => {
 							</div>
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
-								<GitHubStars />
+								{children}
 								<Button
 									asChild
 									className={cn(

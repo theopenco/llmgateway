@@ -1,33 +1,38 @@
-"use client";
-import { useQuery } from "@tanstack/react-query";
 import { Star } from "lucide-react";
 
 import { Button } from "@/lib/components/button";
-import { useAppConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config-server";
 
-async function fetchGitHubStars(repo: string): Promise<number> {
-	const res = await fetch(`https://api.github.com/repos/${repo}`);
-	if (!res.ok) {
-		throw new Error("Failed to fetch GitHub repo");
+async function fetchGitHubStars(repo: string): Promise<number | null> {
+	try {
+		const res = await fetch(`https://api.github.com/repos/${repo}`, {
+			next: { revalidate: 600 }, // Revalidate every 10 minutes
+			headers: {
+				Accept: "application/vnd.github.v3+json",
+				"User-Agent": "LLM Gateway",
+			},
+		});
+
+		if (!res.ok) {
+			console.warn(
+				`Failed to fetch GitHub stars for ${repo}: ${res.status} ${res.statusText}`,
+			);
+			return null;
+		}
+
+		const data = await res.json();
+		return data.stargazers_count;
+	} catch (error) {
+		console.warn(`Error fetching GitHub stars for ${repo}:`, error);
+		return null;
 	}
-	const data = await res.json();
-	return data.stargazers_count;
-}
-
-function useGitHubStars(repo: string) {
-	return useQuery({
-		queryKey: ["github-stars", repo],
-		queryFn: () => fetchGitHubStars(repo),
-		refetchOnWindowFocus: false,
-		staleTime: 1000 * 60 * 10, // 10 minutes
-	});
 }
 
 const REPO = "theopenco/llmgateway";
 
-function formatNumber(num: number | undefined): string {
-	if (num === undefined) {
-		return "";
+function formatNumber(num: number | null): string {
+	if (num === null) {
+		return "★";
 	}
 	if (num >= 1_000_000) {
 		return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -38,9 +43,9 @@ function formatNumber(num: number | undefined): string {
 	return num.toLocaleString();
 }
 
-export function GitHubStars() {
-	const config = useAppConfig();
-	const { data: stars, isLoading, isError } = useGitHubStars(REPO);
+export async function GitHubStars() {
+	const config = getConfig();
+	const stars = await fetchGitHubStars(REPO);
 
 	return (
 		<Button variant="secondary" className="w-full md:w-fit" asChild>
@@ -57,9 +62,7 @@ export function GitHubStars() {
 				/>
 				<span className="flex items-baseline gap-2">
 					Star
-					<span className="text-xs">
-						{isLoading ? "..." : isError ? "?" : formatNumber(stars)}
-					</span>
+					<span className="text-xs">{formatNumber(stars)}</span>
 				</span>
 			</a>
 		</Button>

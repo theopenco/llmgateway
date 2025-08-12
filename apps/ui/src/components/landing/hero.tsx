@@ -83,7 +83,13 @@ console.log(response.choices[0].message.content);`,
 	highlightedLines: [4, 5], // Line 4 contains the apiKey
 };
 
-export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
+export function Hero({
+	navbarOnly,
+	children,
+}: {
+	navbarOnly?: boolean;
+	children: React.ReactNode;
+}) {
 	const config = useAppConfig();
 	const { resolvedTheme } = useTheme();
 	const [mounted, setMounted] = useState(false);
@@ -114,7 +120,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 
 	return (
 		<>
-			<Navbar />
+			<Navbar>{children}</Navbar>
 			{!navbarOnly && (
 				<main className="overflow-hidden">
 					<div

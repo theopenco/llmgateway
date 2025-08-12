@@ -13,11 +13,13 @@ import {
 	Search,
 	Filter,
 	X,
+	ArrowUpDown,
+	ArrowUp,
+	ArrowDown,
 } from "lucide-react";
 import React, { useMemo, useState } from "react";
 
 import Footer from "@/components/landing/footer";
-import { Hero } from "@/components/landing/hero";
 import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -55,13 +57,25 @@ interface ModelWithProviders extends ModelDefinition {
 	}>;
 }
 
-export function AllModels() {
+type SortField =
+	| "name"
+	| "providers"
+	| "contextSize"
+	| "inputPrice"
+	| "outputPrice";
+type SortDirection = "asc" | "desc";
+
+export function AllModels({ children }: { children: React.ReactNode }) {
 	const [viewMode, setViewMode] = useState<"table" | "grid">("table");
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	// Search and filter states
 	const [searchQuery, setSearchQuery] = useState("");
 	const [showFilters, setShowFilters] = useState(false);
+
+	// Sorting states
+	const [sortField, setSortField] = useState<SortField | null>(null);
+	const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 	const [filters, setFilters] = useState({
 		capabilities: {
 			streaming: false,
@@ -94,15 +108,21 @@ export function AllModels() {
 				})),
 			}));
 
-		return baseModels.filter((model) => {
-			// Search filter
+		const filteredModels = baseModels.filter((model) => {
+			// Enhanced search filter - ignore hyphens and spaces for better matching
 			if (searchQuery) {
-				const query = searchQuery.toLowerCase();
-				const matchesName = (model.name || model.id)
-					.toLowerCase()
-					.includes(query);
-				const matchesId = model.id.toLowerCase().includes(query);
-				const matchesFamily = model.family.toLowerCase().includes(query);
+				const normalizeString = (str: string) =>
+					str.toLowerCase().replace(/[-\s]/g, "");
+				const normalizedQuery = normalizeString(searchQuery);
+
+				const matchesName = normalizeString(model.name || model.id).includes(
+					normalizedQuery,
+				);
+				const matchesId = normalizeString(model.id).includes(normalizedQuery);
+				const matchesFamily = normalizeString(model.family).includes(
+					normalizedQuery,
+				);
+
 				if (!matchesName && !matchesId && !matchesFamily) {
 					return false;
 				}
@@ -165,8 +185,8 @@ export function AllModels() {
 						return !min && !max;
 					}
 					const size = p.provider.contextSize;
-					const minSize = min ? parseInt(min) : 0;
-					const maxSize = max ? parseInt(max) : Infinity;
+					const minSize = min ? parseInt(min, 10) : 0;
+					const maxSize = max ? parseInt(max, 10) : Infinity;
 					return size >= minSize && size <= maxSize;
 				});
 			};
@@ -192,7 +212,97 @@ export function AllModels() {
 
 			return true;
 		});
-	}, [searchQuery, filters]);
+
+		// Apply sorting
+		if (!sortField) {
+			return filteredModels;
+		}
+
+		return [...filteredModels].sort((a, b) => {
+			let aValue: any;
+			let bValue: any;
+
+			switch (sortField) {
+				case "name":
+					aValue = (a.name || a.id).toLowerCase();
+					bValue = (b.name || b.id).toLowerCase();
+					break;
+				case "providers":
+					aValue = a.providerDetails.length;
+					bValue = b.providerDetails.length;
+					break;
+				case "contextSize":
+					// Get the max context size among all providers for this model
+					aValue = Math.max(
+						...a.providerDetails.map((p) => p.provider.contextSize || 0),
+					);
+					bValue = Math.max(
+						...b.providerDetails.map((p) => p.provider.contextSize || 0),
+					);
+					break;
+				case "inputPrice": {
+					// Get the min input price among all providers for this model
+					const aInputPrices = a.providerDetails
+						.map((p) => p.provider.inputPrice)
+						.filter((p) => p !== undefined);
+					const bInputPrices = b.providerDetails
+						.map((p) => p.provider.inputPrice)
+						.filter((p) => p !== undefined);
+					aValue =
+						aInputPrices.length > 0 ? Math.min(...aInputPrices) : Infinity;
+					bValue =
+						bInputPrices.length > 0 ? Math.min(...bInputPrices) : Infinity;
+					break;
+				}
+				case "outputPrice": {
+					// Get the min output price among all providers for this model
+					const aOutputPrices = a.providerDetails
+						.map((p) => p.provider.outputPrice)
+						.filter((p) => p !== undefined);
+					const bOutputPrices = b.providerDetails
+						.map((p) => p.provider.outputPrice)
+						.filter((p) => p !== undefined);
+					aValue =
+						aOutputPrices.length > 0 ? Math.min(...aOutputPrices) : Infinity;
+					bValue =
+						bOutputPrices.length > 0 ? Math.min(...bOutputPrices) : Infinity;
+					break;
+				}
+				default:
+					return 0;
+			}
+
+			if (aValue < bValue) {
+				return sortDirection === "asc" ? -1 : 1;
+			}
+			if (aValue > bValue) {
+				return sortDirection === "asc" ? 1 : -1;
+			}
+			return 0;
+		});
+	}, [searchQuery, filters, sortField, sortDirection]);
+
+	const handleSort = (field: SortField) => {
+		if (sortField === field) {
+			// If already sorting by this field, toggle direction
+			setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+		} else {
+			// New field, start with ascending
+			setSortField(field);
+			setSortDirection("asc");
+		}
+	};
+
+	const getSortIcon = (field: SortField) => {
+		if (sortField !== field) {
+			return <ArrowUpDown className="ml-2 h-4 w-4 opacity-50" />;
+		}
+		return sortDirection === "asc" ? (
+			<ArrowUp className="ml-2 h-4 w-4 text-primary" />
+		) : (
+			<ArrowDown className="ml-2 h-4 w-4 text-primary" />
+		);
+	};
 
 	const copyToClipboard = async (text: string) => {
 		try {
@@ -257,6 +367,8 @@ export function AllModels() {
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
 		});
+		setSortField(null);
+		setSortDirection("asc");
 	};
 
 	const hasActiveFilters =
@@ -267,7 +379,8 @@ export function AllModels() {
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max;
+		filters.contextSize.max ||
+		sortField !== null;
 
 	const renderFilters = () => (
 		<Card
@@ -433,11 +546,56 @@ export function AllModels() {
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead className="w-[250px]">Model</TableHead>
-						<TableHead>Providers</TableHead>
-						<TableHead className="text-center">Context Size</TableHead>
-						<TableHead className="text-center">Input Price</TableHead>
-						<TableHead className="text-center">Output Price</TableHead>
+						<TableHead className="w-[250px]">
+							<Button
+								variant="ghost"
+								onClick={() => handleSort("name")}
+								className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
+							>
+								Model
+								{getSortIcon("name")}
+							</Button>
+						</TableHead>
+						<TableHead>
+							<Button
+								variant="ghost"
+								onClick={() => handleSort("providers")}
+								className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
+							>
+								Providers
+								{getSortIcon("providers")}
+							</Button>
+						</TableHead>
+						<TableHead className="text-center">
+							<Button
+								variant="ghost"
+								onClick={() => handleSort("contextSize")}
+								className="h-auto p-0 font-semibold hover:bg-transparent"
+							>
+								Context Size
+								{getSortIcon("contextSize")}
+							</Button>
+						</TableHead>
+						<TableHead className="text-center">
+							<Button
+								variant="ghost"
+								onClick={() => handleSort("inputPrice")}
+								className="h-auto p-0 font-semibold hover:bg-transparent"
+							>
+								Input Price
+								{getSortIcon("inputPrice")}
+							</Button>
+						</TableHead>
+						<TableHead className="text-center">
+							<Button
+								variant="ghost"
+								onClick={() => handleSort("outputPrice")}
+								className="h-auto p-0 font-semibold hover:bg-transparent"
+							>
+								Output Price
+								{getSortIcon("outputPrice")}
+							</Button>
+						</TableHead>
 						<TableHead className="text-center">Capabilities</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -519,7 +677,7 @@ export function AllModels() {
 
 							<TableCell className="text-center">
 								<div className="space-y-1">
-									{model.providerDetails.map(({ provider, providerInfo }) => (
+									{model.providerDetails.map(({ provider }) => (
 										<div key={provider.providerId} className="text-sm">
 											{provider.contextSize
 												? formatContextSize(provider.contextSize)
@@ -531,7 +689,7 @@ export function AllModels() {
 
 							<TableCell className="text-center">
 								<div className="space-y-1">
-									{model.providerDetails.map(({ provider, providerInfo }) => (
+									{model.providerDetails.map(({ provider }) => (
 										<div
 											key={provider.providerId}
 											className="text-sm font-mono"
@@ -544,7 +702,7 @@ export function AllModels() {
 
 							<TableCell className="text-center">
 								<div className="space-y-1">
-									{model.providerDetails.map(({ provider, providerInfo }) => (
+									{model.providerDetails.map(({ provider }) => (
 										<div
 											key={provider.providerId}
 											className="text-sm font-mono"
@@ -557,7 +715,7 @@ export function AllModels() {
 
 							<TableCell className="text-center">
 								<div className="space-y-2">
-									{model.providerDetails.map(({ provider, providerInfo }) => (
+									{model.providerDetails.map(({ provider }) => (
 										<div
 											key={provider.providerId}
 											className="flex justify-center gap-1"
@@ -682,7 +840,7 @@ export function AllModels() {
 							<div className="grid grid-cols-2 gap-4 text-sm">
 								<div>
 									<div className="font-medium mb-1">Context Size:</div>
-									{model.providerDetails.map(({ provider, providerInfo }) => (
+									{model.providerDetails.map(({ provider }) => (
 										<div
 											key={provider.providerId}
 											className="text-muted-foreground"
@@ -696,7 +854,7 @@ export function AllModels() {
 
 								<div>
 									<div className="font-medium mb-1">Pricing:</div>
-									{model.providerDetails.map(({ provider, providerInfo }) => (
+									{model.providerDetails.map(({ provider }) => (
 										<div
 											key={provider.providerId}
 											className="text-muted-foreground text-xs"
@@ -711,7 +869,7 @@ export function AllModels() {
 
 							<div>
 								<div className="font-medium mb-2 text-sm">Capabilities:</div>
-								{model.providerDetails.map(({ provider, providerInfo }) => (
+								{model.providerDetails.map(({ provider }) => (
 									<div key={provider.providerId} className="flex gap-2 mb-1">
 										{getCapabilityIcons(provider).map(
 											({ icon: Icon, label, color }) => (
@@ -753,7 +911,7 @@ export function AllModels() {
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
 			<main>
-				<Hero navbarOnly />
+				{children}
 				<div className="container mx-auto px-4 md:px-0 pb-8 pt-40 space-y-6">
 					<TooltipProvider delayDuration={300} skipDelayDuration={100}>
 						<div className="container mx-auto py-8 space-y-6">
