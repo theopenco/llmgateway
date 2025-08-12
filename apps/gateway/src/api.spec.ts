@@ -1,4 +1,4 @@
-import { db, tables } from "@llmgateway/db";
+import { db, tables, eq } from "@llmgateway/db";
 import {
 	afterAll,
 	beforeEach,
@@ -674,7 +674,7 @@ describe("test", () => {
 		await db
 			.update(tables.organization)
 			.set({ plan: "free" })
-			.where(tables.organization.id.eq("org-id"));
+			.where(eq(tables.organization.id, "org-id"));
 
 		// Create API key and provider key so request can route
 		await db.insert(tables.apiKey).values({
