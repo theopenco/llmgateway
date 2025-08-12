@@ -808,6 +808,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 													const ProviderIcon = getProviderIcon(
 														provider.providerId,
 													);
+													console.log(provider.providerId, ProviderIcon);
 													return ProviderIcon ? (
 														<ProviderIcon className="w-4 h-4" />
 													) : (
