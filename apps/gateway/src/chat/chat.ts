@@ -152,7 +152,6 @@ function createLogEntry(
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
-	// NEW: include reasoning effort for logging
 	reasoningEffort: "low" | "medium" | "high" | undefined,
 	tools: any[] | undefined,
 	toolChoice: any | undefined,
@@ -175,7 +174,6 @@ function createLogEntry(
 		topP: top_p || null,
 		frequencyPenalty: frequency_penalty || null,
 		presencePenalty: presence_penalty || null,
-		// NEW: store normalized reasoning effort
 		reasoningEffort: reasoningEffort || null,
 		tools: tools || null,
 		toolChoice: toolChoice || null,
