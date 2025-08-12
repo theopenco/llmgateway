@@ -20,7 +20,7 @@ import type { LogInsertData } from "./lib/logs";
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const LOCK_DURATION_MINUTES = 10;
 
-async function acquireLock(key: string): Promise<boolean> {
+export async function acquireLock(key: string): Promise<boolean> {
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
