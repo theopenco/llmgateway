@@ -7,8 +7,8 @@ summary: "New and improved self-hosting documentation for teams and enterprises 
 image:
   src: "/changelog/self-host.png"
   alt: "Improved self-hosting setup guide for LLM Gateway"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 We've revamped our [**self-hosting docs**](https://docs.llmgateway.io/self-host) to make it easier than ever to run LLM Gateway on your own terms.

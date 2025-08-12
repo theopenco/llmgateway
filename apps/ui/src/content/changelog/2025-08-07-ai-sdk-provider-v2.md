@@ -7,8 +7,8 @@ summary: "Released v2.0 of our @llmgateway/ai-sdk-provider npm package with impr
 image:
   src: "/changelog/ai-sdk-provider-v2.png"
   alt: "AI SDK Provider v2.0 package integration with code examples"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 We're excited to announce the release of v2.0 of our [@llmgateway/ai-sdk-provider](https://www.npmjs.com/package/@llmgateway/ai-sdk-provider) npm package, making it even easier to integrate LLM Gateway with the Vercel AI SDK.

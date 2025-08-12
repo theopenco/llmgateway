@@ -7,8 +7,8 @@ summary: "Added support for Claude 4.1 models including claude-opus-4-1, claude-
 image:
   src: "/changelog/claude-4.1.png"
   alt: "Dashboard showing new Claude 4.1 models via Anthropic provider"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 We're excited to announce support for the latest Claude 4.1 models through our [Anthropic provider](/providers/anthropic), bringing you the most advanced AI capabilities with improved reasoning and performance from Anthropic.

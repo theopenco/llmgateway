@@ -414,7 +414,6 @@ console.log(completion.choices[0].message.content);
 
 - **Streaming**: pass `stream: true` to any request—Gateway will proxy the event stream unchanged.
 - **Monitoring**: Every call appears in the dashboard with latency, cost & provider breakdown.
-- **Fail‑over**: Specify `fallback_models` to auto‑retry on provider errors.
 
 ---
 
@@ -422,8 +421,7 @@ console.log(completion.choices[0].message.content);
 
 <Accordions type="single">
 	<Accordion title="Which models are supported?">
-		Currently `gpt‑4o`, `gpt‑4‑turbo`, `gpt‑3.5‑turbo`, `claude‑3` and
-		`gemini‑1.5`. More on the [Models page](https://llmgateway.io/models).
+		See the [Models page](https://llmgateway.io/models).
 	</Accordion>
 	<Accordion title="What makes your service different from OpenRouter?">
 		<p>Unlike OpenRouter, we offer:</p>
@@ -445,26 +443,8 @@ console.log(completion.choices[0].message.content);
 		</ul>
 	</Accordion>
 	<Accordion title="How much do you charge for your services?">
-		<p>Our pricing structure is designed to be flexible and cost-effective:</p>
-		<ul className="list-disc pl-6 mt-2 space-y-1">
-			<li>
-				<strong>Free tier:</strong> No fees when providing your own provider API
-				keys
-			</li>
-			<li>
-				<strong>Self-hosted option:</strong> Fully self-host our solution for
-				free with our MIT-licensed software
-			</li>
-			<li>
-				<strong>Premium features:</strong> Access to advanced analytics and
-				deeper insights
-			</li>
-		</ul>
-		<p className="mt-2">
-			We're currently finalizing our complete pricing structure for managed
-			services and enterprise solutions. Contact us for more details on custom
-			pricing options.
-		</p>
+		Our pricing structure is designed to be flexible and cost-effective: See the
+		[Pricing section](https://llmgateway.io#pricing).
 	</Accordion>
 </Accordions>
 

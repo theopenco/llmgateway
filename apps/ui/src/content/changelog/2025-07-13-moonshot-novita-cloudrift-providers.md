@@ -7,8 +7,8 @@ summary: "Added support for Cloudrift, Moonshot AI and Novita AI providers, both
 image:
   src: "/changelog/moonshot-novita-cloudrift-providers.png"
   alt: "Dashboard showing new Cloudrift Moonshot AI and Novita AI providers"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 We're excited to announce support for two new AI providers, expanding our model selection with high-performance options for extended context processing.

@@ -7,8 +7,8 @@ summary: "Bring your own LLM provider keys or use credits with zero gateway fees
 image:
   src: "/changelog/pricing.png"
   alt: "Pro subscription dashboard showing provider key management and billing controls"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 ## Bring Your Own Provider Keys

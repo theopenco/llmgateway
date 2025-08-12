@@ -7,8 +7,8 @@ summary: "Added support for GPT-OSS-120B and GPT-OSS-20B models via Groq, offeri
 image:
   src: "/changelog/gpt-oss-models.png"
   alt: "Dashboard showing new GPT-OSS models via Groq provider"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 We're excited to announce support for two new powerful open-source models through our [Groq provider](/providers/groq) integration, expanding your AI capabilities with cost-effective alternatives to proprietary models.

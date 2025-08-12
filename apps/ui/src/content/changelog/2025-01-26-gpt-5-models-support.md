@@ -7,8 +7,8 @@ summary: "Get instant access to OpenAI's powerful new GPT-5 model family includi
 image:
   src: "/changelog/gpt-5-models.png"
   alt: "GPT-5 models now available on LLM Gateway"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 OpenAI's **GPT-5 model family** is now available on LLM Gateway! Access all four models instantly with 400k context windows - **no organization verification needed**.

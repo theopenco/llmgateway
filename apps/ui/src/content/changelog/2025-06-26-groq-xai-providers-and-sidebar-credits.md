@@ -7,8 +7,8 @@ summary: "Added support for Groq and xAI providers with their latest models, plu
 image:
   src: "/changelog/groq-xai-providers.png"
   alt: "Updated dashboard showing organization and project selection"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 We're excited to announce support for two new AI providers, along with an improved credits experience in the dashboard.
