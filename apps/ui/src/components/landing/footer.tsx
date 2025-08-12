@@ -86,6 +86,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/providers"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Providers
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/playground"
 										className="text-sm hover:text-black dark:hover:text-white"
 										prefetch={true}

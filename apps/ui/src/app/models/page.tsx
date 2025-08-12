@@ -1,15 +1,23 @@
-import Footer from "@/components/landing/footer";
-import { Hero } from "@/components/landing/hero";
-import { ModelsSupported } from "@/components/models-supported";
+import { AllModels } from "@/components/models/all-models";
 
-export default function ProvidersPage() {
-	return (
-		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
-			<main>
-				<Hero navbarOnly />
-				<ModelsSupported />
-			</main>
-			<Footer />
-		</div>
-	);
+export const metadata = {
+	title: "AI Models Directory - Compare LLM Models & Providers | LLM Gateway",
+	description:
+		"Browse and compare 100+ AI models from leading providers like OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size. Find the perfect LLM for your application.",
+	openGraph: {
+		title: "AI Models Directory - Compare LLM Models & Providers",
+		description:
+			"Browse and compare 100+ AI models from leading providers like OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size.",
+		type: "website",
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: "AI Models Directory - Compare LLM Models & Providers",
+		description:
+			"Browse and compare 100+ AI models from leading providers. Filter by capabilities, pricing, and context size.",
+	},
+};
+
+export default function ModelsPage() {
+	return <AllModels />;
 }

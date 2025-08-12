@@ -369,7 +369,7 @@ export function Hero({ navbarOnly }: { navbarOnly?: boolean }) {
 						<div className="group relative m-auto max-w-5xl px-6">
 							<div className="absolute inset-0 z-10 flex scale-95 items-center justify-center opacity-0 duration-500 group-hover:scale-100 group-hover:opacity-100">
 								<Link
-									href="/models"
+									href="/providers"
 									className="block text-sm duration-150 hover:opacity-75"
 									prefetch={true}
 								>

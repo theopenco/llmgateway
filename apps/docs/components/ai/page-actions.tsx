@@ -12,7 +12,7 @@ import {
 	ChevronDown,
 	Copy,
 	ExternalLinkIcon,
-	MessageCircleIcon,
+	SearchIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -143,11 +143,11 @@ export function ViewOptions({
 				),
 			},
 			{
-				title: "Open in T3 Chat",
-				href: `https://t3.chat/new?${new URLSearchParams({
+				title: "Open in Scira AI",
+				href: `https://scira.ai/?${new URLSearchParams({
 					q,
 				})}`,
-				icon: <MessageCircleIcon />,
+				icon: <SearchIcon />,
 			},
 		];
 	}, [githubUrl, markdownUrl]);
