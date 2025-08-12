@@ -288,7 +288,7 @@ async function batchProcessLogs(): Promise<void> {
 				.where(sql`${log.processedAt} IS NULL`)
 				.orderBy(sql`${log.createdAt} ASC`)
 				.limit(BATCH_SIZE)
-				.for("update", { of: [log] });
+				.for("update", { of: [log], skipLocked: true });
 			const unprocessedLogs = { rows };
 
 			if (unprocessedLogs.rows.length === 0) {
