@@ -10,6 +10,7 @@ import {
 	apiKey,
 	inArray,
 } from "@llmgateway/db";
+import z from "zod";
 
 import { getOrganization } from "./lib/cache";
 import { consumeFromQueue, LOG_QUEUE } from "./lib/redis";
@@ -25,7 +26,17 @@ const LOCK_DURATION_MINUTES = 10;
 // Configuration for batch processing
 const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
-	Number(process.env.CREDIT_BATCH_INTERVAL) || 30;
+	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+
+const schema = z.object({
+	id: z.string(),
+	organization_id: z.string(),
+	project_id: z.string(),
+	cost: z.number().nullable(),
+	cached: z.boolean(),
+	api_key_id: z.string(),
+	project_mode: z.string(),
+});
 
 async function acquireLock(key: string): Promise<boolean> {
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
@@ -267,7 +278,7 @@ async function batchProcessLogs(): Promise<void> {
 				WHERE l.processed_at IS NULL
 				ORDER BY l.created_at ASC
 				LIMIT ${BATCH_SIZE}
-				FOR UPDATE SKIP LOCKED
+				FOR UPDATE OF l SKIP LOCKED
 			`);
 
 			if (unprocessedLogs.rows.length === 0) {
@@ -283,36 +294,21 @@ async function batchProcessLogs(): Promise<void> {
 			const apiKeyCosts = new Map<string, number>();
 			const logIds: string[] = [];
 
-			for (const row of unprocessedLogs.rows) {
-				const logData = {
-					id: row[0] as string,
-					organizationId: row[1] as string,
-					projectId: row[2] as string,
-					cost: row[3] as string | null,
-					cached: row[4] as boolean | null,
-					apiKeyId: row[5] as string,
-					projectMode: row[6] as string | null,
-				};
-
-				if (logData.cost && Number(logData.cost) > 0 && !logData.cached) {
+			for (const raw of unprocessedLogs.rows) {
+				const row = schema.parse(raw);
+				if (row.cost && row.cost > 0 && !row.cached) {
 					// Always update API key usage for non-cached logs with cost
-					const currentApiKeyCost = apiKeyCosts.get(logData.apiKeyId) || 0;
-					apiKeyCosts.set(
-						logData.apiKeyId,
-						currentApiKeyCost + Number(logData.cost),
-					);
+					const currentApiKeyCost = apiKeyCosts.get(row.api_key_id) || 0;
+					apiKeyCosts.set(row.api_key_id, currentApiKeyCost + row.cost);
 
 					// Only deduct organization credits for non-api-key projects
-					if (logData.projectMode !== "api-keys") {
-						const currentOrgCost = orgCosts.get(logData.organizationId) || 0;
-						orgCosts.set(
-							logData.organizationId,
-							currentOrgCost + Number(logData.cost),
-						);
+					if (row.project_mode !== "api-keys") {
+						const currentOrgCost = orgCosts.get(row.organization_id) || 0;
+						orgCosts.set(row.organization_id, currentOrgCost + row.cost);
 					}
 				}
 
-				logIds.push(logData.id);
+				logIds.push(row.id);
 			}
 
 			// Batch update organization credits within the same transaction
