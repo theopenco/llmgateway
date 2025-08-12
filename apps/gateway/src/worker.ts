@@ -35,7 +35,8 @@ const schema = z.object({
 	cost: z.number().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
-	project_mode: z.string(),
+	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
+	used_mode: z.enum(["api-keys", "credits"]),
 });
 
 async function acquireLock(key: string): Promise<boolean> {
@@ -271,15 +272,24 @@ async function batchProcessLogs(): Promise<void> {
 	try {
 		await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
-			const unprocessedLogs = await tx.execute(sql`
-				SELECT l.id, l.organization_id, l.project_id, l.cost, l.cached, l.api_key_id, p.mode as project_mode
-				FROM log l
-				LEFT JOIN project p ON l.project_id = p.id
-				WHERE l.processed_at IS NULL
-				ORDER BY l.created_at ASC
-				LIMIT ${BATCH_SIZE}
-				FOR UPDATE OF l SKIP LOCKED
-			`);
+			const rows = await tx
+				.select({
+					id: log.id,
+					organization_id: log.organizationId,
+					project_id: log.projectId,
+					cost: log.cost,
+					cached: log.cached,
+					api_key_id: log.apiKeyId,
+					project_mode: tables.project.mode,
+					used_mode: log.usedMode,
+				})
+				.from(log)
+				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
+				.where(sql`${log.processedAt} IS NULL`)
+				.orderBy(sql`${log.createdAt} ASC`)
+				.limit(BATCH_SIZE)
+				.for("update", { of: [log] });
+			const unprocessedLogs = { rows };
 
 			if (unprocessedLogs.rows.length === 0) {
 				return;
@@ -301,8 +311,8 @@ async function batchProcessLogs(): Promise<void> {
 					const currentApiKeyCost = apiKeyCosts.get(row.api_key_id) || 0;
 					apiKeyCosts.set(row.api_key_id, currentApiKeyCost + row.cost);
 
-					// Only deduct organization credits for non-api-key projects
-					if (row.project_mode !== "api-keys") {
+					// Only deduct organization credits when the log actually used credits
+					if (row.used_mode === "credits") {
 						const currentOrgCost = orgCosts.get(row.organization_id) || 0;
 						orgCosts.set(row.organization_id, currentOrgCost + row.cost);
 					}
