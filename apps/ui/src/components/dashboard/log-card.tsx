@@ -93,18 +93,6 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<Clock className="h-3.5 w-3.5" />
 							<span>{log.totalTokens} tokens</span>
 						</div>
-						{log.promptTokens && (
-							<div className="flex items-center gap-1">
-								<Clock className="h-3.5 w-3.5" />
-								<span>Prompt: {log.promptTokens}</span>
-							</div>
-						)}
-						{log.reasoningTokens && (
-							<div className="flex items-center gap-1">
-								<Clock className="h-3.5 w-3.5" />
-								<span>Reasoning: {log.reasoningTokens}</span>
-							</div>
-						)}
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />
 							<span>{formatDuration(log.duration ?? 0)}</span>
