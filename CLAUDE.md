@@ -46,7 +46,7 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 
 - **Gateway** (`apps/gateway`) - LLM request routing and provider management (Hono + Zod + OpenAPI)
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
-- **UI** (`apps/ui`) - Frontend dashboard (React + TanStack Router + Vite)
+- **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
 
 ### Shared Packages
@@ -68,11 +68,11 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 
 ### Frontend
 
-- **Framework**: React with TanStack Router
+- **Framework**: Next.js App Router (React Server Components)
 - **State Management**: TanStack Query
 - **UI Components**: Radix UI with Tailwind CSS
-- **Build Tool**: Vite
-- **Navigation**: Use `navigate()` for programmatic navigation
+- **Build Tool**: Next.js (Turbopack during dev; Node/Edge runtime)
+- **Navigation**: Use `next/link` for links and `next/navigation`'s router for programmatic navigation
 
 ### Development Tools
 

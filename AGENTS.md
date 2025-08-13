@@ -26,7 +26,7 @@
 
 ### apps/ui
 
-This is a tanstack router project. Always use navigate() for navigation. Never use window.location.
+This is a Next.js App Router project. Use next/link for links and next/navigation's router.push/replace or redirect() for programmatic navigation. Never use window.location.
 
 ### apps/docs
 
