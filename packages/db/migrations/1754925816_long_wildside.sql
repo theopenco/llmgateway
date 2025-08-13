@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "reasoning_effort" text;

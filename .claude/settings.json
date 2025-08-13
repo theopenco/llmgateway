@@ -1,0 +1,23 @@
+{
+	"hooks": {
+		"PostToolUse": [
+			{
+				"matcher": "Edit|MultiEdit|Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "pnpm format"
+					},
+					{
+						"type": "command",
+						"command": "pnpm build"
+					},
+					{
+						"type": "command",
+						"command": "pnpm sync && pnpm test:unit"
+					}
+				]
+			}
+		]
+	}
+}

@@ -39,7 +39,7 @@ const schema = z.object({
 	used_mode: z.enum(["api-keys", "credits"]),
 });
 
-async function acquireLock(key: string): Promise<boolean> {
+export async function acquireLock(key: string): Promise<boolean> {
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
@@ -54,8 +54,16 @@ async function acquireLock(key: string): Promise<boolean> {
 		});
 
 		return true;
-	} catch (_error) {
-		return false;
+	} catch (error) {
+		// If the insert failed due to a unique constraint violation, another process holds the lock
+		if (
+			typeof (error as any)?.code === "string" &&
+			(error as any).code === "23505"
+		) {
+			return false;
+		}
+		// Re-throw unexpected errors so they can be handled upstream
+		throw error;
 	}
 }
 

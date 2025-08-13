@@ -281,6 +281,7 @@ export const log = pgTable("log", {
 	topP: real(),
 	frequencyPenalty: real(),
 	presencePenalty: real(),
+	reasoningEffort: text(),
 	hasError: boolean().default(false),
 	errorDetails: json().$type<z.infer<typeof errorDetails>>(),
 	cost: real(),

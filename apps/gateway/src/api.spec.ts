@@ -1,4 +1,4 @@
-import { db, tables } from "@llmgateway/db";
+import { db, tables, eq } from "@llmgateway/db";
 import {
 	afterAll,
 	beforeEach,
@@ -667,5 +667,56 @@ describe("test", () => {
 			sessionid: "session-abc-123",
 			environment: "production",
 		});
+	});
+
+	test("Using custom headers requires Pro plan in hosted/paid mode", async () => {
+		// Downgrade org to free
+		await db
+			.update(tables.organization)
+			.set({ plan: "free" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		// Create API key and provider key so request can route
+		await db.insert(tables.apiKey).values({
+			id: "token-id-headers",
+			token: "token-with-headers",
+			projectId: "project-id",
+			description: "Test API Key with headers",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-headers",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+		});
+
+		// Simulate hosted/paid mode
+		process.env.HOSTED = "true";
+		process.env.PAID_MODE = "true";
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer token-with-headers`,
+				"X-LLMGateway-uid": "abc123",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "Hello!",
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.message).toMatch(
+			/Custom headers \(X-LLMGateway-\*\) require a Pro plan/i,
+		);
 	});
 });
