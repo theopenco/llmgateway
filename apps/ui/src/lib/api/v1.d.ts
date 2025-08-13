@@ -525,6 +525,7 @@ export interface paths {
 								topP: number | null;
 								frequencyPenalty: number | null;
 								presencePenalty: number | null;
+								reasoningEffort: string | null;
 								tools:
 									| {
 											/** @enum {string} */

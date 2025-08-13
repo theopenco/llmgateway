@@ -152,6 +152,7 @@ function createLogEntry(
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
+	reasoningEffort: "low" | "medium" | "high" | undefined,
 	tools: any[] | undefined,
 	toolChoice: any | undefined,
 	source: string | undefined,
@@ -173,6 +174,7 @@ function createLogEntry(
 		topP: top_p || null,
 		frequencyPenalty: frequency_penalty || null,
 		presencePenalty: presence_penalty || null,
+		reasoningEffort: reasoningEffort || null,
 		tools: tools || null,
 		toolChoice: toolChoice || null,
 		mode: project.mode,
@@ -1613,6 +1615,22 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode
+	const isHosted = process.env.HOSTED === "true";
+	const isPaidMode = process.env.PAID_MODE === "true";
+	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
+		const organization = await getOrganization(project.organizationId);
+		if (!organization) {
+			throw new HTTPException(500, { message: "Could not find organization" });
+		}
+		if (organization.plan !== "pro") {
+			throw new HTTPException(402, {
+				message:
+					"Custom headers (X-LLMGateway-*) require a Pro plan. Please upgrade to Pro or remove these headers.",
+			});
+		}
+	}
+
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
 		const customProviderExists = await checkCustomProviderExists(
@@ -2067,6 +2085,7 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					reasoning_effort,
 					tools,
 					tool_choice,
 					source,
@@ -2147,6 +2166,7 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					reasoning_effort,
 					tools,
 					tool_choice,
 					source,
@@ -2322,6 +2342,7 @@ chat.openapi(completions, async (c) => {
 						top_p,
 						frequency_penalty,
 						presence_penalty,
+						reasoning_effort,
 						tools,
 						tool_choice,
 						source,
@@ -2437,6 +2458,7 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					reasoning_effort,
 					tools,
 					tool_choice,
 					source,
@@ -3137,6 +3159,7 @@ chat.openapi(completions, async (c) => {
 					top_p,
 					frequency_penalty,
 					presence_penalty,
+					reasoning_effort,
 					tools,
 					tool_choice,
 					source,
@@ -3261,6 +3284,7 @@ chat.openapi(completions, async (c) => {
 			top_p,
 			frequency_penalty,
 			presence_penalty,
+			reasoning_effort,
 			tools,
 			tool_choice,
 			source,
@@ -3330,6 +3354,7 @@ chat.openapi(completions, async (c) => {
 			top_p,
 			frequency_penalty,
 			presence_penalty,
+			reasoning_effort,
 			tools,
 			tool_choice,
 			source,
@@ -3469,6 +3494,7 @@ chat.openapi(completions, async (c) => {
 		top_p,
 		frequency_penalty,
 		presence_penalty,
+		reasoning_effort,
 		tools,
 		tool_choice,
 		source,

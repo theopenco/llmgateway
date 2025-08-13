@@ -40,6 +40,7 @@ const modelSchema = z.object({
 			vision: z.boolean(),
 			cancellation: z.boolean(),
 			tools: z.boolean(),
+			reasoning: z.boolean(),
 		}),
 	),
 	pricing: z.object({
@@ -145,6 +146,7 @@ modelsApi.openapi(listModels, async (c) => {
 						vision: provider.vision || false,
 						cancellation: providerDef?.cancellation || false,
 						tools: provider.tools || false,
+						reasoning: provider.reasoning || false,
 					};
 				}),
 				pricing: {
@@ -193,16 +195,27 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 		"tool_choice",
 	];
 
-	// Look for supported parameters in any provider mapping for this model
+	// Start with explicit supported parameters if any provider defines them
 	for (const provider of model.providers) {
 		const supportedParameters = (provider as any)?.supportedParameters as
 			| string[]
 			| undefined;
 		if (supportedParameters && supportedParameters.length > 0) {
-			return supportedParameters;
+			const params = [...supportedParameters];
+			// If any provider supports reasoning, expose the reasoning parameter
+			if (model.providers.some((p: any) => p?.reasoning)) {
+				if (!params.includes("reasoning")) {
+					params.push("reasoning");
+				}
+			}
+			return params;
 		}
 	}
 
 	// If no provider has explicit supported parameters, return defaults
-	return defaultCommonParams;
+	const params = [...defaultCommonParams];
+	if (model.providers.some((p: any) => p?.reasoning)) {
+		params.push("reasoning");
+	}
+	return params;
 }
