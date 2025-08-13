@@ -8,9 +8,11 @@ import {
 	lt,
 	tables,
 	apiKey,
+	inArray,
 } from "@llmgateway/db";
+import z from "zod";
 
-import { getProject, getOrganization } from "./lib/cache";
+import { getOrganization } from "./lib/cache";
 import { consumeFromQueue, LOG_QUEUE } from "./lib/redis";
 import { calculateFees } from "../../api/src/lib/fee-calculator";
 import { stripe } from "../../api/src/routes/payments";
@@ -18,7 +20,24 @@ import { stripe } from "../../api/src/routes/payments";
 import type { LogInsertData } from "./lib/logs";
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
-const LOCK_DURATION_MINUTES = 10;
+const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
+const LOCK_DURATION_MINUTES = 5;
+
+// Configuration for batch processing
+const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
+const BATCH_PROCESSING_INTERVAL_SECONDS =
+	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+
+const schema = z.object({
+	id: z.string(),
+	organization_id: z.string(),
+	project_id: z.string(),
+	cost: z.number().nullable(),
+	cached: z.boolean(),
+	api_key_id: z.string(),
+	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
+	used_mode: z.enum(["api-keys", "credits"]),
+});
 
 export async function acquireLock(key: string): Promise<boolean> {
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
@@ -252,6 +271,111 @@ async function processAutoTopUp(): Promise<void> {
 	}
 }
 
+async function batchProcessLogs(): Promise<void> {
+	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		await db.transaction(async (tx) => {
+			// Get unprocessed logs with row-level locking to prevent concurrent processing
+			const rows = await tx
+				.select({
+					id: log.id,
+					organization_id: log.organizationId,
+					project_id: log.projectId,
+					cost: log.cost,
+					cached: log.cached,
+					api_key_id: log.apiKeyId,
+					project_mode: tables.project.mode,
+					used_mode: log.usedMode,
+				})
+				.from(log)
+				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
+				.where(sql`${log.processedAt} IS NULL`)
+				.orderBy(sql`${log.createdAt} ASC`)
+				.limit(BATCH_SIZE)
+				.for("update", { of: [log], skipLocked: true });
+			const unprocessedLogs = { rows };
+
+			if (unprocessedLogs.rows.length === 0) {
+				return;
+			}
+
+			console.log(
+				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
+			);
+
+			// Group logs by organization and api key to calculate total costs
+			const orgCosts = new Map<string, number>();
+			const apiKeyCosts = new Map<string, number>();
+			const logIds: string[] = [];
+
+			for (const raw of unprocessedLogs.rows) {
+				const row = schema.parse(raw);
+				if (row.cost && row.cost > 0 && !row.cached) {
+					// Always update API key usage for non-cached logs with cost
+					const currentApiKeyCost = apiKeyCosts.get(row.api_key_id) || 0;
+					apiKeyCosts.set(row.api_key_id, currentApiKeyCost + row.cost);
+
+					// Only deduct organization credits when the log actually used credits
+					if (row.used_mode === "credits") {
+						const currentOrgCost = orgCosts.get(row.organization_id) || 0;
+						orgCosts.set(row.organization_id, currentOrgCost + row.cost);
+					}
+				}
+
+				logIds.push(row.id);
+			}
+
+			// Batch update organization credits within the same transaction
+			for (const [orgId, totalCost] of orgCosts.entries()) {
+				if (totalCost > 0) {
+					await tx
+						.update(organization)
+						.set({
+							credits: sql`${organization.credits} - ${totalCost}`,
+						})
+						.where(eq(organization.id, orgId));
+
+					console.log(
+						`Deducted ${totalCost} credits from organization ${orgId}`,
+					);
+				}
+			}
+
+			// Batch update API key usage within the same transaction
+			for (const [apiKeyId, totalCost] of apiKeyCosts.entries()) {
+				if (totalCost > 0) {
+					await tx
+						.update(apiKey)
+						.set({
+							usage: sql`${apiKey.usage} + ${totalCost}`,
+						})
+						.where(eq(apiKey.id, apiKeyId));
+
+					console.log(`Added ${totalCost} usage to API key ${apiKeyId}`);
+				}
+			}
+
+			// Mark all logs as processed within the same transaction
+			await tx
+				.update(log)
+				.set({
+					processedAt: new Date(),
+				})
+				.where(inArray(log.id, logIds));
+
+			console.log(`Marked ${logIds.length} logs as processed`);
+		});
+	} catch (error) {
+		console.error("Error processing batch credit deductions:", error);
+	} finally {
+		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
+	}
+}
+
 export async function processLogQueue(): Promise<void> {
 	const message = await consumeFromQueue(LOG_QUEUE);
 
@@ -279,32 +403,8 @@ export async function processLogQueue(): Promise<void> {
 			}),
 		);
 
+		// Insert logs without processing credits or API key usage - they will be processed in batches
 		await db.insert(log).values(processedLogData as any);
-
-		for (const data of logData) {
-			if (!data.cost || data.cached) {
-				continue;
-			}
-
-			const project = await getProject(data.projectId);
-
-			if (project?.mode !== "api-keys") {
-				await db
-					.update(organization)
-					.set({
-						credits: sql`${organization.credits} - ${data.cost}`,
-					})
-					.where(eq(organization.id, data.organizationId));
-			}
-
-			// update key usage
-			await db
-				.update(apiKey)
-				.set({
-					usage: sql`${apiKey.usage} + ${data.cost}`,
-				})
-				.where(eq(apiKey.id, data.apiKeyId));
-		}
 	} catch (error) {
 		console.error("Error processing log message:", error);
 	}
@@ -324,6 +424,7 @@ export async function startWorker() {
 	console.log("Starting log queue worker...");
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
+	let creditProcessingCounter = 0;
 
 	// eslint-disable-next-line no-unmodified-loop-condition
 	while (!shouldStop) {
@@ -334,6 +435,12 @@ export async function startWorker() {
 			if (autoTopUpCounter >= count) {
 				await processAutoTopUp();
 				autoTopUpCounter = 0;
+			}
+
+			creditProcessingCounter++;
+			if (creditProcessingCounter >= BATCH_PROCESSING_INTERVAL_SECONDS) {
+				await batchProcessLogs();
+				creditProcessingCounter = 0;
 			}
 
 			if (!shouldStop) {
