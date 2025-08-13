@@ -164,8 +164,6 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>{log.promptTokens}</div>
 								<div className="text-muted-foreground">Completion Tokens</div>
 								<div>{log.completionTokens}</div>
-								<div className="text-muted-foreground">Reasoning Tokens</div>
-								<div>{log.reasoningTokens}</div>
 								<div className="text-muted-foreground">Total Tokens</div>
 								<div className="font-medium">{log.totalTokens}</div>
 								{log.reasoningTokens && (
@@ -474,6 +472,16 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							</pre>
 						</div>
 					</div>
+					{log.reasoningContent && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Reasoning Content</h4>
+							<div className="rounded-md border p-3">
+								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
+									{log.reasoningContent}
+								</pre>
+							</div>
+						</div>
+					)}
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
@@ -482,16 +490,6 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							</pre>
 						</div>
 					</div>
-					{log.reasoningContent && (
-						<div className="space-y-2">
-							<h4 className="text-sm font-medium">Reasoning Content</h4>
-							<div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-900 p-3">
-								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
-									{log.reasoningContent}
-								</pre>
-							</div>
-						</div>
-					)}
 				</div>
 			)}
 		</div>

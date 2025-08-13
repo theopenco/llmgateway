@@ -336,8 +336,11 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		default: // OpenAI format
 			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			content = json.choices?.[0]?.message?.content || null;
-			// Extract reasoning content for reasoning-capable models
-			reasoningContent = json.choices?.[0]?.message?.reasoning_content || null;
+			// Extract reasoning content for reasoning-capable models (check both field names)
+			reasoningContent =
+				json.choices?.[0]?.message?.reasoning_content ||
+				json.choices?.[0]?.message?.reasoning ||
+				null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
 			promptTokens = json.usage?.prompt_tokens || null;
 			completionTokens = json.usage?.completion_tokens || null;
@@ -468,7 +471,11 @@ function extractReasoningContentFromProvider(
 			return reasoningParts.map((part: any) => part.text).join("") || "";
 		}
 		default: // OpenAI format
-			return data.choices?.[0]?.delta?.reasoning_content || "";
+			return (
+				data.choices?.[0]?.delta?.reasoning_content ||
+				data.choices?.[0]?.delta?.reasoning ||
+				""
+			);
 	}
 }
 
@@ -2042,6 +2049,8 @@ chat.openapi(completions, async (c) => {
 						if (chunkData.choices?.[0]?.delta?.reasoning_content) {
 							fullReasoningContent +=
 								chunkData.choices[0].delta.reasoning_content;
+						} else if (chunkData.choices?.[0]?.delta?.reasoning) {
+							fullReasoningContent += chunkData.choices[0].delta.reasoning;
 						}
 
 						// Extract usage information (usually in the last chunks)
@@ -2179,7 +2188,9 @@ chat.openapi(completions, async (c) => {
 					responseSize: JSON.stringify(cachedResponse).length,
 					content: cachedResponse.choices?.[0]?.message?.content || null,
 					reasoningContent:
-						cachedResponse.choices?.[0]?.message?.reasoning_content || null,
+						cachedResponse.choices?.[0]?.message?.reasoning_content ||
+						cachedResponse.choices?.[0]?.message?.reasoning ||
+						null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
 					promptTokens: cachedResponse.usage?.prompt_tokens || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
