@@ -7,8 +7,8 @@ summary: "We’ve moved from TanStack Start to Next.js. Here’s why it matters"
 image:
   src: "/changelog/nextjs-migration.png"
   alt: "Next.js migration"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 ## 🚀 Next.js Migration

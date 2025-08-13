@@ -7,8 +7,8 @@ summary: "The unified AI gateway is here! Access 30+ models from 8 providers thr
 image:
   src: "/opengraph.png"
   alt: "LLM Gateway v1.0 launch featuring multi-provider support and unified API"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 🎉 **Welcome to LLM Gateway v1.0!** We're excited to launch the most comprehensive AI gateway platform, bringing together 30+ leading AI models from 8 providers under one unified, developer-friendly API.

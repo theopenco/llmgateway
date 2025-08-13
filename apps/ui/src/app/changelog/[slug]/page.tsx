@@ -42,15 +42,17 @@ export default async function ChangelogEntryPage({
 					<article className="prose prose-lg dark:prose-invert max-w-none">
 						<header className="mb-8">
 							<h1 className="text-4xl font-bold mb-4">{entry.title}</h1>
-							<div className="flex items-center gap-4 text-muted-foreground">
-								<time dateTime={entry.date}>
+							<div className="text-muted-foreground">
+								{entry.summary && (
+									<p className="text-lg mb-2">{entry.summary}</p>
+								)}
+								<time dateTime={entry.date} className="text-sm italic">
 									{new Date(entry.date).toLocaleDateString("en-US", {
 										year: "numeric",
 										month: "long",
 										day: "numeric",
 									})}
 								</time>
-								{entry.summary && <p className="text-lg">{entry.summary}</p>}
 							</div>
 						</header>
 

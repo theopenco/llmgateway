@@ -7,8 +7,8 @@ summary: "Introducing organizations and projects for clearer controls and statis
 image:
   src: "/changelog/dashboard-ui.png"
   alt: "Updated dashboard showing organization and project selection"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 ## 🌐 Organizations & Projects

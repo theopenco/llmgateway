@@ -7,8 +7,8 @@ summary: "Massive savings with Deepseek models and the arrival of Mistral models
 image:
   src: "/changelog/cloudrift.png"
   alt: "Deepseek and Mistral models added to LLM Gateway with discount banner"
-  width: 800
-  height: 400
+  width: 1768
+  height: 677
 ---
 
 Two big updates to help you build faster and cheaper with the best models.
