@@ -5,6 +5,7 @@ import {
 	Check,
 	Copy,
 	Eye,
+	Gift,
 	MessageSquare,
 	Wrench,
 	Zap,
@@ -82,6 +83,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			vision: false,
 			tools: false,
 			reasoning: false,
+			free: false,
 		},
 		inputPrice: {
 			min: "",
@@ -151,6 +153,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				filters.capabilities.reasoning &&
 				!model.providerDetails.some((p) => p.provider.reasoning)
 			) {
+				return false;
+			}
+			if (filters.capabilities.free && !model.free) {
 				return false;
 			}
 
@@ -362,6 +367,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				vision: false,
 				tools: false,
 				reasoning: false,
+				free: false,
 			},
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
@@ -415,6 +421,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									label: "Reasoning",
 									icon: MessageSquare,
 									color: "text-orange-500",
+								},
+								{
+									key: "free",
+									label: "Free",
+									icon: Gift,
+									color: "text-emerald-500",
 								},
 							].map(({ key, label, icon: Icon, color }) => (
 								<div key={key} className="flex items-center space-x-2">
@@ -604,8 +616,17 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 						<TableRow key={model.id}>
 							<TableCell className="font-medium">
 								<div className="space-y-1">
-									<div className="font-semibold text-sm">
+									<div className="font-semibold text-sm flex items-center gap-2">
 										{model.name || model.id}
+										{model.free && (
+											<Badge
+												variant="secondary"
+												className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
+											>
+												<Gift className="h-3 w-3 mr-1" />
+												Free
+											</Badge>
+										)}
 									</div>
 									<div className="text-xs text-muted-foreground">
 										Family:{" "}
@@ -762,8 +783,17 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					<CardHeader>
 						<div className="flex items-start justify-between gap-2">
 							<div className="flex-1 min-w-0">
-								<CardTitle className="text-base leading-tight">
+								<CardTitle className="text-base leading-tight flex items-center gap-2 flex-wrap">
 									{model.name || model.id}
+									{model.free && (
+										<Badge
+											variant="secondary"
+											className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
+										>
+											<Gift className="h-3 w-3 mr-1" />
+											Free
+										</Badge>
+									)}
 								</CardTitle>
 								<CardDescription className="text-sm mt-1">
 									<Badge variant="outline" className="text-xs">
@@ -1002,7 +1032,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								{renderFilters()}
 							</div>
 
-							<div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+							<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
 								<Card>
 									<CardContent className="p-4">
 										<div className="text-2xl font-bold">
@@ -1046,6 +1076,19 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										</div>
 										<div className="text-sm text-muted-foreground">
 											Tool-enabled{hasActiveFilters ? " (filtered)" : ""}
+										</div>
+									</CardContent>
+								</Card>
+								<Card>
+									<CardContent className="p-4">
+										<div className="text-2xl font-bold">
+											{
+												modelsWithProviders.filter((m) => (m as any).free)
+													.length
+											}
+										</div>
+										<div className="text-sm text-muted-foreground">
+											Free Models{hasActiveFilters ? " (filtered)" : ""}
 										</div>
 									</CardContent>
 								</Card>

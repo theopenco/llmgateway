@@ -57,6 +57,7 @@ const modelSchema = z.object({
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
+	free: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
 	deactivated_at: z.string().optional(),
 });
@@ -168,6 +169,7 @@ modelsApi.openapi(listModels, async (c) => {
 				supported_parameters: getSupportedParametersFromModel(model),
 				// Add model-level capabilities
 				json_output: model.jsonOutput || false,
+				free: model.free || false,
 				deprecated_at: model.deprecatedAt?.toISOString(),
 				deactivated_at: model.deactivatedAt?.toISOString(),
 			};

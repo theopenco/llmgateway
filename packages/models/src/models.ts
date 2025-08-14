@@ -98,6 +98,10 @@ export interface ModelDefinition {
 	 */
 	jsonOutput?: boolean;
 	/**
+	 * Whether this model is free to use
+	 */
+	free?: boolean;
+	/**
 	 * Date when the model will be deprecated (still usable but filtered from selection algorithms)
 	 */
 	deprecatedAt?: Date;

@@ -100,7 +100,11 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						<div className="flex items-center gap-1">
 							<Coins className="h-3.5 w-3.5" />
 							<span>
-								{log.cost ? `$${log.cost.toFixed(6)}` : log.cached ? "$0" : "?"}
+								{log.cost
+									? `$${log.cost.toFixed(6)}`
+									: log.cached
+										? "$0"
+										: "$0"}
 							</span>
 						</div>
 						{log.source && (
@@ -224,19 +228,19 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Input Cost</div>
 								<div>
-									{log.inputCost ? `$${log.inputCost.toFixed(6)}` : "?"}
+									{log.inputCost ? `$${log.inputCost.toFixed(6)}` : "$0"}
 								</div>
 								<div className="text-muted-foreground">Output Cost</div>
 								<div>
-									{log.outputCost ? `$${log.outputCost.toFixed(6)}` : "?"}
+									{log.outputCost ? `$${log.outputCost.toFixed(6)}` : "$0"}
 								</div>
 								<div className="text-muted-foreground">Request Cost</div>
 								<div>
-									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "0"}
+									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "$0"}
 								</div>
 								<div className="text-muted-foreground">Total Cost</div>
 								<div className="font-medium">
-									{log.cost ? `$${log.cost.toFixed(6)}` : "?"}
+									{log.cost ? `$${log.cost.toFixed(6)}` : "$0"}
 								</div>
 							</div>
 						</div>

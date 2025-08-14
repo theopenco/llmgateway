@@ -47,6 +47,28 @@ export const metaModels = [
 		],
 	},
 	{
+		id: "llama-3.1-70b-instruct-free",
+		name: "Meta Llama 3.1 70B Instruct FP8 (Free)",
+		family: "meta",
+		free: true,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "cloudrift",
+				modelName: "meta-llama/Meta-Llama-3.1-70B-Instruct-FP8",
+				inputPrice: 0.0 / 1e6,
+				outputPrice: 0.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 16380,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: false,
+			},
+		],
+	},
+	{
 		id: "llama-3.2-11b-instruct",
 		name: "Llama 3.2 11B Instruct",
 		family: "meta",

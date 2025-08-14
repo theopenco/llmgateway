@@ -13,6 +13,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	type Model,
+	type ModelDefinition,
 	models,
 	prepareRequestBody,
 	type Provider,
@@ -1533,7 +1534,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (response_format?.type === "json_object") {
-		if (!(modelInfo as any).jsonOutput) {
+		if (!(modelInfo as ModelDefinition).jsonOutput) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support JSON output mode`,
 			});
@@ -1894,7 +1895,7 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (organization.credits <= 0) {
+		if (organization.credits <= 0 && !(modelInfo as ModelDefinition).free) {
 			throw new HTTPException(402, {
 				message: "Organization has insufficient credits",
 			});
@@ -1945,7 +1946,7 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			if (organization.credits <= 0) {
+			if (organization.credits <= 0 && !(modelInfo as ModelDefinition).free) {
 				throw new HTTPException(402, {
 					message:
 						"No API key set for provider and organization has insufficient credits",
