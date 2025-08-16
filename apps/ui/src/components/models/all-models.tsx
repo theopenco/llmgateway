@@ -18,7 +18,8 @@ import {
 	ArrowUp,
 	ArrowDown,
 } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import React, { useMemo, useState, useCallback } from "react";
 
 import Footer from "@/components/landing/footer";
 import { getProviderIcon } from "@/components/ui/providers-icons";
@@ -67,37 +68,65 @@ type SortField =
 type SortDirection = "asc" | "desc";
 
 export function AllModels({ children }: { children: React.ReactNode }) {
-	const [viewMode, setViewMode] = useState<"table" | "grid">("table");
+	const router = useRouter();
+	const searchParams = useSearchParams();
+
+	const [viewMode, setViewMode] = useState<"table" | "grid">(
+		(searchParams.get("view") as "table" | "grid") === "grid"
+			? "grid"
+			: "table",
+	);
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	// Search and filter states
-	const [searchQuery, setSearchQuery] = useState("");
-	const [showFilters, setShowFilters] = useState(false);
+	const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+	const [showFilters, setShowFilters] = useState(
+		searchParams.get("filters") === "1",
+	);
 
 	// Sorting states
-	const [sortField, setSortField] = useState<SortField | null>(null);
-	const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+	const [sortField, setSortField] = useState<SortField | null>(
+		(searchParams.get("sortField") as SortField) || null,
+	);
+	const [sortDirection, setSortDirection] = useState<SortDirection>(
+		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
+	);
 	const [filters, setFilters] = useState({
 		capabilities: {
-			streaming: false,
-			vision: false,
-			tools: false,
-			reasoning: false,
-			free: false,
+			streaming: searchParams.get("streaming") === "true",
+			vision: searchParams.get("vision") === "true",
+			tools: searchParams.get("tools") === "true",
+			reasoning: searchParams.get("reasoning") === "true",
+			free: searchParams.get("free") === "true",
 		},
 		inputPrice: {
-			min: "",
-			max: "",
+			min: searchParams.get("inputPriceMin") || "",
+			max: searchParams.get("inputPriceMax") || "",
 		},
 		outputPrice: {
-			min: "",
-			max: "",
+			min: searchParams.get("outputPriceMin") || "",
+			max: searchParams.get("outputPriceMax") || "",
 		},
 		contextSize: {
-			min: "",
-			max: "",
+			min: searchParams.get("contextSizeMin") || "",
+			max: searchParams.get("contextSizeMax") || "",
 		},
 	});
+
+	const updateUrlWithFilters = useCallback(
+		(newParams: Record<string, string | undefined>) => {
+			const params = new URLSearchParams(searchParams.toString());
+			Object.entries(newParams).forEach(([key, value]) => {
+				if (value !== undefined && value !== "") {
+					params.set(key, value);
+				} else {
+					params.delete(key);
+				}
+			});
+			router.push(`?${params.toString()}`, { scroll: false });
+		},
+		[router, searchParams],
+	);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const baseModels = (models as readonly ModelDefinition[])
@@ -289,12 +318,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 	const handleSort = (field: SortField) => {
 		if (sortField === field) {
-			// If already sorting by this field, toggle direction
-			setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+			const newDir: SortDirection = sortDirection === "asc" ? "desc" : "asc";
+			setSortDirection(newDir);
+			updateUrlWithFilters({ sortDir: newDir });
 		} else {
-			// New field, start with ascending
 			setSortField(field);
 			setSortDirection("asc");
+			updateUrlWithFilters({ sortField: field, sortDir: "asc" });
 		}
 	};
 
@@ -375,6 +405,22 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		});
 		setSortField(null);
 		setSortDirection("asc");
+		updateUrlWithFilters({
+			q: undefined,
+			streaming: undefined,
+			vision: undefined,
+			tools: undefined,
+			reasoning: undefined,
+			free: undefined,
+			inputPriceMin: undefined,
+			inputPriceMax: undefined,
+			outputPriceMin: undefined,
+			outputPriceMax: undefined,
+			contextSizeMin: undefined,
+			contextSizeMax: undefined,
+			sortField: undefined,
+			sortDir: undefined,
+		});
 	};
 
 	const hasActiveFilters =
@@ -437,15 +483,19 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												key as keyof typeof filters.capabilities
 											]
 										}
-										onCheckedChange={(checked) =>
+										onCheckedChange={(checked) => {
+											const isChecked = checked === true;
 											setFilters((prev) => ({
 												...prev,
 												capabilities: {
 													...prev.capabilities,
-													[key]: checked === true,
+													[key]: isChecked,
 												},
-											}))
-										}
+											}));
+											updateUrlWithFilters({
+												[key]: isChecked ? "true" : undefined,
+											});
+										}}
 									/>
 									<label
 										htmlFor={key}
@@ -466,24 +516,28 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								placeholder="Min price"
 								type="number"
 								value={filters.inputPrice.min}
-								onChange={(e) =>
+								onChange={(e) => {
+									const value = e.target.value;
 									setFilters((prev) => ({
 										...prev,
-										inputPrice: { ...prev.inputPrice, min: e.target.value },
-									}))
-								}
+										inputPrice: { ...prev.inputPrice, min: value },
+									}));
+									updateUrlWithFilters({ inputPriceMin: value || undefined });
+								}}
 								className="h-8"
 							/>
 							<Input
 								placeholder="Max price"
 								type="number"
 								value={filters.inputPrice.max}
-								onChange={(e) =>
+								onChange={(e) => {
+									const value = e.target.value;
 									setFilters((prev) => ({
 										...prev,
-										inputPrice: { ...prev.inputPrice, max: e.target.value },
-									}))
-								}
+										inputPrice: { ...prev.inputPrice, max: value },
+									}));
+									updateUrlWithFilters({ inputPriceMax: value || undefined });
+								}}
 								className="h-8"
 							/>
 						</div>
@@ -496,24 +550,28 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								placeholder="Min price"
 								type="number"
 								value={filters.outputPrice.min}
-								onChange={(e) =>
+								onChange={(e) => {
+									const value = e.target.value;
 									setFilters((prev) => ({
 										...prev,
-										outputPrice: { ...prev.outputPrice, min: e.target.value },
-									}))
-								}
+										outputPrice: { ...prev.outputPrice, min: value },
+									}));
+									updateUrlWithFilters({ outputPriceMin: value || undefined });
+								}}
 								className="h-8"
 							/>
 							<Input
 								placeholder="Max price"
 								type="number"
 								value={filters.outputPrice.max}
-								onChange={(e) =>
+								onChange={(e) => {
+									const value = e.target.value;
 									setFilters((prev) => ({
 										...prev,
-										outputPrice: { ...prev.outputPrice, max: e.target.value },
-									}))
-								}
+										outputPrice: { ...prev.outputPrice, max: value },
+									}));
+									updateUrlWithFilters({ outputPriceMax: value || undefined });
+								}}
 								className="h-8"
 							/>
 						</div>
@@ -526,24 +584,28 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								placeholder="Min size (e.g., 128000)"
 								type="number"
 								value={filters.contextSize.min}
-								onChange={(e) =>
+								onChange={(e) => {
+									const value = e.target.value;
 									setFilters((prev) => ({
 										...prev,
-										contextSize: { ...prev.contextSize, min: e.target.value },
-									}))
-								}
+										contextSize: { ...prev.contextSize, min: value },
+									}));
+									updateUrlWithFilters({ contextSizeMin: value || undefined });
+								}}
 								className="h-8"
 							/>
 							<Input
 								placeholder="Max size (e.g., 200000)"
 								type="number"
 								value={filters.contextSize.max}
-								onChange={(e) =>
+								onChange={(e) => {
+									const value = e.target.value;
 									setFilters((prev) => ({
 										...prev,
-										contextSize: { ...prev.contextSize, max: e.target.value },
-									}))
-								}
+										contextSize: { ...prev.contextSize, max: value },
+									}));
+									updateUrlWithFilters({ contextSizeMax: value || undefined });
+								}}
 								className="h-8"
 							/>
 						</div>
@@ -959,7 +1021,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<Button
 										variant={viewMode === "table" ? "default" : "outline"}
 										size="sm"
-										onClick={() => setViewMode("table")}
+										onClick={() => {
+											setViewMode("table");
+											updateUrlWithFilters({ view: "table" });
+										}}
 									>
 										<List className="h-4 w-4 mr-1" />
 										Table
@@ -967,7 +1032,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<Button
 										variant={viewMode === "grid" ? "default" : "outline"}
 										size="sm"
-										onClick={() => setViewMode("grid")}
+										onClick={() => {
+											setViewMode("grid");
+											updateUrlWithFilters({ view: "grid" });
+										}}
 									>
 										<Grid className="h-4 w-4 mr-1" />
 										Grid
@@ -982,14 +1050,22 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										<Input
 											placeholder="Search models..."
 											value={searchQuery}
-											onChange={(e) => setSearchQuery(e.target.value)}
+											onChange={(e) => {
+												const value = e.target.value;
+												setSearchQuery(value);
+												updateUrlWithFilters({ q: value || undefined });
+											}}
 											className="pl-8"
 										/>
 									</div>
 									<Button
 										variant="outline"
 										size="sm"
-										onClick={() => setShowFilters(!showFilters)}
+										onClick={() => {
+											const next = !showFilters;
+											setShowFilters(next);
+											updateUrlWithFilters({ filters: next ? "1" : undefined });
+										}}
 										className={
 											hasActiveFilters ? "border-primary text-primary" : ""
 										}
