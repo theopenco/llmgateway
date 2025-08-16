@@ -48,7 +48,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
-import { formatContextSize } from "@/lib/utils";
+import { cn, formatContextSize } from "@/lib/utils";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
@@ -123,7 +123,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					params.delete(key);
 				}
 			});
-			router.push(`?${params.toString()}`, { scroll: false });
+			router.replace(`?${params.toString()}`, { scroll: false });
 		},
 		[router, searchParams],
 	);
@@ -1002,10 +1002,14 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	);
 
 	return (
-		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
+		<div className="min-h-screen text-foreground bg-background">
 			<main>
 				{children}
-				<div className="container mx-auto px-4 md:px-0 pb-8 pt-40 space-y-6">
+				<div
+					className={cn("container mx-auto px-4 md:px-0 pb-8 space-y-6", {
+						"pt-40": children,
+					})}
+				>
 					<TooltipProvider delayDuration={300} skipDelayDuration={100}>
 						<div className="container mx-auto py-8 space-y-6">
 							<div className="flex items-center justify-between">
