@@ -1,5 +1,6 @@
 import { db, tables, eq } from "@llmgateway/db";
 import {
+	type ModelDefinition,
 	models,
 	type ProviderModelMapping,
 	providers,
@@ -47,7 +48,9 @@ const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
 	// Filter out deactivated models
-	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt);
+	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt)
+	// Filter out free models if not in full mode
+	.filter((model) => fullMode || !(model as ModelDefinition).free);
 
 const testModels = filteredModels
 	// If any model has test: "only", only include those models
