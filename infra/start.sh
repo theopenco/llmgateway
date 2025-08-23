@@ -19,31 +19,31 @@ if [ ! -s "/var/lib/postgresql/data/PG_VERSION" ]; then
     echo "Initializing PostgreSQL database..."
 
     # Initialize database
-    su postgres -c "/usr/lib/postgresql/*/bin/initdb -D /var/lib/postgresql/data"
+    su postgres -c "/usr/lib/postgresql/17/bin/initdb -D /var/lib/postgresql/data"
 
     # Start PostgreSQL temporarily for setup
-    su postgres -c "/usr/lib/postgresql/*/bin/pg_ctl -D /var/lib/postgresql/data -l /var/log/postgresql.log start"
+    su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/data -l /var/log/postgresql.log start"
 
     # Wait for PostgreSQL to start
     sleep 5
 
     # Create database and user
-    su postgres -c "/usr/lib/postgresql/*/bin/createdb $POSTGRES_DB" || true
-    su postgres -c "/usr/lib/postgresql/*/bin/psql -c \"ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';\"" || true
+    su postgres -c "/usr/lib/postgresql/17/bin/createdb $POSTGRES_DB" || true
+    su postgres -c "/usr/lib/postgresql/17/bin/psql -c \"ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';\"" || true
 
     # Run initialization scripts if they exist
     if [ -d "/docker-entrypoint-initdb.d" ]; then
         for f in /docker-entrypoint-initdb.d/*; do
             case "$f" in
-                *.sql)    echo "Running $f"; su postgres -c "/usr/lib/postgresql/*/bin/psql -d $POSTGRES_DB -f $f"; echo ;;
-                *.sql.gz) echo "Running $f"; gunzip -c "$f" | su postgres -c "/usr/lib/postgresql/*/bin/psql -d $POSTGRES_DB"; echo ;;
+                *.sql)    echo "Running $f"; su postgres -c "/usr/lib/postgresql/17/bin/psql -d $POSTGRES_DB -f $f"; echo ;;
+                *.sql.gz) echo "Running $f"; gunzip -c "$f" | su postgres -c "/usr/lib/postgresql/17/bin/psql -d $POSTGRES_DB"; echo ;;
                 *)        echo "Ignoring $f" ;;
             esac
         done
     fi
 
     # Stop PostgreSQL
-    su postgres -c "/usr/lib/postgresql/*/bin/pg_ctl -D /var/lib/postgresql/data stop"
+    su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/data stop"
 
     echo "PostgreSQL initialization complete."
 else

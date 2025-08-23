@@ -86,16 +86,34 @@ ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
 # Install required packages (excluding nodejs/npm as we'll copy from builder)
+# Add PostgreSQL 17 official repository
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql \
-    postgresql-contrib \
-    postgresql-client \
-    redis-server \
+    wget \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    build-essential \
+    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-17 \
+    postgresql-contrib-17 \
+    postgresql-client-17 \
     supervisor \
     tini \
     curl \
     bash \
     gosu \
+    && wget https://download.redis.io/redis-stable.tar.gz \
+    && tar -xzf redis-stable.tar.gz \
+    && cd redis-stable \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf redis-stable redis-stable.tar.gz \
+    && adduser --system --group --no-create-home redis \
+    && apt-get remove -y build-essential wget gnupg lsb-release \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pnpm from builder stage
