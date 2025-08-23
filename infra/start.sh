@@ -5,7 +5,7 @@ echo "Starting LLMGateway unified container..."
 
 # Create node user if it doesn't exist
 if ! id "node" &>/dev/null; then
-    adduser -D -s /bin/sh node
+    adduser --system --shell /bin/sh --no-create-home node
 fi
 
 # Create log directories and files with proper permissions
