@@ -88,6 +88,8 @@ ENV APP_VERSION=$APP_VERSION
 # Install required packages (excluding nodejs/npm as we'll copy from builder)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql \
+    postgresql-contrib \
+    postgresql-client \
     redis-server \
     supervisor \
     tini \
