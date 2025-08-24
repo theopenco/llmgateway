@@ -28,8 +28,9 @@ We're excited to announce support for **DeepSeek v3.1**, the latest advancement 
 - **Model ID**: `deepseek/deepseek-v3.1`
 - **Provider**: DeepSeek
 - **Context Window**: 128,000 tokens
-- **Input Price**: $0.27 per million tokens
-- **Output Price**: $1.10 per million tokens
+- **Input Price**: $0.56 per million tokens
+- **Cached Input Price**: $0.07 per million tokens
+- **Output Price**: $1.68 per million tokens
 - **Capabilities**: Advanced reasoning, mathematics, coding, analysis
 
 ## 🎯 Perfect For
