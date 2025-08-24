@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llmgateway_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-llmgateway}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -36,7 +36,7 @@ services:
         "--appendonly",
         "yes",
         "--requirepass",
-        "${REDIS_PASSWORD}",
+        "${REDIS_PASSWORD:-redis_dev_password}",
       ]
     volumes:
       - redis_data:/data
@@ -61,10 +61,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=80
-      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_this_secure_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       # LLM Provider API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -107,7 +107,7 @@ services:
       - NODE_ENV=production
       - RUN_MIGRATIONS=true
       - PORT=80
-      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-llmgateway}
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
       - UI_URL=${UI_URL:-http://localhost:3002}
       - API_URL=${API_URL:-http://localhost:4002}
       - ORIGIN_URL=${ORIGIN_URL:-http://localhost:3002}
@@ -138,7 +138,7 @@ services:
     networks:
       - llmgateway-network
 
-  # UI Service (Static files served via Nginx)
+  # UI Service
   ui:
     build:
       context: ..
@@ -170,7 +170,7 @@ services:
       - POSTHOG_KEY=${POSTHOG_KEY}
       - API=${API:-http://localhost:4002}
 
-  # Docs Service (Static files served via Nginx)
+  # Docs Service
   docs:
     build:
       context: ..
