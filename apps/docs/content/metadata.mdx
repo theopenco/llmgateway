@@ -1,0 +1,76 @@
+---
+title: Metadata
+description: Send additional context and metadata to LLM Gateway using custom headers.
+---
+
+# Metadata
+
+LLM Gateway supports sending additional metadata with your requests using custom headers. This allows you to include information like user sessions, application versions, tenant IDs, or other contextual data that can be useful for analytics and monitoring.
+
+Later, you can filter by specific values to return, such as for a specific user or session. Additionally, in the future, you will be able to segment your analytics and monitoring based on this metadata. For example, you could show cost and latency breakdowns per user, application, country, feature, or any other dimension you want to track.
+
+## Custom Headers
+
+You can include custom headers with the `X-LLMGateway-` prefix to send metadata alongside your LLM requests:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "X-LLMGateway-Country: US" \
+  -H "X-LLMGateway-User-ID: 9403f741-a524-4b18-b1b2-dbb71cdff2a4" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, how are you?"
+      }
+    ]
+  }'
+```
+
+## Best Practices
+
+### Header Naming
+
+- Use the `X-LLMGateway-` prefix for all custom metadata
+- Use descriptive, consistent naming conventions
+- Avoid special characters; use hyphens to separate words
+
+### Data Privacy
+
+- Be mindful of sensitive data in headers
+- Consider hashing or anonymizing user identifiers
+- Follow your organization's data privacy policies
+
+### Performance
+
+- Keep header values reasonably short
+- Avoid sending unnecessary metadata that won't be used for analytics
+- Consider the impact on request size, especially for high-volume applications
+
+## Example: Multi-tenant Application
+
+For a multi-tenant application, you might use metadata headers like this:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "X-LLMGateway-Tenant-ID: acme-corp" \
+  -H "X-LLMGateway-User-ID: user-12345" \
+  -H "X-LLMGateway-App-Version: 2.1.4" \
+  -H "X-LLMGateway-Feature: chat-assistant" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Summarize this document..."
+      }
+    ]
+  }'
+```
+
+This allows you to track usage and costs per tenant, user, application version, and feature, providing detailed insights into how your LLM integration is being used across your platform.
