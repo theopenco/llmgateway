@@ -1,0 +1,92 @@
+---
+title: Source Attribution
+description: Use the X-Source header to identify your domain for public usage statistics.
+---
+
+# Source Attribution
+
+The `X-Source` header allows you to identify your domain when making requests to LLM Gateway. This information is used to generate public usage statistics showing how LLM Gateway is being used across different websites and applications.
+
+## X-Source Header
+
+Include the `X-Source` header with your domain name in your requests:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "X-Source: example.com" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello, how are you?"
+      }
+    ]
+  }'
+```
+
+## Domain Format
+
+The `X-Source` header accepts domain names in various formats. All of the following are valid and will be normalized to the same domain:
+
+- `example.com`
+- `https://example.com`
+- `https://www.example.com`
+- `www.example.com`
+
+All variations will be stripped down to the base domain (`example.com`) for aggregation purposes.
+
+## Public Statistics
+
+Data from the `X-Source` header is used to generate public statistics about LLM Gateway usage, including:
+
+- **Popular Domains**: Which websites and applications are using LLM Gateway most frequently
+- **Model Usage**: What models are being used by different domains
+- **Geographic Distribution**: Where requests are coming from across different sources
+- **Growth Trends**: How usage is growing over time for different domains
+
+These statistics help demonstrate the adoption and impact of LLM Gateway across the ecosystem.
+
+## Privacy Considerations
+
+### What's Public
+
+- Domain names (stripped of protocol and www prefixes)
+- Aggregated request counts and model usage
+- General geographic regions (country-level data)
+
+### What's Private
+
+- Individual request content or responses
+- User identifiers or personal information
+- Detailed usage patterns beyond aggregated counts
+- API keys or authentication details
+
+## Benefits
+
+Including the `X-Source` header provides several benefits:
+
+### For Your Project
+
+- **Recognition**: Your domain will appear in public usage statistics
+- **Credibility**: Demonstrates real-world usage of your application
+- **Community**: Contributes to the broader LLM Gateway ecosystem
+
+### For the Community
+
+- **Transparency**: Shows real adoption and usage patterns
+- **Inspiration**: Other developers can see successful implementations
+- **Growth**: Helps demonstrate the value of open-source LLM infrastructure
+
+## Optional but Recommended
+
+While the `X-Source` header is optional, we strongly encourage its use to:
+
+- Support transparency in the LLM Gateway ecosystem
+- Help showcase successful integrations
+- Contribute to understanding of LLM usage patterns
+- Demonstrate the real-world impact of your application
+
+Your participation helps build a more transparent and collaborative LLM ecosystem.
