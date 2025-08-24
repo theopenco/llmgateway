@@ -1,18 +1,43 @@
-FROM debian:12-slim AS base
+FROM debian:12-slim
 
-# Install base dependencies
+ARG APP_VERSION
+ENV APP_VERSION=$APP_VERSION
+
+# Install base dependencies and runtime requirements
+# Add PostgreSQL 17 official repository
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    build-essential \
     curl \
     bash \
     tar \
     xz-utils \
-    ca-certificates \
+    supervisor \
+    tini \
+    gosu \
+    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-17 \
+    postgresql-contrib-17 \
+    postgresql-client-17 \
+    && wget https://download.redis.io/redis-stable.tar.gz \
+    && tar -xzf redis-stable.tar.gz \
+    && cd redis-stable \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf redis-stable redis-stable.tar.gz \
+    && adduser --system --group --no-create-home redis \
+    && apt-get remove -y build-essential wget gnupg lsb-release \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Create app directory and copy .tool-versions
 WORKDIR /app
-
-# Copy .tool-versions to get Node.js and pnpm versions
 COPY .tool-versions ./
 
 # Install Node.js and pnpm based on .tool-versions
@@ -59,9 +84,6 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
         exit 1; \
     fi
 
-# Build stage
-FROM base AS builder
-
 # Copy package files and install dependencies
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
@@ -80,56 +102,8 @@ COPY . .
 # Build all apps
 RUN --mount=type=cache,target=/app/.turbo pnpm build
 
-# Runtime stage with all services
-FROM base AS runtime
-ARG APP_VERSION
-ENV APP_VERSION=$APP_VERSION
-
-# Install required packages (excluding nodejs/npm as we'll copy from builder)
-# Add PostgreSQL 17 official repository
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    ca-certificates \
-    gnupg \
-    lsb-release \
-    build-essential \
-    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
-    && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-17 \
-    postgresql-contrib-17 \
-    postgresql-client-17 \
-    supervisor \
-    tini \
-    curl \
-    bash \
-    gosu \
-    && wget https://download.redis.io/redis-stable.tar.gz \
-    && tar -xzf redis-stable.tar.gz \
-    && cd redis-stable \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf redis-stable redis-stable.tar.gz \
-    && adduser --system --group --no-create-home redis \
-    && apt-get remove -y build-essential wget gnupg lsb-release \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy pnpm from builder stage
-COPY --from=builder /usr/local/bin/pnpm /usr/local/bin/pnpm
-
-# Verify installations
-RUN node -v && pnpm -v
-
 # Create directories
 RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data
-
-# Copy built applications
-WORKDIR /app/temp
-COPY --from=builder /app/apps ./apps
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
@@ -137,11 +111,11 @@ RUN pnpm --filter=api --prod deploy /app/services/api && \
     pnpm --filter=ui --prod deploy /app/services/ui && \
     pnpm --filter=docs --prod deploy /app/services/docs
 
-# copy migrations files to API service
-COPY --from=builder /app/packages/db/migrations /app/services/api/migrations
+# Copy migrations files to API service
+COPY packages/db/migrations /app/services/api/migrations
 
 # Copy database init scripts
-COPY --from=builder /app/packages/db/init/ /docker-entrypoint-initdb.d/
+COPY packages/db/init/ /docker-entrypoint-initdb.d/
 
 # Configure PostgreSQL
 RUN mkdir -p /run/postgresql && \
@@ -154,10 +128,10 @@ RUN mkdir -p /var/lib/redis && \
     chmod 755 /var/lib/redis
 
 # Configure Supervisor
-COPY --from=builder /app/infra/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY infra/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Create startup script
-COPY --from=builder /app/infra/start.sh /start.sh
+COPY infra/start.sh /start.sh
 RUN chmod +x /start.sh
 
 # Expose ports
