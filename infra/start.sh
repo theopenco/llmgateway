@@ -5,7 +5,7 @@ echo "Starting LLMGateway unified container..."
 
 # Create node user if it doesn't exist
 if ! id "node" &>/dev/null; then
-    adduser --system --shell /bin/sh node
+    adduser --system --shell /bin/sh --no-create-home node
 fi
 
 # Create log directories and files with proper permissions
@@ -53,7 +53,7 @@ fi
 # Set proper ownership
 chown -R postgres:postgres /var/lib/postgresql
 chown -R redis:redis /var/lib/redis
-chown -R node:node /app/services
+chown -R node:nogroup /app/services
 
 # Create log directories
 mkdir -p /var/log/supervisor
