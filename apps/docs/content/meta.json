@@ -2,6 +2,7 @@
 	"pages": [
 		"---API Documentation---",
 		"index",
+		"metadata",
 		"...",
 		"---References---",
 		"...(api)"
