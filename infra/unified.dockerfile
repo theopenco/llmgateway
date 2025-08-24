@@ -86,41 +86,30 @@ ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
 # Install required packages (excluding nodejs/npm as we'll copy from builder)
-# Add PostgreSQL 17 official repository
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    ca-certificates \
-    gnupg \
-    lsb-release \
-    build-essential \
-    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
-    && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-17 \
-    postgresql-contrib-17 \
-    postgresql-client-17 \
+    postgresql \
+    redis-server \
     supervisor \
     tini \
     curl \
     bash \
     gosu \
-    && wget https://download.redis.io/redis-stable.tar.gz \
-    && tar -xzf redis-stable.tar.gz \
-    && cd redis-stable \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf redis-stable redis-stable.tar.gz \
-    && adduser --system --group --no-create-home redis \
-    && apt-get remove -y build-essential wget gnupg lsb-release \
-    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pnpm from builder stage
 COPY --from=builder /usr/local/bin/pnpm /usr/local/bin/pnpm
 
-# Verify installations
-RUN node -v && pnpm -v
+# Verify installations and PostgreSQL version
+RUN node -v && pnpm -v && \
+    EXPECTED_PG_VERSION="17" && \
+    ACTUAL_PG_VERSION=$(psql --version | awk '{print $3}' | sed 's/\..*//' || echo "unknown") && \
+    echo "Expected PostgreSQL version: ${EXPECTED_PG_VERSION}" && \
+    echo "Actual PostgreSQL version: ${ACTUAL_PG_VERSION}" && \
+    if [ "${ACTUAL_PG_VERSION}" != "${EXPECTED_PG_VERSION}" ]; then \
+        echo "ERROR: PostgreSQL version mismatch. Expected ${EXPECTED_PG_VERSION}, got ${ACTUAL_PG_VERSION}"; \
+        exit 1; \
+    fi && \
+    echo "PostgreSQL version check passed"
 
 # Create directories
 RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data
