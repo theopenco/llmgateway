@@ -35,6 +35,13 @@ import {
 import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
+import {
 	Table,
 	TableBody,
 	TableCell,
@@ -99,6 +106,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			reasoning: searchParams.get("reasoning") === "true",
 			free: searchParams.get("free") === "true",
 		},
+		selectedProvider: searchParams.get("provider") || "all",
 		inputPrice: {
 			min: searchParams.get("inputPriceMin") || "",
 			max: searchParams.get("inputPriceMax") || "",
@@ -129,15 +137,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
-		const baseModels = (models as readonly ModelDefinition[])
-			.filter((model) => model.id !== "custom" && model.id !== "auto") // Filter out Custom Model and Auto Route
-			.map((model) => ({
-				...model,
-				providerDetails: model.providers.map((provider) => ({
-					provider,
-					providerInfo: providers.find((p) => p.id === provider.providerId)!,
-				})),
-			}));
+		const baseModels = (models as readonly ModelDefinition[]).map((model) => ({
+			...model,
+			providerDetails: model.providers.map((provider) => ({
+				provider,
+				providerInfo: providers.find((p) => p.id === provider.providerId)!,
+			})),
+		}));
 
 		const filteredModels = baseModels.filter((model) => {
 			// Enhanced search filter - ignore hyphens and spaces for better matching
@@ -186,6 +192,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			}
 			if (filters.capabilities.free && !model.free) {
 				return false;
+			}
+
+			// Provider filter
+			if (filters.selectedProvider && filters.selectedProvider !== "all") {
+				const hasSelectedProvider = model.providerDetails.some(
+					(p) => p.provider.providerId === filters.selectedProvider,
+				);
+				if (!hasSelectedProvider) {
+					return false;
+				}
 			}
 
 			// Price filters
@@ -399,12 +415,14 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				reasoning: false,
 				free: false,
 			},
+			selectedProvider: "all",
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
 		});
 		setSortField(null);
 		setSortDirection("asc");
+
 		updateUrlWithFilters({
 			q: undefined,
 			streaming: undefined,
@@ -412,6 +430,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			tools: undefined,
 			reasoning: undefined,
 			free: undefined,
+			provider: undefined,
 			inputPriceMin: undefined,
 			inputPriceMax: undefined,
 			outputPriceMin: undefined,
@@ -426,6 +445,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	const hasActiveFilters =
 		searchQuery ||
 		Object.values(filters.capabilities).some(Boolean) ||
+		(filters.selectedProvider && filters.selectedProvider !== "all") ||
 		filters.inputPrice.min ||
 		filters.inputPrice.max ||
 		filters.outputPrice.min ||
@@ -439,7 +459,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			className={`transition-all duration-200 ${showFilters ? "opacity-100" : "opacity-0 hidden"}`}
 		>
 			<CardContent className="pt-6">
-				<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+				<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
 					<div className="space-y-3">
 						<h3 className="font-medium text-sm">Capabilities</h3>
 						<div className="space-y-2">
@@ -507,6 +527,40 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</div>
 							))}
 						</div>
+					</div>
+
+					<div className="space-y-3">
+						<h3 className="font-medium text-sm">Provider</h3>
+						<Select
+							value={filters.selectedProvider}
+							onValueChange={(value) => {
+								setFilters((prev) => ({
+									...prev,
+									selectedProvider: value,
+								}));
+								updateUrlWithFilters({
+									provider: value === "all" ? undefined : value,
+								});
+							}}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="All providers" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All providers</SelectItem>
+								{providers.map((provider) => {
+									const ProviderIcon = getProviderIcon(provider.id);
+									return (
+										<SelectItem key={provider.id} value={provider.id}>
+											<div className="flex items-center gap-2">
+												{ProviderIcon && <ProviderIcon className="h-4 w-4" />}
+												<span>{provider.name}</span>
+											</div>
+										</SelectItem>
+									);
+								})}
+							</SelectContent>
+						</Select>
 					</div>
 
 					<div className="space-y-3">

@@ -51,14 +51,13 @@ export function Graph() {
 
 	const OpenAIIcon = ProviderIcons.openai;
 	const AnthropicIcon = ProviderIcons.anthropic;
-	const GoogleVertexIcon = ProviderIcons["google-vertex"];
+
 	const XAIIcon = ProviderIcons.xai;
 	const CloudriftIcon = ProviderIcons.cloudrift;
 
 	const logos = [
 		<OpenAIIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<AnthropicIcon key={useId()} className="w-6 h-6 object-contain" />,
-		<GoogleVertexIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<XAIIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<DotsHorizontalIcon key={useId()} />,
 		<CloudriftIcon key={useId()} className="w-6 h-6 object-contain" />,

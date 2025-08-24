@@ -7,7 +7,6 @@ export const providerLogoUrls: Partial<
 > = {
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,
-	"google-vertex": ProviderIcons["google-vertex"],
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	"inference.net": ProviderIcons["inference.net"],
 	"together.ai": ProviderIcons["together.ai"],

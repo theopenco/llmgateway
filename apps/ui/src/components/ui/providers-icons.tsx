@@ -154,131 +154,6 @@ export const GoogleStudioAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
-// Google Vertex AI Icon
-export const GoogleVertexAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
-	props,
-) => (
-	<svg
-		{...props}
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 24 24"
-		className={props.className}
-	>
-		<path
-			d="M20 13.89a.77.77 0 0 0-1-.16l-7 5.14v.22a.72.72 0 1 1 0 1.43.74.74 0 0 0 .45-.15l7.41-5.47a.76.76 0 0 0 .14-1.01Z"
-			style={{ fill: "rgb(102, 157, 246)" }}
-		/>
-		<path
-			d="M12 20.52a.72.72 0 0 1 0-1.43v-.22l-7-5.14a.76.76 0 0 0-1 .16.74.74 0 0 0 .16 1l7.41 5.47a.73.73 0 0 0 .44.15Z"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<path
-			d="M12 18.34a1.47 1.47 0 1 0 1.47 1.47A1.47 1.47 0 0 0 12 18.34Zm0 2.18a.72.72 0 1 1 .72-.71.71.71 0 0 1-.72.71Z"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<path
-			d="M6 6.11a.76.76 0 0 1-.75-.75V3.48a.76.76 0 1 1 1.51 0v1.88a.76.76 0 0 1-.76.75Z"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<circle cx="5.98" cy="12" r="0.76" style={{ fill: "rgb(174, 203, 250)" }} />
-		<circle
-			cx="5.98"
-			cy="9.79"
-			r="0.76"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<circle
-			cx="5.98"
-			cy="7.57"
-			r="0.76"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<path
-			d="M18 8.31a.76.76 0 0 1-.75-.76V5.67a.75.75 0 1 1 1.5 0v1.88a.75.75 0 0 1-.75.76Z"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="18.02"
-			cy="12.01"
-			r="0.76"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="18.02"
-			cy="9.76"
-			r="0.76"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="18.02"
-			cy="3.48"
-			r="0.76"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<path
-			d="M12 15a.76.76 0 0 1-.75-.75v-1.91a.76.76 0 0 1 1.51 0v1.89A.76.76 0 0 1 12 15Z"
-			style={{ fill: "rgb(102, 157, 246)" }}
-		/>
-		<circle
-			cx="12"
-			cy="16.45"
-			r="0.76"
-			style={{ fill: "rgb(102, 157, 246)" }}
-		/>
-		<circle
-			cx="12"
-			cy="10.14"
-			r="0.76"
-			style={{ fill: "rgb(102, 157, 246)" }}
-		/>
-		<circle cx="12" cy="7.92" r="0.76" style={{ fill: "rgb(102, 157, 246)" }} />
-		<path
-			d="M15 10.54a.76.76 0 0 1-.75-.75V7.91a.76.76 0 1 1 1.51 0v1.88a.76.76 0 0 1-.76.75Z"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="15.01"
-			cy="5.69"
-			r="0.76"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="15.01"
-			cy="14.19"
-			r="0.76"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="15.01"
-			cy="11.97"
-			r="0.76"
-			style={{ fill: "rgb(66, 133, 244)" }}
-		/>
-		<circle
-			cx="8.99"
-			cy="14.19"
-			r="0.76"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<circle
-			cx="8.99"
-			cy="7.92"
-			r="0.76"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<circle
-			cx="8.99"
-			cy="5.69"
-			r="0.76"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-		<path
-			d="M9 12.73a.76.76 0 0 1-.76-.73v-1.9a.75.75 0 1 1 1.5 0V12a.75.75 0 0 1-.74.73Z"
-			style={{ fill: "rgb(174, 203, 250)" }}
-		/>
-	</svg>
-);
-
 // Groq Icon
 export const GroqIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	<svg
@@ -530,7 +405,6 @@ export const ProviderIcons = {
 	cloudrift: CloudriftIcon,
 	deepseek: DeepseekIcon,
 	"google-ai-studio": GoogleStudioAIIcon,
-	"google-vertex": GoogleVertexAIIcon,
 	groq: GroqIcon,
 	"inference.net": InferenceNetIcon,
 	mistral: MistralIcon,

@@ -71,7 +71,7 @@ export function ChangelogComponent({ entries }: ChangelogComponentProps = {}) {
 											alt={entry.image.alt}
 											width={entry.image.width}
 											height={entry.image.height}
-											className="w-full h-64 object-cover hover:opacity-90 transition-opacity rounded-lg"
+											className="w-full h-64 object-cover hover:opacity-90 transition-opacity rounded-lg object-top"
 										/>
 									</Link>
 								</div>
