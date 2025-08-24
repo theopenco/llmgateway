@@ -17,7 +17,7 @@ You can include custom headers with the `X-LLMGateway-` prefix to send metadata 
 curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "X-LLMGateway-Country: en" \
+  -H "X-LLMGateway-Country: US" \
   -H "X-LLMGateway-User-ID: 9403f741-a524-4b18-b1b2-dbb71cdff2a4" \
   -d '{
     "model": "gpt-4o",
