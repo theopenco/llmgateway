@@ -1,5 +1,7 @@
 "use client";
 
+import { UnifiedFinishReason } from "@llmgateway/db";
+import { UnifiedFinishReason } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -22,15 +24,6 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { Log } from "@llmgateway/db";
 
-const UnifiedFinishReason = {
-	COMPLETED: "completed",
-	LENGTH_LIMIT: "length_limit",
-	CONTENT_FILTER: "content_filter",
-	GATEWAY_ERROR: "gateway_error",
-	UPSTREAM_ERROR: "upstream_error",
-	CANCELED: "canceled",
-	UNKNOWN: "unknown",
-} as const;
 const FINISH_REASONS = ["stop", "length", "error", "content_filter"];
 
 interface RecentLogsProps {
