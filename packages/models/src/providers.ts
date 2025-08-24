@@ -53,6 +53,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "google-vertex",
+		name: "Google Vertex AI",
+		description:
+			"Google Vertex AI is a platform for building and deploying large language models.",
+		streaming: true,
+		cancellation: true,
+		color: "#d95656",
+		website: "https://cloud.google.com/vertex-ai",
+		announcement: null,
+	},
+	{
 		id: "google-ai-studio",
 		name: "Google AI Studio",
 		description:

@@ -18,6 +18,7 @@ export function getProviderHeaders(
 			};
 		case "google-ai-studio":
 			return {};
+		case "google-vertex":
 		case "openai":
 		case "inference.net":
 		case "xai":
@@ -188,6 +189,7 @@ export function prepareRequestBody(
 			}
 			break;
 		}
+		case "google-vertex":
 		case "google-ai-studio": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
@@ -318,6 +320,7 @@ export function getProviderEndpoint(
 			case "anthropic":
 				url = "https://api.anthropic.com";
 				break;
+			case "google-vertex":
 			case "google-ai-studio":
 				url = "https://generativelanguage.googleapis.com";
 				break;
@@ -374,7 +377,16 @@ export function getProviderEndpoint(
 	switch (provider) {
 		case "anthropic":
 			return `${url}/v1/messages`;
-
+		case "google-vertex": {
+			if (modelName) {
+				const endpoint = stream ? "streamGenerateContent" : "generateContent";
+				const baseEndpoint = `${url}/v1beta/models/${modelName}:${endpoint}`;
+				return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
+			}
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
+		}
 		case "google-ai-studio": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
