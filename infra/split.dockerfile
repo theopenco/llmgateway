@@ -1,13 +1,16 @@
-FROM debian:12-slim AS base
+# Build stage - everything in one stage for maximum GitHub Actions caching
+FROM debian:12-slim AS builder
 
-# Install base dependencies
+# Install base dependencies including tini for better caching
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     bash \
     tar \
     xz-utils \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && /usr/bin/tini --version
 
 # Create app directory
 WORKDIR /app
@@ -59,9 +62,6 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
         exit 1; \
     fi
 
-# Build stage
-FROM base AS builder
-
 # Copy package files and install dependencies
 COPY ../.npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY ../apps/api/package.json ./apps/api/
@@ -80,25 +80,17 @@ COPY .. .
 # Build all apps
 RUN --mount=type=cache,target=/app/.turbo pnpm build
 
-
-FROM debian:12-slim AS init
-RUN apt-get update && apt-get install -y --no-install-recommends tini && \
-    rm -rf /var/lib/apt/lists/* && \
-    /usr/bin/tini --version && \
-    cp /usr/bin/tini /tini
-
-FROM base AS runtime
+FROM debian:12-slim AS runtime
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
 # Install base runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends bash && rm -rf /var/lib/apt/lists/*
 
-# copy nodejs and pnpm from builder stage
+# copy nodejs, pnpm, and tini from builder stage
 COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder /usr/local/bin/pnpm /usr/local/bin/pnpm
-
-COPY --from=init /tini /tini
+COPY --from=builder /usr/bin/tini /tini
 
 # Verify installations
 RUN node -v && pnpm -v
