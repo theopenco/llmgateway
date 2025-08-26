@@ -528,6 +528,7 @@ chats.openapi(addMessage, async (c) => {
 				id: newMessage.id,
 				role: newMessage.role as "user" | "assistant" | "system",
 				content: newMessage.content,
+				images: newMessage.images,
 				sequence: newMessage.sequence,
 				createdAt: newMessage.createdAt.toISOString(),
 			},
