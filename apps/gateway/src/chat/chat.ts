@@ -681,7 +681,7 @@ function transformToOpenAIFormat(
 	reasoningTokens: number | null,
 	cachedTokens: number | null,
 	toolResults: any,
-	images: any[],
+	images: ImageObject[],
 ) {
 	let transformedResponse = json;
 
