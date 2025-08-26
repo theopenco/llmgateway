@@ -24,7 +24,7 @@
 		"hono": "^4.7.6",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.6.1",
-		"redis": "5.5.6",
+		"redis": "5.8.2",
 		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
 	},
