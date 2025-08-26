@@ -146,7 +146,6 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				tools: false,
-				test: "only",
 			},
 		],
 	},
