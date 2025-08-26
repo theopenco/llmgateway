@@ -3,6 +3,7 @@
 import { getModelStreamingSupport } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
@@ -22,7 +23,6 @@ import { Alert, AlertDescription } from "@/lib/components/alert";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
-import { useRouter, useSearchParams } from "next/navigation";
 
 export interface Message {
 	id: string;

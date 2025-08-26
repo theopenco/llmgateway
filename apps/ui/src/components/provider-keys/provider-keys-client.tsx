@@ -6,13 +6,7 @@ import { CreateProviderKeyDialog } from "@/components/provider-keys/create-provi
 import { ProviderKeysList } from "@/components/provider-keys/provider-keys-list";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/lib/components/card";
+import { Card, CardContent } from "@/lib/components/card";
 
 interface ProviderKeysClientProps {
 	initialProviderKeysData?: {
