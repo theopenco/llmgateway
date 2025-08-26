@@ -362,6 +362,11 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 				(promptTokens !== null && completionTokens !== null
 					? promptTokens + completionTokens + (reasoningTokens || 0)
 					: null);
+
+			// Extract images from OpenAI-format response (including Gemini via gateway)
+			if (json.choices?.[0]?.message?.images) {
+				images = json.choices[0].message.images;
+			}
 			break;
 	}
 
@@ -1374,6 +1379,16 @@ const completions = createRoute({
 												function: z.object({
 													name: z.string(),
 													arguments: z.string(),
+												}),
+											}),
+										)
+										.optional(),
+									images: z
+										.array(
+											z.object({
+												type: z.literal("image_url"),
+												image_url: z.object({
+													url: z.string(),
 												}),
 											}),
 										)
@@ -3554,6 +3569,11 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		images,
 	} = parseProviderResponse(usedProvider, json);
+
+	// Debug: Log images found in response
+	console.log("Gateway - parseProviderResponse extracted images:", images);
+	console.log("Gateway - Used provider:", usedProvider);
+	console.log("Gateway - Used model:", usedModel);
 
 	// Estimate tokens if not provided by the API
 	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(

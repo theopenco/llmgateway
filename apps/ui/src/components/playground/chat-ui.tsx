@@ -11,6 +11,8 @@ import {
 	Code,
 	FileText,
 	MessageCircle,
+	ImageIcon,
+	Palette,
 } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 
@@ -28,6 +30,12 @@ interface MessageType {
 	role: "user" | "assistant" | "system";
 	content: string;
 	timestamp: Date;
+	images?: Array<{
+		type: "image_url";
+		image_url: {
+			url: string;
+		};
+	}>;
 }
 
 interface ChatUiProps {
@@ -51,6 +59,18 @@ const STARTER_PROMPTS = [
 		title: "Explain Concept",
 		prompt:
 			"Can you explain the concept of microservices architecture and when it's beneficial to use?",
+	},
+	{
+		icon: ImageIcon,
+		title: "Generate Image",
+		prompt:
+			"Generate an image of a cute golden retriever puppy playing in a sunny park with colorful flowers in the background.",
+	},
+	{
+		icon: Palette,
+		title: "Create Art",
+		prompt:
+			"Create a digital art piece showing a futuristic cityscape at sunset with flying cars and neon lights reflecting off glass buildings.",
 	},
 	{
 		icon: Lightbulb,
@@ -291,6 +311,27 @@ export function ChatUi({
 											<div className="whitespace-pre-wrap font-sans text-sm leading-relaxed break-words">
 												{message.content}
 											</div>
+											{/* Display images if present */}
+											{message.images && message.images.length > 0 && (
+												<div className="mt-3 space-y-2">
+													{message.images.map((image, index) => (
+														<div
+															key={index}
+															className="rounded-lg overflow-hidden border"
+														>
+															<img
+																src={image.image_url.url}
+																alt={`Generated image ${index + 1}`}
+																className="w-full max-w-md h-auto rounded-lg"
+																onError={(e) => {
+																	const target = e.target as HTMLImageElement;
+																	target.style.display = "none";
+																}}
+															/>
+														</div>
+													))}
+												</div>
+											)}
 										</div>
 
 										{/* Copy button */}
