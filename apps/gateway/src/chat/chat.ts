@@ -53,6 +53,21 @@ interface ChatMessage {
 	name?: string;
 }
 
+// Define OpenAI-compatible image object type
+interface ImageObject {
+	type: "image_url";
+	image_url: {
+		url: string;
+	};
+}
+
+// Define streaming delta object type
+interface StreamingDelta {
+	role?: "assistant";
+	content?: string;
+	images?: ImageObject[];
+}
+
 const DEFAULT_TOKENIZER_MODEL = "gpt-4";
 
 /**
@@ -218,7 +233,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let toolResults = null;
-	let images: any[] = [];
+	let images: ImageObject[] = [];
 
 	switch (usedProvider) {
 		case "anthropic":
@@ -261,12 +276,14 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
-			images = imageParts.map((part: any) => ({
-				type: "image_url",
-				image_url: {
-					url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-				},
-			}));
+			images = imageParts.map(
+				(part: any): ImageObject => ({
+					type: "image_url",
+					image_url: {
+						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+					},
+				}),
+			);
 
 			finishReason = json.candidates?.[0]?.finishReason || null;
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
@@ -499,18 +516,23 @@ function extractReasoningContentFromProvider(
 /**
  * Extracts images from streaming data based on provider format
  */
-function extractImagesFromProvider(data: any, provider: Provider): any[] {
+function extractImagesFromProvider(
+	data: any,
+	provider: Provider,
+): ImageObject[] {
 	switch (provider) {
 		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
-			return imageParts.map((part: any) => ({
-				type: "image_url",
-				image_url: {
-					url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-				},
-			}));
+			return imageParts.map(
+				(part: any): ImageObject => ({
+					type: "image_url",
+					image_url: {
+						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+					},
+				}),
+			);
 		}
 		default: // OpenAI format
 			return [];
@@ -664,7 +686,7 @@ function transformToOpenAIFormat(
 	reasoningTokens: number | null,
 	cachedTokens: number | null,
 	toolResults: any,
-	images: any[],
+	images: ImageObject[],
 ) {
 	let transformedResponse = json;
 
@@ -1011,7 +1033,7 @@ function transformStreamingChunkToOpenAIFormat(
 			const hasImages = parts.some((part: any) => part.inlineData);
 
 			if (hasText || hasImages) {
-				const delta: any = {
+				const delta: StreamingDelta = {
 					role: "assistant",
 				};
 
