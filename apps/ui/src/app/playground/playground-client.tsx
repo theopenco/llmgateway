@@ -27,7 +27,7 @@ import { useApi } from "@/lib/fetch-client";
 export interface Message {
 	id: string;
 	role: "user" | "assistant" | "system";
-	content: string;
+	content: string | null;
 	timestamp: Date;
 	images?: Array<{
 		type: "image_url";
@@ -89,6 +89,16 @@ export function PlaygroundClient() {
 				role: msg.role,
 				content: msg.content,
 				timestamp: new Date(msg.createdAt),
+				images: msg.images
+					? (() => {
+							try {
+								return JSON.parse(msg.images);
+							} catch (error) {
+								console.warn("Failed to parse images JSON:", msg.images, error);
+								return undefined;
+							}
+						})()
+					: undefined,
 			}));
 
 			// Preserve images from existing local messages when reloading from database
@@ -283,6 +293,7 @@ export function PlaygroundClient() {
 				const reader = response.body?.getReader();
 				const decoder = new TextDecoder();
 				let fullContent = "";
+				let finalImages: any[] = []; // Track final images received during streaming
 				let hasReceivedImages = false; // Track if we received images during streaming
 
 				if (reader) {
@@ -315,9 +326,11 @@ export function PlaygroundClient() {
 										let imagesToSet: any[] | undefined;
 										if (deltaImages && deltaImages.length > 0) {
 											imagesToSet = deltaImages;
+											finalImages = [...deltaImages]; // Track final images
 											hasReceivedImages = true; // Mark that we received images
 										} else if (images && images.length > 0) {
 											imagesToSet = images;
+											finalImages = [...images]; // Track final images
 											hasReceivedImages = true; // Mark that we received images
 										}
 
@@ -361,13 +374,20 @@ export function PlaygroundClient() {
 				}
 
 				// Save the complete assistant response to database
-				if (fullContent && chatId) {
+				if ((fullContent || finalImages.length > 0) && chatId) {
 					try {
 						await addMessage.mutateAsync({
 							params: {
 								path: { id: chatId },
 							},
-							body: { role: "assistant", content: fullContent },
+							body: {
+								role: "assistant",
+								content: fullContent || undefined,
+								images:
+									finalImages.length > 0
+										? JSON.stringify(finalImages)
+										: undefined,
+							},
 						});
 
 						// Only invalidate query if no images were received (to avoid overwriting image data with DB data)
@@ -384,7 +404,7 @@ export function PlaygroundClient() {
 			} else {
 				const data = await response.json();
 
-				const assistantContent = data.content || "";
+				const assistantContent = data.content ?? undefined;
 				const assistantImages = data.images || [];
 
 				addLocalMessage({
@@ -394,13 +414,20 @@ export function PlaygroundClient() {
 				});
 
 				// Save the assistant response to database
-				if (assistantContent && chatId) {
+				if ((assistantContent || assistantImages.length > 0) && chatId) {
 					try {
 						await addMessage.mutateAsync({
 							params: {
 								path: { id: chatId },
 							},
-							body: { role: "assistant", content: assistantContent },
+							body: {
+								role: "assistant",
+								content: assistantContent,
+								images:
+									assistantImages.length > 0
+										? JSON.stringify(assistantImages)
+										: undefined,
+							},
 						});
 
 						// Only invalidate query if no images (to avoid overwriting image data with DB data)

@@ -16,7 +16,8 @@ export interface Chat {
 export interface ChatMessage {
 	id: string;
 	role: "user" | "assistant" | "system";
-	content: string;
+	content: string | null;
+	images: string | null; // JSON string from API
 	sequence: number;
 	createdAt: string;
 }

@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 interface MessageType {
 	id: string;
 	role: "user" | "assistant" | "system";
-	content: string;
+	content: string | null;
 	timestamp: Date;
 	images?: Array<{
 		type: "image_url";
@@ -343,7 +343,7 @@ export function ChatUi({
 													message.role === "user" ? "right-0" : "left-0"
 												}`}
 												onClick={() =>
-													copyToClipboard(message.content, message.id)
+													copyToClipboard(message.content || "", message.id)
 												}
 											>
 												{copiedMessageId === message.id ? (

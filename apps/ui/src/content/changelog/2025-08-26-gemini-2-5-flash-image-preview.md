@@ -13,6 +13,8 @@ image:
 
 We're thrilled to announce the addition of **Gemini 2.5 Flash Image Preview** - our **first image generation model** on LLM Gateway! This marks a significant milestone as we expand beyond text generation to visual AI capabilities.
 
+**[Try it now in the Playground](/playground?model=gemini-2.5-flash-image-preview)** 🎨
+
 ## 🎨 Introducing Image Generation
 
 **First of its Kind**: Gemini 2.5 Flash Image Preview is our inaugural image generation model, opening up exciting new possibilities for visual content creation through AI.
