@@ -9,6 +9,19 @@ export const moonshotModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				providerId: "groq",
+				modelName: "moonshotai/kimi-k2-instruct",
+				inputPrice: 1.0 / 1e6,
+				cachedInputPrice: 0.5 / 1e6,
+				outputPrice: 3.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 16384,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+			{
 				providerId: "novita",
 				modelName: "moonshotai/kimi-k2-instruct",
 				inputPrice: 0.57 / 1e6,
