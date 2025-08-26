@@ -22,21 +22,37 @@ import { Alert, AlertDescription } from "@/lib/components/alert";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export interface Message {
 	id: string;
 	role: "user" | "assistant" | "system";
 	content: string;
 	timestamp: Date;
+	images?: Array<{
+		type: "image_url";
+		image_url: {
+			url: string;
+		};
+	}>;
 }
 
 export function PlaygroundClient() {
 	const config = useAppConfig();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { userApiKey, isLoaded: isApiKeyLoaded } = useApiKey();
-	const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const api = useApi();
 	const queryClient = useQueryClient();
+
+	// Get initial model from URL or default
+	const getInitialModel = () => {
+		const modelFromUrl = searchParams.get("model");
+		return modelFromUrl || "gpt-4o-mini";
+	};
+
+	const [selectedModel, setSelectedModel] = useState(getInitialModel());
 
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
@@ -74,12 +90,63 @@ export function PlaygroundClient() {
 				content: msg.content,
 				timestamp: new Date(msg.createdAt),
 			}));
-			setMessages(chatMessages);
+
+			// Preserve images from existing local messages when reloading from database
+			setMessages((prevMessages) => {
+				const updatedMessages = chatMessages.map((dbMsg) => {
+					// Try to match by ID first, then by content and role as fallback
+					let existingMsg = prevMessages.find((m) => m.id === dbMsg.id);
+
+					if (!existingMsg) {
+						// If no ID match, try to find by content and role (for cases where DB assigns new IDs)
+						existingMsg = prevMessages.find(
+							(m) =>
+								m.content === dbMsg.content &&
+								m.role === dbMsg.role &&
+								m.images &&
+								m.images.length > 0, // Only match if the local message has images
+						);
+					}
+
+					return {
+						...dbMsg,
+						// Preserve images if they exist in the local state
+						...(existingMsg?.images ? { images: existingMsg.images } : {}),
+					};
+				});
+
+				return updatedMessages;
+			});
 		} else if (currentChatData !== undefined) {
 			// Chat exists but has no messages, clear the message state
 			setMessages([]);
 		}
 	}, [currentChatData]);
+
+	// Update URL when model changes
+	useEffect(() => {
+		const currentParams = new URLSearchParams(searchParams.toString());
+		if (selectedModel !== "gpt-4o-mini") {
+			currentParams.set("model", selectedModel);
+		} else {
+			currentParams.delete("model");
+		}
+
+		const newUrl = currentParams.toString()
+			? `${window.location.pathname}?${currentParams.toString()}`
+			: window.location.pathname;
+
+		router.replace(newUrl);
+	}, [selectedModel, router, searchParams]);
+
+	// Sync with URL changes (back/forward navigation)
+	useEffect(() => {
+		const modelFromUrl = searchParams.get("model");
+		const targetModel = modelFromUrl || "gpt-4o-mini";
+		if (targetModel !== selectedModel) {
+			setSelectedModel(targetModel);
+		}
+	}, [searchParams]);
 
 	const handleModelSelect = (model: string) => {
 		setSelectedModel(model);
@@ -175,19 +242,22 @@ export function PlaygroundClient() {
 			});
 
 			const supportsStreaming = getModelStreamingSupport(selectedModel);
+
+			const requestPayload = {
+				model: selectedModel,
+				messages: [...messages, { role: "user", content }].map((msg) => ({
+					role: msg.role,
+					content: msg.content,
+				})),
+				stream: supportsStreaming,
+				apiKey: userApiKey,
+			};
+
 			const response = await fetch(config.apiUrl + "/chat/completion", {
 				credentials: "include",
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					model: selectedModel,
-					messages: [...messages, { role: "user", content }].map((msg) => ({
-						role: msg.role,
-						content: msg.content,
-					})),
-					stream: supportsStreaming,
-					apiKey: userApiKey,
-				}),
+				body: JSON.stringify(requestPayload),
 			});
 
 			if (!response.ok) {
@@ -213,6 +283,7 @@ export function PlaygroundClient() {
 				const reader = response.body?.getReader();
 				const decoder = new TextDecoder();
 				let fullContent = "";
+				let hasReceivedImages = false; // Track if we received images during streaming
 
 				if (reader) {
 					let buffer = "";
@@ -237,14 +308,45 @@ export function PlaygroundClient() {
 									try {
 										const parsed = JSON.parse(data);
 										const delta = parsed.choices?.[0]?.delta?.content;
-										if (delta) {
-											fullContent += delta;
+										const images = parsed.choices?.[0]?.message?.images;
+										const deltaImages = parsed.choices?.[0]?.delta?.images;
+
+										// Determine what images to use (delta images take precedence)
+										let imagesToSet: any[] | undefined;
+										if (deltaImages && deltaImages.length > 0) {
+											imagesToSet = deltaImages;
+											hasReceivedImages = true; // Mark that we received images
+										} else if (images && images.length > 0) {
+											imagesToSet = images;
+											hasReceivedImages = true; // Mark that we received images
+										}
+
+										// Apply updates if there are any changes
+										if (delta || imagesToSet) {
+											if (delta) {
+												fullContent += delta;
+											}
+
 											setMessages((prev) =>
-												prev.map((msg) =>
-													msg.id === assistantMessage.id
-														? { ...msg, content: msg.content + delta }
-														: msg,
-												),
+												prev.map((msg) => {
+													if (msg.id === assistantMessage.id) {
+														const updatedMsg = { ...msg };
+
+														// Update content if delta exists
+														if (delta) {
+															updatedMsg.content = msg.content + delta;
+														}
+
+														// Update images if new ones are provided, otherwise preserve existing
+														if (imagesToSet) {
+															updatedMsg.images = imagesToSet;
+														}
+														// Note: if imagesToSet is undefined, we preserve existing msg.images
+
+														return updatedMsg;
+													}
+													return msg;
+												}),
 											);
 										}
 									} catch {
@@ -267,19 +369,29 @@ export function PlaygroundClient() {
 							},
 							body: { role: "assistant", content: fullContent },
 						});
-						// Invalidate the chat query to refresh the data
-						const queryKey = api.queryOptions("get", "/chats/{id}", {
-							params: { path: { id: chatId } },
-						}).queryKey;
-						queryClient.invalidateQueries({ queryKey });
+
+						// Only invalidate query if no images were received (to avoid overwriting image data with DB data)
+						if (!hasReceivedImages) {
+							const queryKey = api.queryOptions("get", "/chats/{id}", {
+								params: { path: { id: chatId } },
+							}).queryKey;
+							queryClient.invalidateQueries({ queryKey });
+						}
 					} catch (error) {
 						console.error("Failed to save assistant message:", error);
 					}
 				}
 			} else {
 				const data = await response.json();
-				const assistantContent = data.choices?.[0]?.message?.content || "";
-				addLocalMessage({ role: "assistant", content: assistantContent });
+
+				const assistantContent = data.content || "";
+				const assistantImages = data.images || [];
+
+				addLocalMessage({
+					role: "assistant",
+					content: assistantContent,
+					images: assistantImages.length > 0 ? assistantImages : undefined,
+				});
 
 				// Save the assistant response to database
 				if (assistantContent && chatId) {
@@ -290,11 +402,14 @@ export function PlaygroundClient() {
 							},
 							body: { role: "assistant", content: assistantContent },
 						});
-						// Invalidate the chat query to refresh the data
-						const queryKey = api.queryOptions("get", "/chats/{id}", {
-							params: { path: { id: chatId } },
-						}).queryKey;
-						queryClient.invalidateQueries({ queryKey });
+
+						// Only invalidate query if no images (to avoid overwriting image data with DB data)
+						if (assistantImages.length === 0) {
+							const queryKey = api.queryOptions("get", "/chats/{id}", {
+								params: { path: { id: chatId } },
+							}).queryKey;
+							queryClient.invalidateQueries({ queryKey });
+						}
 					} catch (error) {
 						console.error("Failed to save assistant message:", error);
 					}

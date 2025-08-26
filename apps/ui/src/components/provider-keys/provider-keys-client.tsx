@@ -39,7 +39,13 @@ export function ProviderKeysClient({
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="flex items-center justify-between">
-					<h2 className="text-3xl font-bold tracking-tight">Provider Keys</h2>
+					<div>
+						<h2 className="text-3xl font-bold tracking-tight">Provider Keys</h2>
+						<p className="text-muted-foreground">
+							Provider keys allow you to use your own API keys with LLM Gateway
+							without additional fees.
+						</p>
+					</div>
 					{selectedOrganization && (
 						<CreateProviderKeyDialog
 							selectedOrganization={selectedOrganization}
@@ -54,13 +60,6 @@ export function ProviderKeysClient({
 				</div>
 				<div className="space-y-4">
 					<Card>
-						<CardHeader>
-							<CardTitle>Your Provider Keys</CardTitle>
-							<CardDescription>
-								Provider keys allow you to use your own API keys with LLM
-								Gateway without additional fees.
-							</CardDescription>
-						</CardHeader>
 						<CardContent>
 							<ProviderKeysList
 								selectedOrganization={selectedOrganization}
