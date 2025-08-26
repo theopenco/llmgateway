@@ -12,7 +12,7 @@ export const moonshotModels = [
 				providerId: "groq",
 				modelName: "moonshotai/kimi-k2-instruct",
 				inputPrice: 1.0 / 1e6,
-				cachedInputPrice: 0.50 / 1e6,
+				cachedInputPrice: 0.5 / 1e6,
 				outputPrice: 3.0 / 1e6,
 				requestPrice: 0,
 				contextSize: 131072,
