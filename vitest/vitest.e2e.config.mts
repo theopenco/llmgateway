@@ -5,7 +5,7 @@ export default defineConfig({
 	plugins: [tsconfigPaths()],
 	test: {
 		include: ["**/*.e2e.ts"],
-		exclude: ["**/node_modules/**", "**/dist/**"],
+		exclude: ["**/node_modules/**", "**/dist/**", ".conductor/**"],
 		environment: "node",
 		testTimeout: 60000, // Longer timeout for e2e tests
 		hookTimeout: 30000, // Timeout for hooks

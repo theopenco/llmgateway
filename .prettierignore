@@ -8,3 +8,4 @@ out
 migrations
 .content-collections
 .tanstack
+.conductor
