@@ -464,7 +464,7 @@ describe("e2e", () => {
 							content: "What is 2+2?",
 						},
 					],
-					reasoning_effort: "low",
+					reasoning_effort: "medium",
 				}),
 			});
 
@@ -521,10 +521,11 @@ describe("e2e", () => {
 						},
 						{
 							role: "user",
-							content: "What is 5*5? Think through this step by step.",
+							content:
+								"Solve this logic puzzle: If all roses are flowers, and some flowers are red, what can we conclude about roses? Think through this step by step.",
 						},
 					],
-					reasoning_effort: "low",
+					reasoning_effort: "medium",
 					stream: true,
 				}),
 			});

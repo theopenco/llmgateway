@@ -1316,48 +1316,155 @@ function transformStreamingChunkToOpenAIFormat(
 			break;
 		}
 		case "openai": {
-			// Handle OpenAI responses API streaming format (different from chat completions)
-			if (data.output && Array.isArray(data.output)) {
-				// OpenAI responses endpoint streaming format
-				const messageOutput = data.output.find(
-					(item: any) => item.type === "message",
-				);
-				const reasoningOutput = data.output.find(
-					(item: any) => item.type === "reasoning",
-				);
+			// Handle OpenAI responses API streaming format (event-based)
+			if (data.type) {
+				// Handle different OpenAI responses streaming event types
+				switch (data.type) {
+					case "response.created":
+					case "response.in_progress":
+						// Initial/progress events - return empty delta to maintain stream
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
 
-				let deltaContent = "";
-				let deltaReasoningContent = "";
+					case "response.output_item.added":
+						// New output item added (reasoning or message) - return empty delta
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
 
-				// Extract message delta content
-				if (messageOutput?.content?.[0]?.text) {
-					deltaContent = messageOutput.content[0].text;
-				}
-				// Extract reasoning delta content
-				if (reasoningOutput?.summary?.[0]?.text) {
-					deltaReasoningContent = reasoningOutput.summary[0].text;
-				}
+					case "response.reasoning_summary_part.added":
+					case "response.reasoning_summary_text.delta":
+						// Reasoning content delta
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										reasoning_content: data.delta || data.part?.text || "",
+									},
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
 
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created_at || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
-								...(deltaContent && { content: deltaContent }),
-								...(deltaReasoningContent && {
-									reasoning_content: deltaReasoningContent,
+					case "response.content_part.added":
+					case "response.output_text.delta":
+					case "response.text.delta":
+						// Message content delta
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										content: data.delta || data.part?.text || "",
+									},
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.completed": {
+						// Final completion event with usage data
+						const responseUsage = data.response?.usage;
+						let usage = null;
+						if (responseUsage) {
+							// Map OpenAI responses usage format to chat completions format
+							usage = {
+								prompt_tokens: responseUsage.input_tokens || 0,
+								completion_tokens: responseUsage.output_tokens || 0,
+								total_tokens: responseUsage.total_tokens || 0,
+								...(responseUsage.output_tokens_details?.reasoning_tokens && {
+									reasoning_tokens:
+										responseUsage.output_tokens_details.reasoning_tokens,
 								}),
-							},
-							finish_reason: data.status === "completed" ? "stop" : null,
-						},
-					],
-					usage: data.usage || null,
-				};
+								...(responseUsage.input_tokens_details?.cached_tokens && {
+									prompt_tokens_details: {
+										cached_tokens:
+											responseUsage.input_tokens_details.cached_tokens,
+									},
+								}),
+							};
+						}
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: "stop",
+								},
+							],
+							usage,
+						};
+						break;
+					}
+
+					default:
+						// Unknown event type - still provide basic OpenAI format structure
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+				}
 			}
 			// If not responses format, fall through to default OpenAI handling
 			break;
@@ -3224,6 +3331,40 @@ chat.openapi(completions, async (c) => {
 								data: JSON.stringify(transformedData),
 								id: String(eventId++),
 							});
+
+							// Extract usage data from transformedData to update tracking variables
+							if (transformedData.usage && usedProvider === "openai") {
+								const usage = transformedData.usage;
+								if (
+									usage.prompt_tokens !== undefined &&
+									usage.prompt_tokens > 0
+								) {
+									promptTokens = usage.prompt_tokens;
+								}
+								if (
+									usage.completion_tokens !== undefined &&
+									usage.completion_tokens > 0
+								) {
+									completionTokens = usage.completion_tokens;
+								}
+								if (
+									usage.total_tokens !== undefined &&
+									usage.total_tokens > 0
+								) {
+									totalTokens = usage.total_tokens;
+								}
+								if (usage.reasoning_tokens !== undefined) {
+									reasoningTokens = usage.reasoning_tokens;
+								}
+							}
+
+							// Extract finishReason from transformedData to update tracking variable
+							if (
+								transformedData.choices?.[0]?.finish_reason &&
+								usedProvider === "openai"
+							) {
+								finishReason = transformedData.choices[0].finish_reason;
+							}
 
 							// Extract content for logging using helper function
 							const contentChunk = extractContentFromProvider(

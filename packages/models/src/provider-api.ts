@@ -75,27 +75,10 @@ export function prepareRequestBody(
 	switch (usedProvider) {
 		case "openai": {
 			if (supportsReasoning && (!tools || tools.length === 0)) {
-				// Use OpenAI responses API format for reasoning models
-				// Convert messages to simple text input (responses API expects string, not array)
-				const inputText = messages
-					.map((msg) => {
-						if (typeof msg.content === "string") {
-							return `${msg.role}: ${msg.content}`;
-						} else if (Array.isArray(msg.content)) {
-							// Handle multimodal content
-							return `${msg.role}: ${msg.content
-								.filter((part: any) => part.type === "text")
-								.map((part: any) => part.text)
-								.join(" ")}`;
-						}
-						return `${msg.role}: ${msg.content}`;
-					})
-					.join("\n");
-
 				// Transform to responses API format
 				const responsesBody: any = {
 					model: usedModel,
-					input: inputText,
+					input: messages,
 					reasoning: {
 						effort: reasoning_effort || "medium",
 						summary: "detailed",
