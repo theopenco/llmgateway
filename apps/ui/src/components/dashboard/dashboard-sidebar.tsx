@@ -698,7 +698,7 @@ export function DashboardSidebar({
 				internal: false,
 			},
 			{
-				href: "https://llmgateway.io/playground",
+				href: "/playground",
 				label: "Playground",
 				icon: BotMessageSquare,
 				internal: false,

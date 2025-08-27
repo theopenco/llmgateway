@@ -2249,7 +2249,8 @@ export interface paths {
 								id: string;
 								/** @enum {string} */
 								role: "user" | "assistant" | "system";
-								content: string;
+								content: string | null;
+								images: string | null;
 								sequence: number;
 								/** Format: date-time */
 								createdAt: string;
@@ -2366,7 +2367,8 @@ export interface paths {
 					"application/json": {
 						/** @enum {string} */
 						role: "user" | "assistant" | "system";
-						content: string;
+						content?: string;
+						images?: string;
 					};
 				};
 			};
@@ -2382,7 +2384,8 @@ export interface paths {
 								id: string;
 								/** @enum {string} */
 								role: "user" | "assistant" | "system";
-								content: string;
+								content: string | null;
+								images: string | null;
 								sequence: number;
 								/** Format: date-time */
 								createdAt: string;

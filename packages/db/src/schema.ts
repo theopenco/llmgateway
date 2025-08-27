@@ -392,7 +392,8 @@ export const message = pgTable("message", {
 	role: text({
 		enum: ["user", "assistant", "system"],
 	}).notNull(),
-	content: text().notNull(),
+	content: text(), // Made nullable to support image-only messages
+	images: text(), // JSON string to store images array
 	sequence: integer().notNull(), // To maintain message order
 });
 

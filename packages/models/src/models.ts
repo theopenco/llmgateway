@@ -109,6 +109,10 @@ export interface ModelDefinition {
 	 * Date when the model will be deactivated (returns error when requested)
 	 */
 	deactivatedAt?: Date;
+	/**
+	 * Output formats supported by the model (defaults to ['text'] if not specified)
+	 */
+	output?: ("text" | "image")[];
 }
 
 export const models = [

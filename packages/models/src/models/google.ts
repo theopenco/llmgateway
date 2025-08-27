@@ -128,6 +128,28 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-2.5-flash-image-preview",
+		name: "Gemini 2.5 Flash Image Preview",
+		family: "google",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		output: ["text", "image"],
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				modelName: "gemini-2.5-flash-image-preview",
+				inputPrice: 0.3 / 1e6,
+				outputPrice: 30 / 1e6,
+				requestPrice: 0,
+				contextSize: 32800,
+				maxOutput: 8200,
+				streaming: true,
+				vision: true,
+				tools: false,
+			},
+		],
+	},
+	{
 		id: "gemini-2.5-flash-preview-04-17-thinking",
 		name: "Gemini 2.5 Flash Preview Thinking (04-17)",
 		family: "google",
