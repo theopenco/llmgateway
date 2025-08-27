@@ -74,8 +74,8 @@ export function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "openai": {
-			if (supportsReasoning && (!tools || tools.length === 0)) {
-				// Transform to responses API format
+			if (supportsReasoning) {
+				// Transform to responses API format (now supports tools as well)
 				const responsesBody: any = {
 					model: usedModel,
 					input: messages,
@@ -90,8 +90,24 @@ export function prepareRequestBody(
 					responsesBody.stream = true;
 				}
 
-				// Note: OpenAI responses API doesn't support tools like chat completions
-				// Tools are handled by falling back to chat completions API for tool-enabled requests
+				// Add tools support for responses API (transform format if needed)
+				if (tools && tools.length > 0) {
+					// Transform tools from chat completions format to responses API format
+					responsesBody.tools = tools.map((tool: any) => {
+						if (tool.type === "function" && tool.function) {
+							return {
+								type: "function",
+								name: tool.function.name,
+								description: tool.function.description,
+								parameters: tool.function.parameters,
+							};
+						}
+						return tool;
+					});
+				}
+				if (tool_choice) {
+					responsesBody.tool_choice = tool_choice;
+				}
 
 				// Add optional parameters if they are provided
 				if (temperature !== undefined) {
@@ -373,7 +389,6 @@ export function getProviderEndpoint(
 	token?: string,
 	stream?: boolean,
 	supportsReasoning?: boolean,
-	tools?: any[],
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -497,8 +512,8 @@ export function getProviderEndpoint(
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
 		case "openai":
-			// Use responses endpoint for reasoning models (but only without tools)
-			if (supportsReasoning && (!tools || tools.length === 0)) {
+			// Use responses endpoint for reasoning models (now supports tools)
+			if (supportsReasoning) {
 				return `${url}/v1/responses`;
 			}
 			return `${url}/v1/chat/completions`;
@@ -611,7 +626,6 @@ export async function validateProviderKey(
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
-			undefined, // tools - not needed for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload

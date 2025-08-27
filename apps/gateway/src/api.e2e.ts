@@ -445,7 +445,7 @@ describe("e2e", () => {
 	test.each(reasoningModels)(
 		"reasoning $model",
 		getTestOptions(),
-		async ({ model }) => {
+		async ({ model, providers }) => {
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -461,7 +461,7 @@ describe("e2e", () => {
 						},
 						{
 							role: "user",
-							content: "What is 2+2?",
+							content: "What is 2/3 + 1/4 + 5/6?",
 						},
 					],
 					reasoning_effort: "medium",
@@ -496,15 +496,20 @@ describe("e2e", () => {
 				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
 			}
 
-			// check for reasoning response
-			expect(json.choices[0].message).toHaveProperty("reasoning_content");
+			// check for reasoning response - only if the provider expects reasoning output
+			const reasoningProvider = providers?.find(
+				(p: ProviderModelMapping) => p.reasoning === true,
+			);
+			if ((reasoningProvider as any)?.reasoningOutput !== "omit") {
+				expect(json.choices[0].message).toHaveProperty("reasoning_content");
+			}
 		},
 	);
 
 	test.each(streamingReasoningModels)(
 		"reasoning + streaming $model",
 		getTestOptions(),
-		async ({ model }) => {
+		async ({ model, providers }) => {
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -600,13 +605,18 @@ describe("e2e", () => {
 				expect(usageChunk.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
 			}
 
-			// Verify reasoning content is present in unified reasoning_content field
-			const reasoningChunks = streamResult.chunks.filter(
-				(chunk: any) =>
-					chunk.choices?.[0]?.delta?.reasoning_content &&
-					chunk.choices[0].delta.reasoning_content.length > 0,
+			// Verify reasoning content is present in unified reasoning_content field - only if the provider expects reasoning output
+			const reasoningProvider = providers?.find(
+				(p: ProviderModelMapping) => p.reasoning === true,
 			);
-			expect(reasoningChunks.length).toBeGreaterThan(0);
+			if ((reasoningProvider as any)?.reasoningOutput !== "omit") {
+				const reasoningChunks = streamResult.chunks.filter(
+					(chunk: any) =>
+						chunk.choices?.[0]?.delta?.reasoning_content &&
+						chunk.choices[0].delta.reasoning_content.length > 0,
+				);
+				expect(reasoningChunks.length).toBeGreaterThan(0);
+			}
 
 			const log = await validateLogs();
 			expect(log.streamed).toBe(true);

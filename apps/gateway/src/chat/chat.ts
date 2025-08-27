@@ -395,26 +395,29 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					reasoningContent = reasoningOutput.summary[0].text;
 				}
 
-				// Extract tool calls (if any) and transform to OpenAI format
-				const toolCallContent =
-					messageOutput?.content?.filter(
-						(item: any) => item.type === "tool_call",
-					) || [];
-				if (toolCallContent.length > 0) {
-					toolResults = toolCallContent.map((toolCall: any) => ({
-						id: toolCall.id,
+				// Extract tool calls (if any) from the output array and transform to OpenAI format
+				const functionCalls = json.output.filter(
+					(item: any) => item.type === "function_call",
+				);
+				if (functionCalls.length > 0) {
+					toolResults = functionCalls.map((functionCall: any) => ({
+						id: functionCall.call_id || functionCall.id,
 						type: "function",
 						function: {
-							name: toolCall.function?.name || toolCall.name,
-							arguments: toolCall.function?.arguments || toolCall.arguments,
+							name: functionCall.name,
+							arguments: functionCall.arguments,
 						},
 					}));
 				} else {
 					toolResults = null;
 				}
 
-				// Status mapping (completed -> stop)
-				finishReason = json.status === "completed" ? "stop" : json.status;
+				// Status mapping (completed -> stop, but tool_calls if function calls present)
+				if (json.status === "completed") {
+					finishReason = functionCalls.length > 0 ? "tool_calls" : "stop";
+				} else {
+					finishReason = json.status;
+				}
 
 				// Usage token extraction
 				promptTokens = json.usage?.input_tokens || null;
@@ -2432,7 +2435,6 @@ chat.openapi(completions, async (c) => {
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
 			stream,
 			supportsReasoning,
-			tools,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
