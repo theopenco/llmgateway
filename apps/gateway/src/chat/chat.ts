@@ -53,6 +53,21 @@ interface ChatMessage {
 	name?: string;
 }
 
+// Define OpenAI-compatible image object type
+interface ImageObject {
+	type: "image_url";
+	image_url: {
+		url: string;
+	};
+}
+
+// Define streaming delta object type
+interface StreamingDelta {
+	role?: "assistant";
+	content?: string;
+	images?: ImageObject[];
+}
+
 const DEFAULT_TOKENIZER_MODEL = "gpt-4";
 
 /**
@@ -218,6 +233,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let toolResults = null;
+	let images: ImageObject[] = [];
 
 	switch (usedProvider) {
 		case "anthropic":
@@ -257,6 +273,17 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			content = contentParts.map((part: any) => part.text).join("") || null;
 			reasoningContent =
 				reasoningParts.map((part: any) => part.text).join("") || null;
+
+			// Extract images from Google response parts
+			const imageParts = parts.filter((part: any) => part.inlineData);
+			images = imageParts.map(
+				(part: any): ImageObject => ({
+					type: "image_url",
+					image_url: {
+						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+					},
+				}),
+			);
 
 			finishReason = json.candidates?.[0]?.finishReason || null;
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
@@ -352,6 +379,11 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 				(promptTokens !== null && completionTokens !== null
 					? promptTokens + completionTokens + (reasoningTokens || 0)
 					: null);
+
+			// Extract images from OpenAI-format response (including Gemini via gateway)
+			if (json.choices?.[0]?.message?.images) {
+				images = json.choices[0].message.images;
+			}
 			break;
 	}
 
@@ -365,6 +397,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
+		images,
 	};
 }
 
@@ -477,6 +510,32 @@ function extractReasoningContentFromProvider(
 				data.choices?.[0]?.delta?.reasoning ||
 				""
 			);
+	}
+}
+
+/**
+ * Extracts images from streaming data based on provider format
+ */
+function extractImagesFromProvider(
+	data: any,
+	provider: Provider,
+): ImageObject[] {
+	switch (provider) {
+		case "google-vertex":
+		case "google-ai-studio": {
+			const parts = data.candidates?.[0]?.content?.parts || [];
+			const imageParts = parts.filter((part: any) => part.inlineData);
+			return imageParts.map(
+				(part: any): ImageObject => ({
+					type: "image_url",
+					image_url: {
+						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+					},
+				}),
+			);
+		}
+		default: // OpenAI format
+			return [];
 	}
 }
 
@@ -627,6 +686,7 @@ function transformToOpenAIFormat(
 	reasoningTokens: number | null,
 	cachedTokens: number | null,
 	toolResults: any,
+	images: ImageObject[],
 ) {
 	let transformedResponse = json;
 
@@ -648,6 +708,7 @@ function transformToOpenAIFormat(
 								reasoning_content: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
+							...(images && images.length > 0 && { images }),
 						},
 						finish_reason:
 							finishReason === "STOP"
@@ -967,7 +1028,25 @@ function transformStreamingChunkToOpenAIFormat(
 		}
 		case "google-vertex":
 		case "google-ai-studio": {
-			if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+			const parts = data.candidates?.[0]?.content?.parts || [];
+			const hasText = parts.some((part: any) => part.text);
+			const hasImages = parts.some((part: any) => part.inlineData);
+
+			if (hasText || hasImages) {
+				const delta: StreamingDelta = {
+					role: "assistant",
+				};
+
+				// Add text content if present
+				if (hasText) {
+					delta.content = parts.map((part: any) => part.text).join("") || "";
+				}
+
+				// Add images if present
+				if (hasImages) {
+					delta.images = extractImagesFromProvider(data, "google-ai-studio");
+				}
+
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -976,10 +1055,7 @@ function transformStreamingChunkToOpenAIFormat(
 					choices: [
 						{
 							index: data.candidates[0].index || 0,
-							delta: {
-								content: data.candidates[0].content.parts[0].text,
-								role: "assistant",
-							},
+							delta,
 							finish_reason: null,
 						},
 					],
@@ -1026,6 +1102,41 @@ function transformStreamingChunkToOpenAIFormat(
 										? "tool_calls"
 										: "stop"
 									: finishReason?.toLowerCase() || "stop",
+						},
+					],
+					usage: data.usageMetadata
+						? {
+								prompt_tokens:
+									data.usageMetadata.promptTokenCount > 0
+										? data.usageMetadata.promptTokenCount
+										: calculatePromptTokensFromMessages(messages),
+								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
+								// Calculate total including reasoning tokens for Google models
+								total_tokens:
+									(data.usageMetadata.promptTokenCount > 0
+										? data.usageMetadata.promptTokenCount
+										: calculatePromptTokensFromMessages(messages)) +
+									(data.usageMetadata.candidatesTokenCount || 0) +
+									(data.usageMetadata.thoughtsTokenCount || 0),
+								...(data.usageMetadata.thoughtsTokenCount && {
+									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
+								}),
+							}
+						: null,
+				};
+			} else {
+				// Handle any other Google chunks that don't have content or finishReason
+				// but still need to be in proper OpenAI format
+				transformedData = {
+					id: data.responseId || `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: data.modelVersion || usedModel,
+					choices: [
+						{
+							index: data.candidates?.[0]?.index || 0,
+							delta: {},
+							finish_reason: null,
 						},
 					],
 					usage: data.usageMetadata
@@ -1290,6 +1401,16 @@ const completions = createRoute({
 												function: z.object({
 													name: z.string(),
 													arguments: z.string(),
+												}),
+											}),
+										)
+										.optional(),
+									images: z
+										.array(
+											z.object({
+												type: z.literal("image_url"),
+												image_url: z.object({
+													url: z.string(),
 												}),
 											}),
 										)
@@ -3468,7 +3589,13 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
+		images,
 	} = parseProviderResponse(usedProvider, json);
+
+	// Debug: Log images found in response
+	console.log("Gateway - parseProviderResponse extracted images:", images);
+	console.log("Gateway - Used provider:", usedProvider);
+	console.log("Gateway - Used model:", usedModel);
 
 	// Estimate tokens if not provided by the API
 	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
@@ -3561,6 +3688,7 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
+		images,
 	);
 
 	if (cachingEnabled && cacheKey && !stream) {

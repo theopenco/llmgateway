@@ -133,10 +133,25 @@ chat.openapi(completionRoute, async (c) => {
 		} else {
 			// Handle non-streaming response
 			const responseData = await response.json();
-			return c.json({
+
+			const responseObject: {
+				content: string;
+				role: string;
+				images?: Array<{ type: string; image_url: { url: string } }>;
+			} = {
 				content: responseData.choices[0].message.content,
 				role: responseData.choices[0].message.role,
-			});
+			};
+
+			// Include images if present
+			if (
+				responseData.choices[0].message.images &&
+				responseData.choices[0].message.images.length > 0
+			) {
+				responseObject.images = responseData.choices[0].message.images;
+			}
+
+			return c.json(responseObject);
 		}
 	} catch (error) {
 		console.error("Chat completion error:", error);

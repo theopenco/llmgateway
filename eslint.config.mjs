@@ -6,6 +6,7 @@ export default [
 	{
 		rules: {
 			"@typescript-eslint/consistent-type-assertions": "off",
+			"@typescript-eslint/triple-slash-reference": "off",
 			"max-nested-callbacks": "off",
 			complexity: "off",
 			"max-depth": "off",

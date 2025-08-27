@@ -22,7 +22,8 @@ const chatSchema = z.object({
 const messageSchema = z.object({
 	id: z.string(),
 	role: z.enum(["user", "assistant", "system"]),
-	content: z.string(),
+	content: z.string().nullable(),
+	images: z.string().nullable(), // JSON string
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -37,10 +38,15 @@ const updateChatSchema = z.object({
 	status: z.enum(["active", "archived"]).optional(),
 });
 
-const createMessageSchema = z.object({
-	role: z.enum(["user", "assistant", "system"]),
-	content: z.string().min(1),
-});
+const createMessageSchema = z
+	.object({
+		role: z.enum(["user", "assistant", "system"]),
+		content: z.string().optional(),
+		images: z.string().optional(), // JSON string
+	})
+	.refine((data) => data.content || data.images, {
+		message: "Either content or images must be provided",
+	});
 
 // List user's chats
 const listChats = createRoute({
@@ -274,6 +280,7 @@ chats.openapi(getChat, async (c) => {
 				id: message.id,
 				role: message.role as "user" | "assistant" | "system",
 				content: message.content,
+				images: message.images,
 				sequence: message.sequence,
 				createdAt: message.createdAt.toISOString(),
 			})),
@@ -503,7 +510,8 @@ chats.openapi(addMessage, async (c) => {
 		.values({
 			chatId: id,
 			role: body.role,
-			content: body.content,
+			content: body.content || null,
+			images: body.images || null,
 			sequence: nextSequence,
 		})
 		.returning();
@@ -520,6 +528,7 @@ chats.openapi(addMessage, async (c) => {
 				id: newMessage.id,
 				role: newMessage.role as "user" | "assistant" | "system",
 				content: newMessage.content,
+				images: newMessage.images,
 				sequence: newMessage.sequence,
 				createdAt: newMessage.createdAt.toISOString(),
 			},
