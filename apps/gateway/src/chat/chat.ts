@@ -236,8 +236,20 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let images: ImageObject[] = [];
 
 	switch (usedProvider) {
-		case "anthropic":
-			content = json.content?.[0]?.text || null;
+		case "anthropic": {
+			// Extract content and reasoning content from Anthropic response
+			const contentBlocks = json.content || [];
+			const textBlocks = contentBlocks.filter(
+				(block: any) => block.type === "text",
+			);
+			const thinkingBlocks = contentBlocks.filter(
+				(block: any) => block.type === "thinking",
+			);
+
+			content = textBlocks.map((block: any) => block.text).join("") || null;
+			reasoningContent =
+				thinkingBlocks.map((block: any) => block.thinking).join("") || null;
+
 			finishReason = json.stop_reason || null;
 			promptTokens = json.usage?.input_tokens || null;
 			completionTokens = json.usage?.output_tokens || null;
@@ -263,6 +275,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 				toolResults = null;
 			}
 			break;
+		}
 		case "google-vertex":
 		case "google-ai-studio": {
 			// Extract content and reasoning content from Google response parts
@@ -498,6 +511,18 @@ function extractReasoningContentFromProvider(
 	provider: Provider,
 ): string {
 	switch (provider) {
+		case "anthropic": {
+			// Handle Anthropic thinking content blocks in streaming format
+			if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "thinking_delta" &&
+				data.delta?.thinking
+			) {
+				// This is a thinking delta - return the thinking content
+				return data.delta.thinking;
+			}
+			return "";
+		}
 		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
@@ -815,6 +840,16 @@ function transformToOpenAIFormat(
 						}),
 					},
 				};
+			} else {
+				// Always transform reasoning field to reasoning_content even if response already has an id
+				if (transformedResponse.choices?.[0]?.message) {
+					const message = transformedResponse.choices[0].message;
+					if (reasoningContent !== null) {
+						message.reasoning_content = reasoningContent;
+						// Remove the old reasoning field if it exists
+						delete message.reasoning;
+					}
+				}
 			}
 			break;
 		}
@@ -871,6 +906,29 @@ function transformStreamingChunkToOpenAIFormat(
 							index: 0,
 							delta: {
 								content: data.delta.text,
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: data.usage || null,
+				};
+			} else if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "thinking_delta" &&
+				data.delta?.thinking
+			) {
+				// Handle thinking content delta - convert to unified reasoning_content format
+				transformedData = {
+					id: data.id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created || Math.floor(Date.now() / 1000),
+					model: data.model || usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								reasoning_content: data.delta.thinking,
 								role: "assistant",
 							},
 							finish_reason: null,
@@ -1166,6 +1224,23 @@ function transformStreamingChunkToOpenAIFormat(
 		default: {
 			// Ensure the response has the required OpenAI format fields
 			if (!data.id || !data.object) {
+				const delta = data.delta
+					? {
+							...data.delta,
+							role: "assistant",
+						}
+					: {
+							content: data.content || "",
+							tool_calls: data.tool_calls || null,
+							role: "assistant",
+						};
+
+				// Normalize reasoning field to reasoning_content for consistency
+				if (delta.reasoning && !delta.reasoning_content) {
+					delta.reasoning_content = delta.reasoning;
+					delete delta.reasoning;
+				}
+
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -1174,16 +1249,7 @@ function transformStreamingChunkToOpenAIFormat(
 					choices: data.choices || [
 						{
 							index: 0,
-							delta: data.delta
-								? {
-										...data.delta,
-										role: "assistant",
-									}
-								: {
-										content: data.content || "",
-										tool_calls: data.tool_calls || null,
-										role: "assistant",
-									},
+							delta,
 							finish_reason: data.finish_reason || null,
 						},
 					],
@@ -1195,15 +1261,25 @@ function transformStreamingChunkToOpenAIFormat(
 					...data,
 					object: "chat.completion.chunk", // Force correct object type for streaming
 					choices:
-						data.choices?.map((choice: any) => ({
-							...choice,
-							delta: choice.delta
+						data.choices?.map((choice: any) => {
+							const delta = choice.delta
 								? {
 										...choice.delta,
 										role: choice.delta.role || "assistant",
 									}
-								: choice.delta,
-						})) || data.choices,
+								: choice.delta;
+
+							// Normalize reasoning field to reasoning_content for consistency
+							if (delta?.reasoning && !delta.reasoning_content) {
+								delta.reasoning_content = delta.reasoning;
+								delete delta.reasoning;
+							}
+
+							return {
+								...choice,
+								delta,
+							};
+						}) || data.choices,
 				};
 			}
 			break;

@@ -118,7 +118,10 @@ export function prepareRequestBody(
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
-			requestBody.max_tokens = max_tokens || 1024; // Set a default if not provided
+			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
+			const thinkingBudget = supportsReasoning ? 2000 : 0;
+			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+			requestBody.max_tokens = max_tokens || minMaxTokens;
 			requestBody.messages = messages.map((m) => ({
 				role:
 					m.role === "assistant"
@@ -172,6 +175,14 @@ export function prepareRequestBody(
 					// Other string values (though not standard)
 					requestBody.tool_choice = tool_choice;
 				}
+			}
+
+			// Enable thinking for reasoning-capable Anthropic models
+			if (supportsReasoning) {
+				requestBody.thinking = {
+					type: "enabled",
+					budget_tokens: 2000,
+				};
 			}
 
 			// Add optional parameters if they are provided
