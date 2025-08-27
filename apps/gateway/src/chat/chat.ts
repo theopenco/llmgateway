@@ -375,27 +375,78 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			break;
 		default: // OpenAI format
-			toolResults = json.choices?.[0]?.message?.tool_calls || null;
-			content = json.choices?.[0]?.message?.content || null;
-			// Extract reasoning content for reasoning-capable models (check both field names)
-			reasoningContent =
-				json.choices?.[0]?.message?.reasoning_content ||
-				json.choices?.[0]?.message?.reasoning ||
-				null;
-			finishReason = json.choices?.[0]?.finish_reason || null;
-			promptTokens = json.usage?.prompt_tokens || null;
-			completionTokens = json.usage?.completion_tokens || null;
-			reasoningTokens = json.usage?.reasoning_tokens || null;
-			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
-			totalTokens =
-				json.usage?.total_tokens ||
-				(promptTokens !== null && completionTokens !== null
-					? promptTokens + completionTokens + (reasoningTokens || 0)
-					: null);
+			// Check if this is an OpenAI responses format (has output array instead of choices)
+			if (json.output && Array.isArray(json.output)) {
+				// OpenAI responses endpoint format
+				const messageOutput = json.output.find(
+					(item: any) => item.type === "message",
+				);
+				const reasoningOutput = json.output.find(
+					(item: any) => item.type === "reasoning",
+				);
 
-			// Extract images from OpenAI-format response (including Gemini via gateway)
-			if (json.choices?.[0]?.message?.images) {
-				images = json.choices[0].message.images;
+				// Extract message content
+				if (messageOutput?.content?.[0]?.text) {
+					content = messageOutput.content[0].text;
+				}
+
+				// Extract reasoning content from summary
+				if (reasoningOutput?.summary?.[0]?.text) {
+					reasoningContent = reasoningOutput.summary[0].text;
+				}
+
+				// Extract tool calls (if any) and transform to OpenAI format
+				const toolCallContent =
+					messageOutput?.content?.filter(
+						(item: any) => item.type === "tool_call",
+					) || [];
+				if (toolCallContent.length > 0) {
+					toolResults = toolCallContent.map((toolCall: any) => ({
+						id: toolCall.id,
+						type: "function",
+						function: {
+							name: toolCall.function?.name || toolCall.name,
+							arguments: toolCall.function?.arguments || toolCall.arguments,
+						},
+					}));
+				} else {
+					toolResults = null;
+				}
+
+				// Status mapping (completed -> stop)
+				finishReason = json.status === "completed" ? "stop" : json.status;
+
+				// Usage token extraction
+				promptTokens = json.usage?.input_tokens || null;
+				completionTokens = json.usage?.output_tokens || null;
+				reasoningTokens =
+					json.usage?.output_tokens_details?.reasoning_tokens || null;
+				cachedTokens = json.usage?.input_tokens_details?.cached_tokens || null;
+				totalTokens = json.usage?.total_tokens || null;
+			} else {
+				// Standard OpenAI chat completions format
+				toolResults = json.choices?.[0]?.message?.tool_calls || null;
+				content = json.choices?.[0]?.message?.content || null;
+				// Extract reasoning content for reasoning-capable models (check both field names)
+				reasoningContent =
+					json.choices?.[0]?.message?.reasoning_content ||
+					json.choices?.[0]?.message?.reasoning ||
+					null;
+				finishReason = json.choices?.[0]?.finish_reason || null;
+				promptTokens = json.usage?.prompt_tokens || null;
+				completionTokens = json.usage?.completion_tokens || null;
+				reasoningTokens = json.usage?.reasoning_tokens || null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
+				totalTokens =
+					json.usage?.total_tokens ||
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens || 0)
+						: null);
+
+				// Extract images from OpenAI-format response (including Gemini via gateway)
+				if (json.choices?.[0]?.message?.images) {
+					images = json.choices[0].message.images;
+				}
 			}
 			break;
 	}
@@ -853,6 +904,50 @@ function transformToOpenAIFormat(
 			}
 			break;
 		}
+		case "openai": {
+			// Handle OpenAI responses format transformation to chat completions format
+			if (json.output && Array.isArray(json.output)) {
+				// This is from the responses endpoint - transform to chat completions format
+				transformedResponse = {
+					id: json.id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: json.created_at || Math.floor(Date.now() / 1000),
+					model: json.model || usedModel,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(reasoningContent !== null && {
+									reasoning_content: reasoningContent,
+								}),
+								...(toolResults && { tool_calls: toolResults }),
+							},
+							finish_reason: finishReason || "stop",
+						},
+					],
+					usage: {
+						prompt_tokens: Math.max(1, promptTokens || 1),
+						completion_tokens: completionTokens || 0,
+						total_tokens: Math.max(
+							1,
+							totalTokens || Math.max(1, promptTokens || 1),
+						),
+						...(reasoningTokens !== null && {
+							reasoning_tokens: reasoningTokens,
+						}),
+						...(cachedTokens !== null && {
+							prompt_tokens_details: {
+								cached_tokens: cachedTokens,
+							},
+						}),
+					},
+				};
+			}
+			// If not responses format, leave as is (standard chat completions format)
+			break;
+		}
 	}
 
 	return transformedResponse;
@@ -1218,6 +1313,53 @@ function transformStreamingChunkToOpenAIFormat(
 						: null,
 				};
 			}
+			break;
+		}
+		case "openai": {
+			// Handle OpenAI responses API streaming format (different from chat completions)
+			if (data.output && Array.isArray(data.output)) {
+				// OpenAI responses endpoint streaming format
+				const messageOutput = data.output.find(
+					(item: any) => item.type === "message",
+				);
+				const reasoningOutput = data.output.find(
+					(item: any) => item.type === "reasoning",
+				);
+
+				let deltaContent = "";
+				let deltaReasoningContent = "";
+
+				// Extract message delta content
+				if (messageOutput?.content?.[0]?.text) {
+					deltaContent = messageOutput.content[0].text;
+				}
+				// Extract reasoning delta content
+				if (reasoningOutput?.summary?.[0]?.text) {
+					deltaReasoningContent = reasoningOutput.summary[0].text;
+				}
+
+				transformedData = {
+					id: data.id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created_at || Math.floor(Date.now() / 1000),
+					model: data.model || usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								...(deltaContent && { content: deltaContent }),
+								...(deltaReasoningContent && {
+									reasoning_content: deltaReasoningContent,
+								}),
+							},
+							finish_reason: data.status === "completed" ? "stop" : null,
+						},
+					],
+					usage: data.usage || null,
+				};
+			}
+			// If not responses format, fall through to default OpenAI handling
 			break;
 		}
 		// OpenAI and other providers that already use OpenAI format
@@ -2164,6 +2306,11 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Check if the model supports reasoning
+	const supportsReasoning = modelInfo.providers.some(
+		(provider) => (provider as any).reasoning === true,
+	);
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -2177,6 +2324,8 @@ chat.openapi(completions, async (c) => {
 			usedModel,
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
 			stream,
+			supportsReasoning,
+			tools,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -2446,11 +2595,6 @@ chat.openapi(completions, async (c) => {
 	// Check if the request can be canceled
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
-
-	// Check if the model supports reasoning for Google providers
-	const supportsReasoning = modelInfo.providers.some(
-		(provider) => (provider as any).reasoning === true,
-	);
 
 	const requestBody = prepareRequestBody(
 		usedProvider,

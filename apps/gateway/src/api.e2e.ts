@@ -457,12 +457,11 @@ describe("e2e", () => {
 					messages: [
 						{
 							role: "system",
-							content:
-								"You are a helpful assistant. Think step by step and show your reasoning.",
+							content: "You are a helpful assistant.",
 						},
 						{
 							role: "user",
-							content: "What is 2+2? Think through this step by step.",
+							content: "What is 2+2?",
 						},
 					],
 					reasoning_effort: "low",

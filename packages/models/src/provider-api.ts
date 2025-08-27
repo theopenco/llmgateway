@@ -73,7 +73,85 @@ export function prepareRequestBody(
 	}
 
 	switch (usedProvider) {
-		case "openai":
+		case "openai": {
+			if (supportsReasoning && (!tools || tools.length === 0)) {
+				// Use OpenAI responses API format for reasoning models
+				// Convert messages to simple text input (responses API expects string, not array)
+				const inputText = messages
+					.map((msg) => {
+						if (typeof msg.content === "string") {
+							return `${msg.role}: ${msg.content}`;
+						} else if (Array.isArray(msg.content)) {
+							// Handle multimodal content
+							return `${msg.role}: ${msg.content
+								.filter((part: any) => part.type === "text")
+								.map((part: any) => part.text)
+								.join(" ")}`;
+						}
+						return `${msg.role}: ${msg.content}`;
+					})
+					.join("\n");
+
+				// Transform to responses API format
+				const responsesBody: any = {
+					model: usedModel,
+					input: inputText,
+					reasoning: {
+						effort: reasoning_effort || "medium",
+						summary: "detailed",
+					},
+				};
+
+				// Add streaming support
+				if (stream) {
+					responsesBody.stream = true;
+				}
+
+				// Note: OpenAI responses API doesn't support tools like chat completions
+				// Tools are handled by falling back to chat completions API for tool-enabled requests
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					responsesBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					responsesBody.max_completion_tokens = max_tokens;
+				}
+
+				return responsesBody;
+			} else {
+				// Use regular chat completions format
+				if (stream) {
+					requestBody.stream_options = {
+						include_usage: true,
+					};
+				}
+				if (response_format) {
+					requestBody.response_format = response_format;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					requestBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					requestBody.max_tokens = max_tokens;
+				}
+				if (top_p !== undefined) {
+					requestBody.top_p = top_p;
+				}
+				if (frequency_penalty !== undefined) {
+					requestBody.frequency_penalty = frequency_penalty;
+				}
+				if (presence_penalty !== undefined) {
+					requestBody.presence_penalty = presence_penalty;
+				}
+				if (reasoning_effort !== undefined) {
+					requestBody.reasoning_effort = reasoning_effort;
+				}
+			}
+			break;
+		}
 		case "xai":
 		case "groq":
 		case "deepseek":
@@ -311,6 +389,8 @@ export function getProviderEndpoint(
 	model?: string,
 	token?: string,
 	stream?: boolean,
+	supportsReasoning?: boolean,
+	tools?: any[],
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -433,8 +513,13 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
-		case "inference.net":
 		case "openai":
+			// Use responses endpoint for reasoning models (but only without tools)
+			if (supportsReasoning && (!tools || tools.length === 0)) {
+				return `${url}/v1/responses`;
+			}
+			return `${url}/v1/chat/completions`;
+		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":
 		case "xai":
@@ -542,6 +627,8 @@ export async function validateProviderKey(
 			undefined,
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
+			false, // supportsReasoning - disable for validation
+			undefined, // tools - not needed for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload
