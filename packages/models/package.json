@@ -20,7 +20,5 @@
 		"build": "tsc && tsup"
 	},
 	"dependencies": {},
-	"devDependencies": {
-		"@types/node": "^24.0.3"
-	}
+	"devDependencies": {}
 }
