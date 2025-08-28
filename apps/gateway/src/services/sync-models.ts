@@ -51,11 +51,11 @@ export async function syncProvidersAndModels() {
 
 		console.log(`Synced ${providers.length} providers`);
 
-		for (const [modelId, modelDef] of Object.entries(models)) {
+		for (const modelDef of models) {
 			await database
 				.insert(model)
 				.values({
-					id: modelId,
+					id: modelDef.id,
 					name: modelDef.name || null,
 					family: modelDef.family,
 					jsonOutput:
@@ -88,7 +88,7 @@ export async function syncProvidersAndModels() {
 						.from(modelProviderMapping)
 						.where(
 							and(
-								eq(modelProviderMapping.modelId, modelId),
+								eq(modelProviderMapping.modelId, modelDef.id),
 								eq(modelProviderMapping.providerId, mapping.providerId),
 							),
 						)
@@ -150,7 +150,7 @@ export async function syncProvidersAndModels() {
 							.where(eq(modelProviderMapping.id, existingMapping.id));
 					} else {
 						await database.insert(modelProviderMapping).values({
-							modelId,
+							modelId: modelDef.id,
 							providerId: mapping.providerId,
 							modelName: mapping.modelName,
 							inputPrice:
@@ -203,7 +203,7 @@ export async function syncProvidersAndModels() {
 			}
 		}
 
-		console.log(`Synced ${Object.keys(models).length} models`);
+		console.log(`Synced ${models.length} models`);
 
 		const mappingCount = await database.select().from(modelProviderMapping);
 		console.log(`Total model-provider mappings: ${mappingCount.length}`);
