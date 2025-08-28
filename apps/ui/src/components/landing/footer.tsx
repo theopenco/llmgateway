@@ -7,9 +7,6 @@ import Link from "next/link";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 
-const DISCORD_URL = "https://discord.gg/gcqcZeYWEz";
-const X_URL = "https://x.com/llmgateway";
-
 export default function Footer() {
 	const config = useAppConfig();
 	const filteredProviders = providerDefinitions.filter(
@@ -32,7 +29,7 @@ export default function Footer() {
 						</p>
 						<div className="flex items-center space-x-4 mt-4">
 							<a
-								href={config.githubUrl ?? ""}
+								href={config.githubUrl}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -41,7 +38,7 @@ export default function Footer() {
 								<GithubIcon className="h-5 w-5" />
 							</a>
 							<a
-								href={X_URL ?? ""}
+								href={config.twitterUrl}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -50,7 +47,7 @@ export default function Footer() {
 								<TwitterIcon className="h-5 w-5" />
 							</a>
 							<a
-								href={DISCORD_URL ?? ""}
+								href={config.discordUrl}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -156,7 +153,7 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href={X_URL ?? ""}
+										href={config.twitterUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:text-black dark:hover:text-white"
@@ -166,7 +163,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href={DISCORD_URL ?? ""}
+										href={config.discordUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:text-black dark:hover:text-white"

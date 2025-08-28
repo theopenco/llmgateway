@@ -197,7 +197,7 @@ export function ProviderKeysList({
 												>
 													{existingKey.status}
 												</Badge>
-												<span className="text-xs text-muted-foreground font-mono">
+												<span className="text-xs text-muted-foreground font-mono block max-w-[200px] truncate">
 													{existingKey.maskedToken}
 												</span>
 											</div>

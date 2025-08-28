@@ -19,7 +19,7 @@ const modelSchema = z.object({
 	family: z.string(),
 	architecture: z.object({
 		input_modalities: z.array(z.enum(["text", "image"])),
-		output_modalities: z.array(z.enum(["text"])),
+		output_modalities: z.array(z.enum(["text", "image"])),
 		tokenizer: z.string().optional(),
 	}),
 	top_provider: z.object({
@@ -137,6 +137,9 @@ modelsApi.openapi(listModels, async (c) => {
 				inputModalities.push("image");
 			}
 
+			// Determine output modalities from model definition or default to text only
+			const outputModalities: ("text" | "image")[] = model.output || ["text"];
+
 			const firstProviderWithPricing = model.providers.find(
 				(p: ProviderModelMapping) =>
 					p.inputPrice !== undefined ||
@@ -159,7 +162,7 @@ modelsApi.openapi(listModels, async (c) => {
 				family: model.family,
 				architecture: {
 					input_modalities: inputModalities,
-					output_modalities: ["text"] as ["text"],
+					output_modalities: outputModalities,
 					tokenizer: "GPT", // TODO: Should come from model definitions when available
 				},
 				top_provider: {
