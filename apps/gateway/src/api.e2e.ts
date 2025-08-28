@@ -150,6 +150,17 @@ const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
 );
 
+const streamingReasoningModels = reasoningModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => {
+		// Check model-level streaming first, then fall back to provider-level
+		if (p.streaming !== undefined) {
+			return p.streaming;
+		}
+		const provider = providers.find((pr) => pr.id === p.providerId);
+		return provider?.streaming;
+	}),
+);
+
 const toolCallModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.tools === true),
 );
@@ -491,7 +502,7 @@ describe("e2e", () => {
 		},
 	);
 
-	test.each(reasoningModels)(
+	test.each(streamingReasoningModels)(
 		"reasoning + streaming $model",
 		getTestOptions(),
 		async ({ model }) => {
