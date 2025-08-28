@@ -17,7 +17,10 @@ import {
 	ArrowUpDown,
 	ArrowUp,
 	ArrowDown,
+	Play,
+	ImagePlus,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useMemo, useState, useCallback } from "react";
 
@@ -104,6 +107,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
 			reasoning: searchParams.get("reasoning") === "true",
+			imageGeneration: searchParams.get("imageGeneration") === "true",
 			free: searchParams.get("free") === "true",
 		},
 		selectedProvider: searchParams.get("provider") || "all",
@@ -187,6 +191,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			if (
 				filters.capabilities.reasoning &&
 				!model.providerDetails.some((p) => p.provider.reasoning)
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.imageGeneration &&
+				!model.output?.includes("image")
 			) {
 				return false;
 			}
@@ -372,7 +382,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		return `$${(price * 1e6).toFixed(2)}`;
 	};
 
-	const getCapabilityIcons = (provider: ProviderModelMapping) => {
+	const getCapabilityIcons = (provider: ProviderModelMapping, model?: any) => {
 		const capabilities = [];
 		if (provider.streaming) {
 			capabilities.push({
@@ -402,6 +412,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				color: "text-orange-500",
 			});
 		}
+		if (model?.output?.includes("image")) {
+			capabilities.push({
+				icon: ImagePlus,
+				label: "Image Generation",
+				color: "text-pink-500",
+			});
+		}
 		return capabilities;
 	};
 
@@ -413,6 +430,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				vision: false,
 				tools: false,
 				reasoning: false,
+				imageGeneration: false,
 				free: false,
 			},
 			selectedProvider: "all",
@@ -487,6 +505,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									label: "Reasoning",
 									icon: MessageSquare,
 									color: "text-orange-500",
+								},
+								{
+									key: "imageGeneration",
+									label: "Image Generation",
+									icon: ImagePlus,
+									color: "text-pink-500",
 								},
 								{
 									key: "free",
@@ -725,6 +749,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							</Button>
 						</TableHead>
 						<TableHead className="text-center">Capabilities</TableHead>
+						<TableHead className="text-center">Actions</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -857,7 +882,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 											key={provider.providerId}
 											className="flex justify-center gap-1"
 										>
-											{getCapabilityIcons(provider).map(
+											{getCapabilityIcons(provider, model).map(
 												({ icon: Icon, label, color }) => (
 													<Tooltip key={label}>
 														<TooltipTrigger asChild>
@@ -884,6 +909,22 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										</div>
 									))}
 								</div>
+							</TableCell>
+
+							<TableCell className="text-center">
+								<Link
+									href={`/playground?model=${encodeURIComponent(model.id)}`}
+								>
+									<Button
+										variant="outline"
+										size="sm"
+										className="h-8 gap-2"
+										title={`Try ${model.name || model.id} in playground`}
+									>
+										<Play className="h-3 w-3" />
+										Try it
+									</Button>
+								</Link>
 							</TableCell>
 						</TableRow>
 					))}
@@ -1018,7 +1059,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<div className="font-medium mb-2 text-sm">Capabilities:</div>
 								{model.providerDetails.map(({ provider }) => (
 									<div key={provider.providerId} className="flex gap-2 mb-1">
-										{getCapabilityIcons(provider).map(
+										{getCapabilityIcons(provider, model).map(
 											({ icon: Icon, label, color }) => (
 												<Tooltip key={label}>
 													<TooltipTrigger asChild>
@@ -1047,6 +1088,22 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										)}
 									</div>
 								))}
+							</div>
+
+							<div className="pt-4 border-t">
+								<Link
+									href={`/playground?model=${encodeURIComponent(model.id)}`}
+								>
+									<Button
+										variant="outline"
+										size="sm"
+										className="w-full gap-2"
+										title={`Try ${model.name || model.id} in playground`}
+									>
+										<Play className="h-3 w-3" />
+										Try in Playground
+									</Button>
+								</Link>
 							</div>
 						</div>
 					</CardContent>

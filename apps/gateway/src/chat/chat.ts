@@ -2452,7 +2452,7 @@ chat.openapi(completions, async (c) => {
 		(provider) => (provider as any).reasoning === true,
 	);
 
-	const requestBody = prepareRequestBody(
+	const requestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
 		messages,
@@ -2467,6 +2467,7 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		reasoning_effort,
 		supportsReasoning,
+		process.env.NODE_ENV === "production",
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody

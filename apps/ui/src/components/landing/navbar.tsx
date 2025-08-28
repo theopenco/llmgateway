@@ -1,11 +1,19 @@
 "use client";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Github } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ThemeToggle } from "./theme-toggle";
-import { AuthLink } from "../shared/auth-link";
+import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
+import {
+	NavigationMenu,
+	NavigationMenuContent,
+	NavigationMenuItem,
+	NavigationMenuLink,
+	NavigationMenuList,
+	NavigationMenuTrigger,
+} from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
@@ -16,9 +24,14 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 	const menuItems = [
 		{ name: "Pricing", href: "/#pricing", external: false },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
-		{ name: "Models", href: "/models", external: false },
-		{ name: "Playground", href: "/playground", external: false },
 		{ name: "Changelog", href: "/changelog", external: false },
+	];
+
+	const resourcesItems = [
+		{ name: "Models", href: "/models" },
+		{ name: "Playground", href: "/playground" },
+		{ name: "Providers", href: "/providers" },
+		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
 	];
 	const [menuState, setMenuState] = useState(false);
 	const [isScrolled, setIsScrolled] = useState(false);
@@ -70,30 +83,61 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 						</div>
 
 						<div className="m-auto hidden size-fit lg:block">
-							<ul className="flex gap-8 text-sm">
-								{menuItems.map((item, index) => (
-									<li key={index}>
-										{item.external ? (
-											<a
-												href={item.href}
-												target="_blank"
-												rel="noopener noreferrer"
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-											>
-												{item.name}
-											</a>
-										) : (
-											<Link
-												href={item.href}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-												prefetch={true}
-											>
-												{item.name}
-											</Link>
-										)}
-									</li>
-								))}
-							</ul>
+							<NavigationMenu viewport={false}>
+								<NavigationMenuList className="flex gap-2 text-sm">
+									{menuItems.map((item, index) => (
+										<NavigationMenuItem key={index}>
+											{item.external ? (
+												<NavigationMenuLink asChild>
+													<a
+														href={item.href}
+														target="_blank"
+														rel="noopener noreferrer"
+														className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+													>
+														{item.name}
+													</a>
+												</NavigationMenuLink>
+											) : (
+												<NavigationMenuLink asChild>
+													<Link
+														href={item.href}
+														className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+														prefetch={true}
+													>
+														{item.name}
+													</Link>
+												</NavigationMenuLink>
+											)}
+										</NavigationMenuItem>
+									))}
+
+									<NavigationMenuItem>
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+											Resources
+										</NavigationMenuTrigger>
+										<NavigationMenuContent>
+											<ul className="grid w-[200px] gap-2 p-4">
+												{resourcesItems.map((item, index) => (
+													<li key={index}>
+														<NavigationMenuLink asChild>
+															<Link
+																href={item.href}
+																className="block select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+																prefetch={true}
+															>
+																<div className="text-sm font-medium leading-none">
+																	{item.name}
+																</div>
+															</Link>
+														</NavigationMenuLink>
+													</li>
+												))}
+											</ul>
+										</NavigationMenuContent>
+									</NavigationMenuItem>
+								</NavigationMenuList>
+							</NavigationMenu>
 						</div>
 
 						<div className="bg-background group-data-[state=active]:block lg:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap lg:m-0 lg:flex lg:w-fit lg:gap-6 lg:space-y-0 lg:border-transparent lg:bg-transparent lg:p-0 lg:shadow-none dark:shadow-none dark:lg:bg-transparent">
@@ -121,11 +165,87 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 											)}
 										</li>
 									))}
+
+									<li className="space-y-2">
+										<div className="text-muted-foreground text-sm font-medium">
+											Resources
+										</div>
+										<ul className="space-y-3 pl-4">
+											{resourcesItems.map((item, index) => (
+												<li key={index}>
+													<Link
+														href={item.href}
+														className="text-muted-foreground hover:text-accent-foreground block duration-150"
+														prefetch={true}
+													>
+														{item.name}
+													</Link>
+												</li>
+											))}
+										</ul>
+									</li>
+
+									{/* Mobile Social Icons */}
+									<li className="flex items-center gap-4 pt-4 border-t border-border">
+										<a
+											href={config.githubUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
+											aria-label="GitHub"
+										>
+											<Github className="h-5 w-5" />
+										</a>
+										<a
+											href={config.discordUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
+											aria-label="Discord"
+										>
+											<svg
+												className="h-5 w-5"
+												viewBox="0 0 24 24"
+												fill="currentColor"
+											>
+												<path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+											</svg>
+										</a>
+									</li>
 								</ul>
 							</div>
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
 								{children}
+
+								{/* Social Icons */}
+								<div className="flex items-center gap-2 lg:order-first lg:mr-4">
+									<a
+										href="https://github.com/theopenco/llmgateway"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
+										aria-label="GitHub"
+									>
+										<Github className="h-5 w-5" />
+									</a>
+									<a
+										href="https://discord.gg/llmgateway"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
+										aria-label="Discord"
+									>
+										<svg
+											className="h-5 w-5"
+											viewBox="0 0 24 24"
+											fill="currentColor"
+										>
+											<path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+										</svg>
+									</a>
+								</div>
+
 								<Button
 									asChild
 									className={cn(
