@@ -14,11 +14,11 @@ export async function syncProvidersAndModels() {
 	try {
 		const database = db;
 
-		for (const [providerId, providerDef] of Object.entries(providers)) {
+		for (const providerDef of providers) {
 			await database
 				.insert(provider)
 				.values({
-					id: providerId,
+					id: providerDef.id,
 					name: providerDef.name,
 					description: providerDef.description,
 					streaming: providerDef.streaming,
@@ -49,7 +49,7 @@ export async function syncProvidersAndModels() {
 				});
 		}
 
-		console.log(`Synced ${Object.keys(providers).length} providers`);
+		console.log(`Synced ${providers.length} providers`);
 
 		for (const [modelId, modelDef] of Object.entries(models)) {
 			await database
