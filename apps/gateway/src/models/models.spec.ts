@@ -42,4 +42,68 @@ describe("Models API", () => {
 
 		expect(firstModel).toHaveProperty("family");
 	});
+
+	test("GET /v1/models should exclude deactivated models by default", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const currentDate = new Date();
+
+		// Verify that no deactivated models are returned
+		for (const model of json.data) {
+			if (model.deactivated_at) {
+				const deactivatedAt = new Date(model.deactivated_at);
+				expect(currentDate <= deactivatedAt).toBe(true);
+			}
+		}
+	});
+
+	test("GET /v1/models?include_deactivated=true should include deactivated models", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json).toHaveProperty("data");
+		expect(Array.isArray(json.data)).toBe(true);
+
+		// The response should include all models (including deactivated ones)
+		// We can't easily test this without knowing specific deactivated models,
+		// but we can at least verify the endpoint works with the parameter
+		expect(json.data.length).toBeGreaterThan(0);
+	});
+
+	test("GET /v1/models?exclude_deprecated=true should exclude deprecated models", async () => {
+		const res = await app.request("/v1/models?exclude_deprecated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const currentDate = new Date();
+
+		// Verify that no deprecated models are returned
+		for (const model of json.data) {
+			if (model.deprecated_at) {
+				const deprecatedAt = new Date(model.deprecated_at);
+				expect(currentDate <= deprecatedAt).toBe(true);
+			}
+		}
+	});
+
+	test("GET /v1/models should handle both parameters together", async () => {
+		const res = await app.request(
+			"/v1/models?include_deactivated=true&exclude_deprecated=true",
+		);
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const currentDate = new Date();
+
+		// Should include deactivated models but exclude deprecated ones
+		for (const model of json.data) {
+			if (model.deprecated_at) {
+				const deprecatedAt = new Date(model.deprecated_at);
+				expect(currentDate <= deprecatedAt).toBe(true);
+			}
+		}
+	});
 });
