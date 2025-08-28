@@ -119,9 +119,22 @@ export function prepareRequestBody(
 			delete requestBody.tool_choice;
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
-			const thinkingBudget = supportsReasoning ? 2000 : 0;
+			const getThinkingBudget = (effort?: string) => {
+				if (!supportsReasoning) {
+					return 0;
+				}
+				switch (effort) {
+					case "low":
+						return 1000;
+					case "high":
+						return 4000;
+					default:
+						return 2000; // medium or undefined
+				}
+			};
+			const thinkingBudget = getThinkingBudget(reasoning_effort);
 			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-			requestBody.max_tokens = max_tokens || minMaxTokens;
+			requestBody.max_tokens = max_tokens ?? minMaxTokens;
 			requestBody.messages = messages.map((m) => ({
 				role:
 					m.role === "assistant"
@@ -181,7 +194,7 @@ export function prepareRequestBody(
 			if (supportsReasoning) {
 				requestBody.thinking = {
 					type: "enabled",
-					budget_tokens: 2000,
+					budget_tokens: thinkingBudget,
 				};
 			}
 

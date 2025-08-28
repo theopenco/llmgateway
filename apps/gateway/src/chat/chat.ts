@@ -2469,6 +2469,25 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning,
 	);
 
+	// Validate effective max_tokens value after prepareRequestBody
+	if (requestBody.max_tokens !== undefined && finalModelInfo) {
+		// Find the provider mapping for the used provider
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		);
+		if (
+			providerMapping &&
+			"maxOutput" in providerMapping &&
+			providerMapping.maxOutput !== undefined
+		) {
+			if (requestBody.max_tokens > providerMapping.maxOutput) {
+				throw new HTTPException(400, {
+					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+				});
+			}
+		}
+	}
+
 	const startTime = Date.now();
 
 	// Handle streaming response if requested
