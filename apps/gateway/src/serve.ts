@@ -4,13 +4,20 @@ import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
 import redisClient from "./lib/redis";
+import {
+	startStatsCalculator,
+	stopStatsCalculator,
+} from "./services/stats-calculator";
+import { syncProvidersAndModels } from "./services/sync-models";
 import { startWorker, stopWorker } from "./worker";
 
 const port = Number(process.env.PORT) || 4001;
 
 logger.info("Server starting", { port });
 
+void syncProvidersAndModels();
 void startWorker();
+startStatsCalculator();
 
 const server = serve({
 	port,
@@ -43,6 +50,10 @@ const gracefulShutdown = async (signal: string) => {
 	});
 
 	try {
+		logger.info("Stopping statistics calculator...");
+		stopStatsCalculator();
+		logger.info("Statistics calculator stopped");
+
 		logger.info("Stopping worker");
 		await stopWorker();
 		logger.info("Worker stopped successfully");
