@@ -31,6 +31,7 @@ export default [
 			"**/.next/",
 			"**/.source/",
 			"**/.output/",
+			"**/.conductor/",
 			"**/out/",
 			"**/.content-collections/",
 		],

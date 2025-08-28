@@ -46,6 +46,12 @@ services:
       - STRIPE_PRO_MONTHLY_PRICE_ID=${STRIPE_PRO_MONTHLY_PRICE_ID:-}
       - STRIPE_PRO_YEARLY_PRICE_ID=${STRIPE_PRO_YEARLY_PRICE_ID:-}
 
+      # Database and Redis
+      - DATABASE_URL=postgres://postgres:llmgateway@localhost:5432/llmgateway
+      - REDIS_HOST=localhost
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+
 volumes:
   llmgateway_postgres:
     driver: local

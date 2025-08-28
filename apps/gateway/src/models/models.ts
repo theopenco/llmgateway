@@ -72,7 +72,20 @@ const listModels = createRoute({
 	description: "List all available models",
 	method: "get",
 	path: "/",
-	request: {},
+	request: {
+		query: z.object({
+			include_deactivated: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe("Include deactivated models in the response"),
+			exclude_deprecated: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe("Exclude deprecated models from the response"),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -87,7 +100,35 @@ const listModels = createRoute({
 
 modelsApi.openapi(listModels, async (c) => {
 	try {
-		const modelData = modelsList.map((model: ModelDefinition) => {
+		const query = c.req.valid("query");
+		const includeDeactivated = query.include_deactivated || false;
+		const excludeDeprecated = query.exclude_deprecated || false;
+		const currentDate = new Date();
+
+		// Filter models based on deactivation and deprecation status
+		const filteredModels = modelsList.filter((model: ModelDefinition) => {
+			// Filter out deactivated models by default (unless explicitly included)
+			if (
+				!includeDeactivated &&
+				model.deactivatedAt &&
+				currentDate > model.deactivatedAt
+			) {
+				return false;
+			}
+
+			// Filter out deprecated models if requested
+			if (
+				excludeDeprecated &&
+				model.deprecatedAt &&
+				currentDate > model.deprecatedAt
+			) {
+				return false;
+			}
+
+			return true;
+		});
+
+		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
 			const inputModalities: ("text" | "image")[] = ["text"];
 
