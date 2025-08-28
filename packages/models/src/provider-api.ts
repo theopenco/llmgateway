@@ -7,6 +7,7 @@ import type { ProviderId } from "./providers";
  */
 async function processImageUrl(
 	url: string,
+	isProd = false,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.startsWith("data:")) {
@@ -41,13 +42,13 @@ async function processImageUrl(
 		};
 	}
 
-	// Validate HTTPS URLs only for external fetches
-	if (!url.startsWith("https://") && process.env.NODE_ENV === "production") {
+	// Validate HTTPS URLs only in production environment
+	if (!url.startsWith("https://") && isProd) {
 		console.warn(
-			"Non-HTTPS URL provided for image fetch:",
+			"Non-HTTPS URL provided for image fetch in production:",
 			url.substring(0, 20) + "...",
 		);
-		throw new Error("Image URLs must use HTTPS protocol");
+		throw new Error("Image URLs must use HTTPS protocol in production");
 	}
 
 	try {
@@ -63,7 +64,7 @@ async function processImageUrl(
 
 		// Check content length (20MB = 20 * 1024 * 1024 bytes)
 		const contentLength = response.headers.get("content-length");
-		if (contentLength && parseInt(contentLength) > 20 * 1024 * 1024) {
+		if (contentLength && parseInt(contentLength, 10) > 20 * 1024 * 1024) {
 			console.warn(
 				"Image size exceeds limit via Content-Length:",
 				contentLength,
@@ -191,6 +192,7 @@ export async function prepareRequestBody(
 	tool_choice?: string | { type: string; function: { name: string } },
 	reasoning_effort?: "low" | "medium" | "high",
 	supportsReasoning?: boolean,
+	isProd = false,
 ) {
 	const requestBody: any = {
 		model: usedModel,
@@ -345,8 +347,10 @@ export async function prepareRequestBody(
 									if (i.type === "image_url") {
 										const imageUrl = i.image_url.url;
 										try {
-											const { data, mimeType } =
-												await processImageUrl(imageUrl);
+											const { data, mimeType } = await processImageUrl(
+												imageUrl,
+												isProd,
+											);
 											return {
 												inline_data: {
 													mime_type: mimeType,
@@ -726,6 +730,7 @@ export async function validateProviderKey(
 			undefined, // tool_choice
 			undefined, // reasoning_effort
 			false, // supportsReasoning - disable for validation
+			false, // isProd - allow http URLs for validation/testing
 		);
 
 		const headers = getProviderHeaders(provider, token);

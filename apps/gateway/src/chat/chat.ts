@@ -2391,6 +2391,7 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		reasoning_effort,
 		supportsReasoning,
+		process.env.NODE_ENV === "production",
 	);
 
 	const startTime = Date.now();
