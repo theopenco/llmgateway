@@ -103,7 +103,8 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm build
 
 # Create directories
-RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data
+RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data && \
+    chown -R postgres:postgres /var/lib/postgresql
 
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
@@ -119,8 +120,7 @@ COPY packages/db/init/ /docker-entrypoint-initdb.d/
 
 # Configure PostgreSQL
 RUN mkdir -p /run/postgresql && \
-    chown postgres:postgres /run/postgresql && \
-    chown -R postgres:postgres /var/lib/postgresql
+    chown postgres:postgres /run/postgresql
 
 # Configure Redis
 RUN mkdir -p /var/lib/redis && \
