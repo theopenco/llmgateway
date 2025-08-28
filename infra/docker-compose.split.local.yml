@@ -164,11 +164,11 @@ services:
     networks:
       - llmgateway-network
     environment:
-      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
-      - API_URL=${API_URL:-http://localhost:4002}
+      - DOCS_URL=${DOCS_URL:-http://docs:80}
+      - API_URL=${API_URL:-http://api:80}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
-      - API=${API:-http://localhost:4002}
+      - API=${API:-http://api:80}
 
   # Docs Service
   docs:
