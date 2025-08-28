@@ -125,7 +125,7 @@ export function prepareRequestBody(
 				}
 				switch (effort) {
 					case "low":
-						return 1000;
+						return 1024; // Anthropic minimum
 					case "high":
 						return 4000;
 					default:
