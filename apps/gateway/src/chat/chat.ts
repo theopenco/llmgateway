@@ -1778,6 +1778,39 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
+		// Estimate the context size needed based on the request
+		let requiredContextSize = 0;
+
+		// Estimate prompt tokens from messages
+		if (messages && messages.length > 0) {
+			try {
+				const chatMessages: ChatMessage[] = messages.map((m) => ({
+					role: m.role as "user" | "assistant" | "system" | undefined,
+					content:
+						typeof m.content === "string"
+							? m.content
+							: JSON.stringify(m.content),
+					name: m.name,
+				}));
+				requiredContextSize = encodeChat(
+					chatMessages,
+					DEFAULT_TOKENIZER_MODEL,
+				).length;
+			} catch (_error) {
+				// Fallback to simple estimation if encoding fails
+				requiredContextSize =
+					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
+			}
+		}
+
+		// Add max_tokens if specified
+		if (max_tokens) {
+			requiredContextSize += max_tokens;
+		} else {
+			// Add a default buffer for completion tokens if not specified
+			requiredContextSize += 4096;
+		}
+
 		// Get available providers based on project mode
 		let availableProviders: string[] = [];
 
@@ -1818,6 +1851,11 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		// Find the cheapest model that meets our context size requirements
+		let selectedModel: ModelDefinition | undefined;
+		let selectedProviders: any[] = [];
+		let lowestPrice = Number.MAX_VALUE;
+
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
@@ -1833,14 +1871,44 @@ chat.openapi(completions, async (c) => {
 				availableProviders.includes(provider.providerId),
 			);
 
-			if (availableModelProviders.length > 0) {
-				usedProvider = availableModelProviders[0].providerId;
-				usedModel = availableModelProviders[0].modelName;
-				break;
+			// Filter by context size requirement
+			const suitableProviders = availableModelProviders.filter((provider) => {
+				// Use the provider's context size, defaulting to a reasonable value if not specified
+				const modelContextSize = provider.contextSize ?? 8192;
+				return modelContextSize >= requiredContextSize;
+			});
+
+			if (suitableProviders.length > 0) {
+				// Find the cheapest among the suitable providers for this model
+				for (const provider of suitableProviders) {
+					const totalPrice =
+						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+					if (totalPrice < lowestPrice) {
+						lowestPrice = totalPrice;
+						selectedModel = modelDef;
+						selectedProviders = suitableProviders;
+					}
+				}
 			}
 		}
 
-		if (usedProvider === "llmgateway" || !usedProvider) {
+		// If we found a suitable model, use the cheapest provider from it
+		if (selectedModel && selectedProviders.length > 0) {
+			const cheapestResult = getCheapestFromAvailableProviders(
+				selectedProviders,
+				selectedModel,
+			);
+
+			if (cheapestResult) {
+				usedProvider = cheapestResult.providerId;
+				usedModel = cheapestResult.modelName;
+			} else {
+				// Fallback to first available provider if price comparison fails
+				usedProvider = selectedProviders[0].providerId;
+				usedModel = selectedProviders[0].modelName;
+			}
+		} else {
+			// Default fallback if no suitable model is found
 			usedModel = "gpt-4o-mini";
 			usedProvider = "openai";
 		}
