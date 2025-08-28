@@ -1,6 +1,12 @@
-import { db, provider, model, modelProviderMapping } from "@llmgateway/db";
+import {
+	db,
+	provider,
+	model,
+	modelProviderMapping,
+	eq,
+	and,
+} from "@llmgateway/db";
 import { providers, models } from "@llmgateway/models";
-import { eq, and } from "drizzle-orm";
 
 export async function syncProvidersAndModels() {
 	console.log("Starting providers and models sync...");
@@ -127,7 +133,7 @@ export async function syncProvidersAndModels() {
 									"reasoning" in mapping ? mapping.reasoning || null : null,
 								reasoningOutput:
 									"reasoningOutput" in mapping
-										? mapping.reasoningOutput || null
+										? (mapping.reasoningOutput as string | null) || null
 										: null,
 								tools: "tools" in mapping ? mapping.tools || null : null,
 								supportedParameters:
@@ -179,14 +185,17 @@ export async function syncProvidersAndModels() {
 								"reasoning" in mapping ? mapping.reasoning || null : null,
 							reasoningOutput:
 								"reasoningOutput" in mapping
-									? mapping.reasoningOutput || null
+									? (mapping.reasoningOutput as string | null) || null
 									: null,
 							tools: "tools" in mapping ? mapping.tools || null : null,
 							supportedParameters:
 								"supportedParameters" in mapping
-									? mapping.supportedParameters || null
+									? (mapping.supportedParameters as string[] | null) || null
 									: null,
-							test: "test" in mapping ? mapping.test || null : null,
+							test:
+								"test" in mapping
+									? (mapping.test as "skip" | "only" | null) || null
+									: null,
 							status: "active",
 						});
 					}
