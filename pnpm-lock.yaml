@@ -513,11 +513,7 @@ importers:
         specifier: ^4.19.3
         version: 4.19.4
 
-  packages/models:
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.3
-        version: 24.0.3
+  packages/models: {}
 
 packages:
 
