@@ -139,6 +139,105 @@ async function processImageUrl(
 }
 
 /**
+ * Transforms Google messages to handle image URLs by converting them to base64
+ */
+async function transformGoogleMessages(messages: any[], isProd = false) {
+	return await Promise.all(
+		messages.map(async (m) => ({
+			role: m.role === "assistant" ? "model" : "user", // get rid of system role
+			parts: Array.isArray(m.content)
+				? await Promise.all(
+						m.content.map(async (i: any) => {
+							if (i.type === "text") {
+								return {
+									text: i.text,
+								};
+							}
+							if (i.type === "image_url") {
+								const imageUrl = i.image_url.url;
+								try {
+									const { data, mimeType } = await processImageUrl(
+										imageUrl,
+										isProd,
+									);
+									return {
+										inline_data: {
+											mime_type: mimeType,
+											data: data,
+										},
+									};
+								} catch (error) {
+									// Don't expose the URL in the error message for security
+									const errorMsg =
+										error instanceof Error ? error.message : "Unknown error";
+									throw new Error(`Failed to process image: ${errorMsg}`);
+								}
+							}
+							throw new Error(`Not supported content type yet: ${i.type}`);
+						}),
+					)
+				: [
+						{
+							text: m.content,
+						},
+					],
+		})),
+	);
+}
+
+/**
+ * Transforms Anthropic messages to handle image URLs by converting them to base64
+ */
+async function transformAnthropicMessages(messages: any[], isProd = false) {
+	const results = [] as any[];
+	for (const m of messages) {
+		if (Array.isArray(m.content)) {
+			// Process all images in parallel for better performance
+			const newContent = await Promise.all(
+				m.content.map(async (part: any) => {
+					if (part.type === "image_url" && part.image_url?.url) {
+						try {
+							const { data, mimeType } = await processImageUrl(
+								part.image_url.url,
+								isProd,
+							);
+							return {
+								type: "image",
+								source: {
+									type: "base64",
+									media_type: mimeType,
+									data: data,
+								},
+							};
+						} catch (error) {
+							console.error(
+								`Failed to fetch image ${part.image_url.url}:`,
+								error,
+							);
+							// Fallback to text representation
+							return {
+								type: "text",
+								text: `[Image failed to load: ${part.image_url.url}]`,
+							};
+						}
+					}
+					return part;
+				}),
+			);
+			// Filter out empty text content blocks as Anthropic requires non-empty text
+			const filteredContent = newContent.filter(
+				(part: any) =>
+					!(part.type === "text" && (!part.text || part.text.trim() === "")),
+			);
+			results.push({ ...m, content: filteredContent });
+		} else {
+			results.push(m);
+		}
+	}
+	return results;
+}
+
+/**
  * Get the appropriate headers for a given provider API call
  */
 export function getProviderHeaders(
@@ -256,28 +355,18 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice;
 
 			requestBody.max_tokens = max_tokens || 1024; // Set a default if not provided
-			requestBody.messages = messages.map((m) => ({
-				role:
-					m.role === "assistant"
-						? "assistant"
-						: m.role === "system"
-							? "user"
-							: "user",
-				content: Array.isArray(m.content)
-					? m.content.map((i: any) => {
-							switch (i.type) {
-								// anthropic does not support image URLs, only base64
-								// TODO fetch url and provide as base64 instead
-								case "image_url":
-									return {
-										type: "text",
-										text: `image URL: ${i.image_url.url}`,
-									};
-							}
-							return i;
-						})
-					: m.content,
-			}));
+			requestBody.messages = await transformAnthropicMessages(
+				messages.map((m) => ({
+					role:
+						m.role === "assistant"
+							? "assistant"
+							: m.role === "system"
+								? "user"
+								: "user",
+					content: m.content,
+				})),
+				isProd,
+			);
 
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
@@ -333,49 +422,7 @@ export async function prepareRequestBody(
 			delete requestBody.messages; // Not used in body for Google providers
 			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
-			requestBody.contents = await Promise.all(
-				messages.map(async (m) => ({
-					role: m.role === "assistant" ? "model" : "user", // get rid of system role
-					parts: Array.isArray(m.content)
-						? await Promise.all(
-								m.content.map(async (i: any) => {
-									if (i.type === "text") {
-										return {
-											text: i.text,
-										};
-									}
-									if (i.type === "image_url") {
-										const imageUrl = i.image_url.url;
-										try {
-											const { data, mimeType } = await processImageUrl(
-												imageUrl,
-												isProd,
-											);
-											return {
-												inline_data: {
-													mime_type: mimeType,
-													data: data,
-												},
-											};
-										} catch (error) {
-											// Don't expose the URL in the error message for security
-											const errorMsg =
-												error instanceof Error
-													? error.message
-													: "Unknown error";
-											throw new Error(`Failed to process image: ${errorMsg}`);
-										}
-									}
-									throw new Error(`Not supported content type yet: ${i.type}`);
-								}),
-							)
-						: [
-								{
-									text: m.content,
-								},
-							],
-				})),
-			);
+			requestBody.contents = await transformGoogleMessages(messages, isProd);
 
 			// Transform tools from OpenAI format to Google format
 			if (tools && tools.length > 0) {
