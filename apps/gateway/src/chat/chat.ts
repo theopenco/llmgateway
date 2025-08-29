@@ -412,9 +412,9 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					toolResults = null;
 				}
 
-				// Status mapping
+				// Status mapping (completed -> stop, but tool_calls if function calls present)
 				if (json.status === "completed") {
-					finishReason = "stop";
+					finishReason = functionCalls.length > 0 ? "tool_calls" : "stop";
 				} else {
 					finishReason = json.status;
 				}
@@ -436,17 +436,6 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					json.choices?.[0]?.message?.reasoning ||
 					null;
 				finishReason = json.choices?.[0]?.finish_reason || null;
-
-				// Fix incorrect finish_reason from some providers (e.g., ZAI)
-				// If there's content but no new tool_calls, it should be "stop" not "tool_calls"
-				if (
-					finishReason === "tool_calls" &&
-					content &&
-					(!toolResults || toolResults.length === 0)
-				) {
-					finishReason = "stop";
-				}
-
 				promptTokens = json.usage?.prompt_tokens || null;
 				completionTokens = json.usage?.completion_tokens || null;
 				reasoningTokens = json.usage?.reasoning_tokens || null;
@@ -805,11 +794,10 @@ function transformToOpenAIFormat(
 						},
 						finish_reason:
 							finishReason === "STOP"
-								? "stop"
-								: finishReason === "tool_calls" ||
-									  finishReason === "function_call"
+								? toolResults && toolResults.length > 0
 									? "tool_calls"
-									: finishReason?.toLowerCase() || "stop",
+									: "stop"
+								: finishReason?.toLowerCase() || "stop",
 					},
 				],
 				usage: {
@@ -1318,6 +1306,10 @@ function transformStreamingChunkToOpenAIFormat(
 				};
 			} else if (data.candidates?.[0]?.finishReason) {
 				const finishReason = data.candidates[0].finishReason;
+				// Check if there are function calls in this response
+				const hasFunctionCalls = data.candidates?.[0]?.content?.parts?.some(
+					(part: any) => part.functionCall,
+				);
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -1331,11 +1323,10 @@ function transformStreamingChunkToOpenAIFormat(
 							},
 							finish_reason:
 								finishReason === "STOP"
-									? "stop"
-									: finishReason === "tool_calls" ||
-										  finishReason === "function_call"
+									? hasFunctionCalls
 										? "tool_calls"
-										: finishReason?.toLowerCase() || "stop",
+										: "stop"
+									: finishReason?.toLowerCase() || "stop",
 						},
 					],
 					usage: data.usageMetadata
