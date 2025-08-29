@@ -73,6 +73,10 @@ export interface ProviderModelMapping {
 	 */
 	tools?: boolean;
 	/**
+	 * Whether this model supports parallel tool calls
+	 */
+	parallelToolCalls?: boolean;
+	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];

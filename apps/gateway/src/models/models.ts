@@ -40,6 +40,7 @@ const modelSchema = z.object({
 			vision: z.boolean(),
 			cancellation: z.boolean(),
 			tools: z.boolean(),
+			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
 		}),
 	),
@@ -191,6 +192,7 @@ modelsApi.openapi(listModels, async (c) => {
 						vision: provider.vision || false,
 						cancellation: providerDef?.cancellation || false,
 						tools: provider.tools || false,
+						parallelToolCalls: provider.parallelToolCalls || false,
 						reasoning: provider.reasoning || false,
 					};
 				}),
