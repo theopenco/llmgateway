@@ -60,7 +60,18 @@ const filteredModels = models
 	// Filter out deactivated models
 	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt)
 	// Filter out free models if not in full mode
-	.filter((model) => fullMode || !(model as ModelDefinition).free);
+	.filter((model) => fullMode || !(model as ModelDefinition).free)
+	// Filter by TEST_MODELS if specified
+	.filter((model) => {
+		if (!specifiedModels) {
+			return true;
+		}
+		// Check if any provider/model combination from this model matches TEST_MODELS
+		return model.providers.some((provider: ProviderModelMapping) => {
+			const providerModelId = `${provider.providerId}/${model.id}`;
+			return specifiedModels.includes(providerModelId);
+		});
+	});
 
 const testModels = filteredModels
 	// If any model has test: "only", only include those models
@@ -105,13 +116,6 @@ const testModels = filteredModels
 		}
 
 		return testCases;
-	})
-	.filter((testCase) => {
-		// Filter by TEST_MODELS if specified
-		if (!specifiedModels) {
-			return true;
-		}
-		return specifiedModels.includes(testCase.model);
 	});
 
 const providerModels = filteredModels
@@ -146,13 +150,6 @@ const providerModels = filteredModels
 		}
 
 		return testCases;
-	})
-	.filter((testCase) => {
-		// Filter by TEST_MODELS if specified
-		if (!specifiedModels) {
-			return true;
-		}
-		return specifiedModels.includes(testCase.model);
 	});
 
 // Log the number of test models after filtering
