@@ -14,6 +14,7 @@ export const modelsApi = new OpenAPIHono<ServerTypes>();
 const modelSchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	aliases: z.array(z.string()).optional(),
 	created: z.number(),
 	description: z.string().optional(),
 	family: z.string(),
@@ -158,6 +159,7 @@ modelsApi.openapi(listModels, async (c) => {
 			return {
 				id: model.id,
 				name: model.name || model.id,
+				aliases: model.aliases,
 				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
 				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
 				family: model.family,

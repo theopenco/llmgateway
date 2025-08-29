@@ -163,8 +163,11 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				const matchesFamily = normalizeString(model.family).includes(
 					normalizedQuery,
 				);
+				const matchesAlias = model.aliases?.some((alias) =>
+					normalizeString(alias).includes(normalizedQuery),
+				);
 
-				if (!matchesName && !matchesId && !matchesFamily) {
+				if (!matchesName && !matchesId && !matchesFamily && !matchesAlias) {
 					return false;
 				}
 			}

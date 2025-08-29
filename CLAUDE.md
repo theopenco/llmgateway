@@ -29,6 +29,14 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 
+#### E2E Test Options
+
+- `TEST_MODELS` - Run tests only for specific models (comma-separated list of `provider/model-id` pairs)
+  Example: `TEST_MODELS="openai/gpt-4o-mini,anthropic/claude-3-5-sonnet-20241022" pnpm test:e2e`
+  This is useful for quick testing as the full e2e suite can take too long with all models.
+- `FULL_MODE` - Include free models in tests (default: only paid models)
+- `LOG_MODE` - Enable detailed logging of responses
+
 ### Database Operations
 
 - `pnpm push-dev` - Push schema changes to development database

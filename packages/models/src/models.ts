@@ -96,6 +96,10 @@ export interface ModelDefinition {
 	 */
 	name?: string;
 	/**
+	 * Alternative names or search terms for the model
+	 */
+	aliases?: string[];
+	/**
 	 * Model family (e.g., 'openai', 'deepseek', 'anthropic')
 	 */
 	family: string;
