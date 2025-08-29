@@ -370,18 +370,8 @@ export async function prepareRequestBody(
 			if (supportsReasoning) {
 				// Transform to responses API format (now supports tools as well)
 				// Clean messages by removing tool_calls and tool_call_id fields
-				// Also transform 'tool' role to 'user' role since responses API doesn't support 'tool' role
 				const cleanedMessages = messages.map((msg) => {
 					const { tool_calls: _, tool_call_id: __, ...cleanMsg } = msg;
-
-					// Transform tool role to user role for responses API compatibility
-					if (cleanMsg.role === "tool") {
-						return {
-							...cleanMsg,
-							role: "user",
-						};
-					}
-
 					return cleanMsg;
 				});
 
