@@ -130,6 +130,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-image-preview",
 		name: "Gemini 2.5 Flash Image Preview",
+		aliases: ["nano banana"],
 		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
