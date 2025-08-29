@@ -643,11 +643,14 @@ function extractToolCallsFromProvider(
 					},
 				];
 			}
-			// Tool arguments come as content_block_delta
+			// Tool arguments come as content_block_delta - these don't have a direct ID,
+			// so we return null and let the streaming logic handle the accumulation
+			// by finding the matching tool call by content block index
 			if (data.type === "content_block_delta" && data.delta?.partial_json) {
+				// Return a partial tool call with the index to help with matching
 				return [
 					{
-						id: data.index ? `tool_${data.index}` : "tool_unknown",
+						_contentBlockIndex: data.index, // Use this for matching
 						type: "function",
 						function: {
 							name: "",
@@ -664,8 +667,8 @@ function extractToolCallsFromProvider(
 			return (
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any) => ({
-						id: part.functionCall.name + "_" + Date.now(),
+					.map((part: any, index: number) => ({
+						id: part.functionCall.name + "_" + Date.now() + "_" + index,
 						type: "function",
 						function: {
 							name: part.functionCall.name,
@@ -3407,9 +3410,22 @@ chat.openapi(completions, async (c) => {
 								}
 								// Merge tool calls (accumulating function arguments)
 								for (const newCall of toolCallsChunk) {
-									const existingCall = streamingToolCalls.find(
-										(call) => call.id === newCall.id,
-									);
+									let existingCall = null;
+
+									// For Anthropic content_block_delta events, match by content block index
+									if (
+										usedProvider === "anthropic" &&
+										newCall._contentBlockIndex !== undefined
+									) {
+										existingCall =
+											streamingToolCalls[newCall._contentBlockIndex];
+									} else {
+										// For other providers and Anthropic content_block_start, match by ID
+										existingCall = streamingToolCalls.find(
+											(call) => call.id === newCall.id,
+										);
+									}
+
 									if (existingCall) {
 										// Accumulate function arguments
 										if (newCall.function?.arguments) {
@@ -3418,7 +3434,10 @@ chat.openapi(completions, async (c) => {
 												newCall.function.arguments;
 										}
 									} else {
-										streamingToolCalls.push({ ...newCall });
+										// Clean up temporary fields and add new tool call
+										const cleanCall = { ...newCall };
+										delete cleanCall._contentBlockIndex;
+										streamingToolCalls.push(cleanCall);
 									}
 								}
 							}
