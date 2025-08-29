@@ -288,6 +288,13 @@
       "when": 1756603853462,
       "tag": "1756603853_dashing_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1756427292782,
+      "tag": "1756427292_sharp_thunderbolt",
+      "breakpoints": true
     }
   ]
 }
