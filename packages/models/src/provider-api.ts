@@ -309,7 +309,84 @@ export async function prepareRequestBody(
 	}
 
 	switch (usedProvider) {
-		case "openai":
+		case "openai": {
+			if (supportsReasoning) {
+				// Transform to responses API format (now supports tools as well)
+				const responsesBody: any = {
+					model: usedModel,
+					input: messages,
+					reasoning: {
+						effort: reasoning_effort || "medium",
+						summary: "detailed",
+					},
+				};
+
+				// Add streaming support
+				if (stream) {
+					responsesBody.stream = true;
+				}
+
+				// Add tools support for responses API (transform format if needed)
+				if (tools && tools.length > 0) {
+					// Transform tools from chat completions format to responses API format
+					responsesBody.tools = tools.map((tool: any) => {
+						if (tool.type === "function" && tool.function) {
+							return {
+								type: "function",
+								name: tool.function.name,
+								description: tool.function.description,
+								parameters: tool.function.parameters,
+							};
+						}
+						return tool;
+					});
+				}
+				if (tool_choice) {
+					responsesBody.tool_choice = tool_choice;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					responsesBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					responsesBody.max_completion_tokens = max_tokens;
+				}
+
+				return responsesBody;
+			} else {
+				// Use regular chat completions format
+				if (stream) {
+					requestBody.stream_options = {
+						include_usage: true,
+					};
+				}
+				if (response_format) {
+					requestBody.response_format = response_format;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					requestBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					requestBody.max_tokens = max_tokens;
+				}
+				if (top_p !== undefined) {
+					requestBody.top_p = top_p;
+				}
+				if (frequency_penalty !== undefined) {
+					requestBody.frequency_penalty = frequency_penalty;
+				}
+				if (presence_penalty !== undefined) {
+					requestBody.presence_penalty = presence_penalty;
+				}
+				if (reasoning_effort !== undefined) {
+					requestBody.reasoning_effort = reasoning_effort;
+				}
+			}
+			break;
+		}
 		case "xai":
 		case "groq":
 		case "deepseek":
@@ -354,7 +431,23 @@ export async function prepareRequestBody(
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
-			requestBody.max_tokens = max_tokens || 1024; // Set a default if not provided
+			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
+			const getThinkingBudget = (effort?: string) => {
+				if (!supportsReasoning) {
+					return 0;
+				}
+				switch (effort) {
+					case "low":
+						return 1024; // Anthropic minimum
+					case "high":
+						return 4000;
+					default:
+						return 2000; // medium or undefined
+				}
+			};
+			const thinkingBudget = getThinkingBudget(reasoning_effort);
+			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+			requestBody.max_tokens = max_tokens ?? minMaxTokens;
 			requestBody.messages = await transformAnthropicMessages(
 				messages.map((m) => ({
 					role:
@@ -398,6 +491,14 @@ export async function prepareRequestBody(
 					// Other string values (though not standard)
 					requestBody.tool_choice = tool_choice;
 				}
+			}
+
+			// Enable thinking for reasoning-capable Anthropic models
+			if (supportsReasoning) {
+				requestBody.thinking = {
+					type: "enabled",
+					budget_tokens: thinkingBudget,
+				};
 			}
 
 			// Add optional parameters if they are provided
@@ -505,6 +606,7 @@ export function getProviderEndpoint(
 	model?: string,
 	token?: string,
 	stream?: boolean,
+	supportsReasoning?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -627,8 +729,13 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
-		case "inference.net":
 		case "openai":
+			// Use responses endpoint for reasoning models (now supports tools)
+			if (supportsReasoning) {
+				return `${url}/v1/responses`;
+			}
+			return `${url}/v1/chat/completions`;
+		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":
 		case "xai":
@@ -736,6 +843,7 @@ export async function validateProviderKey(
 			undefined,
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
+			false, // supportsReasoning - disable for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload

@@ -236,8 +236,20 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 	let images: ImageObject[] = [];
 
 	switch (usedProvider) {
-		case "anthropic":
-			content = json.content?.[0]?.text || null;
+		case "anthropic": {
+			// Extract content and reasoning content from Anthropic response
+			const contentBlocks = json.content || [];
+			const textBlocks = contentBlocks.filter(
+				(block: any) => block.type === "text",
+			);
+			const thinkingBlocks = contentBlocks.filter(
+				(block: any) => block.type === "thinking",
+			);
+
+			content = textBlocks.map((block: any) => block.text).join("") || null;
+			reasoningContent =
+				thinkingBlocks.map((block: any) => block.thinking).join("") || null;
+
 			finishReason = json.stop_reason || null;
 			promptTokens = json.usage?.input_tokens || null;
 			completionTokens = json.usage?.output_tokens || null;
@@ -263,6 +275,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 				toolResults = null;
 			}
 			break;
+		}
 		case "google-vertex":
 		case "google-ai-studio": {
 			// Extract content and reasoning content from Google response parts
@@ -362,27 +375,81 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			break;
 		default: // OpenAI format
-			toolResults = json.choices?.[0]?.message?.tool_calls || null;
-			content = json.choices?.[0]?.message?.content || null;
-			// Extract reasoning content for reasoning-capable models (check both field names)
-			reasoningContent =
-				json.choices?.[0]?.message?.reasoning_content ||
-				json.choices?.[0]?.message?.reasoning ||
-				null;
-			finishReason = json.choices?.[0]?.finish_reason || null;
-			promptTokens = json.usage?.prompt_tokens || null;
-			completionTokens = json.usage?.completion_tokens || null;
-			reasoningTokens = json.usage?.reasoning_tokens || null;
-			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
-			totalTokens =
-				json.usage?.total_tokens ||
-				(promptTokens !== null && completionTokens !== null
-					? promptTokens + completionTokens + (reasoningTokens || 0)
-					: null);
+			// Check if this is an OpenAI responses format (has output array instead of choices)
+			if (json.output && Array.isArray(json.output)) {
+				// OpenAI responses endpoint format
+				const messageOutput = json.output.find(
+					(item: any) => item.type === "message",
+				);
+				const reasoningOutput = json.output.find(
+					(item: any) => item.type === "reasoning",
+				);
 
-			// Extract images from OpenAI-format response (including Gemini via gateway)
-			if (json.choices?.[0]?.message?.images) {
-				images = json.choices[0].message.images;
+				// Extract message content
+				if (messageOutput?.content?.[0]?.text) {
+					content = messageOutput.content[0].text;
+				}
+
+				// Extract reasoning content from summary
+				if (reasoningOutput?.summary?.[0]?.text) {
+					reasoningContent = reasoningOutput.summary[0].text;
+				}
+
+				// Extract tool calls (if any) from the output array and transform to OpenAI format
+				const functionCalls = json.output.filter(
+					(item: any) => item.type === "function_call",
+				);
+				if (functionCalls.length > 0) {
+					toolResults = functionCalls.map((functionCall: any) => ({
+						id: functionCall.call_id || functionCall.id,
+						type: "function",
+						function: {
+							name: functionCall.name,
+							arguments: functionCall.arguments,
+						},
+					}));
+				} else {
+					toolResults = null;
+				}
+
+				// Status mapping (completed -> stop, but tool_calls if function calls present)
+				if (json.status === "completed") {
+					finishReason = functionCalls.length > 0 ? "tool_calls" : "stop";
+				} else {
+					finishReason = json.status;
+				}
+
+				// Usage token extraction
+				promptTokens = json.usage?.input_tokens || null;
+				completionTokens = json.usage?.output_tokens || null;
+				reasoningTokens =
+					json.usage?.output_tokens_details?.reasoning_tokens || null;
+				cachedTokens = json.usage?.input_tokens_details?.cached_tokens || null;
+				totalTokens = json.usage?.total_tokens || null;
+			} else {
+				// Standard OpenAI chat completions format
+				toolResults = json.choices?.[0]?.message?.tool_calls || null;
+				content = json.choices?.[0]?.message?.content || null;
+				// Extract reasoning content for reasoning-capable models (check both field names)
+				reasoningContent =
+					json.choices?.[0]?.message?.reasoning_content ||
+					json.choices?.[0]?.message?.reasoning ||
+					null;
+				finishReason = json.choices?.[0]?.finish_reason || null;
+				promptTokens = json.usage?.prompt_tokens || null;
+				completionTokens = json.usage?.completion_tokens || null;
+				reasoningTokens = json.usage?.reasoning_tokens || null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
+				totalTokens =
+					json.usage?.total_tokens ||
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens || 0)
+						: null);
+
+				// Extract images from OpenAI-format response (including Gemini via gateway)
+				if (json.choices?.[0]?.message?.images) {
+					images = json.choices[0].message.images;
+				}
 			}
 			break;
 	}
@@ -498,6 +565,18 @@ function extractReasoningContentFromProvider(
 	provider: Provider,
 ): string {
 	switch (provider) {
+		case "anthropic": {
+			// Handle Anthropic thinking content blocks in streaming format
+			if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "thinking_delta" &&
+				data.delta?.thinking
+			) {
+				// This is a thinking delta - return the thinking content
+				return data.delta.thinking;
+			}
+			return "";
+		}
 		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
@@ -815,7 +894,61 @@ function transformToOpenAIFormat(
 						}),
 					},
 				};
+			} else {
+				// Always transform reasoning field to reasoning_content even if response already has an id
+				if (transformedResponse.choices?.[0]?.message) {
+					const message = transformedResponse.choices[0].message;
+					if (reasoningContent !== null) {
+						message.reasoning_content = reasoningContent;
+						// Remove the old reasoning field if it exists
+						delete message.reasoning;
+					}
+				}
 			}
+			break;
+		}
+		case "openai": {
+			// Handle OpenAI responses format transformation to chat completions format
+			if (json.output && Array.isArray(json.output)) {
+				// This is from the responses endpoint - transform to chat completions format
+				transformedResponse = {
+					id: json.id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: json.created_at || Math.floor(Date.now() / 1000),
+					model: json.model || usedModel,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(reasoningContent !== null && {
+									reasoning_content: reasoningContent,
+								}),
+								...(toolResults && { tool_calls: toolResults }),
+							},
+							finish_reason: finishReason || "stop",
+						},
+					],
+					usage: {
+						prompt_tokens: Math.max(1, promptTokens || 1),
+						completion_tokens: completionTokens || 0,
+						total_tokens: Math.max(
+							1,
+							totalTokens || Math.max(1, promptTokens || 1),
+						),
+						...(reasoningTokens !== null && {
+							reasoning_tokens: reasoningTokens,
+						}),
+						...(cachedTokens !== null && {
+							prompt_tokens_details: {
+								cached_tokens: cachedTokens,
+							},
+						}),
+					},
+				};
+			}
+			// If not responses format, leave as is (standard chat completions format)
 			break;
 		}
 	}
@@ -849,6 +982,72 @@ function calculatePromptTokensFromMessages(messages: any[]): number {
 	}
 }
 
+/**
+ * Helper function to transform standard OpenAI streaming format
+ */
+function transformStandardOpenAIStreaming(data: any, usedModel: string): any {
+	// Ensure the response has the required OpenAI format fields
+	if (!data.id || !data.object) {
+		const delta = data.delta
+			? {
+					...data.delta,
+					role: data.delta.role || "assistant",
+				}
+			: {
+					content: data.content || "",
+					tool_calls: data.tool_calls || null,
+					role: "assistant",
+				};
+
+		// Normalize reasoning field to reasoning_content for consistency
+		if (delta.reasoning && !delta.reasoning_content) {
+			delta.reasoning_content = delta.reasoning;
+			delete delta.reasoning;
+		}
+
+		return {
+			id: data.id || `chatcmpl-${Date.now()}`,
+			object: "chat.completion.chunk",
+			created: data.created || Math.floor(Date.now() / 1000),
+			model: data.model || usedModel,
+			choices: data.choices || [
+				{
+					index: 0,
+					delta,
+					finish_reason: data.finish_reason || null,
+				},
+			],
+			usage: data.usage || null,
+		};
+	} else {
+		// Even if the response has the correct format, ensure role is set in delta and object is correct for streaming
+		return {
+			...data,
+			object: "chat.completion.chunk", // Force correct object type for streaming
+			choices:
+				data.choices?.map((choice: any) => {
+					const delta = choice.delta
+						? {
+								...choice.delta,
+								role: choice.delta.role || "assistant",
+							}
+						: choice.delta;
+
+					// Normalize reasoning field to reasoning_content for consistency
+					if (delta?.reasoning && !delta.reasoning_content) {
+						delta.reasoning_content = delta.reasoning;
+						delete delta.reasoning;
+					}
+
+					return {
+						...choice,
+						delta,
+					};
+				}) || data.choices,
+		};
+	}
+}
+
 function transformStreamingChunkToOpenAIFormat(
 	usedProvider: Provider,
 	usedModel: string,
@@ -871,6 +1070,29 @@ function transformStreamingChunkToOpenAIFormat(
 							index: 0,
 							delta: {
 								content: data.delta.text,
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: data.usage || null,
+				};
+			} else if (
+				data.type === "content_block_delta" &&
+				data.delta?.type === "thinking_delta" &&
+				data.delta?.thinking
+			) {
+				// Handle thinking content delta - convert to unified reasoning_content format
+				transformedData = {
+					id: data.id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created || Math.floor(Date.now() / 1000),
+					model: data.model || usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								reasoning_content: data.delta.thinking,
 								role: "assistant",
 							},
 							finish_reason: null,
@@ -1162,50 +1384,165 @@ function transformStreamingChunkToOpenAIFormat(
 			}
 			break;
 		}
+		case "openai": {
+			// Handle OpenAI responses API streaming format (event-based)
+			if (data.type) {
+				// Handle different OpenAI responses streaming event types
+				switch (data.type) {
+					case "response.created":
+					case "response.in_progress":
+						// Initial/progress events - return empty delta to maintain stream
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.output_item.added":
+						// New output item added (reasoning or message) - return empty delta
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.reasoning_summary_part.added":
+					case "response.reasoning_summary_text.delta":
+						// Reasoning content delta
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										reasoning_content: data.delta || data.part?.text || "",
+									},
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.content_part.added":
+					case "response.output_text.delta":
+					case "response.text.delta":
+						// Message content delta
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										content: data.delta || data.part?.text || "",
+									},
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.completed": {
+						// Final completion event with usage data
+						const responseUsage = data.response?.usage;
+						let usage = null;
+						if (responseUsage) {
+							// Map OpenAI responses usage format to chat completions format
+							usage = {
+								prompt_tokens: responseUsage.input_tokens || 0,
+								completion_tokens: responseUsage.output_tokens || 0,
+								total_tokens: responseUsage.total_tokens || 0,
+								...(responseUsage.output_tokens_details?.reasoning_tokens && {
+									reasoning_tokens:
+										responseUsage.output_tokens_details.reasoning_tokens,
+								}),
+								...(responseUsage.input_tokens_details?.cached_tokens && {
+									prompt_tokens_details: {
+										cached_tokens:
+											responseUsage.input_tokens_details.cached_tokens,
+									},
+								}),
+							};
+						}
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: "stop",
+								},
+							],
+							usage,
+						};
+						break;
+					}
+
+					default:
+						// Unknown event type - still provide basic OpenAI format structure
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+				}
+			} else {
+				// If not responses format, handle as regular OpenAI streaming
+				transformedData = transformStandardOpenAIStreaming(data, usedModel);
+			}
+			break;
+		}
 		// OpenAI and other providers that already use OpenAI format
 		default: {
-			// Ensure the response has the required OpenAI format fields
-			if (!data.id || !data.object) {
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: data.choices || [
-						{
-							index: 0,
-							delta: data.delta
-								? {
-										...data.delta,
-										role: "assistant",
-									}
-								: {
-										content: data.content || "",
-										tool_calls: data.tool_calls || null,
-										role: "assistant",
-									},
-							finish_reason: data.finish_reason || null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else {
-				// Even if the response has the correct format, ensure role is set in delta and object is correct for streaming
-				transformedData = {
-					...data,
-					object: "chat.completion.chunk", // Force correct object type for streaming
-					choices:
-						data.choices?.map((choice: any) => ({
-							...choice,
-							delta: choice.delta
-								? {
-										...choice.delta,
-										role: choice.delta.role || "assistant",
-									}
-								: choice.delta,
-						})) || data.choices,
-				};
-			}
+			transformedData = transformStandardOpenAIStreaming(data, usedModel);
 			break;
 		}
 	}
@@ -2088,6 +2425,11 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Check if the model supports reasoning
+	const supportsReasoning = modelInfo.providers.some(
+		(provider) => (provider as any).reasoning === true,
+	);
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -2101,6 +2443,7 @@ chat.openapi(completions, async (c) => {
 			usedModel,
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
 			stream,
+			supportsReasoning,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -2371,11 +2714,6 @@ chat.openapi(completions, async (c) => {
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
-	// Check if the model supports reasoning for Google providers
-	const supportsReasoning = modelInfo.providers.some(
-		(provider) => (provider as any).reasoning === true,
-	);
-
 	const requestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
@@ -2393,6 +2731,25 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning,
 		process.env.NODE_ENV === "production",
 	);
+
+	// Validate effective max_tokens value after prepareRequestBody
+	if (requestBody.max_tokens !== undefined && finalModelInfo) {
+		// Find the provider mapping for the used provider
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		);
+		if (
+			providerMapping &&
+			"maxOutput" in providerMapping &&
+			providerMapping.maxOutput !== undefined
+		) {
+			if (requestBody.max_tokens > providerMapping.maxOutput) {
+				throw new HTTPException(400, {
+					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+				});
+			}
+		}
+	}
 
 	const startTime = Date.now();
 
@@ -2986,6 +3343,40 @@ chat.openapi(completions, async (c) => {
 								data: JSON.stringify(transformedData),
 								id: String(eventId++),
 							});
+
+							// Extract usage data from transformedData to update tracking variables
+							if (transformedData.usage && usedProvider === "openai") {
+								const usage = transformedData.usage;
+								if (
+									usage.prompt_tokens !== undefined &&
+									usage.prompt_tokens > 0
+								) {
+									promptTokens = usage.prompt_tokens;
+								}
+								if (
+									usage.completion_tokens !== undefined &&
+									usage.completion_tokens > 0
+								) {
+									completionTokens = usage.completion_tokens;
+								}
+								if (
+									usage.total_tokens !== undefined &&
+									usage.total_tokens > 0
+								) {
+									totalTokens = usage.total_tokens;
+								}
+								if (usage.reasoning_tokens !== undefined) {
+									reasoningTokens = usage.reasoning_tokens;
+								}
+							}
+
+							// Extract finishReason from transformedData to update tracking variable
+							if (
+								transformedData.choices?.[0]?.finish_reason &&
+								usedProvider === "openai"
+							) {
+								finishReason = transformedData.choices[0].finish_reason;
+							}
 
 							// Extract content for logging using helper function
 							const contentChunk = extractContentFromProvider(

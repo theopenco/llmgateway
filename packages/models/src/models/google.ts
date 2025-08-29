@@ -434,6 +434,7 @@ export const googleModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "together.ai",
 				modelName: "google/gemma-2-27b-it",
 				inputPrice: 0.08 / 1e6,

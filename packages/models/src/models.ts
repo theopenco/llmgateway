@@ -63,6 +63,12 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Controls whether reasoning output is expected from the model.
+	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
+	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that don't return reasoning content)
+	 */
+	reasoningOutput?: "omit";
+	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
 	tools?: boolean;
