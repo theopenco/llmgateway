@@ -3505,7 +3505,7 @@ chat.openapi(completions, async (c) => {
 				} else {
 					console.error("Error reading stream:", error);
 
-					// Forward the error to the client
+					// Forward the error to the client with the buffered content that caused the error
 					try {
 						await stream.writeSSE({
 							event: "error",
@@ -3515,6 +3515,8 @@ chat.openapi(completions, async (c) => {
 									type: "gateway_error",
 									param: null,
 									code: "streaming_error",
+									// Include the buffer content that caused the parsing error
+									responseText: buffer.substring(0, 5000), // Limit to 5000 chars to avoid too large error messages
 								},
 							}),
 							id: String(eventId++),
