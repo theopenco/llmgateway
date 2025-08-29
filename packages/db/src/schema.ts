@@ -511,3 +511,33 @@ export const modelProviderMapping = pgTable(
 	},
 	(table) => [unique().on(table.modelId, table.providerId)],
 );
+
+export const modelProviderMappingHistory = pgTable(
+	"model_provider_mapping_history",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text()
+			.notNull()
+			.references(() => model.id, { onDelete: "cascade" }),
+		providerId: text()
+			.notNull()
+			.references(() => provider.id, { onDelete: "cascade" }),
+		// Unique timestamp key for one-minute intervals (rounded down to the minute)
+		minuteTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		errorRate: real().notNull().default(0),
+		throughput: real().notNull().default(0),
+		totalOutputTokens: integer().notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per model-provider-minute combination
+		unique().on(table.modelId, table.providerId, table.minuteTimestamp),
+	],
+);
