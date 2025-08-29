@@ -173,6 +173,8 @@ function createLogEntry(
 	toolChoice: any | undefined,
 	source: string | undefined,
 	customHeaders: Record<string, string>,
+	rawRequest?: unknown,
+	rawResponse?: unknown,
 ) {
 	return {
 		requestId,
@@ -196,6 +198,8 @@ function createLogEntry(
 		mode: project.mode,
 		source: source || null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
+		rawRequest: rawRequest || null,
+		rawResponse: rawResponse || null,
 	} as const;
 }
 
@@ -2564,6 +2568,8 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					rawBody,
+					cachedStreamingResponse,
 				);
 
 				await insertLog({
@@ -2645,6 +2651,8 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					rawBody,
+					cachedResponse,
 				);
 
 				await insertLog({
@@ -2838,6 +2846,8 @@ chat.openapi(completions, async (c) => {
 						tool_choice,
 						source,
 						customHeaders,
+						rawBody,
+						null, // No response for canceled request
 					);
 
 					await insertLog({
@@ -2954,6 +2964,8 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					rawBody,
+					null, // No response for error case
 				);
 
 				await insertLog({
@@ -3689,6 +3701,8 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					rawBody,
+					streamData, // Store the stream data chunks
 				);
 
 				await insertLog({
@@ -3814,6 +3828,8 @@ chat.openapi(completions, async (c) => {
 			tool_choice,
 			source,
 			customHeaders,
+			rawBody,
+			null, // No response for canceled request
 		);
 
 		await insertLog({
@@ -3884,6 +3900,8 @@ chat.openapi(completions, async (c) => {
 			tool_choice,
 			source,
 			customHeaders,
+			rawBody,
+			errorResponseText, // Store error response
 		);
 
 		await insertLog({
@@ -4030,6 +4048,8 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		source,
 		customHeaders,
+		rawBody,
+		responseObject, // Store the full response object
 	);
 
 	await insertLog({
