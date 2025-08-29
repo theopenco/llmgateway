@@ -191,9 +191,12 @@ async function transformGoogleMessages(messages: any[], isProd = false) {
 async function transformAnthropicMessages(messages: any[], isProd = false) {
 	const results = [] as any[];
 	for (const m of messages) {
+		let content: any[] = [];
+
+		// Handle existing content
 		if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
-			const newContent = await Promise.all(
+			content = await Promise.all(
 				m.content.map(async (part: any) => {
 					if (part.type === "image_url" && part.image_url?.url) {
 						try {
@@ -224,15 +227,69 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 					return part;
 				}),
 			);
-			// Filter out empty text content blocks as Anthropic requires non-empty text
-			const filteredContent = newContent.filter(
-				(part: any) =>
-					!(part.type === "text" && (!part.text || part.text.trim() === "")),
-			);
-			results.push({ ...m, content: filteredContent });
-		} else {
-			results.push(m);
+		} else if (m.content && typeof m.content === "string") {
+			// Handle string content
+			content = [{ type: "text", text: m.content }];
 		}
+
+		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
+		if (m.tool_calls && Array.isArray(m.tool_calls)) {
+			const toolUseBlocks = m.tool_calls.map((toolCall: any) => ({
+				type: "tool_use",
+				id: toolCall.id,
+				name: toolCall.function.name,
+				input: JSON.parse(toolCall.function.arguments),
+			}));
+			content = content.concat(toolUseBlocks);
+		}
+
+		// Handle OpenAI-style tool role messages by converting them to Anthropic tool_result content blocks
+		// Use the original role since the mapped role will be "user"
+		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
+		if (originalRole === "tool" && m.tool_call_id && m.content) {
+			// For tool results, we need to check if content is JSON string and parse it appropriately
+			let toolResultContent = m.content;
+			try {
+				// Try to parse as JSON to see if it's structured data
+				const parsed = JSON.parse(m.content);
+				// If it's an object, keep it as JSON string for Anthropic
+				if (typeof parsed === "object") {
+					toolResultContent = m.content;
+				} else {
+					toolResultContent = String(parsed);
+				}
+			} catch {
+				// If it's not valid JSON, use as-is
+				toolResultContent = m.content;
+			}
+
+			content = [
+				{
+					type: "tool_result",
+					tool_use_id: m.tool_call_id,
+					content: toolResultContent,
+				},
+			];
+		}
+
+		// Filter out empty text content blocks as Anthropic requires non-empty text
+		const filteredContent = content.filter(
+			(part: any) =>
+				!(part.type === "text" && (!part.text || part.text.trim() === "")),
+		);
+
+		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
+		if (
+			filteredContent.length === 0 &&
+			(!m.tool_calls || m.tool_calls.length === 0)
+		) {
+			// Skip messages with no valid content
+			continue;
+		}
+
+		// Remove tool_calls and tool_call_id from the message as Anthropic doesn't expect these fields
+		const { tool_calls: _, tool_call_id: __, ...messageWithoutToolFields } = m;
+		results.push({ ...messageWithoutToolFields, content: filteredContent });
 	}
 	return results;
 }
@@ -453,13 +510,17 @@ export async function prepareRequestBody(
 			requestBody.max_tokens = max_tokens ?? minMaxTokens;
 			requestBody.messages = await transformAnthropicMessages(
 				messages.map((m) => ({
+					...m, // Preserve original properties for transformation
 					role:
 						m.role === "assistant"
 							? "assistant"
 							: m.role === "system"
 								? "user"
-								: "user",
+								: m.role === "tool"
+									? "user" // Tool results become user messages in Anthropic
+									: "user",
 					content: m.content,
+					tool_calls: m.tool_calls, // Include tool_calls for transformation
 				})),
 				isProd,
 			);
