@@ -3702,7 +3702,11 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					rawBody,
-					streamData, // Store the stream data chunks
+					{
+						content: fullContent,
+						reasoningContent: fullReasoningContent,
+						toolCalls: streamingToolCalls,
+					}, // Store the accumulated stream data
 				);
 
 				await insertLog({
@@ -4049,7 +4053,7 @@ chat.openapi(completions, async (c) => {
 		source,
 		customHeaders,
 		rawBody,
-		responseObject, // Store the full response object
+		json, // Store the full response object
 	);
 
 	await insertLog({
