@@ -25,6 +25,16 @@ console.log("running with test options:", getTestOptions());
 const fullMode = process.env.FULL_MODE;
 const logMode = process.env.LOG_MODE;
 
+// Parse TEST_MODELS environment variable
+const testModelsEnv = process.env.TEST_MODELS;
+const specifiedModels = testModelsEnv
+	? testModelsEnv.split(",").map((m) => m.trim())
+	: null;
+
+if (specifiedModels) {
+	console.log(`TEST_MODELS specified: ${specifiedModels.join(", ")}`);
+}
+
 // Filter models based on test skip/only property
 const hasOnlyModels = models.some((model) =>
 	model.providers.some(
@@ -95,6 +105,13 @@ const testModels = filteredModels
 		}
 
 		return testCases;
+	})
+	.filter((testCase) => {
+		// Filter by TEST_MODELS if specified
+		if (!specifiedModels) {
+			return true;
+		}
+		return specifiedModels.includes(testCase.model);
 	});
 
 const providerModels = filteredModels
@@ -129,6 +146,13 @@ const providerModels = filteredModels
 		}
 
 		return testCases;
+	})
+	.filter((testCase) => {
+		// Filter by TEST_MODELS if specified
+		if (!specifiedModels) {
+			return true;
+		}
+		return specifiedModels.includes(testCase.model);
 	});
 
 // Log the number of test models after filtering
