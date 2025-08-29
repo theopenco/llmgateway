@@ -593,11 +593,19 @@ export async function prepareRequestBody(
 			if (tools && tools.length > 0) {
 				requestBody.tools = [
 					{
-						functionDeclarations: tools.map((tool: any) => ({
-							name: tool.function.name,
-							description: tool.function.description,
-							parameters: tool.function.parameters,
-						})),
+						functionDeclarations: tools.map((tool: any) => {
+							// Remove additionalProperties and $schema from parameters as Google doesn't accept them
+							const {
+								additionalProperties: _additionalProperties,
+								$schema: _$schema,
+								...cleanParameters
+							} = tool.function.parameters || {};
+							return {
+								name: tool.function.name,
+								description: tool.function.description,
+								parameters: cleanParameters,
+							};
+						}),
 					},
 				];
 			}
