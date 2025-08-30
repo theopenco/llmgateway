@@ -188,7 +188,7 @@ export const openaiModels = [
 				streaming: false,
 				vision: false,
 				tools: false,
-				reasoning: true,
+				reasoning: false,
 				supportsResponsesApi: false,
 			},
 		],
