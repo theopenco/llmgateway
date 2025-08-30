@@ -305,6 +305,7 @@ export const log = pgTable("log", {
 	processedAt: timestamp(),
 	rawRequest: jsonb(),
 	rawResponse: jsonb(),
+	upstreamResponse: jsonb(),
 });
 
 export const passkey = pgTable("passkey", {

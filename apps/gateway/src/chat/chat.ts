@@ -173,8 +173,10 @@ function createLogEntry(
 	toolChoice: any | undefined,
 	source: string | undefined,
 	customHeaders: Record<string, string>,
+	debugMode: boolean,
 	rawRequest?: unknown,
 	rawResponse?: unknown,
+	upstreamResponse?: unknown,
 ) {
 	return {
 		requestId,
@@ -198,8 +200,10 @@ function createLogEntry(
 		mode: project.mode,
 		source: source || null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
-		rawRequest: rawRequest || null,
-		rawResponse: rawResponse || null,
+		// Only include raw payloads if x-debug header is set to true
+		rawRequest: debugMode ? rawRequest || null : null,
+		rawResponse: debugMode ? rawResponse || null : null,
+		upstreamResponse: debugMode ? upstreamResponse || null : null,
 	} as const;
 }
 
@@ -1856,6 +1860,9 @@ chat.openapi(completions, async (c) => {
 	// Extract and validate source from x-source header
 	const source = validateAndNormalizeSource(c.req.header("x-source"));
 
+	// Check if debug mode is enabled via x-debug header
+	const debugMode = c.req.header("x-debug") === "true";
+
 	c.header("x-request-id", requestId);
 
 	// Extract custom X-LLMGateway-* headers
@@ -2568,8 +2575,10 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
 					rawBody,
 					cachedStreamingResponse,
+					cachedStreamingResponse, // upstream response is same as cached response
 				);
 
 				await insertLog({
@@ -2651,8 +2660,10 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
 					rawBody,
 					cachedResponse,
+					cachedResponse, // upstream response is same as cached response
 				);
 
 				await insertLog({
@@ -2846,8 +2857,10 @@ chat.openapi(completions, async (c) => {
 						tool_choice,
 						source,
 						customHeaders,
+						debugMode,
 						rawBody,
 						null, // No response for canceled request
+						null, // No upstream response for canceled request
 					);
 
 					await insertLog({
@@ -2964,8 +2977,10 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
 					rawBody,
 					null, // No response for error case
+					null, // No upstream response for error case
 				);
 
 				await insertLog({
@@ -3701,12 +3716,18 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
 					rawBody,
 					{
 						content: fullContent,
 						reasoningContent: fullReasoningContent,
 						toolCalls: streamingToolCalls,
-					}, // Store the accumulated stream data
+					}, // Our formatted response
+					{
+						content: fullContent,
+						reasoningContent: fullReasoningContent,
+						toolCalls: streamingToolCalls,
+					}, // Raw upstream chunks (same structure for streaming)
 				);
 
 				await insertLog({
@@ -3832,8 +3853,10 @@ chat.openapi(completions, async (c) => {
 			tool_choice,
 			source,
 			customHeaders,
+			debugMode,
 			rawBody,
 			null, // No response for canceled request
+			null, // No upstream response for canceled request
 		);
 
 		await insertLog({
@@ -3904,8 +3927,10 @@ chat.openapi(completions, async (c) => {
 			tool_choice,
 			source,
 			customHeaders,
+			debugMode,
 			rawBody,
-			errorResponseText, // Store error response
+			errorResponseText, // Our formatted error response
+			errorResponseText, // Raw upstream error response
 		);
 
 		await insertLog({
@@ -4032,6 +4057,25 @@ chat.openapi(completions, async (c) => {
 		},
 	);
 
+	// Transform response to OpenAI format for non-OpenAI providers
+	const transformedResponse = transformToOpenAIFormat(
+		usedProvider,
+		usedModel,
+		json,
+		content,
+		reasoningContent,
+		finishReason,
+		calculatedPromptTokens,
+		calculatedCompletionTokens,
+		(calculatedPromptTokens || 0) +
+			(calculatedCompletionTokens || 0) +
+			(reasoningTokens || 0),
+		reasoningTokens,
+		cachedTokens,
+		toolResults,
+		images,
+	);
+
 	const baseLogEntry = createLogEntry(
 		requestId,
 		project,
@@ -4052,8 +4096,10 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		source,
 		customHeaders,
+		debugMode,
 		rawBody,
-		json, // Store the full response object
+		transformedResponse, // Our formatted response that we return to user
+		json, // Raw upstream response from provider
 	);
 
 	await insertLog({
@@ -4087,25 +4133,6 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		toolChoice: tool_choice,
 	});
-
-	// Transform response to OpenAI format for non-OpenAI providers
-	const transformedResponse = transformToOpenAIFormat(
-		usedProvider,
-		usedModel,
-		json,
-		content,
-		reasoningContent,
-		finishReason,
-		calculatedPromptTokens,
-		calculatedCompletionTokens,
-		(calculatedPromptTokens || 0) +
-			(calculatedCompletionTokens || 0) +
-			(reasoningTokens || 0),
-		reasoningTokens,
-		cachedTokens,
-		toolResults,
-		images,
-	);
 
 	if (cachingEnabled && cacheKey && !stream) {
 		await setCache(cacheKey, transformedResponse, cacheDuration);
