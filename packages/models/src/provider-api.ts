@@ -189,21 +189,11 @@ async function transformGoogleMessages(messages: any[], isProd = false) {
  * Transforms messages for models that don't support system roles by converting system messages to user messages
  */
 function transformMessagesForNoSystemRole(messages: any[]): any[] {
-	return messages.map((message, index) => {
+	return messages.map((message) => {
 		if (message.role === "system") {
-			const systemContent =
-				typeof message.content === "string"
-					? message.content
-					: Array.isArray(message.content)
-						? message.content
-								.map((part: any) => (part.type === "text" ? part.text : part))
-								.join(" ")
-						: String(message.content);
-
 			return {
 				...message,
 				role: "user",
-				content: `System: ${systemContent}`,
 			};
 		}
 		return message;
