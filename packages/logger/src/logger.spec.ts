@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
 import { logger, createLogger } from "./index";
 
 describe("LLMGateway Logger", () => {
-	let consoleSpy: ReturnType<typeof vi.spyOn>;
-
 	beforeEach(() => {
 		// Mock console methods to avoid actual output during tests
-		consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 	});
