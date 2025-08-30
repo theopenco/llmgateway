@@ -2189,12 +2189,19 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Find the cheapest model that meets our context size requirements
+		// Only consider hardcoded models for auto selection
+		const allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
 
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
+				continue;
+			}
+
+			// Only consider allowed models for auto selection
+			if (!allowedAutoModels.includes(modelDef.id)) {
 				continue;
 			}
 
@@ -2245,8 +2252,8 @@ chat.openapi(completions, async (c) => {
 				usedModel = selectedProviders[0].modelName;
 			}
 		} else {
-			// Default fallback if no suitable model is found
-			usedModel = "gpt-4o-mini";
+			// Default fallback if no suitable model is found - use cheapest allowed model
+			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
 	} else if (
