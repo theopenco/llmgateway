@@ -905,11 +905,10 @@ export async function validateProviderKey(
 
 		const validationModel = getCheapestModelForProvider(provider);
 
-		logger.validation(
-			"Using validation model",
+		logger.debug("Using validation model", {
 			provider,
-			validationModel || undefined,
-		);
+			validationModel: validationModel || undefined,
+		});
 
 		if (!validationModel) {
 			throw new Error(

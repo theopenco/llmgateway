@@ -32,20 +32,11 @@ describe("LLMGateway Logger", () => {
 		expect(typeof logger.fatal).toBe("function");
 	});
 
-	it("should have utility methods", () => {
-		expect(typeof logger.httpRequest).toBe("function");
-		expect(typeof logger.httpResponse).toBe("function");
-		expect(typeof logger.modelRequest).toBe("function");
-		expect(typeof logger.modelResponse).toBe("function");
-		expect(typeof logger.validation).toBe("function");
-		expect(typeof logger.dbQuery).toBe("function");
-		expect(typeof logger.cacheHit).toBe("function");
-		expect(typeof logger.workerStart).toBe("function");
-		expect(typeof logger.paymentEvent).toBe("function");
-	});
-
-	it("should log validation messages with provider context", () => {
-		logger.validation("Testing validation", "openai", "gpt-4");
+	it("should log debug messages with extra data", () => {
+		logger.debug("Testing debug message", {
+			provider: "openai",
+			model: "gpt-4",
+		});
 		// Since we're using pino which logs to stdout/stderr, we can't easily test output
 		// But we can verify the method doesn't throw
 		expect(true).toBe(true);
