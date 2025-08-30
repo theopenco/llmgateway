@@ -367,7 +367,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					try {
 						const parsed = JSON.parse(content);
 						content = JSON.stringify(parsed);
-					} catch (_e) {}
+					} catch {}
 				}
 			}
 
@@ -969,7 +969,7 @@ function calculatePromptTokensFromMessages(messages: any[]): number {
 			name: m.name,
 		}));
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch (_error) {
+	} catch {
 		return Math.max(
 			1,
 			Math.round(
@@ -1804,7 +1804,7 @@ chat.openapi(completions, async (c) => {
 	let rawBody: unknown;
 	try {
 		rawBody = await c.req.json();
-	} catch (_error) {
+	} catch {
 		return c.json(
 			{
 				error: {
@@ -2133,10 +2133,25 @@ chat.openapi(completions, async (c) => {
 					chatMessages,
 					DEFAULT_TOKENIZER_MODEL,
 				).length;
-			} catch (_error) {
+			} catch {
 				// Fallback to simple estimation if encoding fails
-				requiredContextSize =
-					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
+				const messageTokens = messages.reduce(
+					(acc, m) => acc + (m.content?.length || 0),
+					0,
+				);
+				requiredContextSize = Math.max(1, Math.round(messageTokens / 4));
+			}
+		}
+
+		// Add tool definitions to context estimation
+		if (tools && tools.length > 0) {
+			try {
+				const toolsString = JSON.stringify(tools);
+				const toolTokens = Math.round(toolsString.length / 4);
+				requiredContextSize += toolTokens;
+			} catch {
+				// Fallback estimation for tools
+				requiredContextSize += tools.length * 100; // Rough estimate per tool
 			}
 		}
 
@@ -3169,7 +3184,7 @@ chat.openapi(completions, async (c) => {
 									JSON.parse(jsonCandidate);
 									// JSON is valid - end at first newline to exclude SSE fields
 									eventEnd = dataIndex + 6 + firstNewline;
-								} catch (_e) {
+								} catch {
 									// JSON is not complete, use the full segment to next data event
 									eventEnd = nextEventIndex;
 								}
@@ -3194,7 +3209,7 @@ chat.openapi(completions, async (c) => {
 									JSON.parse(jsonCandidate);
 									// JSON is valid - this newline marks the end of our data
 									eventEnd = newlinePos;
-								} catch (_e) {
+								} catch {
 									// JSON is not valid, check if there's more content after the newline
 									if (newlinePos + 1 >= bufferCopy.length) {
 										// Newline is at the end of buffer - event is incomplete
@@ -3233,7 +3248,7 @@ chat.openapi(completions, async (c) => {
 										JSON.parse(eventDataCandidate.trim());
 										// If we can parse it, it's complete
 										eventEnd = bufferCopy.length;
-									} catch (_e) {
+									} catch {
 										// JSON parsing failed - event is incomplete
 										break;
 									}
