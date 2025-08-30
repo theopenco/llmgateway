@@ -127,6 +127,10 @@ export interface ModelDefinition {
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: ("text" | "image")[];
+	/**
+	 * Whether this model supports system role messages (defaults to true if not specified)
+	 */
+	supportsSystemRole?: boolean;
 }
 
 export const models = [

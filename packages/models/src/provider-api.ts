@@ -186,6 +186,31 @@ async function transformGoogleMessages(messages: any[], isProd = false) {
 }
 
 /**
+ * Transforms messages for models that don't support system roles by converting system messages to user messages
+ */
+function transformMessagesForNoSystemRole(messages: any[]): any[] {
+	return messages.map((message, index) => {
+		if (message.role === "system") {
+			const systemContent =
+				typeof message.content === "string"
+					? message.content
+					: Array.isArray(message.content)
+						? message.content
+								.map((part) => (part.type === "text" ? part.text : part))
+								.join(" ")
+						: String(message.content);
+
+			return {
+				...message,
+				role: "user",
+				content: `System: ${systemContent}`,
+			};
+		}
+		return message;
+	});
+}
+
+/**
  * Transforms Anthropic messages to handle image URLs by converting them to base64
  */
 async function transformAnthropicMessages(messages: any[], isProd = false) {
@@ -350,9 +375,19 @@ export async function prepareRequestBody(
 	supportsReasoning?: boolean,
 	isProd = false,
 ) {
+	// Check if the model supports system role
+	const modelDef = models.find((m) => m.id === usedModel);
+	const supportsSystemRole = modelDef?.supportsSystemRole !== false;
+
+	// Transform messages if model doesn't support system role
+	let processedMessages = messages;
+	if (!supportsSystemRole) {
+		processedMessages = transformMessagesForNoSystemRole(messages);
+	}
+
 	const requestBody: any = {
 		model: usedModel,
-		messages,
+		messages: processedMessages,
 		stream: stream,
 	};
 
@@ -371,7 +406,7 @@ export async function prepareRequestBody(
 				// Transform to responses API format (now supports tools as well)
 				const responsesBody: any = {
 					model: usedModel,
-					input: messages,
+					input: processedMessages,
 					reasoning: {
 						effort: reasoning_effort || "medium",
 						summary: "detailed",
@@ -509,7 +544,7 @@ export async function prepareRequestBody(
 			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 			requestBody.max_tokens = max_tokens ?? minMaxTokens;
 			requestBody.messages = await transformAnthropicMessages(
-				messages.map((m) => ({
+				processedMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
 						m.role === "assistant"
@@ -587,7 +622,10 @@ export async function prepareRequestBody(
 			delete requestBody.messages; // Not used in body for Google providers
 			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
-			requestBody.contents = await transformGoogleMessages(messages, isProd);
+			requestBody.contents = await transformGoogleMessages(
+				processedMessages,
+				isProd,
+			);
 
 			// Transform tools from OpenAI format to Google format
 			if (tools && tools.length > 0) {
