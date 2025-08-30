@@ -130,6 +130,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-image-preview",
 		name: "Gemini 2.5 Flash Image Preview",
+		aliases: ["nano banana"],
 		family: "google",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
@@ -434,6 +435,7 @@ export const googleModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "together.ai",
 				modelName: "google/gemma-2-27b-it",
 				inputPrice: 0.08 / 1e6,

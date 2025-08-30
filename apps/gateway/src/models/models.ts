@@ -14,12 +14,13 @@ export const modelsApi = new OpenAPIHono<ServerTypes>();
 const modelSchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	aliases: z.array(z.string()).optional(),
 	created: z.number(),
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
 		input_modalities: z.array(z.enum(["text", "image"])),
-		output_modalities: z.array(z.enum(["text"])),
+		output_modalities: z.array(z.enum(["text", "image"])),
 		tokenizer: z.string().optional(),
 	}),
 	top_provider: z.object({
@@ -40,6 +41,7 @@ const modelSchema = z.object({
 			vision: z.boolean(),
 			cancellation: z.boolean(),
 			tools: z.boolean(),
+			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
 		}),
 	),
@@ -137,6 +139,9 @@ modelsApi.openapi(listModels, async (c) => {
 				inputModalities.push("image");
 			}
 
+			// Determine output modalities from model definition or default to text only
+			const outputModalities: ("text" | "image")[] = model.output || ["text"];
+
 			const firstProviderWithPricing = model.providers.find(
 				(p: ProviderModelMapping) =>
 					p.inputPrice !== undefined ||
@@ -154,12 +159,13 @@ modelsApi.openapi(listModels, async (c) => {
 			return {
 				id: model.id,
 				name: model.name || model.id,
+				aliases: model.aliases,
 				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
 				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
 				family: model.family,
 				architecture: {
 					input_modalities: inputModalities,
-					output_modalities: ["text"] as ["text"],
+					output_modalities: outputModalities,
 					tokenizer: "GPT", // TODO: Should come from model definitions when available
 				},
 				top_provider: {
@@ -188,6 +194,7 @@ modelsApi.openapi(listModels, async (c) => {
 						vision: provider.vision || false,
 						cancellation: providerDef?.cancellation || false,
 						tools: provider.tools || false,
+						parallelToolCalls: provider.parallelToolCalls || false,
 						reasoning: provider.reasoning || false,
 					};
 				}),

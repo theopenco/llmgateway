@@ -106,4 +106,24 @@ describe("Models API", () => {
 			}
 		}
 	});
+
+	test("GET /v1/models should include proper output modalities for gemini-2.5-flash-image-preview", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		// Find the gemini-2.5-flash-image-preview model
+		const imageModel = json.data.find(
+			(model: any) => model.id === "gemini-2.5-flash-image-preview",
+		);
+
+		expect(imageModel).toBeDefined();
+		expect(imageModel.architecture.output_modalities).toContain("text");
+		expect(imageModel.architecture.output_modalities).toContain("image");
+		expect(imageModel.architecture.output_modalities).toEqual([
+			"text",
+			"image",
+		]);
+	});
 });

@@ -3,6 +3,298 @@ import { models } from "./models";
 import type { ProviderId } from "./providers";
 
 /**
+ * Processes an image URL or data URL and converts it to base64
+ */
+async function processImageUrl(
+	url: string,
+	isProd = false,
+): Promise<{ data: string; mimeType: string }> {
+	// Handle data URLs directly without network fetch
+	if (url.startsWith("data:")) {
+		const dataUrlMatch = url.match(/^data:([^;,]+)(?:;base64)?,(.*)$/);
+		if (!dataUrlMatch) {
+			console.warn("Invalid data URL format provided");
+			throw new Error("Invalid image data URL format");
+		}
+
+		const [, mimeType, data] = dataUrlMatch;
+
+		// Validate it's an image MIME type
+		if (!mimeType.startsWith("image/")) {
+			console.warn("Non-image MIME type in data URL:", mimeType);
+			throw new Error("Data URL must contain an image");
+		}
+
+		// Check if data is base64 encoded or needs encoding
+		const isBase64 = url.includes(";base64,");
+		const base64Data = isBase64 ? data : btoa(data);
+
+		// Validate size (estimate: base64 adds ~33% overhead)
+		const estimatedSize = (base64Data.length * 3) / 4;
+		if (estimatedSize > 20 * 1024 * 1024) {
+			console.warn("Data URL image size exceeds limit:", estimatedSize);
+			throw new Error("Image size exceeds 20MB limit");
+		}
+
+		return {
+			data: base64Data,
+			mimeType,
+		};
+	}
+
+	// Validate HTTPS URLs only in production environment
+	if (!url.startsWith("https://") && isProd) {
+		console.warn(
+			"Non-HTTPS URL provided for image fetch in production:",
+			url.substring(0, 20) + "...",
+		);
+		throw new Error("Image URLs must use HTTPS protocol in production");
+	}
+
+	try {
+		const response = await fetch(url);
+
+		if (!response.ok) {
+			console.warn(
+				`Failed to fetch image from URL (${response.status}):`,
+				url.substring(0, 50) + "...",
+			);
+			throw new Error(`Failed to fetch image: HTTP ${response.status}`);
+		}
+
+		// Check content length (20MB = 20 * 1024 * 1024 bytes)
+		const contentLength = response.headers.get("content-length");
+		if (contentLength && parseInt(contentLength, 10) > 20 * 1024 * 1024) {
+			console.warn(
+				"Image size exceeds limit via Content-Length:",
+				contentLength,
+			);
+			throw new Error("Image size exceeds 20MB limit");
+		}
+
+		const contentType = response.headers.get("content-type");
+		if (!contentType || !contentType.startsWith("image/")) {
+			console.warn(
+				"Invalid content type for image URL:",
+				contentType,
+				"from:",
+				url.substring(0, 50) + "...",
+			);
+			throw new Error("URL does not point to a valid image");
+		}
+
+		const arrayBuffer = await response.arrayBuffer();
+
+		// Check actual size after download
+		if (arrayBuffer.byteLength > 20 * 1024 * 1024) {
+			console.warn(
+				"Image size exceeds limit after download:",
+				arrayBuffer.byteLength,
+			);
+			throw new Error("Image size exceeds 20MB limit");
+		}
+
+		// Convert arrayBuffer to base64 using browser-compatible API
+		const uint8Array = new Uint8Array(arrayBuffer);
+		const binaryString = Array.from(uint8Array, (byte) =>
+			String.fromCharCode(byte),
+		).join("");
+		const base64 = btoa(binaryString);
+
+		return {
+			data: base64,
+			mimeType: contentType,
+		};
+	} catch (error) {
+		// Log the full error internally but sanitize the thrown error
+		console.error(
+			"Error processing image URL:",
+			error,
+			"URL:",
+			url.substring(0, 50) + "...",
+		);
+
+		if (
+			error instanceof Error &&
+			error.message.includes("Image size exceeds")
+		) {
+			throw error; // Re-throw size limit errors as-is
+		}
+		if (
+			error instanceof Error &&
+			error.message.includes("Failed to fetch image: HTTP")
+		) {
+			throw error; // Re-throw HTTP status errors as-is
+		}
+		if (
+			error instanceof Error &&
+			error.message.includes("URL does not point to a valid image")
+		) {
+			throw error; // Re-throw content type errors as-is
+		}
+
+		// Generic error for all other cases
+		throw new Error("Failed to process image from URL");
+	}
+}
+
+/**
+ * Transforms Google messages to handle image URLs by converting them to base64
+ */
+async function transformGoogleMessages(messages: any[], isProd = false) {
+	return await Promise.all(
+		messages.map(async (m) => ({
+			role: m.role === "assistant" ? "model" : "user", // get rid of system role
+			parts: Array.isArray(m.content)
+				? await Promise.all(
+						m.content.map(async (i: any) => {
+							if (i.type === "text") {
+								return {
+									text: i.text,
+								};
+							}
+							if (i.type === "image_url") {
+								const imageUrl = i.image_url.url;
+								try {
+									const { data, mimeType } = await processImageUrl(
+										imageUrl,
+										isProd,
+									);
+									return {
+										inline_data: {
+											mime_type: mimeType,
+											data: data,
+										},
+									};
+								} catch (error) {
+									// Don't expose the URL in the error message for security
+									const errorMsg =
+										error instanceof Error ? error.message : "Unknown error";
+									throw new Error(`Failed to process image: ${errorMsg}`);
+								}
+							}
+							throw new Error(`Not supported content type yet: ${i.type}`);
+						}),
+					)
+				: [
+						{
+							text: m.content,
+						},
+					],
+		})),
+	);
+}
+
+/**
+ * Transforms Anthropic messages to handle image URLs by converting them to base64
+ */
+async function transformAnthropicMessages(messages: any[], isProd = false) {
+	const results = [] as any[];
+	for (const m of messages) {
+		let content: any[] = [];
+
+		// Handle existing content
+		if (Array.isArray(m.content)) {
+			// Process all images in parallel for better performance
+			content = await Promise.all(
+				m.content.map(async (part: any) => {
+					if (part.type === "image_url" && part.image_url?.url) {
+						try {
+							const { data, mimeType } = await processImageUrl(
+								part.image_url.url,
+								isProd,
+							);
+							return {
+								type: "image",
+								source: {
+									type: "base64",
+									media_type: mimeType,
+									data: data,
+								},
+							};
+						} catch (error) {
+							console.error(
+								`Failed to fetch image ${part.image_url.url}:`,
+								error,
+							);
+							// Fallback to text representation
+							return {
+								type: "text",
+								text: `[Image failed to load: ${part.image_url.url}]`,
+							};
+						}
+					}
+					return part;
+				}),
+			);
+		} else if (m.content && typeof m.content === "string") {
+			// Handle string content
+			content = [{ type: "text", text: m.content }];
+		}
+
+		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
+		if (m.tool_calls && Array.isArray(m.tool_calls)) {
+			const toolUseBlocks = m.tool_calls.map((toolCall: any) => ({
+				type: "tool_use",
+				id: toolCall.id,
+				name: toolCall.function.name,
+				input: JSON.parse(toolCall.function.arguments),
+			}));
+			content = content.concat(toolUseBlocks);
+		}
+
+		// Handle OpenAI-style tool role messages by converting them to Anthropic tool_result content blocks
+		// Use the original role since the mapped role will be "user"
+		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
+		if (originalRole === "tool" && m.tool_call_id && m.content) {
+			// For tool results, we need to check if content is JSON string and parse it appropriately
+			let toolResultContent = m.content;
+			try {
+				// Try to parse as JSON to see if it's structured data
+				const parsed = JSON.parse(m.content);
+				// If it's an object, keep it as JSON string for Anthropic
+				if (typeof parsed === "object") {
+					toolResultContent = m.content;
+				} else {
+					toolResultContent = String(parsed);
+				}
+			} catch {
+				// If it's not valid JSON, use as-is
+				toolResultContent = m.content;
+			}
+
+			content = [
+				{
+					type: "tool_result",
+					tool_use_id: m.tool_call_id,
+					content: toolResultContent,
+				},
+			];
+		}
+
+		// Filter out empty text content blocks as Anthropic requires non-empty text
+		const filteredContent = content.filter(
+			(part: any) =>
+				!(part.type === "text" && (!part.text || part.text.trim() === "")),
+		);
+
+		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
+		if (
+			filteredContent.length === 0 &&
+			(!m.tool_calls || m.tool_calls.length === 0)
+		) {
+			// Skip messages with no valid content
+			continue;
+		}
+
+		// Remove tool_calls and tool_call_id from the message as Anthropic doesn't expect these fields
+		const { tool_calls: _, tool_call_id: __, ...messageWithoutToolFields } = m;
+		results.push({ ...messageWithoutToolFields, content: filteredContent });
+	}
+	return results;
+}
+
+/**
  * Get the appropriate headers for a given provider API call
  */
 export function getProviderHeaders(
@@ -41,7 +333,7 @@ export function getProviderHeaders(
 /**
  * Prepares the request body for different providers
  */
-export function prepareRequestBody(
+export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedModel: string,
 	messages: any[],
@@ -56,6 +348,7 @@ export function prepareRequestBody(
 	tool_choice?: string | { type: string; function: { name: string } },
 	reasoning_effort?: "low" | "medium" | "high",
 	supportsReasoning?: boolean,
+	isProd = false,
 ) {
 	const requestBody: any = {
 		model: usedModel,
@@ -73,7 +366,84 @@ export function prepareRequestBody(
 	}
 
 	switch (usedProvider) {
-		case "openai":
+		case "openai": {
+			if (supportsReasoning) {
+				// Transform to responses API format (now supports tools as well)
+				const responsesBody: any = {
+					model: usedModel,
+					input: messages,
+					reasoning: {
+						effort: reasoning_effort || "medium",
+						summary: "detailed",
+					},
+				};
+
+				// Add streaming support
+				if (stream) {
+					responsesBody.stream = true;
+				}
+
+				// Add tools support for responses API (transform format if needed)
+				if (tools && tools.length > 0) {
+					// Transform tools from chat completions format to responses API format
+					responsesBody.tools = tools.map((tool: any) => {
+						if (tool.type === "function" && tool.function) {
+							return {
+								type: "function",
+								name: tool.function.name,
+								description: tool.function.description,
+								parameters: tool.function.parameters,
+							};
+						}
+						return tool;
+					});
+				}
+				if (tool_choice) {
+					responsesBody.tool_choice = tool_choice;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					responsesBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					responsesBody.max_completion_tokens = max_tokens;
+				}
+
+				return responsesBody;
+			} else {
+				// Use regular chat completions format
+				if (stream) {
+					requestBody.stream_options = {
+						include_usage: true,
+					};
+				}
+				if (response_format) {
+					requestBody.response_format = response_format;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					requestBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					requestBody.max_tokens = max_tokens;
+				}
+				if (top_p !== undefined) {
+					requestBody.top_p = top_p;
+				}
+				if (frequency_penalty !== undefined) {
+					requestBody.frequency_penalty = frequency_penalty;
+				}
+				if (presence_penalty !== undefined) {
+					requestBody.presence_penalty = presence_penalty;
+				}
+				if (reasoning_effort !== undefined) {
+					requestBody.reasoning_effort = reasoning_effort;
+				}
+			}
+			break;
+		}
 		case "xai":
 		case "groq":
 		case "deepseek":
@@ -118,29 +488,42 @@ export function prepareRequestBody(
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
-			requestBody.max_tokens = max_tokens || 1024; // Set a default if not provided
-			requestBody.messages = messages.map((m) => ({
-				role:
-					m.role === "assistant"
-						? "assistant"
-						: m.role === "system"
-							? "user"
-							: "user",
-				content: Array.isArray(m.content)
-					? m.content.map((i: any) => {
-							switch (i.type) {
-								// anthropic does not support image URLs, only base64
-								// TODO fetch url and provide as base64 instead
-								case "image_url":
-									return {
-										type: "text",
-										text: `image URL: ${i.image_url.url}`,
-									};
-							}
-							return i;
-						})
-					: m.content,
-			}));
+			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
+			const getThinkingBudget = (effort?: string) => {
+				if (!supportsReasoning) {
+					return 0;
+				}
+				if (!reasoning_effort) {
+					return 0;
+				}
+				switch (effort) {
+					case "low":
+						return 1024; // Anthropic minimum
+					case "high":
+						return 4000;
+					default:
+						return 2000; // medium or undefined
+				}
+			};
+			const thinkingBudget = getThinkingBudget(reasoning_effort);
+			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+			requestBody.max_tokens = max_tokens ?? minMaxTokens;
+			requestBody.messages = await transformAnthropicMessages(
+				messages.map((m) => ({
+					...m, // Preserve original properties for transformation
+					role:
+						m.role === "assistant"
+							? "assistant"
+							: m.role === "system"
+								? "user"
+								: m.role === "tool"
+									? "user" // Tool results become user messages in Anthropic
+									: "user",
+					content: m.content,
+					tool_calls: m.tool_calls, // Include tool_calls for transformation
+				})),
+				isProd,
+			);
 
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
@@ -174,6 +557,14 @@ export function prepareRequestBody(
 				}
 			}
 
+			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort is specified
+			if (supportsReasoning && reasoning_effort) {
+				requestBody.thinking = {
+					type: "enabled",
+					budget_tokens: thinkingBudget,
+				};
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;
@@ -196,23 +587,7 @@ export function prepareRequestBody(
 			delete requestBody.messages; // Not used in body for Google providers
 			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
-			requestBody.contents = messages.map((m) => ({
-				role: m.role === "assistant" ? "model" : "user", // get rid of system role
-				parts: Array.isArray(m.content)
-					? m.content.map((i: any) => {
-							if (i.type === "text") {
-								return {
-									text: i.text,
-								};
-							}
-							throw new Error(`Not supported content type yet: ${i.type}`);
-						})
-					: [
-							{
-								text: m.content,
-							},
-						],
-			}));
+			requestBody.contents = await transformGoogleMessages(messages, isProd);
 
 			// Transform tools from OpenAI format to Google format
 			if (tools && tools.length > 0) {
@@ -287,6 +662,7 @@ export function getProviderEndpoint(
 	model?: string,
 	token?: string,
 	stream?: boolean,
+	supportsReasoning?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -409,8 +785,13 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
-		case "inference.net":
 		case "openai":
+			// Use responses endpoint for reasoning models (now supports tools)
+			if (supportsReasoning) {
+				return `${url}/v1/responses`;
+			}
+			return `${url}/v1/chat/completions`;
+		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":
 		case "xai":
@@ -518,6 +899,7 @@ export async function validateProviderKey(
 			undefined,
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
+			false, // supportsReasoning - disable for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload
@@ -552,7 +934,7 @@ export async function validateProviderKey(
 		const supportsMaxTokens =
 			supportedParameters?.includes("max_tokens") ?? true;
 
-		const payload = prepareRequestBody(
+		const payload = await prepareRequestBody(
 			provider,
 			validationModel,
 			messages,
@@ -567,6 +949,7 @@ export async function validateProviderKey(
 			undefined, // tool_choice
 			undefined, // reasoning_effort
 			false, // supportsReasoning - disable for validation
+			false, // isProd - allow http URLs for validation/testing
 		);
 
 		const headers = getProviderHeaders(provider, token);

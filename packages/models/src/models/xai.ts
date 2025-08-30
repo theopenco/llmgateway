@@ -157,4 +157,26 @@ export const xaiModels = [
 		],
 		jsonOutput: true,
 	},
+	{
+		id: "grok-code-fast-1",
+		name: "Grok Code Fast 1",
+		family: "xai",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "xai",
+				modelName: "grok-code-fast-1",
+				inputPrice: 0.2 / 1e6,
+				outputPrice: 1.5 / 1e6,
+				requestPrice: 0,
+				contextSize: 256000,
+				maxOutput: 10000,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
 ] as const satisfies ModelDefinition[];
