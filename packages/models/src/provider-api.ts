@@ -196,7 +196,7 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 					? message.content
 					: Array.isArray(message.content)
 						? message.content
-								.map((part) => (part.type === "text" ? part.text : part))
+								.map((part: any) => (part.type === "text" ? part.text : part))
 								.join(" ")
 						: String(message.content);
 
@@ -377,7 +377,7 @@ export async function prepareRequestBody(
 ) {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
-	const supportsSystemRole = modelDef?.supportsSystemRole !== false;
+	const supportsSystemRole = (modelDef as any)?.supportsSystemRole !== false;
 
 	// Transform messages if model doesn't support system role
 	let processedMessages = messages;
