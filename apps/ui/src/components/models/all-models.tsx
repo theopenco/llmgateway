@@ -19,6 +19,7 @@ import {
 	ArrowDown,
 	Play,
 	ImagePlus,
+	AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -60,7 +61,11 @@ import {
 } from "@/lib/components/tooltip";
 import { cn, formatContextSize } from "@/lib/utils";
 
-import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderModelMapping,
+	StabilityLevel,
+} from "@llmgateway/models";
 
 interface ModelWithProviders extends ModelDefinition {
 	providerDetails: Array<{
@@ -366,6 +371,35 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		) : (
 			<ArrowDown className="ml-2 h-4 w-4 text-primary" />
 		);
+	};
+
+	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
+		switch (stability) {
+			case "beta":
+				return {
+					variant: "secondary" as const,
+					color: "text-blue-600",
+					label: "BETA",
+				};
+			case "unstable":
+				return {
+					variant: "destructive" as const,
+					color: "text-red-600",
+					label: "UNSTABLE",
+				};
+			case "experimental":
+				return {
+					variant: "destructive" as const,
+					color: "text-orange-600",
+					label: "EXPERIMENTAL",
+				};
+			default:
+				return null;
+		}
+	};
+
+	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
+		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
 	const copyToClipboard = async (text: string) => {
@@ -752,6 +786,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							</Button>
 						</TableHead>
 						<TableHead className="text-center">Capabilities</TableHead>
+						<TableHead className="text-center">Stability</TableHead>
 						<TableHead className="text-center">Actions</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -762,6 +797,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<div className="space-y-1">
 									<div className="font-semibold text-sm flex items-center gap-2">
 										{model.name || model.id}
+										{shouldShowStabilityWarning(model.stability) && (
+											<AlertTriangle className="h-4 w-4 text-orange-500" />
+										)}
 										{model.free && (
 											<Badge
 												variant="secondary"
@@ -915,6 +953,26 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							</TableCell>
 
 							<TableCell className="text-center">
+								{(() => {
+									const stabilityProps = getStabilityBadgeProps(
+										model.stability,
+									);
+									return stabilityProps ? (
+										<Badge
+											variant={stabilityProps.variant}
+											className="text-xs px-2 py-1"
+										>
+											{stabilityProps.label}
+										</Badge>
+									) : (
+										<Badge variant="outline" className="text-xs px-2 py-1">
+											STABLE
+										</Badge>
+									);
+								})()}
+							</TableCell>
+
+							<TableCell className="text-center">
 								<Link
 									href={`/playground?model=${encodeURIComponent(model.id)}`}
 								>
@@ -945,6 +1003,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							<div className="flex-1 min-w-0">
 								<CardTitle className="text-base leading-tight flex items-center gap-2 flex-wrap">
 									{model.name || model.id}
+									{shouldShowStabilityWarning(model.stability) && (
+										<AlertTriangle className="h-4 w-4 text-orange-500" />
+									)}
 									{model.free && (
 										<Badge
 											variant="secondary"
@@ -1091,6 +1152,27 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										)}
 									</div>
 								))}
+							</div>
+
+							<div>
+								<div className="font-medium mb-2 text-sm">Stability:</div>
+								{(() => {
+									const stabilityProps = getStabilityBadgeProps(
+										model.stability,
+									);
+									return stabilityProps ? (
+										<Badge
+											variant={stabilityProps.variant}
+											className="text-xs px-2 py-1"
+										>
+											{stabilityProps.label}
+										</Badge>
+									) : (
+										<Badge variant="outline" className="text-xs px-2 py-1">
+											STABLE
+										</Badge>
+									);
+								})()}
 							</div>
 
 							<div className="pt-4 border-t">
