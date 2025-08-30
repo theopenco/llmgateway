@@ -10,7 +10,8 @@ import type {
 	TextContent,
 	ToolUseContent,
 	ToolResultContent,
-	OpenAITool,
+	FunctionParameter,
+	OpenAIToolInput,
 	ToolChoiceType,
 	ProviderRequestBody,
 	OpenAIRequestBody,
@@ -381,7 +382,7 @@ export async function prepareRequestBody(
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
 	response_format: OpenAIRequestBody["response_format"],
-	tools?: OpenAITool[],
+	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
 	reasoning_effort?: "low" | "medium" | "high",
 	supportsReasoning?: boolean,
@@ -429,7 +430,7 @@ export async function prepareRequestBody(
 						type: "function" as const,
 						name: tool.function.name,
 						description: tool.function.description,
-						parameters: tool.function.parameters,
+						parameters: tool.function.parameters as FunctionParameter,
 					}));
 				}
 				if (tool_choice) {

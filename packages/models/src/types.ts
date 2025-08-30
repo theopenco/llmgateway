@@ -108,6 +108,16 @@ export interface OpenAITool {
 	function: FunctionDefinition;
 }
 
+// Compatible type for API requests where parameters can be optional
+export interface OpenAIToolInput {
+	type: "function";
+	function: {
+		name: string;
+		description?: string;
+		parameters?: FunctionParameter | Record<string, any>;
+	};
+}
+
 export interface AnthropicTool {
 	name: string;
 	description?: string;
@@ -321,4 +331,10 @@ export function isGoogleTool(
 	tool: OpenAITool | AnthropicTool | GoogleTool,
 ): tool is GoogleTool {
 	return "functionDeclarations" in tool;
+}
+
+export function hasMaxTokens(
+	requestBody: ProviderRequestBody,
+): requestBody is OpenAIRequestBody | AnthropicRequestBody {
+	return "max_tokens" in requestBody;
 }

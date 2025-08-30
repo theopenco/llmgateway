@@ -18,6 +18,9 @@ import {
 	prepareRequestBody,
 	type BaseMessage,
 	type Provider,
+	type ProviderRequestBody,
+	type OpenAIToolInput,
+	hasMaxTokens,
 	providers,
 } from "@llmgateway/models";
 import { encode, encodeChat } from "gpt-tokenizer";
@@ -170,7 +173,7 @@ function createLogEntry(
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
 	reasoningEffort: "low" | "medium" | "high" | undefined,
-	tools: any[] | undefined,
+	tools: OpenAIToolInput[] | undefined,
 	toolChoice: any | undefined,
 	source: string | undefined,
 	customHeaders: Record<string, string>,
@@ -2715,7 +2718,7 @@ chat.openapi(completions, async (c) => {
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
-	const requestBody = await prepareRequestBody(
+	const requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
 		messages as BaseMessage[],
@@ -2726,7 +2729,7 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		response_format,
-		tools as any,
+		tools,
 		tool_choice,
 		reasoning_effort,
 		supportsReasoning,
@@ -2734,7 +2737,11 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
-	if ((requestBody as any).max_tokens !== undefined && finalModelInfo) {
+	if (
+		hasMaxTokens(requestBody) &&
+		requestBody.max_tokens !== undefined &&
+		finalModelInfo
+	) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
 			(p) => p.providerId === usedProvider && p.modelName === usedModel,
@@ -2744,9 +2751,9 @@ chat.openapi(completions, async (c) => {
 			"maxOutput" in providerMapping &&
 			providerMapping.maxOutput !== undefined
 		) {
-			if ((requestBody as any).max_tokens > providerMapping.maxOutput) {
+			if (requestBody.max_tokens > providerMapping.maxOutput) {
 				throw new HTTPException(400, {
-					message: `The effective max_tokens (${(requestBody as any).max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
 				});
 			}
 		}
