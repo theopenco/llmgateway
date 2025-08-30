@@ -336,8 +336,8 @@ function parseProviderResponse(
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any) => ({
-						id: part.functionCall.name + "_" + Date.now(), // Google doesn't provide ID, so generate one
+					.map((part: any, index: number) => ({
+						id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
 						type: "function",
 						function: {
 							name: part.functionCall.name,
