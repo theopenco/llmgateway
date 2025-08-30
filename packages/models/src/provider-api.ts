@@ -367,6 +367,12 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "openai": {
+			// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
+			let effectiveTemperature = temperature;
+			if (usedModel.startsWith("gpt-5")) {
+				effectiveTemperature = 1;
+			}
+
 			if (supportsReasoning) {
 				// Transform to responses API format (now supports tools as well)
 				const responsesBody: any = {
@@ -403,8 +409,8 @@ export async function prepareRequestBody(
 				}
 
 				// Add optional parameters if they are provided
-				if (temperature !== undefined) {
-					responsesBody.temperature = temperature;
+				if (effectiveTemperature !== undefined) {
+					responsesBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
 					responsesBody.max_completion_tokens = max_tokens;
@@ -423,8 +429,8 @@ export async function prepareRequestBody(
 				}
 
 				// Add optional parameters if they are provided
-				if (temperature !== undefined) {
-					requestBody.temperature = temperature;
+				if (effectiveTemperature !== undefined) {
+					requestBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
 					requestBody.max_tokens = max_tokens;
