@@ -181,8 +181,8 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				modelName: "gemini-1.5-pro",
-				inputPrice: 0.0375 / 1e6,
-				outputPrice: 0.15 / 1e6,
+				inputPrice: 2.5 / 1e6,
+				outputPrice: 10.0 / 1e6,
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,

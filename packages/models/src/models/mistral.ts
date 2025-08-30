@@ -89,4 +89,26 @@ export const mistralModels = [
 		],
 		jsonOutput: true,
 	},
+	{
+		id: "pixtral-large-latest",
+		name: "Pixtral Large Latest",
+		family: "mistral",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "mistral",
+				modelName: "pixtral-large-latest",
+				inputPrice: 0.000004,
+				outputPrice: 0.000012,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: false,
+			},
+		],
+		jsonOutput: true,
+	},
 ] as const satisfies ModelDefinition[];
