@@ -52,11 +52,13 @@ describe("System Role Handling", () => {
 			false, // isProd
 		);
 
-		expect(requestBody.input).toHaveLength(2);
-		expect(requestBody.input[0].role).toBe("user");
-		expect(requestBody.input[0].content).toBe("You are a helpful assistant.");
-		expect(requestBody.input[1].role).toBe("user");
-		expect(requestBody.input[1].content).toBe("Hello");
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+		expect(requestBody.messages[1].content).toBe("Hello");
 	});
 
 	it("should preserve system messages for models that support them", async () => {
@@ -122,9 +124,9 @@ describe("System Role Handling", () => {
 			false, // isProd
 		);
 
-		expect(requestBody.input).toHaveLength(2);
-		expect(requestBody.input[0].role).toBe("user");
-		expect(requestBody.input[0].content).toEqual([
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(requestBody.messages[0].content).toEqual([
 			{ type: "text", text: "You are a helpful" },
 			{ type: "text", text: "assistant." },
 		]);

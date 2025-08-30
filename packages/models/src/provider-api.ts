@@ -392,7 +392,15 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "openai": {
-			if (supportsReasoning) {
+			// Check if the model supports responses API (default to true if reasoning is enabled)
+			const modelDef = models.find((m) => m.id === usedModel);
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === "openai",
+			);
+			const supportsResponsesApi =
+				(providerMapping as any)?.supportsResponsesApi !== false;
+
+			if (supportsReasoning && supportsResponsesApi) {
 				// Transform to responses API format (now supports tools as well)
 				const responsesBody: any = {
 					model: usedModel,
@@ -814,9 +822,18 @@ export function getProviderEndpoint(
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
 		case "openai":
-			// Use responses endpoint for reasoning models (now supports tools)
-			if (supportsReasoning) {
-				return `${url}/v1/responses`;
+			// Use responses endpoint for reasoning models that support responses API
+			if (supportsReasoning && model) {
+				const modelDef = models.find((m) => m.id === model);
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "openai",
+				);
+				const supportsResponsesApi =
+					(providerMapping as any)?.supportsResponsesApi !== false;
+
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
 			}
 			return `${url}/v1/chat/completions`;
 		case "inference.net":
