@@ -170,9 +170,12 @@ export function AuthDialog({ open }: AuthDialogProps) {
 			queryClient.invalidateQueries({ queryKey });
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast({ title: "Login successful" });
-		} catch (error: any) {
+		} catch (error: unknown) {
 			toast({
-				title: error?.message || "Failed to sign in with passkey",
+				title:
+					error instanceof Error
+						? error.message
+						: "Failed to sign in with passkey",
 				variant: "destructive",
 			});
 		} finally {

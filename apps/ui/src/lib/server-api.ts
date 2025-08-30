@@ -31,10 +31,9 @@ export async function createServerApiClient() {
 // Generic server-side data fetcher
 export async function fetchServerData<T>(
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
-
-	path: any,
+	path: keyof paths,
 	options?: {
-		params?: Record<string, any>;
+		params?: Record<string, unknown>;
 		body?: Record<string, unknown>;
 	},
 ): Promise<T | null> {

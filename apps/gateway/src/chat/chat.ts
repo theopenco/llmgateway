@@ -16,6 +16,7 @@ import {
 	type ModelDefinition,
 	models,
 	prepareRequestBody,
+	type BaseMessage,
 	type Provider,
 	providers,
 } from "@llmgateway/models";
@@ -2717,7 +2718,7 @@ chat.openapi(completions, async (c) => {
 	const requestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
-		messages,
+		messages as BaseMessage[],
 		stream,
 		temperature,
 		max_tokens,
@@ -2725,7 +2726,7 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		response_format,
-		tools,
+		tools as any,
 		tool_choice,
 		reasoning_effort,
 		supportsReasoning,
@@ -2733,7 +2734,7 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
-	if (requestBody.max_tokens !== undefined && finalModelInfo) {
+	if ((requestBody as any).max_tokens !== undefined && finalModelInfo) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
 			(p) => p.providerId === usedProvider && p.modelName === usedModel,
@@ -2743,9 +2744,9 @@ chat.openapi(completions, async (c) => {
 			"maxOutput" in providerMapping &&
 			providerMapping.maxOutput !== undefined
 		) {
-			if (requestBody.max_tokens > providerMapping.maxOutput) {
+			if ((requestBody as any).max_tokens > providerMapping.maxOutput) {
 				throw new HTTPException(400, {
-					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+					message: `The effective max_tokens (${(requestBody as any).max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
 				});
 			}
 		}
