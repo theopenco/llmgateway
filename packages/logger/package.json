@@ -1,0 +1,29 @@
+{
+	"name": "@llmgateway/logger",
+	"version": "0.1.0",
+	"private": true,
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"pino": "^9.4.0",
+		"pino-pretty": "^11.3.0"
+	},
+	"devDependencies": {
+		"@types/node": "^22.9.0",
+		"tsup": "8.4.0",
+		"typescript": "5.8.3",
+		"vitest": "^3.2.3"
+	}
+}

@@ -1,3 +1,5 @@
+import { logger } from "@llmgateway/logger";
+
 import { models } from "./models";
 
 import type { ProviderId } from "./providers";
@@ -13,7 +15,7 @@ async function processImageUrl(
 	if (url.startsWith("data:")) {
 		const dataUrlMatch = url.match(/^data:([^;,]+)(?:;base64)?,(.*)$/);
 		if (!dataUrlMatch) {
-			console.warn("Invalid data URL format provided");
+			logger.warn("Invalid data URL format provided");
 			throw new Error("Invalid image data URL format");
 		}
 
@@ -21,7 +23,7 @@ async function processImageUrl(
 
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
-			console.warn("Non-image MIME type in data URL:", mimeType);
+			logger.warn("Non-image MIME type in data URL", { mimeType });
 			throw new Error("Data URL must contain an image");
 		}
 
@@ -32,7 +34,7 @@ async function processImageUrl(
 		// Validate size (estimate: base64 adds ~33% overhead)
 		const estimatedSize = (base64Data.length * 3) / 4;
 		if (estimatedSize > 20 * 1024 * 1024) {
-			console.warn("Data URL image size exceeds limit:", estimatedSize);
+			logger.warn("Data URL image size exceeds limit", { estimatedSize });
 			throw new Error("Image size exceeds 20MB limit");
 		}
 
@@ -44,10 +46,9 @@ async function processImageUrl(
 
 	// Validate HTTPS URLs only in production environment
 	if (!url.startsWith("https://") && isProd) {
-		console.warn(
-			"Non-HTTPS URL provided for image fetch in production:",
-			url.substring(0, 20) + "...",
-		);
+		logger.warn("Non-HTTPS URL provided for image fetch in production", {
+			url: url.substring(0, 20) + "...",
+		});
 		throw new Error("Image URLs must use HTTPS protocol in production");
 	}
 
@@ -55,31 +56,27 @@ async function processImageUrl(
 		const response = await fetch(url);
 
 		if (!response.ok) {
-			console.warn(
-				`Failed to fetch image from URL (${response.status}):`,
-				url.substring(0, 50) + "...",
-			);
+			logger.warn(`Failed to fetch image from URL (${response.status})`, {
+				url: url.substring(0, 50) + "...",
+			});
 			throw new Error(`Failed to fetch image: HTTP ${response.status}`);
 		}
 
 		// Check content length (20MB = 20 * 1024 * 1024 bytes)
 		const contentLength = response.headers.get("content-length");
 		if (contentLength && parseInt(contentLength, 10) > 20 * 1024 * 1024) {
-			console.warn(
-				"Image size exceeds limit via Content-Length:",
+			logger.warn("Image size exceeds limit via Content-Length", {
 				contentLength,
-			);
+			});
 			throw new Error("Image size exceeds 20MB limit");
 		}
 
 		const contentType = response.headers.get("content-type");
 		if (!contentType || !contentType.startsWith("image/")) {
-			console.warn(
-				"Invalid content type for image URL:",
+			logger.warn("Invalid content type for image URL", {
 				contentType,
-				"from:",
-				url.substring(0, 50) + "...",
-			);
+				url: url.substring(0, 50) + "...",
+			});
 			throw new Error("URL does not point to a valid image");
 		}
 
@@ -87,10 +84,9 @@ async function processImageUrl(
 
 		// Check actual size after download
 		if (arrayBuffer.byteLength > 20 * 1024 * 1024) {
-			console.warn(
-				"Image size exceeds limit after download:",
-				arrayBuffer.byteLength,
-			);
+			logger.warn("Image size exceeds limit after download", {
+				size: arrayBuffer.byteLength,
+			});
 			throw new Error("Image size exceeds 20MB limit");
 		}
 
@@ -107,12 +103,10 @@ async function processImageUrl(
 		};
 	} catch (error) {
 		// Log the full error internally but sanitize the thrown error
-		console.error(
-			"Error processing image URL:",
-			error,
-			"URL:",
-			url.substring(0, 50) + "...",
-		);
+		logger.error("Error processing image URL", {
+			err: error instanceof Error ? error : new Error(String(error)),
+			url: url.substring(0, 50) + "...",
+		});
 
 		if (
 			error instanceof Error &&
@@ -213,10 +207,9 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 								},
 							};
 						} catch (error) {
-							console.error(
-								`Failed to fetch image ${part.image_url.url}:`,
-								error,
-							);
+							logger.error(`Failed to fetch image ${part.image_url.url}`, {
+								err: error instanceof Error ? error : new Error(String(error)),
+							});
 							// Fallback to text representation
 							return {
 								type: "text",
@@ -912,7 +905,11 @@ export async function validateProviderKey(
 
 		const validationModel = getCheapestModelForProvider(provider);
 
-		console.log("using validationModel", provider, validationModel);
+		logger.validation(
+			"Using validation model",
+			provider,
+			validationModel || undefined,
+		);
 
 		if (!validationModel) {
 			throw new Error(

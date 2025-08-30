@@ -19,6 +19,8 @@
 	"scripts": {
 		"build": "tsc && tsup"
 	},
-	"dependencies": {},
+	"dependencies": {
+		"@llmgateway/logger": "workspace:*"
+	},
 	"devDependencies": {}
 }

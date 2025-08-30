@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { closeDatabase } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
 import redisClient from "./lib/redis";
@@ -7,7 +8,7 @@ import { startWorker, stopWorker } from "./worker";
 
 const port = Number(process.env.PORT) || 4001;
 
-console.log("listening on port", port);
+logger.info("Server starting", { port });
 
 void startWorker();
 
@@ -32,34 +33,39 @@ const closeServer = (): Promise<void> => {
 
 const gracefulShutdown = async (signal: string) => {
 	if (isShuttingDown) {
-		console.log("Shutdown already in progress, ignoring signal:", signal);
+		logger.warn("Shutdown already in progress, ignoring signal", { signal });
 		return;
 	}
 
 	isShuttingDown = true;
-	console.log(`Received ${signal}, starting graceful shutdown...`);
+	logger.info("Received shutdown signal, starting graceful shutdown", {
+		signal,
+	});
 
 	try {
-		console.log("Stopping worker...");
+		logger.info("Stopping worker");
 		await stopWorker();
-		console.log("Worker stopped successfully");
+		logger.info("Worker stopped successfully");
 
-		console.log("Closing HTTP server...");
+		logger.info("Closing HTTP server");
 		await closeServer();
-		console.log("HTTP server closed");
+		logger.info("HTTP server closed");
 
-		console.log("Closing Redis connection...");
+		logger.info("Closing Redis connection");
 		await redisClient.quit();
-		console.log("Redis connection closed");
+		logger.info("Redis connection closed");
 
-		console.log("Closing database connection...");
+		logger.info("Closing database connection");
 		await closeDatabase();
-		console.log("Database connection closed");
+		logger.info("Database connection closed");
 
-		console.log("Graceful shutdown completed");
+		logger.info("Graceful shutdown completed");
 		process.exit(0);
 	} catch (error) {
-		console.error("Error during graceful shutdown:", error);
+		logger.error(
+			"Error during graceful shutdown",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		process.exit(1);
 	}
 };
@@ -68,11 +74,11 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 process.on("uncaughtException", (error) => {
-	console.error("Uncaught exception:", error);
+	logger.fatal("Uncaught exception", error);
 	process.exit(1);
 });
 
 process.on("unhandledRejection", (reason, promise) => {
-	console.error("Unhandled rejection at:", promise, "reason:", reason);
+	logger.fatal("Unhandled rejection", { promise, reason });
 	process.exit(1);
 });

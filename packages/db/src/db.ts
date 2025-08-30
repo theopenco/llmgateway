@@ -1,3 +1,4 @@
+import { logger } from "@llmgateway/logger";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 
@@ -19,9 +20,12 @@ export const db = drizzle({
 export async function closeDatabase(): Promise<void> {
 	try {
 		await client.end();
-		console.log("Database connection closed");
+		logger.info("Database connection closed");
 	} catch (error) {
-		console.error("Error closing database connection:", error);
+		logger.error(
+			"Error closing database connection",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw error;
 	}
 }
