@@ -62,6 +62,7 @@ const modelSchema = z.object({
 	free: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
 	deactivated_at: z.string().optional(),
+	stability: z.enum(["stable", "beta", "unstable", "experimental"]).optional(),
 });
 
 const listModelsResponseSchema = z.object({
@@ -220,6 +221,7 @@ modelsApi.openapi(listModels, async (c) => {
 				free: model.free || false,
 				deprecated_at: model.deprecatedAt?.toISOString(),
 				deactivated_at: model.deactivatedAt?.toISOString(),
+				stability: model.stability,
 			};
 		});
 

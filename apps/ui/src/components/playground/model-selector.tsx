@@ -1,5 +1,10 @@
-import { models, providers, type ModelDefinition } from "@llmgateway/models";
-import { Check, ChevronDown } from "lucide-react";
+import {
+	models,
+	providers,
+	type ModelDefinition,
+	type StabilityLevel,
+} from "@llmgateway/models";
+import { Check, ChevronDown, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -19,6 +24,7 @@ interface LocalModel {
 	id: string;
 	name?: string;
 	jsonOutput: boolean;
+	stability?: StabilityLevel;
 	providers: Array<{
 		providerId: string;
 		modelName: string;
@@ -47,6 +53,35 @@ export function ModelSelector({
 		return providers.find((p) => p.id === providerId);
 	};
 
+	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
+		switch (stability) {
+			case "beta":
+				return {
+					variant: "secondary" as const,
+					color: "text-blue-600",
+					label: "BETA",
+				};
+			case "unstable":
+				return {
+					variant: "destructive" as const,
+					color: "text-red-600",
+					label: "UNSTABLE",
+				};
+			case "experimental":
+				return {
+					variant: "destructive" as const,
+					color: "text-orange-600",
+					label: "EXPERIMENTAL",
+				};
+			default:
+				return null;
+		}
+	};
+
+	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
+		return stability && ["unstable", "experimental"].includes(stability);
+	};
+
 	// Group by model instead of provider to avoid duplicates
 	const uniqueModels: LocalModel[] = models.map((model) => {
 		const modelProviders = model.providers
@@ -64,6 +99,7 @@ export function ModelSelector({
 			id: typedModel.id,
 			name: typedModel.name,
 			jsonOutput: typedModel.jsonOutput ?? false,
+			stability: typedModel.stability,
 			providers: modelProviders,
 		};
 	});
@@ -90,6 +126,9 @@ export function ModelSelector({
 						<span className="truncate">
 							{currentModelInfo?.name || currentModelInfo?.id || selectedModel}
 						</span>
+						{shouldShowStabilityWarning(currentModelInfo?.stability) && (
+							<AlertTriangle className="h-4 w-4 text-orange-500" />
+						)}
 					</div>
 					<ChevronDown className="h-4 w-4 opacity-50" />
 				</Button>
@@ -113,6 +152,9 @@ export function ModelSelector({
 									))}
 								</div>
 								<span className="font-medium">{model.name || model.id}</span>
+								{shouldShowStabilityWarning(model.stability) && (
+									<AlertTriangle className="h-4 w-4 text-orange-500" />
+								)}
 								{model.id === selectedModel && (
 									<Check className="h-4 w-4 text-green-600" />
 								)}
@@ -144,6 +186,19 @@ export function ModelSelector({
 											Stream
 										</Badge>
 									)}
+									{(() => {
+										const stabilityProps = getStabilityBadgeProps(
+											model.stability,
+										);
+										return stabilityProps ? (
+											<Badge
+												variant={stabilityProps.variant}
+												className="text-xs px-1 py-0"
+											>
+												{stabilityProps.label}
+											</Badge>
+										) : null;
+									})()}
 								</div>
 							</div>
 						</DropdownMenuItem>

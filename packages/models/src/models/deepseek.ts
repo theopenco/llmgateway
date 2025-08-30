@@ -7,6 +7,7 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
+		stability: "unstable" as const,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -41,6 +42,7 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
+		stability: "unstable" as const,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -87,6 +89,7 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
+		stability: "unstable" as const,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -112,19 +115,18 @@ export const deepseekModels = [
 				vision: false,
 				tools: false,
 			},
-			// TODO mark as unstable
-			// {
-			// 	providerId: "nebius",
-			// 	modelName: "deepseek-ai/DeepSeek-R1-0528",
-			// 	inputPrice: 0.8 / 1e6,
-			// 	outputPrice: 2.4 / 1e6,
-			// 	requestPrice: 0,
-			// 	contextSize: 64000,
-			// 	maxOutput: undefined,
-			// 	streaming: true,
-			// 	vision: false,
-			// 	tools: false,
-			// },
+			{
+				providerId: "nebius",
+				modelName: "deepseek-ai/DeepSeek-R1-0528",
+				inputPrice: 0.8 / 1e6,
+				outputPrice: 2.4 / 1e6,
+				requestPrice: 0,
+				contextSize: 64000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: false,
+			},
 		],
 		jsonOutput: false,
 	},
@@ -134,6 +136,7 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
+		stability: "beta" as const,
 		providers: [
 			{
 				providerId: "groq",

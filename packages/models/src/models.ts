@@ -86,6 +86,8 @@ export interface ProviderModelMapping {
 	test?: "skip" | "only";
 }
 
+export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
+
 export interface ModelDefinition {
 	/**
 	 * Unique identifier for the model
@@ -127,6 +129,14 @@ export interface ModelDefinition {
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: ("text" | "image")[];
+	/**
+	 * Stability level of the model (defaults to 'stable' if not specified)
+	 * - stable: Fully tested and production ready
+	 * - beta: Generally stable but may have minor issues
+	 * - unstable: May have significant issues or frequent changes
+	 * - experimental: Early stage, use with caution
+	 */
+	stability?: StabilityLevel;
 }
 
 export const models = [
