@@ -80,12 +80,14 @@ const listModels = createRoute({
 				.string()
 				.optional()
 				.transform((val) => val === "true")
-				.describe("Include deactivated models in the response"),
+				.describe("Include deactivated models in the response")
+				.openapi({ example: "false" }),
 			exclude_deprecated: z
 				.string()
 				.optional()
 				.transform((val) => val === "true")
-				.describe("Exclude deprecated models from the response"),
+				.describe("Exclude deprecated models from the response")
+				.openapi({ example: "false" }),
 		}),
 	},
 	responses: {
