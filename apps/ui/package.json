@@ -74,8 +74,8 @@
 	"devDependencies": {
 		"@tanstack/react-query-devtools": "5.84.1",
 		"@types/node": "^20",
-		"@types/react": "^19.1.10",
-		"@types/react-dom": "^19.1.7",
+		"@types/react": "^19.1.12",
+		"@types/react-dom": "^19.1.9",
 		"autoprefixer": "^10.4.20",
 		"eslint": "^8",
 		"eslint-config-next": "15.4.6",
