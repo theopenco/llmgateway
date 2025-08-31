@@ -1,9 +1,10 @@
 "use client";
 
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 
 import { getProviderIcon } from "@/components/ui/providers-icons";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 import { formatContextSize } from "@/lib/utils";
@@ -11,6 +12,7 @@ import { formatContextSize } from "@/lib/utils";
 import type {
 	ProviderModelMapping,
 	ProviderDefinition,
+	StabilityLevel,
 } from "@llmgateway/models";
 
 interface ProviderWithInfo extends ProviderModelMapping {
@@ -20,12 +22,47 @@ interface ProviderWithInfo extends ProviderModelMapping {
 interface ProviderCardProps {
 	provider: ProviderWithInfo;
 	modelName: string;
+	modelStability?: StabilityLevel;
 }
 
-export function ProviderCard({ provider, modelName }: ProviderCardProps) {
+export function ProviderCard({
+	provider,
+	modelName,
+	modelStability,
+}: ProviderCardProps) {
 	const [copied, setCopied] = useState(false);
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
+	const providerStability = provider.stability || modelStability;
+
+	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
+		switch (stability) {
+			case "beta":
+				return {
+					variant: "secondary" as const,
+					color: "text-blue-600",
+					label: "BETA",
+				};
+			case "unstable":
+				return {
+					variant: "destructive" as const,
+					color: "text-red-600",
+					label: "UNSTABLE",
+				};
+			case "experimental":
+				return {
+					variant: "destructive" as const,
+					color: "text-orange-600",
+					label: "EXPERIMENTAL",
+				};
+			default:
+				return null;
+		}
+	};
+
+	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
+		return stability && ["unstable", "experimental"].includes(stability);
+	};
 
 	const copyToClipboard = async () => {
 		try {
@@ -50,9 +87,26 @@ export function ProviderCard({ provider, modelName }: ProviderCardProps) {
 							)}
 						</div>
 						<div>
-							<h3 className="font-semibold">
-								{provider.providerInfo?.name || provider.providerId}
-							</h3>
+							<div className="flex items-center gap-2 mb-1">
+								<h3 className="font-semibold">
+									{provider.providerInfo?.name || provider.providerId}
+								</h3>
+								{shouldShowStabilityWarning(providerStability) && (
+									<AlertTriangle className="h-4 w-4 text-orange-500" />
+								)}
+								{(() => {
+									const stabilityProps =
+										getStabilityBadgeProps(providerStability);
+									return stabilityProps ? (
+										<Badge
+											variant={stabilityProps.variant}
+											className="text-xs px-2 py-0.5"
+										>
+											{stabilityProps.label}
+										</Badge>
+									) : null;
+								})()}
+							</div>
 							<div className="flex items-center gap-2">
 								<code className="text-xs bg-muted px-2 py-1 rounded font-mono">
 									{providerModelName}

@@ -51,9 +51,27 @@ export function ModelsList() {
 					</div>
 					<div className="text-sm text-muted-foreground mb-2">Providers:</div>
 					<div className="flex flex-wrap gap-2 mb-2">
-						{model.providers.map((provider) => (
-							<Badge key={provider.providerId}>{provider.providerId}</Badge>
-						))}
+						{model.providers.map((provider) => {
+							const providerStability = provider.stability || model.stability;
+							const stabilityProps = getStabilityBadgeProps(providerStability);
+
+							return (
+								<div
+									key={provider.providerId}
+									className="flex items-center gap-1"
+								>
+									<Badge>{provider.providerId}</Badge>
+									{stabilityProps && (
+										<Badge
+											variant={stabilityProps.variant}
+											className="text-xs px-1 py-0.5"
+										>
+											{stabilityProps.label}
+										</Badge>
+									)}
+								</div>
+							);
+						})}
 					</div>
 					<div className="flex items-center gap-2 mb-2">
 						<span className="text-sm text-muted-foreground">Stability:</span>
