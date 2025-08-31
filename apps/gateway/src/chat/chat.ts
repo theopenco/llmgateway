@@ -2566,6 +2566,12 @@ chat.openapi(completions, async (c) => {
 		(provider) => (provider as any).reasoning === true,
 	);
 
+	// Check if messages contain existing tool calls or tool results
+	// If so, use Chat Completions API instead of Responses API
+	const hasExistingToolCalls = messages.some(
+		(msg: any) => msg.tool_calls || msg.role === "tool",
+	);
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -2580,6 +2586,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
 			stream,
 			supportsReasoning,
+			hasExistingToolCalls,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {

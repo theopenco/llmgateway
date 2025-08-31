@@ -756,6 +756,7 @@ export function getProviderEndpoint(
 	token?: string,
 	stream?: boolean,
 	supportsReasoning?: boolean,
+	hasExistingToolCalls?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -880,7 +881,8 @@ export function getProviderEndpoint(
 			return `${url}/api/paas/v4/chat/completions`;
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
-			if (supportsReasoning && model) {
+			// but not when there are existing tool calls in the conversation
+			if (supportsReasoning && model && !hasExistingToolCalls) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
@@ -1003,6 +1005,7 @@ export async function validateProviderKey(
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
+			false, // hasExistingToolCalls - disable for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload
