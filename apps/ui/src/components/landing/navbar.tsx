@@ -221,7 +221,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 								{/* Social Icons */}
 								<div className="flex items-center gap-2 lg:order-first lg:mr-4">
 									<a
-										href="https://github.com/theopenco/llmgateway"
+										href={config.githubUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
@@ -230,7 +230,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 										<Github className="h-5 w-5" />
 									</a>
 									<a
-										href="https://discord.gg/llmgateway"
+										href={config.discordUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"

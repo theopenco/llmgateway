@@ -440,6 +440,12 @@ export async function prepareRequestBody(
 				effectiveTemperature = 1;
 			}
 
+			// Check if messages contain existing tool calls or tool results
+			// If so, use Chat Completions API instead of Responses API
+			const hasExistingToolCalls = messages.some(
+				(msg: any) => msg.tool_calls || msg.role === "tool",
+			);
+
 			// Check if the model supports responses API (default to true if reasoning is enabled)
 			const providerMapping = modelDef?.providers.find(
 				(p) => p.providerId === "openai",
@@ -448,8 +454,8 @@ export async function prepareRequestBody(
 				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
 				false;
 
-			if (supportsReasoning && supportsResponsesApi) {
-				// Transform to responses API format (now supports tools as well)
+			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
+				// Transform to responses API format (only when no existing tool calls)
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedModel,
 					input: processedMessages,
@@ -672,11 +678,19 @@ export async function prepareRequestBody(
 			if (tools && tools.length > 0) {
 				requestBody.tools = [
 					{
-						functionDeclarations: tools.map((tool) => ({
-							name: tool.function.name,
-							description: tool.function.description,
-							parameters: tool.function.parameters,
-						})),
+						functionDeclarations: tools.map((tool: any) => {
+							// Remove additionalProperties and $schema from parameters as Google doesn't accept them
+							const {
+								additionalProperties: _additionalProperties,
+								$schema: _$schema,
+								...cleanParameters
+							} = tool.function.parameters || {};
+							return {
+								name: tool.function.name,
+								description: tool.function.description,
+								parameters: cleanParameters,
+							};
+						}),
 					},
 				];
 			}
@@ -742,6 +756,7 @@ export function getProviderEndpoint(
 	token?: string,
 	stream?: boolean,
 	supportsReasoning?: boolean,
+	hasExistingToolCalls?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -866,7 +881,8 @@ export function getProviderEndpoint(
 			return `${url}/api/paas/v4/chat/completions`;
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
-			if (supportsReasoning && model) {
+			// but not when there are existing tool calls in the conversation
+			if (supportsReasoning && model && !hasExistingToolCalls) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
@@ -989,6 +1005,7 @@ export async function validateProviderKey(
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
+			false, // hasExistingToolCalls - disable for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload

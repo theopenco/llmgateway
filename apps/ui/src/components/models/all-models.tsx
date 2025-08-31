@@ -20,6 +20,7 @@ import {
 	Play,
 	ImagePlus,
 	AlertTriangle,
+	ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -756,273 +757,296 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 	const renderTableView = () => (
 		<div className="rounded-md border">
-			<Table>
-				<TableHeader>
-					<TableRow>
-						<TableHead className="w-[250px]">
-							<Button
-								variant="ghost"
-								onClick={() => handleSort("name")}
-								className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
-							>
-								Model
-								{getSortIcon("name")}
-							</Button>
-						</TableHead>
-						<TableHead>
-							<Button
-								variant="ghost"
-								onClick={() => handleSort("providers")}
-								className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
-							>
-								Providers
-								{getSortIcon("providers")}
-							</Button>
-						</TableHead>
-						<TableHead className="text-center">
-							<Button
-								variant="ghost"
-								onClick={() => handleSort("contextSize")}
-								className="h-auto p-0 font-semibold hover:bg-transparent"
-							>
-								Context Size
-								{getSortIcon("contextSize")}
-							</Button>
-						</TableHead>
-						<TableHead className="text-center">
-							<Button
-								variant="ghost"
-								onClick={() => handleSort("inputPrice")}
-								className="h-auto p-0 font-semibold hover:bg-transparent"
-							>
-								Input Price
-								{getSortIcon("inputPrice")}
-							</Button>
-						</TableHead>
-						<TableHead className="text-center">
-							<Button
-								variant="ghost"
-								onClick={() => handleSort("outputPrice")}
-								className="h-auto p-0 font-semibold hover:bg-transparent"
-							>
-								Output Price
-								{getSortIcon("outputPrice")}
-							</Button>
-						</TableHead>
-						<TableHead className="text-center">Capabilities</TableHead>
-						<TableHead className="text-center">Stability</TableHead>
-						<TableHead className="text-center">Actions</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{modelsWithProviders.map((model) => (
-						<TableRow key={model.id}>
-							<TableCell className="font-medium">
-								<div className="space-y-1">
-									<div className="font-semibold text-sm flex items-center gap-2">
-										{model.name || model.id}
-										{shouldShowStabilityWarning(
-											getMostUnstableStability(model),
-										) && <AlertTriangle className="h-4 w-4 text-orange-500" />}
-										{model.free && (
-											<Badge
-												variant="secondary"
-												className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
-											>
-												<Gift className="h-3 w-3 mr-1" />
-												Free
-											</Badge>
-										)}
-									</div>
-									<div className="text-xs text-muted-foreground">
-										Family:{" "}
-										<Badge variant="outline" className="text-xs">
-											{model.family}
-										</Badge>
-									</div>
-									<div className="flex items-center gap-1">
-										<code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
-											{model.id}
-										</code>
-										<Button
-											variant="ghost"
-											size="sm"
-											className="h-5 w-5 p-0"
-											onClick={() => copyToClipboard(model.id)}
-											title="Copy model ID"
-										>
-											{copiedModel === model.id ? (
-												<Check className="h-3 w-3 text-green-600" />
-											) : (
-												<Copy className="h-3 w-3" />
-											)}
-										</Button>
-									</div>
-								</div>
-							</TableCell>
-
-							<TableCell>
-								<div className="flex flex-col flex-wrap gap-2">
-									{model.providerDetails.map(({ provider, providerInfo }) => (
-										<div
-											key={provider.providerId}
-											className="flex items-center gap-1"
-										>
-											<div className="w-5 h-5 flex items-center justify-center">
-												{(() => {
-													const ProviderIcon = getProviderIcon(
-														provider.providerId,
-													);
-													return ProviderIcon ? (
-														<ProviderIcon className="w-4 h-4" />
-													) : (
-														<div
-															className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
-															style={{
-																backgroundColor:
-																	providerInfo?.color || "#6b7280",
-															}}
-														>
-															{(providerInfo?.name || provider.providerId)
-																.charAt(0)
-																.toUpperCase()}
-														</div>
-													);
-												})()}
-											</div>
-											<Badge
-												variant="secondary"
-												className="text-xs"
-												style={{ borderColor: providerInfo?.color }}
-											>
-												{providerInfo?.name || provider.providerId}
-											</Badge>
-										</div>
-									))}
-								</div>
-							</TableCell>
-
-							<TableCell className="text-center">
-								<div className="space-y-1">
-									{model.providerDetails.map(({ provider }) => (
-										<div key={provider.providerId} className="text-sm">
-											{provider.contextSize
-												? formatContextSize(provider.contextSize)
-												: "—"}
-										</div>
-									))}
-								</div>
-							</TableCell>
-
-							<TableCell className="text-center">
-								<div className="space-y-1">
-									{model.providerDetails.map(({ provider }) => (
-										<div
-											key={provider.providerId}
-											className="text-sm font-mono"
-										>
-											{formatPrice(provider.inputPrice)}/M
-										</div>
-									))}
-								</div>
-							</TableCell>
-
-							<TableCell className="text-center">
-								<div className="space-y-1">
-									{model.providerDetails.map(({ provider }) => (
-										<div
-											key={provider.providerId}
-											className="text-sm font-mono"
-										>
-											{formatPrice(provider.outputPrice)}/M
-										</div>
-									))}
-								</div>
-							</TableCell>
-
-							<TableCell className="text-center">
-								<div className="space-y-2">
-									{model.providerDetails.map(({ provider }) => (
-										<div
-											key={provider.providerId}
-											className="flex justify-center gap-1"
-										>
-											{getCapabilityIcons(provider, model).map(
-												({ icon: Icon, label, color }) => (
-													<Tooltip key={label}>
-														<TooltipTrigger asChild>
-															<div
-																className="cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-0.5 -m-0.5"
-																tabIndex={0}
-																role="button"
-																aria-label={`Model capability: ${label}`}
-															>
-																<Icon className={`h-4 w-4 ${color}`} />
-															</div>
-														</TooltipTrigger>
-														<TooltipContent
-															className="bg-popover text-popover-foreground border border-border shadow-md"
-															side="top"
-															align="center"
-															avoidCollisions={true}
-														>
-															<p>{label}</p>
-														</TooltipContent>
-													</Tooltip>
-												),
-											)}
-										</div>
-									))}
-								</div>
-							</TableCell>
-
-							<TableCell className="text-center">
-								{(() => {
-									const mostUnstableStability = getMostUnstableStability(model);
-									const stabilityProps = getStabilityBadgeProps(
-										mostUnstableStability,
-									);
-									return stabilityProps ? (
-										<Badge
-											variant={stabilityProps.variant}
-											className="text-xs px-2 py-1"
-										>
-											{stabilityProps.label}
-										</Badge>
-									) : (
-										<Badge variant="outline" className="text-xs px-2 py-1">
-											STABLE
-										</Badge>
-									);
-								})()}
-							</TableCell>
-
-							<TableCell className="text-center">
-								<Link
-									href={`/playground?model=${encodeURIComponent(model.id)}`}
+			<div className="relative w-full overflow-auto h-[63vh]">
+				<Table className="relative">
+					<TableHeader className="sticky top-0">
+						<TableRow>
+							<TableHead className="w-[250px] bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("name")}
+									className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
 								>
-									<Button
-										variant="outline"
-										size="sm"
-										className="h-8 gap-2"
-										title={`Try ${model.name || model.id} in playground`}
-									>
-										<Play className="h-3 w-3" />
-										Try it
-									</Button>
-								</Link>
-							</TableCell>
+									Model
+									{getSortIcon("name")}
+								</Button>
+							</TableHead>
+							<TableHead className="bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("providers")}
+									className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
+								>
+									Providers
+									{getSortIcon("providers")}
+								</Button>
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("contextSize")}
+									className="h-auto p-0 font-semibold hover:bg-transparent"
+								>
+									Context Size
+									{getSortIcon("contextSize")}
+								</Button>
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("inputPrice")}
+									className="h-auto p-0 font-semibold hover:bg-transparent"
+								>
+									Input Price
+									{getSortIcon("inputPrice")}
+								</Button>
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("outputPrice")}
+									className="h-auto p-0 font-semibold hover:bg-transparent"
+								>
+									Output Price
+									{getSortIcon("outputPrice")}
+								</Button>
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								Capabilities
+							</TableHead>
+							<TableHead className="text-center">Stability</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								Actions
+							</TableHead>
 						</TableRow>
-					))}
-				</TableBody>
-			</Table>
+					</TableHeader>
+					<TableBody>
+						{modelsWithProviders.map((model) => (
+							<TableRow
+								key={model.id}
+								className="cursor-pointer hover:bg-muted/50 transition-colors"
+								onClick={() =>
+									router.push(`/models/${encodeURIComponent(model.id)}`)
+								}
+							>
+								<TableCell className="font-medium">
+									<div className="space-y-1">
+										<div className="font-semibold text-sm flex items-center gap-2">
+											{model.name || model.id}
+											{shouldShowStabilityWarning(
+												getMostUnstableStability(model),
+											) && (
+												<AlertTriangle className="h-4 w-4 text-orange-500" />
+											)}
+											{model.free && (
+												<Badge
+													variant="secondary"
+													className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
+												>
+													<Gift className="h-3 w-3 mr-1" />
+													Free
+												</Badge>
+											)}
+										</div>
+										<div className="text-xs text-muted-foreground">
+											Family:{" "}
+											<Badge variant="outline" className="text-xs">
+												{model.family}
+											</Badge>
+										</div>
+										<div className="flex items-center gap-1">
+											<code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+												{model.id}
+											</code>
+											<Button
+												variant="ghost"
+												size="sm"
+												className="h-5 w-5 p-0"
+												onClick={(e) => {
+													e.stopPropagation();
+													copyToClipboard(model.id);
+												}}
+												title="Copy model ID"
+											>
+												{copiedModel === model.id ? (
+													<Check className="h-3 w-3 text-green-600" />
+												) : (
+													<Copy className="h-3 w-3" />
+												)}
+											</Button>
+										</div>
+									</div>
+								</TableCell>
+
+								<TableCell>
+									<div className="flex flex-col flex-wrap gap-2">
+										{model.providerDetails.map(({ provider, providerInfo }) => (
+											<div
+												key={provider.providerId}
+												className="flex items-center gap-1"
+											>
+												<div className="w-5 h-5 flex items-center justify-center">
+													{(() => {
+														const ProviderIcon = getProviderIcon(
+															provider.providerId,
+														);
+														return ProviderIcon ? (
+															<ProviderIcon className="w-4 h-4" />
+														) : (
+															<div
+																className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
+																style={{
+																	backgroundColor:
+																		providerInfo?.color || "#6b7280",
+																}}
+															>
+																{(providerInfo?.name || provider.providerId)
+																	.charAt(0)
+																	.toUpperCase()}
+															</div>
+														);
+													})()}
+												</div>
+												<Badge
+													variant="secondary"
+													className="text-xs"
+													style={{ borderColor: providerInfo?.color }}
+												>
+													{providerInfo?.name || provider.providerId}
+												</Badge>
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									<div className="space-y-1">
+										{model.providerDetails.map(({ provider }) => (
+											<div key={provider.providerId} className="text-sm">
+												{provider.contextSize
+													? formatContextSize(provider.contextSize)
+													: "—"}
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									<div className="space-y-1">
+										{model.providerDetails.map(({ provider }) => (
+											<div
+												key={provider.providerId}
+												className="text-sm font-mono"
+											>
+												{formatPrice(provider.inputPrice)}/M
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									<div className="space-y-1">
+										{model.providerDetails.map(({ provider }) => (
+											<div
+												key={provider.providerId}
+												className="text-sm font-mono"
+											>
+												{formatPrice(provider.outputPrice)}/M
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									<div className="space-y-2">
+										{model.providerDetails.map(({ provider }) => (
+											<div
+												key={provider.providerId}
+												className="flex justify-center gap-1"
+											>
+												{getCapabilityIcons(provider, model).map(
+													({ icon: Icon, label, color }) => (
+														<Tooltip key={label}>
+															<TooltipTrigger asChild>
+																<div
+																	className="cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-0.5 -m-0.5"
+																	tabIndex={0}
+																	role="button"
+																	aria-label={`Model capability: ${label}`}
+																>
+																	<Icon className={`h-4 w-4 ${color}`} />
+																</div>
+															</TooltipTrigger>
+															<TooltipContent
+																className="bg-popover text-popover-foreground border border-border shadow-md"
+																side="top"
+																align="center"
+																avoidCollisions={true}
+															>
+																<p>{label}</p>
+															</TooltipContent>
+														</Tooltip>
+													),
+												)}
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									{(() => {
+										const mostUnstableStability =
+											getMostUnstableStability(model);
+										const stabilityProps = getStabilityBadgeProps(
+											mostUnstableStability,
+										);
+										return stabilityProps ? (
+											<Badge
+												variant={stabilityProps.variant}
+												className="text-xs px-2 py-1"
+											>
+												{stabilityProps.label}
+											</Badge>
+										) : (
+											<Badge variant="outline" className="text-xs px-2 py-1">
+												STABLE
+											</Badge>
+										);
+									})()}
+								</TableCell>
+
+								<TableCell className="text-center">
+									<Link
+										href={`/playground?model=${encodeURIComponent(model.id)}`}
+										onClick={(e) => e.stopPropagation()}
+									>
+										<Button
+											variant="outline"
+											size="sm"
+											className="h-8 gap-2"
+											title={`Try ${model.name || model.id} in playground`}
+										>
+											<Play className="h-3 w-3" />
+											Try it
+										</Button>
+									</Link>
+								</TableCell>
+							</TableRow>
+						))}
+					</TableBody>
+				</Table>
+			</div>
 		</div>
 	);
 
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 			{modelsWithProviders.map((model) => (
-				<Card key={model.id} className="flex flex-col">
+				<Card
+					key={model.id}
+					className="flex flex-col cursor-pointer hover:shadow-lg transition-shadow"
+					onClick={() => router.push(`/models/${encodeURIComponent(model.id)}`)}
+				>
 					<CardHeader>
 						<div className="flex items-start justify-between gap-2">
 							<div className="flex-1 min-w-0">
@@ -1059,7 +1083,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								variant="ghost"
 								size="sm"
 								className="h-6 w-6 p-0 shrink-0"
-								onClick={() => copyToClipboard(model.id)}
+								onClick={(e) => {
+									e.stopPropagation();
+									copyToClipboard(model.id);
+								}}
 								title="Copy model ID"
 							>
 								{copiedModel === model.id ? (
@@ -1204,6 +1231,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							<div className="pt-4 border-t">
 								<Link
 									href={`/playground?model=${encodeURIComponent(model.id)}`}
+									onClick={(e) => e.stopPropagation()}
 								>
 									<Button
 										variant="outline"
@@ -1244,6 +1272,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</div>
 
 								<div className="flex items-center gap-2">
+									<Link
+										href="https://docs.llmgateway.io/v1_models"
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										<Button variant="outline" size="sm">
+											<ExternalLink className="h-4 w-4 mr-1" />
+											API Docs
+										</Button>
+									</Link>
 									<Button
 										variant={viewMode === "table" ? "default" : "outline"}
 										size="sm"
