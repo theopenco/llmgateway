@@ -373,23 +373,15 @@ export async function prepareRequestBody(
 				effectiveTemperature = 1;
 			}
 
-			if (supportsReasoning) {
-				// Transform to responses API format (now supports tools as well)
-				// Clean messages by removing tool_calls and tool_call_id fields
-				// Also transform 'tool' role to 'user' role since responses API doesn't support 'tool' role
-				const cleanedMessages = messages.map((msg) => {
-					const { tool_calls: _, tool_call_id: __, ...cleanMsg } = msg;
+			// Check if messages contain existing tool calls or tool results
+			// If so, use Chat Completions API instead of Responses API
+			const hasExistingToolCalls = messages.some(
+				(msg: any) => msg.tool_calls || msg.role === "tool",
+			);
 
-					// Transform tool role to user role for responses API compatibility
-					if (cleanMsg.role === "tool") {
-						return {
-							...cleanMsg,
-							role: "user",
-						};
-					}
-
-					return cleanMsg;
-				});
+			if (supportsReasoning && !hasExistingToolCalls) {
+				// Transform to responses API format
+				const cleanedMessages = messages;
 
 				const responsesBody: any = {
 					model: usedModel,
