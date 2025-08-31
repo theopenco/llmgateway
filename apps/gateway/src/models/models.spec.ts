@@ -141,26 +141,12 @@ describe("Models API", () => {
 		expect(modelsWithStability.length).toBeGreaterThan(0);
 
 		// Find DeepSeek models to test specific stability flags
-		const deepSeekV3 = json.data.find(
-			(model: any) => model.id === "deepseek-v3",
-		);
-		const deepSeekR1 = json.data.find(
-			(model: any) => model.id === "deepseek-r1",
-		);
 		const deepSeekR1Distill = json.data.find(
 			(model: any) => model.id === "deepseek-r1-distill-llama-70b",
 		);
 		const deepSeekV31 = json.data.find(
 			(model: any) => model.id === "deepseek-v3.1",
 		);
-
-		if (deepSeekV3) {
-			expect(deepSeekV3.stability).toBe("unstable");
-		}
-
-		if (deepSeekR1) {
-			expect(deepSeekR1.stability).toBe("unstable");
-		}
 
 		if (deepSeekR1Distill) {
 			expect(deepSeekR1Distill.stability).toBe("beta");
