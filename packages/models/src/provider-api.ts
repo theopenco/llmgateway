@@ -1,4 +1,8 @@
-import { models } from "./models";
+import {
+	models,
+	type ModelDefinition,
+	type ProviderModelMapping,
+} from "./models";
 
 import type { ProviderId } from "./providers";
 
@@ -204,7 +208,7 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
  * Transforms Anthropic messages to handle image URLs by converting them to base64
  */
 async function transformAnthropicMessages(messages: any[], isProd = false) {
-	const results = [] as any[];
+	const results: any[] = [];
 	for (const m of messages) {
 		let content: any[] = [];
 
@@ -367,7 +371,8 @@ export async function prepareRequestBody(
 ) {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
-	const supportsSystemRole = (modelDef as any)?.supportsSystemRole !== false;
+	const supportsSystemRole =
+		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
 	// Transform messages if model doesn't support system role
 	let processedMessages = messages;
@@ -403,7 +408,8 @@ export async function prepareRequestBody(
 				(p) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
-				(providerMapping as any)?.supportsResponsesApi !== false;
+				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
+				false;
 
 			if (supportsReasoning && supportsResponsesApi) {
 				// Transform to responses API format (now supports tools as well)
@@ -834,7 +840,8 @@ export function getProviderEndpoint(
 					(p) => p.providerId === "openai",
 				);
 				const supportsResponsesApi =
-					(providerMapping as any)?.supportsResponsesApi !== false;
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
+					false;
 
 				if (supportsResponsesApi) {
 					return `${url}/v1/responses`;
@@ -979,8 +986,8 @@ export async function validateProviderKey(
 		const providerMapping = modelDef?.providers.find(
 			(p) => p.providerId === provider && p.modelName === validationModel,
 		);
-		const supportedParameters = (providerMapping as any)
-			?.supportedParameters as string[] | undefined;
+		const supportedParameters = (providerMapping as ProviderModelMapping)
+			?.supportedParameters;
 		const supportsMaxTokens =
 			supportedParameters?.includes("max_tokens") ?? true;
 
