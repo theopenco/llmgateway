@@ -64,6 +64,7 @@ export async function fetchServerData<T>(
 		}
 
 		if (response.error) {
+			// Use console.error for server-side logging in Next.js
 			console.error(`Server API error for ${method} ${path}:`, response.error);
 			return null;
 		}

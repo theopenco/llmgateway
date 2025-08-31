@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { logger } from "@llmgateway/logger";
 import {
 	models as modelsList,
 	providers,
@@ -233,7 +234,10 @@ modelsApi.openapi(listModels, async (c) => {
 
 		return c.json({ data: modelData });
 	} catch (error) {
-		console.error("Error in models endpoint:", error);
+		logger.error(
+			"Error in models endpoint",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });

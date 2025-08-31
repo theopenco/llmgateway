@@ -1,4 +1,5 @@
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { randomUUID } from "crypto";
 
 interface BeaconData {
@@ -39,11 +40,8 @@ export async function sendInstallationBeacon(): Promise<void> {
 		return;
 	}
 
-	console.log(
-		"Sending installation beacon (for anonymous tracking of self-hosted installs.",
-	);
-	console.log(
-		"To disable, set TELEMETRY_ACTIVE=false in your environment variables.",
+	logger.info(
+		"Sending installation beacon (for anonymous tracking of self-hosted installs. To disable, set TELEMETRY_ACTIVE=false in your environment variables.",
 	);
 
 	try {
@@ -65,7 +63,7 @@ export async function sendInstallationBeacon(): Promise<void> {
 				})
 				.returning();
 			installation = newInstallation;
-			console.log("Created new self-hosted installation record");
+			logger.info("Created new self-hosted installation record");
 		}
 
 		await sendBeacon({
@@ -75,8 +73,10 @@ export async function sendInstallationBeacon(): Promise<void> {
 			version: process.env.APP_VERSION || "v0.0.0-unknown",
 		});
 
-		console.log("Installation beacon sent successfully");
+		logger.info("Installation beacon sent successfully");
 	} catch (error) {
-		console.warn("Failed to send installation beacon:", error);
+		logger.warn("Failed to send installation beacon", {
+			error: error instanceof Error ? error : new Error(String(error)),
+		});
 	}
 }

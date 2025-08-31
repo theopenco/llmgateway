@@ -10,6 +10,7 @@ import {
 	apiKey,
 	inArray,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import z from "zod";
 
 import { getOrganization } from "./lib/cache";
@@ -116,14 +117,14 @@ async function processAutoTopUp(): Promise<void> {
 					if (recentTransaction.createdAt > oneHourAgo) {
 						// Recent transaction within 1 hour, check its status
 						if (recentTransaction.status === "pending") {
-							console.log(
+							logger.info(
 								`Skipping auto top-up for organization ${org.id}: pending transaction exists`,
 							);
 							continue;
 						}
 
 						if (recentTransaction.status === "failed") {
-							console.log(
+							logger.info(
 								`Skipping auto top-up for organization ${org.id}: most recent transaction failed`,
 							);
 							continue;
@@ -143,7 +144,7 @@ async function processAutoTopUp(): Promise<void> {
 				});
 
 				if (!defaultPaymentMethod) {
-					console.log(
+					logger.info(
 						`No default payment method for organization ${org.id}, skipping auto top-up`,
 					);
 					continue;
@@ -191,7 +192,7 @@ async function processAutoTopUp(): Promise<void> {
 					.returning()
 					.then((rows) => rows[0]);
 
-				console.log(
+				logger.info(
 					`Created pending transaction ${pendingTransaction.id} for organization ${org.id}`,
 				);
 
@@ -224,16 +225,16 @@ async function processAutoTopUp(): Promise<void> {
 						.where(eq(tables.transaction.id, pendingTransaction.id));
 
 					if (paymentIntent.status === "succeeded") {
-						console.log(
+						logger.info(
 							`Auto top-up payment intent succeeded immediately for organization ${org.id}: $${topUpAmount}`,
 						);
 						// Note: The webhook will handle updating the transaction status and adding credits
 					} else if (paymentIntent.status === "requires_action") {
-						console.log(
+						logger.info(
 							`Auto top-up requires action for organization ${org.id}: ${paymentIntent.status}`,
 						);
 					} else {
-						console.error(
+						logger.error(
 							`Auto top-up payment intent failed for organization ${org.id}: ${paymentIntent.status}`,
 						);
 						// Mark transaction as failed
@@ -246,9 +247,11 @@ async function processAutoTopUp(): Promise<void> {
 							.where(eq(tables.transaction.id, pendingTransaction.id));
 					}
 				} catch (stripeError) {
-					console.error(
-						`Stripe error for organization ${org.id}:`,
-						stripeError,
+					logger.error(
+						`Stripe error for organization ${org.id}`,
+						stripeError instanceof Error
+							? stripeError
+							: new Error(String(stripeError)),
 					);
 					// Mark transaction as failed
 					await db
@@ -260,9 +263,9 @@ async function processAutoTopUp(): Promise<void> {
 						.where(eq(tables.transaction.id, pendingTransaction.id));
 				}
 			} catch (error) {
-				console.error(
-					`Error processing auto top-up for organization ${org.id}:`,
-					error,
+				logger.error(
+					`Error processing auto top-up for organization ${org.id}`,
+					error instanceof Error ? error : new Error(String(error)),
 				);
 			}
 		}
@@ -303,7 +306,7 @@ async function batchProcessLogs(): Promise<void> {
 				return;
 			}
 
-			console.log(
+			logger.info(
 				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
 			);
 
@@ -339,7 +342,7 @@ async function batchProcessLogs(): Promise<void> {
 						})
 						.where(eq(organization.id, orgId));
 
-					console.log(
+					logger.info(
 						`Deducted ${totalCost} credits from organization ${orgId}`,
 					);
 				}
@@ -355,7 +358,7 @@ async function batchProcessLogs(): Promise<void> {
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					console.log(`Added ${totalCost} usage to API key ${apiKeyId}`);
+					logger.info(`Added ${totalCost} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -367,10 +370,13 @@ async function batchProcessLogs(): Promise<void> {
 				})
 				.where(inArray(log.id, logIds));
 
-			console.log(`Marked ${logIds.length} logs as processed`);
+			logger.info(`Marked ${logIds.length} logs as processed`);
 		});
 	} catch (error) {
-		console.error("Error processing batch credit deductions:", error);
+		logger.error(
+			"Error processing batch credit deductions",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
@@ -406,7 +412,10 @@ export async function processLogQueue(): Promise<void> {
 		// Insert logs without processing credits or API key usage - they will be processed in batches
 		await db.insert(log).values(processedLogData as any);
 	} catch (error) {
-		console.error("Error processing log message:", error);
+		logger.error(
+			"Error processing log message",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 	}
 }
 
@@ -415,13 +424,13 @@ let shouldStop = false;
 
 export async function startWorker() {
 	if (isWorkerRunning) {
-		console.log("Worker is already running");
+		logger.info("Worker is already running");
 		return;
 	}
 
 	isWorkerRunning = true;
 	shouldStop = false;
-	console.log("Starting log queue worker...");
+	logger.info("Starting log queue worker...");
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 	let creditProcessingCounter = 0;
@@ -449,7 +458,10 @@ export async function startWorker() {
 				});
 			}
 		} catch (error) {
-			console.error("Error in log queue worker:", error);
+			logger.error(
+				"Error in log queue worker",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 			if (!shouldStop) {
 				await new Promise((resolve) => {
 					setTimeout(resolve, 5000);
@@ -459,16 +471,16 @@ export async function startWorker() {
 	}
 
 	isWorkerRunning = false;
-	console.log("Worker stopped");
+	logger.info("Worker stopped");
 }
 
 export async function stopWorker(): Promise<void> {
 	if (!isWorkerRunning) {
-		console.log("Worker is not running");
+		logger.info("Worker is not running");
 		return;
 	}
 
-	console.log("Stopping worker...");
+	logger.info("Stopping worker...");
 	shouldStop = true;
 
 	const pollInterval = 100;
@@ -478,7 +490,7 @@ export async function stopWorker(): Promise<void> {
 	// eslint-disable-next-line no-unmodified-loop-condition
 	while (isWorkerRunning) {
 		if (Date.now() - startTime > maxWaitTime) {
-			console.warn("Worker stop timeout exceeded, forcing shutdown");
+			logger.warn("Worker stop timeout exceeded, forcing shutdown");
 			break;
 		}
 		await new Promise((resolve) => {
@@ -486,5 +498,5 @@ export async function stopWorker(): Promise<void> {
 		});
 	}
 
-	console.log("Worker stopped gracefully");
+	logger.info("Worker stopped gracefully");
 }

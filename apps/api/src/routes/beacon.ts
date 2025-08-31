@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { logger } from "@llmgateway/logger";
 import { z } from "zod";
 
 import { posthog } from "../posthog";
@@ -126,9 +127,13 @@ beacon.openapi(beaconRoute, async (c) => {
 		},
 	});
 
-	console.log(
-		`Received beacon from installation ${beaconData.uuid} (${beaconData.type}) - IP: ${clientIP}, Country: ${regionInfo.country}, Provider: ${cloudProvider}`,
-	);
+	logger.info("Received installation beacon", {
+		uuid: beaconData.uuid,
+		type: beaconData.type,
+		clientIP,
+		country: regionInfo.country,
+		cloudProvider,
+	});
 
 	return c.json({
 		success: true,

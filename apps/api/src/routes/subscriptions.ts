@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { db } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -130,7 +131,10 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			checkoutUrl: session.url,
 		});
 	} catch (error) {
-		console.error("Stripe checkout session error:", error);
+		logger.error(
+			"Stripe checkout session error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
 			message: `Failed to create checkout session: ${error}`,
 		});
@@ -202,7 +206,10 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 			success: true,
 		});
 	} catch (error) {
-		console.error("Stripe subscription cancellation error:", error);
+		logger.error(
+			"Stripe subscription cancellation error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
 			message: "Failed to cancel subscription",
 		});
@@ -285,7 +292,10 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 			success: true,
 		});
 	} catch (error) {
-		console.error("Stripe subscription resume error:", error);
+		logger.error(
+			"Stripe subscription resume error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
 			message: "Failed to resume subscription",
 		});
@@ -382,7 +392,10 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 			success: true,
 		});
 	} catch (error) {
-		console.error("Stripe subscription upgrade error:", error);
+		logger.error(
+			"Stripe subscription upgrade error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
 			message: "Failed to upgrade subscription to yearly plan",
 		});
@@ -456,7 +469,10 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 			}
 			billingCycle = currentPriceId === yearlyPriceId ? "yearly" : "monthly";
 		} catch (error) {
-			console.error("Error fetching subscription details:", error);
+			logger.error(
+				"Error fetching subscription details",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 		}
 	}
 

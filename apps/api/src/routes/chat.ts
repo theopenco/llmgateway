@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { logger } from "@llmgateway/logger";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 
@@ -123,7 +124,10 @@ chat.openapi(completionRoute, async (c) => {
 						}
 					}
 				} catch (error) {
-					console.error("Streaming error:", error);
+					logger.error(
+						"Streaming error",
+						error instanceof Error ? error : new Error(String(error)),
+					);
 					await stream.writeSSE({
 						data: JSON.stringify({ error: "Streaming failed" }),
 						event: "error",
@@ -154,7 +158,10 @@ chat.openapi(completionRoute, async (c) => {
 			return c.json(responseObject);
 		}
 	} catch (error) {
-		console.error("Chat completion error:", error);
+		logger.error(
+			"Chat completion error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		return c.json({ error: "Failed to get chat completion" }, 500);
 	}
 });
