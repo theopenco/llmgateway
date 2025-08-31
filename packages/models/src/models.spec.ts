@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { models } from "./models";
+import { prepareRequestBody } from "./provider-api";
 
 describe("Models", () => {
 	it("should not have duplicate model IDs", () => {
@@ -16,5 +17,256 @@ describe("Models", () => {
 			);
 			throw new Error(`Duplicate model IDs found: ${duplicates.join(", ")}`);
 		}
+	});
+
+	it("should include o1-mini model", () => {
+		const o1MiniModel = models.find((model) => model.id === "o1-mini");
+		expect(o1MiniModel).toBeDefined();
+		expect(o1MiniModel?.supportsSystemRole).toBe(false);
+		expect(o1MiniModel?.family).toBe("openai");
+	});
+});
+
+describe("System Role Handling", () => {
+	it("should transform system messages to user messages for o1-mini", async () => {
+		const messages = [
+			{ role: "system", content: "You are a helpful assistant." },
+			{ role: "user", content: "Hello" },
+		];
+
+		const requestBody = await prepareRequestBody(
+			"openai",
+			"o1-mini",
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		);
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+		expect(requestBody.messages[1].content).toBe("Hello");
+	});
+
+	it("should preserve system messages for models that support them", async () => {
+		const messages = [
+			{ role: "system", content: "You are a helpful assistant." },
+			{ role: "user", content: "Hello" },
+		];
+
+		const requestBody = await prepareRequestBody(
+			"openai",
+			"gpt-4o-mini",
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			false, // supportsReasoning
+			false, // isProd
+		);
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+		expect(requestBody.messages[1].content).toBe("Hello");
+	});
+
+	it("should handle array content in system messages", async () => {
+		const messages = [
+			{
+				role: "system",
+				content: [
+					{ type: "text", text: "You are a helpful" },
+					{ type: "text", text: "assistant." },
+				],
+			},
+			{ role: "user", content: "Hello" },
+		];
+
+		const requestBody = await prepareRequestBody(
+			"openai",
+			"o1-mini",
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		);
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(requestBody.messages[0].content).toEqual([
+			{ type: "text", text: "You are a helpful" },
+			{ type: "text", text: "assistant." },
+		]);
+	});
+});
+
+describe("prepareRequestBody", () => {
+	const messages = [{ role: "user", content: "Hello" }];
+
+	describe("OpenAI provider", () => {
+		it("should override temperature to 1 for gpt-5 models", async () => {
+			const body = await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				messages,
+				false, // stream
+				0.7, // temperature - should be overridden to 1
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				false, // supportsReasoning
+				false, // isProd
+			);
+
+			expect(body.temperature).toBe(1);
+		});
+
+		it("should override temperature to 1 for gpt-5-mini models", async () => {
+			const body = await prepareRequestBody(
+				"openai",
+				"gpt-5-mini",
+				messages,
+				false, // stream
+				0.3, // temperature - should be overridden to 1
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				false, // supportsReasoning
+				false, // isProd
+			);
+
+			expect(body.temperature).toBe(1);
+		});
+
+		it("should override temperature to 1 for gpt-5-nano models", async () => {
+			const body = await prepareRequestBody(
+				"openai",
+				"gpt-5-nano",
+				messages,
+				false, // stream
+				0.9, // temperature - should be overridden to 1
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				false, // supportsReasoning
+				false, // isProd
+			);
+
+			expect(body.temperature).toBe(1);
+		});
+
+		it("should override temperature to 1 for gpt-5-chat-latest models", async () => {
+			const body = await prepareRequestBody(
+				"openai",
+				"gpt-5-chat-latest",
+				messages,
+				false, // stream
+				0.5, // temperature - should be overridden to 1
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				false, // supportsReasoning
+				false, // isProd
+			);
+
+			expect(body.temperature).toBe(1);
+		});
+
+		it("should not override temperature for non-gpt-5 models", async () => {
+			const body = await prepareRequestBody(
+				"openai",
+				"gpt-4o-mini",
+				messages,
+				false, // stream
+				0.7, // temperature - should remain as-is
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				false, // supportsReasoning
+				false, // isProd
+			);
+
+			expect(body.temperature).toBe(0.7);
+		});
+
+		it("should override temperature to 1 for gpt-5 models with reasoning enabled", async () => {
+			const body = await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				messages,
+				false, // stream
+				0.8, // temperature - should be overridden to 1
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				"medium", // reasoning_effort
+				true, // supportsReasoning
+				false, // isProd
+			);
+
+			expect(body.temperature).toBe(1);
+		});
 	});
 });

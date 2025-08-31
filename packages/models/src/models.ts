@@ -63,6 +63,10 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
+	 */
+	supportsResponsesApi?: boolean;
+	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
 	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that don't return reasoning content)
@@ -145,6 +149,10 @@ export interface ModelDefinition {
 	 * - experimental: Early stage, use with caution
 	 */
 	stability?: StabilityLevel;
+	/**
+	 * Whether this model supports system role messages (defaults to true if not specified)
+	 */
+	supportsSystemRole?: boolean;
 }
 
 export const models = [
