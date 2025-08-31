@@ -7,7 +7,6 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
-		stability: "unstable" as const,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -20,7 +19,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "unstable" as const,
 			},
 			{
 				providerId: "nebius",
@@ -33,7 +31,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "beta" as const,
 			},
 		],
 		jsonOutput: false,
@@ -44,7 +41,6 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
-		stability: "unstable" as const,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -57,7 +53,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "unstable" as const,
 			},
 			{
 				providerId: "deepseek",
@@ -70,7 +65,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "stable" as const,
 			},
 			{
 				providerId: "nebius",
@@ -83,7 +77,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "beta" as const,
 			},
 		],
 		jsonOutput: false,
@@ -94,7 +87,6 @@ export const deepseekModels = [
 		family: "deepseek",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
-		stability: "unstable" as const,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -107,7 +99,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "unstable" as const,
 			},
 			{
 				providerId: "deepseek",
@@ -120,7 +111,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "stable" as const,
 			},
 			{
 				providerId: "nebius",
@@ -133,7 +123,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "beta" as const,
+				stability: "unstable" as const,
 			},
 		],
 		jsonOutput: false,
@@ -157,7 +147,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				stability: "stable" as const,
 			},
 			{
 				providerId: "nebius",
@@ -170,7 +159,6 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
-				stability: "beta" as const,
 			},
 		],
 		jsonOutput: true,
