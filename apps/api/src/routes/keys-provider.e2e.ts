@@ -1,14 +1,32 @@
 import { db, tables } from "@llmgateway/db";
-import { providers } from "@llmgateway/models";
+import {
+	models,
+	type ProviderModelMapping,
+	providers,
+} from "@llmgateway/models";
 import "dotenv/config";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	type TestOptions,
+} from "vitest";
 
 import { app } from "..";
 import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
 import { createTestUser, deleteAll } from "../testing";
 
-function getTestOptions() {
-	return process.env.CI ? { retry: 3 } : {};
+function getTestOptions(): TestOptions {
+	const hasTestOnly = models.some((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.test === "only",
+		),
+	);
+	return process.env.CI
+		? { retry: 3 }
+		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
 }
 
 describe("e2e tests for provider keys", getTestOptions(), () => {

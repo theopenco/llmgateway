@@ -16,7 +16,11 @@ import {
 	type ModelDefinition,
 	models,
 	prepareRequestBody,
+	type BaseMessage,
 	type Provider,
+	type ProviderRequestBody,
+	type OpenAIToolInput,
+	hasMaxTokens,
 	providers,
 } from "@llmgateway/models";
 import { encode, encodeChat } from "gpt-tokenizer";
@@ -169,7 +173,7 @@ function createLogEntry(
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
 	reasoningEffort: "low" | "medium" | "high" | undefined,
-	tools: any[] | undefined,
+	tools: OpenAIToolInput[] | undefined,
 	toolChoice: any | undefined,
 	source: string | undefined,
 	customHeaders: Record<string, string>,
@@ -377,7 +381,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					try {
 						const parsed = JSON.parse(content);
 						content = JSON.stringify(parsed);
-					} catch (_e) {}
+					} catch {}
 				}
 			}
 
@@ -979,7 +983,7 @@ function calculatePromptTokensFromMessages(messages: any[]): number {
 			name: m.name,
 		}));
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch (_error) {
+	} catch {
 		return Math.max(
 			1,
 			Math.round(
@@ -1814,7 +1818,7 @@ chat.openapi(completions, async (c) => {
 	let rawBody: unknown;
 	try {
 		rawBody = await c.req.json();
-	} catch (_error) {
+	} catch {
 		return c.json(
 			{
 				error: {
@@ -2128,6 +2132,54 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
+		// Estimate the context size needed based on the request
+		let requiredContextSize = 0;
+
+		// Estimate prompt tokens from messages
+		if (messages && messages.length > 0) {
+			try {
+				const chatMessages: ChatMessage[] = messages.map((m) => ({
+					role: m.role as "user" | "assistant" | "system" | undefined,
+					content:
+						typeof m.content === "string"
+							? m.content
+							: JSON.stringify(m.content),
+					name: m.name,
+				}));
+				requiredContextSize = encodeChat(
+					chatMessages,
+					DEFAULT_TOKENIZER_MODEL,
+				).length;
+			} catch {
+				// Fallback to simple estimation if encoding fails
+				const messageTokens = messages.reduce(
+					(acc, m) => acc + (m.content?.length || 0),
+					0,
+				);
+				requiredContextSize = Math.max(1, Math.round(messageTokens / 4));
+			}
+		}
+
+		// Add tool definitions to context estimation
+		if (tools && tools.length > 0) {
+			try {
+				const toolsString = JSON.stringify(tools);
+				const toolTokens = Math.round(toolsString.length / 4);
+				requiredContextSize += toolTokens;
+			} catch {
+				// Fallback estimation for tools
+				requiredContextSize += tools.length * 100; // Rough estimate per tool
+			}
+		}
+
+		// Add max_tokens if specified
+		if (max_tokens) {
+			requiredContextSize += max_tokens;
+		} else {
+			// Add a default buffer for completion tokens if not specified
+			requiredContextSize += 4096;
+		}
+
 		// Get available providers based on project mode
 		let availableProviders: string[] = [];
 
@@ -2168,8 +2220,20 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		// Find the cheapest model that meets our context size requirements
+		// Only consider hardcoded models for auto selection
+		const allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
+		let selectedModel: ModelDefinition | undefined;
+		let selectedProviders: any[] = [];
+		let lowestPrice = Number.MAX_VALUE;
+
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
+				continue;
+			}
+
+			// Only consider allowed models for auto selection
+			if (!allowedAutoModels.includes(modelDef.id)) {
 				continue;
 			}
 
@@ -2183,15 +2247,45 @@ chat.openapi(completions, async (c) => {
 				availableProviders.includes(provider.providerId),
 			);
 
-			if (availableModelProviders.length > 0) {
-				usedProvider = availableModelProviders[0].providerId;
-				usedModel = availableModelProviders[0].modelName;
-				break;
+			// Filter by context size requirement
+			const suitableProviders = availableModelProviders.filter((provider) => {
+				// Use the provider's context size, defaulting to a reasonable value if not specified
+				const modelContextSize = provider.contextSize ?? 8192;
+				return modelContextSize >= requiredContextSize;
+			});
+
+			if (suitableProviders.length > 0) {
+				// Find the cheapest among the suitable providers for this model
+				for (const provider of suitableProviders) {
+					const totalPrice =
+						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+					if (totalPrice < lowestPrice) {
+						lowestPrice = totalPrice;
+						selectedModel = modelDef;
+						selectedProviders = suitableProviders;
+					}
+				}
 			}
 		}
 
-		if (usedProvider === "llmgateway" || !usedProvider) {
-			usedModel = "gpt-4o-mini";
+		// If we found a suitable model, use the cheapest provider from it
+		if (selectedModel && selectedProviders.length > 0) {
+			const cheapestResult = getCheapestFromAvailableProviders(
+				selectedProviders,
+				selectedModel,
+			);
+
+			if (cheapestResult) {
+				usedProvider = cheapestResult.providerId;
+				usedModel = cheapestResult.modelName;
+			} else {
+				// Fallback to first available provider if price comparison fails
+				usedProvider = selectedProviders[0].providerId;
+				usedModel = selectedProviders[0].modelName;
+			}
+		} else {
+			// Default fallback if no suitable model is found - use cheapest allowed model
+			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
 	} else if (
@@ -2742,10 +2836,10 @@ chat.openapi(completions, async (c) => {
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
-	const requestBody = await prepareRequestBody(
+	const requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
-		messages,
+		messages as BaseMessage[],
 		stream,
 		temperature,
 		max_tokens,
@@ -2761,7 +2855,11 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
-	if (requestBody.max_tokens !== undefined && finalModelInfo) {
+	if (
+		hasMaxTokens(requestBody) &&
+		requestBody.max_tokens !== undefined &&
+		finalModelInfo
+	) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
 			(p) => p.providerId === usedProvider && p.modelName === usedModel,
@@ -3140,7 +3238,7 @@ chat.openapi(completions, async (c) => {
 									JSON.parse(jsonCandidate);
 									// JSON is valid - end at first newline to exclude SSE fields
 									eventEnd = dataIndex + 6 + firstNewline;
-								} catch (_e) {
+								} catch {
 									// JSON is not complete, use the full segment to next data event
 									eventEnd = nextEventIndex;
 								}
@@ -3165,7 +3263,7 @@ chat.openapi(completions, async (c) => {
 									JSON.parse(jsonCandidate);
 									// JSON is valid - this newline marks the end of our data
 									eventEnd = newlinePos;
-								} catch (_e) {
+								} catch {
 									// JSON is not valid, check if there's more content after the newline
 									if (newlinePos + 1 >= bufferCopy.length) {
 										// Newline is at the end of buffer - event is incomplete
@@ -3204,7 +3302,7 @@ chat.openapi(completions, async (c) => {
 										JSON.parse(eventDataCandidate.trim());
 										// If we can parse it, it's complete
 										eventEnd = bufferCopy.length;
-									} catch (_e) {
+									} catch {
 										// JSON parsing failed - event is incomplete
 										break;
 									}
@@ -3565,7 +3663,7 @@ chat.openapi(completions, async (c) => {
 				} else {
 					console.error("Error reading stream:", error);
 
-					// Forward the error to the client
+					// Forward the error to the client with the buffered content that caused the error
 					try {
 						await stream.writeSSE({
 							event: "error",
@@ -3575,6 +3673,8 @@ chat.openapi(completions, async (c) => {
 									type: "gateway_error",
 									param: null,
 									code: "streaming_error",
+									// Include the buffer content that caused the parsing error
+									responseText: buffer.substring(0, 5000), // Limit to 5000 chars to avoid too large error messages
 								},
 							}),
 							id: String(eventId++),
