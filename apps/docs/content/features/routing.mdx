@@ -94,8 +94,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 <Callout type="success">
 	Auto routing analyzes your payload and automatically chooses between
-	cost-effective models for simple requests and more powerful models for
-	complex or large-context requests.
+	cost-effective models for simple requests and more powerful models for complex
+	or large-context requests.
 </Callout>
 
 ### Coming Soon: Advanced Optimization
@@ -122,15 +122,18 @@ We're continuously improving our auto routing capabilities. Soon you'll benefit 
 ## Best Practices
 
 ### For Development
+
 - Use specific model names during development and testing
 - Leverage auto routing for production workloads to optimize costs
 
 ### For Production
+
 - Use auto routing (`"model": "auto"`) for the best balance of cost and performance
 - Monitor your usage patterns through the dashboard to understand routing decisions
 - Set up provider keys for multiple providers to maximize routing options
 
 ### For Cost Optimization
+
 - Let auto routing handle model selection to automatically use the most cost-effective options
 - Use model IDs without provider prefixes to always get the cheapest available provider
 - Monitor your usage analytics to track cost savings from intelligent routing
