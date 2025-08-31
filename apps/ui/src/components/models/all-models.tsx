@@ -800,7 +800,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							</TableCell>
 
 							<TableCell>
-								<div className="flex flex-wrap gap-2">
+								<div className="flex flex-col flex-wrap gap-2">
 									{model.providerDetails.map(({ provider, providerInfo }) => (
 										<div
 											key={provider.providerId}
