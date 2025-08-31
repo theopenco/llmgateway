@@ -7,9 +7,9 @@
 		".next"
 	],
 	"scripts": {
-		"build": "tsc && next build",
+		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" next build",
 		"dev": "next dev --port 3002 --turbopack",
-		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
+		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "next lint",
 		"start": "next start"
 	},
