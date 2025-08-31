@@ -31,34 +31,33 @@ export async function createServerApiClient() {
 // Generic server-side data fetcher
 export async function fetchServerData<T>(
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
-
-	path: any,
+	path: keyof paths,
 	options?: {
-		params?: Record<string, any>;
+		params?: Record<string, unknown>;
 		body?: Record<string, unknown>;
 	},
 ): Promise<T | null> {
 	try {
 		const client = await createServerApiClient();
 
-		let response;
+		let response: any;
 		const requestOptions = options || {};
 
 		switch (method) {
 			case "GET":
-				response = await client.GET(path, requestOptions);
+				response = await client.GET(path as any, requestOptions);
 				break;
 			case "POST":
-				response = await client.POST(path, requestOptions);
+				response = await client.POST(path as any, requestOptions);
 				break;
 			case "PUT":
-				response = await client.PUT(path, requestOptions);
+				response = await client.PUT(path as any, requestOptions);
 				break;
 			case "DELETE":
-				response = await client.DELETE(path, requestOptions);
+				response = await client.DELETE(path as any, requestOptions);
 				break;
 			case "PATCH":
-				response = await client.PATCH(path, requestOptions);
+				response = await client.PATCH(path as any, requestOptions);
 				break;
 			default:
 				throw new Error(`Unsupported HTTP method: ${method}`);

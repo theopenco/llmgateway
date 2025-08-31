@@ -16,7 +16,11 @@ import {
 	type ModelDefinition,
 	models,
 	prepareRequestBody,
+	type BaseMessage,
 	type Provider,
+	type ProviderRequestBody,
+	type OpenAIToolInput,
+	hasMaxTokens,
 	providers,
 } from "@llmgateway/models";
 import { encode, encodeChat } from "gpt-tokenizer";
@@ -169,10 +173,15 @@ function createLogEntry(
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
 	reasoningEffort: "low" | "medium" | "high" | undefined,
-	tools: any[] | undefined,
+	tools: OpenAIToolInput[] | undefined,
 	toolChoice: any | undefined,
 	source: string | undefined,
 	customHeaders: Record<string, string>,
+	debugMode: boolean,
+	rawRequest?: unknown,
+	rawResponse?: unknown,
+	upstreamRequest?: unknown,
+	upstreamResponse?: unknown,
 ) {
 	return {
 		requestId,
@@ -196,6 +205,11 @@ function createLogEntry(
 		mode: project.mode,
 		source: source || null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
+		// Only include raw payloads if x-debug header is set to true
+		rawRequest: debugMode ? rawRequest || null : null,
+		rawResponse: debugMode ? rawResponse || null : null,
+		upstreamRequest: debugMode ? upstreamRequest || null : null,
+		upstreamResponse: debugMode ? upstreamResponse || null : null,
 	} as const;
 }
 
@@ -223,7 +237,11 @@ function getProviderTokenFromEnv(usedProvider: Provider): string | undefined {
 /**
  * Parses response content and metadata from different providers
  */
-function parseProviderResponse(usedProvider: Provider, json: any) {
+function parseProviderResponse(
+	usedProvider: Provider,
+	json: any,
+	messages: any[] = [],
+) {
 	let content = null;
 	let reasoningContent = null;
 	let finishReason = null;
@@ -332,8 +350,8 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any) => ({
-						id: part.functionCall.name + "_" + Date.now(), // Google doesn't provide ID, so generate one
+					.map((part: any, index: number) => ({
+						id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
 						type: "function",
 						function: {
 							name: part.functionCall.name,
@@ -367,7 +385,7 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					try {
 						const parsed = JSON.parse(content);
 						content = JSON.stringify(parsed);
-					} catch (_e) {}
+					} catch {}
 				}
 			}
 
@@ -412,9 +430,14 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					toolResults = null;
 				}
 
-				// Status mapping (completed -> stop, but tool_calls if function calls present)
+				// Status mapping with tool call detection for responses API
 				if (json.status === "completed") {
-					finishReason = functionCalls.length > 0 ? "tool_calls" : "stop";
+					// Check if there are tool calls in the response
+					if (toolResults && toolResults.length > 0) {
+						finishReason = "tool_calls";
+					} else {
+						finishReason = "stop";
+					}
 				} else {
 					finishReason = json.status;
 				}
@@ -436,6 +459,36 @@ function parseProviderResponse(usedProvider: Provider, json: any) {
 					json.choices?.[0]?.message?.reasoning ||
 					null;
 				finishReason = json.choices?.[0]?.finish_reason || null;
+
+				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
+				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
+				if (
+					usedProvider === "zai" &&
+					finishReason === "tool_calls" &&
+					messages.length > 0
+				) {
+					const lastMessage = messages[messages.length - 1];
+					const modelName = json.model;
+
+					// Only apply to specific failing models and only when last message was a tool result
+					if (
+						(modelName === "glm-4.5-airx" || modelName === "glm-4.5-flash") &&
+						lastMessage?.role === "tool"
+					) {
+						// Check if the response actually contains new tool calls that should be prevented
+						const hasNewToolCalls =
+							json.choices?.[0]?.message?.tool_calls?.length > 0;
+						if (hasNewToolCalls) {
+							finishReason = "stop";
+							// Also update JSON to match
+							if (json.choices?.[0]) {
+								json.choices[0].finish_reason = "stop";
+								delete json.choices[0].message.tool_calls;
+							}
+						}
+					}
+				}
+
 				promptTokens = json.usage?.prompt_tokens || null;
 				completionTokens = json.usage?.completion_tokens || null;
 				reasoningTokens = json.usage?.reasoning_tokens || null;
@@ -643,11 +696,14 @@ function extractToolCallsFromProvider(
 					},
 				];
 			}
-			// Tool arguments come as content_block_delta
+			// Tool arguments come as content_block_delta - these don't have a direct ID,
+			// so we return null and let the streaming logic handle the accumulation
+			// by finding the matching tool call by content block index
 			if (data.type === "content_block_delta" && data.delta?.partial_json) {
+				// Return a partial tool call with the index to help with matching
 				return [
 					{
-						id: data.index ? `tool_${data.index}` : "tool_unknown",
+						_contentBlockIndex: data.index, // Use this for matching
 						type: "function",
 						function: {
 							name: "",
@@ -664,8 +720,8 @@ function extractToolCallsFromProvider(
 			return (
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any) => ({
-						id: part.functionCall.name + "_" + Date.now(),
+					.map((part: any, index: number) => ({
+						id: part.functionCall.name + "_" + Date.now() + "_" + index,
 						type: "function",
 						function: {
 							name: part.functionCall.name,
@@ -969,7 +1025,7 @@ function calculatePromptTokensFromMessages(messages: any[]): number {
 			name: m.name,
 		}));
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch (_error) {
+	} catch {
 		return Math.max(
 			1,
 			Math.round(
@@ -1804,7 +1860,7 @@ chat.openapi(completions, async (c) => {
 	let rawBody: unknown;
 	try {
 		rawBody = await c.req.json();
-	} catch (_error) {
+	} catch {
 		return c.json(
 			{
 				error: {
@@ -1851,6 +1907,12 @@ chat.openapi(completions, async (c) => {
 
 	// Extract and validate source from x-source header
 	const source = validateAndNormalizeSource(c.req.header("x-source"));
+
+	// Check if debug mode is enabled via x-debug header
+	const debugMode = c.req.header("x-debug") === "true";
+
+	// Constants for raw data logging
+	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
 
 	c.header("x-request-id", requestId);
 
@@ -2115,6 +2177,54 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
+		// Estimate the context size needed based on the request
+		let requiredContextSize = 0;
+
+		// Estimate prompt tokens from messages
+		if (messages && messages.length > 0) {
+			try {
+				const chatMessages: ChatMessage[] = messages.map((m) => ({
+					role: m.role as "user" | "assistant" | "system" | undefined,
+					content:
+						typeof m.content === "string"
+							? m.content
+							: JSON.stringify(m.content),
+					name: m.name,
+				}));
+				requiredContextSize = encodeChat(
+					chatMessages,
+					DEFAULT_TOKENIZER_MODEL,
+				).length;
+			} catch {
+				// Fallback to simple estimation if encoding fails
+				const messageTokens = messages.reduce(
+					(acc, m) => acc + (m.content?.length || 0),
+					0,
+				);
+				requiredContextSize = Math.max(1, Math.round(messageTokens / 4));
+			}
+		}
+
+		// Add tool definitions to context estimation
+		if (tools && tools.length > 0) {
+			try {
+				const toolsString = JSON.stringify(tools);
+				const toolTokens = Math.round(toolsString.length / 4);
+				requiredContextSize += toolTokens;
+			} catch {
+				// Fallback estimation for tools
+				requiredContextSize += tools.length * 100; // Rough estimate per tool
+			}
+		}
+
+		// Add max_tokens if specified
+		if (max_tokens) {
+			requiredContextSize += max_tokens;
+		} else {
+			// Add a default buffer for completion tokens if not specified
+			requiredContextSize += 4096;
+		}
+
 		// Get available providers based on project mode
 		let availableProviders: string[] = [];
 
@@ -2155,8 +2265,20 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		// Find the cheapest model that meets our context size requirements
+		// Only consider hardcoded models for auto selection
+		const allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
+		let selectedModel: ModelDefinition | undefined;
+		let selectedProviders: any[] = [];
+		let lowestPrice = Number.MAX_VALUE;
+
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
+				continue;
+			}
+
+			// Only consider allowed models for auto selection
+			if (!allowedAutoModels.includes(modelDef.id)) {
 				continue;
 			}
 
@@ -2170,15 +2292,45 @@ chat.openapi(completions, async (c) => {
 				availableProviders.includes(provider.providerId),
 			);
 
-			if (availableModelProviders.length > 0) {
-				usedProvider = availableModelProviders[0].providerId;
-				usedModel = availableModelProviders[0].modelName;
-				break;
+			// Filter by context size requirement
+			const suitableProviders = availableModelProviders.filter((provider) => {
+				// Use the provider's context size, defaulting to a reasonable value if not specified
+				const modelContextSize = provider.contextSize ?? 8192;
+				return modelContextSize >= requiredContextSize;
+			});
+
+			if (suitableProviders.length > 0) {
+				// Find the cheapest among the suitable providers for this model
+				for (const provider of suitableProviders) {
+					const totalPrice =
+						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+					if (totalPrice < lowestPrice) {
+						lowestPrice = totalPrice;
+						selectedModel = modelDef;
+						selectedProviders = suitableProviders;
+					}
+				}
 			}
 		}
 
-		if (usedProvider === "llmgateway" || !usedProvider) {
-			usedModel = "gpt-4o-mini";
+		// If we found a suitable model, use the cheapest provider from it
+		if (selectedModel && selectedProviders.length > 0) {
+			const cheapestResult = getCheapestFromAvailableProviders(
+				selectedProviders,
+				selectedModel,
+			);
+
+			if (cheapestResult) {
+				usedProvider = cheapestResult.providerId;
+				usedModel = cheapestResult.modelName;
+			} else {
+				// Fallback to first available provider if price comparison fails
+				usedProvider = selectedProviders[0].providerId;
+				usedModel = selectedProviders[0].modelName;
+			}
+		} else {
+			// Default fallback if no suitable model is found - use cheapest allowed model
+			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
 	} else if (
@@ -2430,6 +2582,12 @@ chat.openapi(completions, async (c) => {
 		(provider) => (provider as any).reasoning === true,
 	);
 
+	// Check if messages contain existing tool calls or tool results
+	// If so, use Chat Completions API instead of Responses API
+	const hasExistingToolCalls = messages.some(
+		(msg: any) => msg.tool_calls || msg.role === "tool",
+	);
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -2444,6 +2602,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider === "google-ai-studio" ? usedToken : undefined,
 			stream,
 			supportsReasoning,
+			hasExistingToolCalls,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -2495,8 +2654,15 @@ chat.openapi(completions, async (c) => {
 				let totalTokens = null;
 				let reasoningTokens = null;
 				let cachedTokens = null;
+				let rawCachedResponseData = ""; // Raw SSE data from cached response
 
 				for (const chunk of cachedStreamingResponse.chunks) {
+					// Reconstruct raw SSE data for logging only in debug mode and within size limit
+					if (debugMode && rawCachedResponseData.length < MAX_RAW_DATA_SIZE) {
+						const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
+						rawCachedResponseData += sseString;
+					}
+
 					try {
 						// Skip "[DONE]" markers as they are not JSON
 						if (chunk.data === "[DONE]") {
@@ -2564,6 +2730,11 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
+					rawBody,
+					rawCachedResponseData, // Raw SSE data from cached response
+					null, // No upstream request for cached response
+					rawCachedResponseData, // Raw SSE data from cached response (same for both)
 				);
 
 				await insertLog({
@@ -2645,6 +2816,11 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
+					rawBody,
+					cachedResponse,
+					null, // No upstream request for cached response
+					cachedResponse, // upstream response is same as cached response
 				);
 
 				await insertLog({
@@ -2714,10 +2890,10 @@ chat.openapi(completions, async (c) => {
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
-	const requestBody = await prepareRequestBody(
+	const requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
-		messages,
+		messages as BaseMessage[],
 		stream,
 		temperature,
 		max_tokens,
@@ -2733,7 +2909,11 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
-	if (requestBody.max_tokens !== undefined && finalModelInfo) {
+	if (
+		hasMaxTokens(requestBody) &&
+		requestBody.max_tokens !== undefined &&
+		finalModelInfo
+	) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
 			(p) => p.providerId === usedProvider && p.modelName === usedModel,
@@ -2760,6 +2940,9 @@ chat.openapi(completions, async (c) => {
 			let canceled = false;
 			let streamingError: unknown = null;
 
+			// Raw logging variables
+			let streamingRawResponseData = ""; // Raw SSE data sent back to the client
+
 			// Streaming cache variables
 			const streamingChunks: Array<{
 				data: string;
@@ -2776,6 +2959,12 @@ chat.openapi(completions, async (c) => {
 				id?: string;
 			}) => {
 				await stream.writeSSE(sseData);
+
+				// Collect raw response data for logging only in debug mode and within size limit
+				if (debugMode && streamingRawResponseData.length < MAX_RAW_DATA_SIZE) {
+					const sseString = `${sseData.event ? `event: ${sseData.event}\n` : ""}data: ${sseData.data}${sseData.id ? `\nid: ${sseData.id}` : ""}\n\n`;
+					streamingRawResponseData += sseString;
+				}
 
 				// Capture for streaming cache if enabled
 				if (cachingEnabled && streamingCacheKey) {
@@ -2838,6 +3027,11 @@ chat.openapi(completions, async (c) => {
 						tool_choice,
 						source,
 						customHeaders,
+						debugMode,
+						rawBody,
+						null, // No response for canceled request
+						requestBody, // The request that was sent before cancellation
+						null, // No upstream response for canceled request
 					);
 
 					await insertLog({
@@ -2954,6 +3148,11 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
+					rawBody,
+					null, // No response for error case
+					requestBody, // The request that was sent and resulted in error
+					null, // No upstream response for error case
 				);
 
 				await insertLog({
@@ -3017,6 +3216,7 @@ chat.openapi(completions, async (c) => {
 			let cachedTokens = null;
 			let streamingToolCalls = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
+			let rawUpstreamData = ""; // Raw data received from upstream provider
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
 			try {
@@ -3029,6 +3229,10 @@ chat.openapi(completions, async (c) => {
 					// Convert the Uint8Array to a string
 					const chunk = new TextDecoder().decode(value);
 					buffer += chunk;
+					// Collect raw upstream data for logging only in debug mode and within size limit
+					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
+						rawUpstreamData += chunk;
+					}
 
 					// Check buffer size to prevent memory exhaustion
 					if (buffer.length > MAX_BUFFER_SIZE) {
@@ -3094,7 +3298,7 @@ chat.openapi(completions, async (c) => {
 									JSON.parse(jsonCandidate);
 									// JSON is valid - end at first newline to exclude SSE fields
 									eventEnd = dataIndex + 6 + firstNewline;
-								} catch (_e) {
+								} catch {
 									// JSON is not complete, use the full segment to next data event
 									eventEnd = nextEventIndex;
 								}
@@ -3119,7 +3323,7 @@ chat.openapi(completions, async (c) => {
 									JSON.parse(jsonCandidate);
 									// JSON is valid - this newline marks the end of our data
 									eventEnd = newlinePos;
-								} catch (_e) {
+								} catch {
 									// JSON is not valid, check if there's more content after the newline
 									if (newlinePos + 1 >= bufferCopy.length) {
 										// Newline is at the end of buffer - event is incomplete
@@ -3158,7 +3362,7 @@ chat.openapi(completions, async (c) => {
 										JSON.parse(eventDataCandidate.trim());
 										// If we can parse it, it's complete
 										eventEnd = bufferCopy.length;
-									} catch (_e) {
+									} catch {
 										// JSON parsing failed - event is incomplete
 										break;
 									}
@@ -3260,8 +3464,22 @@ chat.openapi(completions, async (c) => {
 							} catch (e) {
 								// If JSON parsing fails, this might be an incomplete event
 								// Since we already validated JSON completeness above, this is likely a format issue
-								// Log the error and skip this chunk
-								streamingError = e;
+								// Create structured error for logging
+								streamingError = {
+									message: e instanceof Error ? e.message : String(e),
+									type: "json_parse_error",
+									code: "json_parse_error",
+									details: {
+										name: e instanceof Error ? e.name : "ParseError",
+										eventData: eventData.substring(0, 5000),
+										provider: usedProvider,
+										model: usedModel,
+										eventLength: eventData.length,
+										bufferEnd: eventEnd,
+										bufferLength: bufferCopy.length,
+										timestamp: new Date().toISOString(),
+									},
+								};
 								console.warn("Failed to parse streaming JSON:", {
 									error: e instanceof Error ? e.message : String(e),
 									eventData:
@@ -3407,9 +3625,22 @@ chat.openapi(completions, async (c) => {
 								}
 								// Merge tool calls (accumulating function arguments)
 								for (const newCall of toolCallsChunk) {
-									const existingCall = streamingToolCalls.find(
-										(call) => call.id === newCall.id,
-									);
+									let existingCall = null;
+
+									// For Anthropic content_block_delta events, match by content block index
+									if (
+										usedProvider === "anthropic" &&
+										newCall._contentBlockIndex !== undefined
+									) {
+										existingCall =
+											streamingToolCalls[newCall._contentBlockIndex];
+									} else {
+										// For other providers and Anthropic content_block_start, match by ID
+										existingCall = streamingToolCalls.find(
+											(call) => call.id === newCall.id,
+										);
+									}
+
 									if (existingCall) {
 										// Accumulate function arguments
 										if (newCall.function?.arguments) {
@@ -3418,7 +3649,10 @@ chat.openapi(completions, async (c) => {
 												newCall.function.arguments;
 										}
 									} else {
-										streamingToolCalls.push({ ...newCall });
+										// Clean up temporary fields and add new tool call
+										const cleanCall = { ...newCall };
+										delete cleanCall._contentBlockIndex;
+										streamingToolCalls.push(cleanCall);
 									}
 								}
 							}
@@ -3530,8 +3764,20 @@ chat.openapi(completions, async (c) => {
 						console.error("Failed to send error SSE:", sseError);
 					}
 
-					// Mark as having an error for logging
-					streamingError = error;
+					// Create structured error object for logging
+					streamingError = {
+						message: error instanceof Error ? error.message : String(error),
+						type: "streaming_error",
+						code: "streaming_error",
+						details: {
+							name: error instanceof Error ? error.name : "UnknownError",
+							stack: error instanceof Error ? error.stack : undefined,
+							timestamp: new Date().toISOString(),
+							provider: usedProvider,
+							model: usedModel,
+							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
+						},
+					};
 				}
 			} finally {
 				// Clean up the event listeners
@@ -3691,6 +3937,15 @@ chat.openapi(completions, async (c) => {
 					tool_choice,
 					source,
 					customHeaders,
+					debugMode,
+					rawBody,
+					streamingError
+						? streamingError // Pass structured error when there's an error
+						: streamingRawResponseData, // Raw SSE data sent back to the client
+					requestBody, // The request sent to the provider
+					streamingError
+						? streamingError // Pass structured error as upstream response too
+						: rawUpstreamData, // Raw streaming data received from upstream provider
 				);
 
 				await insertLog({
@@ -3711,9 +3966,12 @@ chat.openapi(completions, async (c) => {
 								statusCode: 500,
 								statusText: "Streaming Error",
 								responseText:
-									streamingError instanceof Error
-										? streamingError.message
-										: String(streamingError),
+									typeof streamingError === "object" &&
+									"details" in streamingError
+										? JSON.stringify(streamingError) // Store structured error as JSON string
+										: streamingError instanceof Error
+											? streamingError.message
+											: String(streamingError),
 							}
 						: null,
 					streamed: true,
@@ -3816,6 +4074,11 @@ chat.openapi(completions, async (c) => {
 			tool_choice,
 			source,
 			customHeaders,
+			debugMode,
+			rawBody,
+			null, // No response for canceled request
+			requestBody, // The request that was prepared before cancellation
+			null, // No upstream response for canceled request
 		);
 
 		await insertLog({
@@ -3886,6 +4149,11 @@ chat.openapi(completions, async (c) => {
 			tool_choice,
 			source,
 			customHeaders,
+			debugMode,
+			rawBody,
+			errorResponseText, // Our formatted error response
+			requestBody, // The request that resulted in error
+			errorResponseText, // Raw upstream error response
 		);
 
 		await insertLog({
@@ -3984,7 +4252,7 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
-	} = parseProviderResponse(usedProvider, json);
+	} = parseProviderResponse(usedProvider, json, messages);
 
 	// Debug: Log images found in response
 	console.log("Gateway - parseProviderResponse extracted images:", images);
@@ -4012,6 +4280,25 @@ chat.openapi(completions, async (c) => {
 		},
 	);
 
+	// Transform response to OpenAI format for non-OpenAI providers
+	const transformedResponse = transformToOpenAIFormat(
+		usedProvider,
+		usedModel,
+		json,
+		content,
+		reasoningContent,
+		finishReason,
+		calculatedPromptTokens,
+		calculatedCompletionTokens,
+		(calculatedPromptTokens || 0) +
+			(calculatedCompletionTokens || 0) +
+			(reasoningTokens || 0),
+		reasoningTokens,
+		cachedTokens,
+		toolResults,
+		images,
+	);
+
 	const baseLogEntry = createLogEntry(
 		requestId,
 		project,
@@ -4032,6 +4319,11 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		source,
 		customHeaders,
+		debugMode,
+		rawBody,
+		transformedResponse, // Our formatted response that we return to user
+		requestBody, // The request sent to the provider
+		json, // Raw upstream response from provider
 	);
 
 	await insertLog({
@@ -4065,25 +4357,6 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		toolChoice: tool_choice,
 	});
-
-	// Transform response to OpenAI format for non-OpenAI providers
-	const transformedResponse = transformToOpenAIFormat(
-		usedProvider,
-		usedModel,
-		json,
-		content,
-		reasoningContent,
-		finishReason,
-		calculatedPromptTokens,
-		calculatedCompletionTokens,
-		(calculatedPromptTokens || 0) +
-			(calculatedCompletionTokens || 0) +
-			(reasoningTokens || 0),
-		reasoningTokens,
-		cachedTokens,
-		toolResults,
-		images,
-	);
 
 	if (cachingEnabled && cacheKey && !stream) {
 		await setCache(cacheKey, transformedResponse, cacheDuration);

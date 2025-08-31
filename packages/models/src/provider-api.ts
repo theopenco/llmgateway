@@ -1,8 +1,31 @@
 import { logger } from "@llmgateway/logger";
 
-import { models } from "./models";
+import {
+	models,
+	type ModelDefinition,
+	type ProviderModelMapping,
+} from "./models";
+import { isTextContent, isImageUrlContent } from "./types";
 
 import type { ProviderId } from "./providers";
+import type {
+	BaseMessage,
+	AnthropicMessage,
+	GoogleMessage,
+	MessageContent,
+	TextContent,
+	ToolUseContent,
+	ToolResultContent,
+	FunctionParameter,
+	OpenAIToolInput,
+	ToolChoiceType,
+	ProviderRequestBody,
+	OpenAIRequestBody,
+	OpenAIResponsesRequestBody,
+	ProviderValidationResult,
+	ModelWithPricing,
+	AvailableModelProvider,
+} from "./types";
 
 /**
  * Processes an image URL or data URL and converts it to base64
@@ -135,20 +158,23 @@ async function processImageUrl(
 /**
  * Transforms Google messages to handle image URLs by converting them to base64
  */
-async function transformGoogleMessages(messages: any[], isProd = false) {
+async function transformGoogleMessages(
+	messages: BaseMessage[],
+	isProd = false,
+): Promise<GoogleMessage[]> {
 	return await Promise.all(
 		messages.map(async (m) => ({
 			role: m.role === "assistant" ? "model" : "user", // get rid of system role
 			parts: Array.isArray(m.content)
 				? await Promise.all(
-						m.content.map(async (i: any) => {
-							if (i.type === "text") {
+						m.content.map(async (content: MessageContent) => {
+							if (isTextContent(content)) {
 								return {
-									text: i.text,
+									text: content.text,
 								};
 							}
-							if (i.type === "image_url") {
-								const imageUrl = i.image_url.url;
+							if (isImageUrlContent(content)) {
+								const imageUrl = content.image_url.url;
 								try {
 									const { data, mimeType } = await processImageUrl(
 										imageUrl,
@@ -167,7 +193,9 @@ async function transformGoogleMessages(messages: any[], isProd = false) {
 									throw new Error(`Failed to process image: ${errorMsg}`);
 								}
 							}
-							throw new Error(`Not supported content type yet: ${i.type}`);
+							throw new Error(
+								`Not supported content type yet: ${content.type}`,
+							);
 						}),
 					)
 				: [
@@ -180,19 +208,37 @@ async function transformGoogleMessages(messages: any[], isProd = false) {
 }
 
 /**
+ * Transforms messages for models that don't support system roles by converting system messages to user messages
+ */
+function transformMessagesForNoSystemRole(messages: any[]): any[] {
+	return messages.map((message) => {
+		if (message.role === "system") {
+			return {
+				...message,
+				role: "user",
+			};
+		}
+		return message;
+	});
+}
+
+/**
  * Transforms Anthropic messages to handle image URLs by converting them to base64
  */
-async function transformAnthropicMessages(messages: any[], isProd = false) {
-	const results = [] as any[];
+async function transformAnthropicMessages(
+	messages: BaseMessage[],
+	isProd = false,
+): Promise<AnthropicMessage[]> {
+	const results: AnthropicMessage[] = [];
 	for (const m of messages) {
-		let content: any[] = [];
+		let content: MessageContent[] = [];
 
 		// Handle existing content
 		if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
 			content = await Promise.all(
-				m.content.map(async (part: any) => {
-					if (part.type === "image_url" && part.image_url?.url) {
+				m.content.map(async (part: MessageContent) => {
+					if (isImageUrlContent(part)) {
 						try {
 							const { data, mimeType } = await processImageUrl(
 								part.image_url.url,
@@ -214,7 +260,7 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 							return {
 								type: "text",
 								text: `[Image failed to load: ${part.image_url.url}]`,
-							};
+							} as TextContent;
 						}
 					}
 					return part;
@@ -222,12 +268,12 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 			);
 		} else if (m.content && typeof m.content === "string") {
 			// Handle string content
-			content = [{ type: "text", text: m.content }];
+			content = [{ type: "text", text: m.content } as TextContent];
 		}
 
 		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
 		if (m.tool_calls && Array.isArray(m.tool_calls)) {
-			const toolUseBlocks = m.tool_calls.map((toolCall: any) => ({
+			const toolUseBlocks: ToolUseContent[] = m.tool_calls.map((toolCall) => ({
 				type: "tool_use",
 				id: toolCall.id,
 				name: toolCall.function.name,
@@ -241,19 +287,21 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
 		if (originalRole === "tool" && m.tool_call_id && m.content) {
 			// For tool results, we need to check if content is JSON string and parse it appropriately
-			let toolResultContent = m.content;
+			let toolResultContent: string;
+			const contentStr =
+				typeof m.content === "string" ? m.content : JSON.stringify(m.content);
 			try {
 				// Try to parse as JSON to see if it's structured data
-				const parsed = JSON.parse(m.content);
+				const parsed = JSON.parse(contentStr);
 				// If it's an object, keep it as JSON string for Anthropic
 				if (typeof parsed === "object") {
-					toolResultContent = m.content;
+					toolResultContent = contentStr;
 				} else {
 					toolResultContent = String(parsed);
 				}
 			} catch {
 				// If it's not valid JSON, use as-is
-				toolResultContent = m.content;
+				toolResultContent = contentStr;
 			}
 
 			content = [
@@ -261,14 +309,14 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 					type: "tool_result",
 					tool_use_id: m.tool_call_id,
 					content: toolResultContent,
-				},
+				} as ToolResultContent,
 			];
 		}
 
 		// Filter out empty text content blocks as Anthropic requires non-empty text
 		const filteredContent = content.filter(
-			(part: any) =>
-				!(part.type === "text" && (!part.text || part.text.trim() === "")),
+			(part) =>
+				!(isTextContent(part) && (!part.text || part.text.trim() === "")),
 		);
 
 		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
@@ -282,7 +330,16 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 
 		// Remove tool_calls and tool_call_id from the message as Anthropic doesn't expect these fields
 		const { tool_calls: _, tool_call_id: __, ...messageWithoutToolFields } = m;
-		results.push({ ...messageWithoutToolFields, content: filteredContent });
+
+		// Map role correctly for Anthropic (no system or tool roles)
+		const anthropicRole =
+			messageWithoutToolFields.role === "assistant" ? "assistant" : "user";
+
+		results.push({
+			...messageWithoutToolFields,
+			content: filteredContent,
+			role: anthropicRole,
+		});
 	}
 	return results;
 }
@@ -329,27 +386,37 @@ export function getProviderHeaders(
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedModel: string,
-	messages: any[],
+	messages: BaseMessage[],
 	stream: boolean,
 	temperature: number | undefined,
 	max_tokens: number | undefined,
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
-	response_format: any,
-	tools?: any[],
-	tool_choice?: string | { type: string; function: { name: string } },
+	response_format: OpenAIRequestBody["response_format"],
+	tools?: OpenAIToolInput[],
+	tool_choice?: ToolChoiceType,
 	reasoning_effort?: "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd = false,
-) {
+): Promise<ProviderRequestBody> {
+	// Check if the model supports system role
+	const modelDef = models.find((m) => m.id === usedModel);
+	const supportsSystemRole =
+		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
+
+	// Transform messages if model doesn't support system role
+	let processedMessages = messages;
+	if (!supportsSystemRole) {
+		processedMessages = transformMessagesForNoSystemRole(messages);
+	}
+
+	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedModel,
-		messages,
+		messages: processedMessages,
 		stream: stream,
 	};
-
-	// Add tools, tool_choice, and tool_calls if provided
 	if (tools && tools.length > 0) {
 		requestBody.tools = tools;
 	}
@@ -360,11 +427,31 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "openai": {
-			if (supportsReasoning) {
-				// Transform to responses API format (now supports tools as well)
-				const responsesBody: any = {
+			// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
+			let effectiveTemperature = temperature;
+			if (usedModel.startsWith("gpt-5")) {
+				effectiveTemperature = 1;
+			}
+
+			// Check if messages contain existing tool calls or tool results
+			// If so, use Chat Completions API instead of Responses API
+			const hasExistingToolCalls = messages.some(
+				(msg: any) => msg.tool_calls || msg.role === "tool",
+			);
+
+			// Check if the model supports responses API (default to true if reasoning is enabled)
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === "openai",
+			);
+			const supportsResponsesApi =
+				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
+				false;
+
+			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
+				// Transform to responses API format (only when no existing tool calls)
+				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedModel,
-					input: messages,
+					input: processedMessages,
 					reasoning: {
 						effort: reasoning_effort || "medium",
 						summary: "detailed",
@@ -379,25 +466,20 @@ export async function prepareRequestBody(
 				// Add tools support for responses API (transform format if needed)
 				if (tools && tools.length > 0) {
 					// Transform tools from chat completions format to responses API format
-					responsesBody.tools = tools.map((tool: any) => {
-						if (tool.type === "function" && tool.function) {
-							return {
-								type: "function",
-								name: tool.function.name,
-								description: tool.function.description,
-								parameters: tool.function.parameters,
-							};
-						}
-						return tool;
-					});
+					responsesBody.tools = tools.map((tool) => ({
+						type: "function" as const,
+						name: tool.function.name,
+						description: tool.function.description,
+						parameters: tool.function.parameters as FunctionParameter,
+					}));
 				}
 				if (tool_choice) {
 					responsesBody.tool_choice = tool_choice;
 				}
 
 				// Add optional parameters if they are provided
-				if (temperature !== undefined) {
-					responsesBody.temperature = temperature;
+				if (effectiveTemperature !== undefined) {
+					responsesBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
 					responsesBody.max_completion_tokens = max_tokens;
@@ -416,8 +498,8 @@ export async function prepareRequestBody(
 				}
 
 				// Add optional parameters if they are provided
-				if (temperature !== undefined) {
-					requestBody.temperature = temperature;
+				if (effectiveTemperature !== undefined) {
+					requestBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
 					requestBody.max_tokens = max_tokens;
@@ -502,7 +584,7 @@ export async function prepareRequestBody(
 			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 			requestBody.max_tokens = max_tokens ?? minMaxTokens;
 			requestBody.messages = await transformAnthropicMessages(
-				messages.map((m) => ({
+				processedMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
 						m.role === "assistant"
@@ -520,7 +602,7 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
-				requestBody.tools = tools.map((tool: any) => ({
+				requestBody.tools = tools.map((tool) => ({
 					name: tool.function.name,
 					description: tool.function.description,
 					input_schema: tool.function.parameters,
@@ -580,17 +662,28 @@ export async function prepareRequestBody(
 			delete requestBody.messages; // Not used in body for Google providers
 			delete requestBody.tool_choice; // Google doesn't support tool_choice parameter
 
-			requestBody.contents = await transformGoogleMessages(messages, isProd);
+			requestBody.contents = await transformGoogleMessages(
+				processedMessages,
+				isProd,
+			);
 
 			// Transform tools from OpenAI format to Google format
 			if (tools && tools.length > 0) {
 				requestBody.tools = [
 					{
-						functionDeclarations: tools.map((tool: any) => ({
-							name: tool.function.name,
-							description: tool.function.description,
-							parameters: tool.function.parameters,
-						})),
+						functionDeclarations: tools.map((tool: any) => {
+							// Remove additionalProperties and $schema from parameters as Google doesn't accept them
+							const {
+								additionalProperties: _additionalProperties,
+								$schema: _$schema,
+								...cleanParameters
+							} = tool.function.parameters || {};
+							return {
+								name: tool.function.name,
+								description: tool.function.description,
+								parameters: cleanParameters,
+							};
+						}),
 					},
 				];
 			}
@@ -656,6 +749,7 @@ export function getProviderEndpoint(
 	token?: string,
 	stream?: boolean,
 	supportsReasoning?: boolean,
+	hasExistingToolCalls?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -779,9 +873,20 @@ export function getProviderEndpoint(
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
 		case "openai":
-			// Use responses endpoint for reasoning models (now supports tools)
-			if (supportsReasoning) {
-				return `${url}/v1/responses`;
+			// Use responses endpoint for reasoning models that support responses API
+			// but not when there are existing tool calls in the conversation
+			if (supportsReasoning && model && !hasExistingToolCalls) {
+				const modelDef = models.find((m) => m.id === model);
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "openai",
+				);
+				const supportsResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
+					false;
+
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
 			}
 			return `${url}/v1/chat/completions`;
 		case "inference.net":
@@ -841,8 +946,8 @@ export function getCheapestModelForProvider(
  * Get the cheapest provider and model from a list of available model providers
  */
 export function getCheapestFromAvailableProviders<
-	T extends { providerId: string; modelName: string },
->(availableModelProviders: T[], modelWithPricing: any): T | null {
+	T extends AvailableModelProvider,
+>(availableModelProviders: T[], modelWithPricing: ModelWithPricing): T | null {
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -852,7 +957,7 @@ export function getCheapestFromAvailableProviders<
 
 	for (const provider of availableModelProviders) {
 		const providerInfo = modelWithPricing.providers.find(
-			(p: any) => p.providerId === provider.providerId,
+			(p) => p.providerId === provider.providerId,
 		);
 		const totalPrice =
 			((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) / 2;
@@ -874,7 +979,7 @@ export async function validateProviderKey(
 	token: string,
 	baseUrl?: string,
 	skipValidation = false,
-): Promise<{ valid: boolean; error?: string; statusCode?: number }> {
+): Promise<ProviderValidationResult> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
 		return { valid: true };
@@ -893,15 +998,19 @@ export async function validateProviderKey(
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
+			false, // hasExistingToolCalls - disable for validation
 		);
 
 		// Use prepareRequestBody to create the validation payload
-		const systemMessage = {
+		const systemMessage: BaseMessage = {
 			role: "system",
 			content: "You are a helpful assistant.",
 		};
-		const minimalMessage = { role: "user", content: "Hello" };
-		const messages = [systemMessage, minimalMessage];
+		const minimalMessage: BaseMessage = {
+			role: "user",
+			content: "Hello",
+		};
+		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
 		const validationModel = getCheapestModelForProvider(provider);
 
@@ -909,7 +1018,6 @@ export async function validateProviderKey(
 			provider,
 			validationModel: validationModel || undefined,
 		});
-
 		if (!validationModel) {
 			throw new Error(
 				`No model with pricing information found for provider ${provider}`,
@@ -925,8 +1033,8 @@ export async function validateProviderKey(
 		const providerMapping = modelDef?.providers.find(
 			(p) => p.providerId === provider && p.modelName === validationModel,
 		);
-		const supportedParameters = (providerMapping as any)
-			?.supportedParameters as string[] | undefined;
+		const supportedParameters = (providerMapping as ProviderModelMapping)
+			?.supportedParameters;
 		const supportsMaxTokens =
 			supportedParameters?.includes("max_tokens") ?? true;
 

@@ -8,9 +8,9 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "tsc && tsup && pnpm run generate",
+		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup && pnpm run generate",
 		"dev": "nodemon -e ts,json --exec \"tsx src/serve.ts\"",
-		"generate": "NODE_ENV=production tsx ./src/scripts/generate-openapi.ts",
+		"generate": "NODE_ENV=production NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
 		"start": "node dist/serve.js"
 	},
 	"dependencies": {

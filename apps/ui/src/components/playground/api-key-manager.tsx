@@ -210,11 +210,13 @@ export function ApiKeyManager({
 			onOpenChange(false);
 			setIsEditing(false);
 			form.reset();
-		} catch (error: any) {
+		} catch (error: unknown) {
 			toast({
 				title: "Invalid API Key",
 				description:
-					error.message || "Please check your API key and try again.",
+					error instanceof Error
+						? error.message
+						: "Please check your API key and try again.",
 				variant: "destructive",
 			});
 		} finally {
