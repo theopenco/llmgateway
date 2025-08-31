@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "mode" text DEFAULT 'api-keys' NOT NULL;

@@ -1,6 +1,6 @@
 {
-  "id": "ca27ab06-7842-4968-86b7-a78c3597f9fe",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "6ab8b018-6821-49c6-9e4d-927fea1f617d",
+  "prevId": "9a9e28e6-0e25-4fc7-a988-4092bea2408b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -153,19 +153,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'active'"
-        },
-        "usage_limit": {
-          "name": "usage_limit",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage": {
-          "name": "usage",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'0'"
         },
         "project_id": {
           "name": "project_id",
@@ -484,12 +471,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "tool_results": {
-          "name": "tool_results",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false
-        },
         "finish_reason": {
           "name": "finish_reason",
           "type": "text",
@@ -565,12 +546,6 @@
         "presence_penalty": {
           "name": "presence_penalty",
           "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reasoning_effort": {
-          "name": "reasoning_effort",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -656,48 +631,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "custom_headers": {
-          "name": "custom_headers",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "processed_at": {
-          "name": "processed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "raw_request": {
-          "name": "raw_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "raw_response": {
-          "name": "raw_response",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "upstream_request": {
-          "name": "upstream_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "upstream_response": {
-          "name": "upstream_response",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -788,13 +721,7 @@
           "name": "content",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "images": {
-          "name": "images",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "sequence": {
           "name": "sequence",
@@ -1265,7 +1192,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'hybrid'"
+          "default": "'credits'"
         },
         "status": {
           "name": "status",

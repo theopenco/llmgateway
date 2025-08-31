@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD CONSTRAINT "provider_key_organizationId_name_unique" UNIQUE("organization_id","name");

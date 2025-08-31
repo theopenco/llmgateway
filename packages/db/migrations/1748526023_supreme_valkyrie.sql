@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" RENAME COLUMN "project_id" TO "organization_id";

@@ -1,0 +1,1 @@
+ALTER TABLE "log" DROP COLUMN "provider_key_id";

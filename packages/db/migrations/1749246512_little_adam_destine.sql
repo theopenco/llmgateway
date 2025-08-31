@@ -1,0 +1,2 @@
+ALTER TABLE "organization" ADD CONSTRAINT "organization_stripeCustomerId_unique" UNIQUE("stripe_customer_id");--> statement-breakpoint
+ALTER TABLE "organization" ADD CONSTRAINT "organization_stripeSubscriptionId_unique" UNIQUE("stripe_subscription_id");
