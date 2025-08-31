@@ -3,8 +3,27 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "./models";
+import { isTextContent, isImageUrlContent } from "./types";
 
 import type { ProviderId } from "./providers";
+import type {
+	BaseMessage,
+	AnthropicMessage,
+	GoogleMessage,
+	MessageContent,
+	TextContent,
+	ToolUseContent,
+	ToolResultContent,
+	FunctionParameter,
+	OpenAIToolInput,
+	ToolChoiceType,
+	ProviderRequestBody,
+	OpenAIRequestBody,
+	OpenAIResponsesRequestBody,
+	ProviderValidationResult,
+	ModelWithPricing,
+	AvailableModelProvider,
+} from "./types";
 
 /**
  * Processes an image URL or data URL and converts it to base64
@@ -145,20 +164,23 @@ async function processImageUrl(
 /**
  * Transforms Google messages to handle image URLs by converting them to base64
  */
-async function transformGoogleMessages(messages: any[], isProd = false) {
+async function transformGoogleMessages(
+	messages: BaseMessage[],
+	isProd = false,
+): Promise<GoogleMessage[]> {
 	return await Promise.all(
 		messages.map(async (m) => ({
 			role: m.role === "assistant" ? "model" : "user", // get rid of system role
 			parts: Array.isArray(m.content)
 				? await Promise.all(
-						m.content.map(async (i: any) => {
-							if (i.type === "text") {
+						m.content.map(async (content: MessageContent) => {
+							if (isTextContent(content)) {
 								return {
-									text: i.text,
+									text: content.text,
 								};
 							}
-							if (i.type === "image_url") {
-								const imageUrl = i.image_url.url;
+							if (isImageUrlContent(content)) {
+								const imageUrl = content.image_url.url;
 								try {
 									const { data, mimeType } = await processImageUrl(
 										imageUrl,
@@ -177,7 +199,9 @@ async function transformGoogleMessages(messages: any[], isProd = false) {
 									throw new Error(`Failed to process image: ${errorMsg}`);
 								}
 							}
-							throw new Error(`Not supported content type yet: ${i.type}`);
+							throw new Error(
+								`Not supported content type yet: ${content.type}`,
+							);
 						}),
 					)
 				: [
@@ -207,17 +231,20 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 /**
  * Transforms Anthropic messages to handle image URLs by converting them to base64
  */
-async function transformAnthropicMessages(messages: any[], isProd = false) {
-	const results: any[] = [];
+async function transformAnthropicMessages(
+	messages: BaseMessage[],
+	isProd = false,
+): Promise<AnthropicMessage[]> {
+	const results: AnthropicMessage[] = [];
 	for (const m of messages) {
-		let content: any[] = [];
+		let content: MessageContent[] = [];
 
 		// Handle existing content
 		if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
 			content = await Promise.all(
-				m.content.map(async (part: any) => {
-					if (part.type === "image_url" && part.image_url?.url) {
+				m.content.map(async (part: MessageContent) => {
+					if (isImageUrlContent(part)) {
 						try {
 							const { data, mimeType } = await processImageUrl(
 								part.image_url.url,
@@ -240,7 +267,7 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 							return {
 								type: "text",
 								text: `[Image failed to load: ${part.image_url.url}]`,
-							};
+							} as TextContent;
 						}
 					}
 					return part;
@@ -248,12 +275,12 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 			);
 		} else if (m.content && typeof m.content === "string") {
 			// Handle string content
-			content = [{ type: "text", text: m.content }];
+			content = [{ type: "text", text: m.content } as TextContent];
 		}
 
 		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
 		if (m.tool_calls && Array.isArray(m.tool_calls)) {
-			const toolUseBlocks = m.tool_calls.map((toolCall: any) => ({
+			const toolUseBlocks: ToolUseContent[] = m.tool_calls.map((toolCall) => ({
 				type: "tool_use",
 				id: toolCall.id,
 				name: toolCall.function.name,
@@ -267,19 +294,21 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
 		if (originalRole === "tool" && m.tool_call_id && m.content) {
 			// For tool results, we need to check if content is JSON string and parse it appropriately
-			let toolResultContent = m.content;
+			let toolResultContent: string;
+			const contentStr =
+				typeof m.content === "string" ? m.content : JSON.stringify(m.content);
 			try {
 				// Try to parse as JSON to see if it's structured data
-				const parsed = JSON.parse(m.content);
+				const parsed = JSON.parse(contentStr);
 				// If it's an object, keep it as JSON string for Anthropic
 				if (typeof parsed === "object") {
-					toolResultContent = m.content;
+					toolResultContent = contentStr;
 				} else {
 					toolResultContent = String(parsed);
 				}
 			} catch {
 				// If it's not valid JSON, use as-is
-				toolResultContent = m.content;
+				toolResultContent = contentStr;
 			}
 
 			content = [
@@ -287,14 +316,14 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 					type: "tool_result",
 					tool_use_id: m.tool_call_id,
 					content: toolResultContent,
-				},
+				} as ToolResultContent,
 			];
 		}
 
 		// Filter out empty text content blocks as Anthropic requires non-empty text
 		const filteredContent = content.filter(
-			(part: any) =>
-				!(part.type === "text" && (!part.text || part.text.trim() === "")),
+			(part) =>
+				!(isTextContent(part) && (!part.text || part.text.trim() === "")),
 		);
 
 		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
@@ -308,7 +337,16 @@ async function transformAnthropicMessages(messages: any[], isProd = false) {
 
 		// Remove tool_calls and tool_call_id from the message as Anthropic doesn't expect these fields
 		const { tool_calls: _, tool_call_id: __, ...messageWithoutToolFields } = m;
-		results.push({ ...messageWithoutToolFields, content: filteredContent });
+
+		// Map role correctly for Anthropic (no system or tool roles)
+		const anthropicRole =
+			messageWithoutToolFields.role === "assistant" ? "assistant" : "user";
+
+		results.push({
+			...messageWithoutToolFields,
+			content: filteredContent,
+			role: anthropicRole,
+		});
 	}
 	return results;
 }
@@ -355,20 +393,20 @@ export function getProviderHeaders(
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedModel: string,
-	messages: any[],
+	messages: BaseMessage[],
 	stream: boolean,
 	temperature: number | undefined,
 	max_tokens: number | undefined,
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
-	response_format: any,
-	tools?: any[],
-	tool_choice?: string | { type: string; function: { name: string } },
+	response_format: OpenAIRequestBody["response_format"],
+	tools?: OpenAIToolInput[],
+	tool_choice?: ToolChoiceType,
 	reasoning_effort?: "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd = false,
-) {
+): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
 	const supportsSystemRole =
@@ -380,13 +418,12 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(messages);
 	}
 
+	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedModel,
 		messages: processedMessages,
 		stream: stream,
 	};
-
-	// Add tools, tool_choice, and tool_calls if provided
 	if (tools && tools.length > 0) {
 		requestBody.tools = tools;
 	}
@@ -413,7 +450,7 @@ export async function prepareRequestBody(
 
 			if (supportsReasoning && supportsResponsesApi) {
 				// Transform to responses API format (now supports tools as well)
-				const responsesBody: any = {
+				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedModel,
 					input: processedMessages,
 					reasoning: {
@@ -430,17 +467,12 @@ export async function prepareRequestBody(
 				// Add tools support for responses API (transform format if needed)
 				if (tools && tools.length > 0) {
 					// Transform tools from chat completions format to responses API format
-					responsesBody.tools = tools.map((tool: any) => {
-						if (tool.type === "function" && tool.function) {
-							return {
-								type: "function",
-								name: tool.function.name,
-								description: tool.function.description,
-								parameters: tool.function.parameters,
-							};
-						}
-						return tool;
-					});
+					responsesBody.tools = tools.map((tool) => ({
+						type: "function" as const,
+						name: tool.function.name,
+						description: tool.function.description,
+						parameters: tool.function.parameters as FunctionParameter,
+					}));
 				}
 				if (tool_choice) {
 					responsesBody.tool_choice = tool_choice;
@@ -571,7 +603,7 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
-				requestBody.tools = tools.map((tool: any) => ({
+				requestBody.tools = tools.map((tool) => ({
 					name: tool.function.name,
 					description: tool.function.description,
 					input_schema: tool.function.parameters,
@@ -640,7 +672,7 @@ export async function prepareRequestBody(
 			if (tools && tools.length > 0) {
 				requestBody.tools = [
 					{
-						functionDeclarations: tools.map((tool: any) => ({
+						functionDeclarations: tools.map((tool) => ({
 							name: tool.function.name,
 							description: tool.function.description,
 							parameters: tool.function.parameters,
@@ -905,8 +937,8 @@ export function getCheapestModelForProvider(
  * Get the cheapest provider and model from a list of available model providers
  */
 export function getCheapestFromAvailableProviders<
-	T extends { providerId: string; modelName: string },
->(availableModelProviders: T[], modelWithPricing: any): T | null {
+	T extends AvailableModelProvider,
+>(availableModelProviders: T[], modelWithPricing: ModelWithPricing): T | null {
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -916,7 +948,7 @@ export function getCheapestFromAvailableProviders<
 
 	for (const provider of availableModelProviders) {
 		const providerInfo = modelWithPricing.providers.find(
-			(p: any) => p.providerId === provider.providerId,
+			(p) => p.providerId === provider.providerId,
 		);
 		const totalPrice =
 			((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) / 2;
@@ -938,7 +970,7 @@ export async function validateProviderKey(
 	token: string,
 	baseUrl?: string,
 	skipValidation = false,
-): Promise<{ valid: boolean; error?: string; statusCode?: number }> {
+): Promise<ProviderValidationResult> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
 		return { valid: true };
@@ -960,12 +992,15 @@ export async function validateProviderKey(
 		);
 
 		// Use prepareRequestBody to create the validation payload
-		const systemMessage = {
+		const systemMessage: BaseMessage = {
 			role: "system",
 			content: "You are a helpful assistant.",
 		};
-		const minimalMessage = { role: "user", content: "Hello" };
-		const messages = [systemMessage, minimalMessage];
+		const minimalMessage: BaseMessage = {
+			role: "user",
+			content: "Hello",
+		};
+		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
 		const validationModel = getCheapestModelForProvider(provider);
 

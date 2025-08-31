@@ -9,6 +9,7 @@
 		"quick-start",
 		"self-host",
 		"---Features---",
+		"features/routing",
 		"features/custom-providers",
 		"features/metadata",
 		"features/source",
