@@ -19,6 +19,7 @@ import {
 	ArrowDown,
 	Play,
 	ImagePlus,
+	AlertTriangle,
 	ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
@@ -61,7 +62,11 @@ import {
 } from "@/lib/components/tooltip";
 import { cn, formatContextSize } from "@/lib/utils";
 
-import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderModelMapping,
+	StabilityLevel,
+} from "@llmgateway/models";
 
 interface ModelWithProviders extends ModelDefinition {
 	providerDetails: Array<{
@@ -367,6 +372,59 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		) : (
 			<ArrowDown className="ml-2 h-4 w-4 text-primary" />
 		);
+	};
+
+	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
+		switch (stability) {
+			case "beta":
+				return {
+					variant: "secondary" as const,
+					color: "text-blue-600",
+					label: "BETA",
+				};
+			case "unstable":
+				return {
+					variant: "destructive" as const,
+					color: "text-red-600",
+					label: "UNSTABLE",
+				};
+			case "experimental":
+				return {
+					variant: "destructive" as const,
+					color: "text-orange-600",
+					label: "EXPERIMENTAL",
+				};
+			default:
+				return null;
+		}
+	};
+
+	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
+		return stability && ["unstable", "experimental"].includes(stability);
+	};
+
+	const getMostUnstableStability = (model: any): StabilityLevel | undefined => {
+		const stabilityLevels: StabilityLevel[] = [
+			"experimental",
+			"unstable",
+			"beta",
+			"stable",
+		];
+
+		// Get all stability levels (model-level and provider-level)
+		const allStabilities = [
+			model.stability,
+			...model.providers.map((p: any) => p.stability || model.stability),
+		].filter(Boolean) as StabilityLevel[];
+
+		// Return the most unstable level
+		for (const level of stabilityLevels) {
+			if (allStabilities.includes(level)) {
+				return level;
+			}
+		}
+
+		return undefined;
 	};
 
 	const copyToClipboard = async (text: string) => {
@@ -756,6 +814,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
 								Capabilities
 							</TableHead>
+							<TableHead className="text-center">Stability</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
 								Actions
 							</TableHead>
@@ -774,6 +833,11 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="space-y-1">
 										<div className="font-semibold text-sm flex items-center gap-2">
 											{model.name || model.id}
+											{shouldShowStabilityWarning(
+												getMostUnstableStability(model),
+											) && (
+												<AlertTriangle className="h-4 w-4 text-orange-500" />
+											)}
 											{model.free && (
 												<Badge
 													variant="secondary"
@@ -930,6 +994,28 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</TableCell>
 
 								<TableCell className="text-center">
+									{(() => {
+										const mostUnstableStability =
+											getMostUnstableStability(model);
+										const stabilityProps = getStabilityBadgeProps(
+											mostUnstableStability,
+										);
+										return stabilityProps ? (
+											<Badge
+												variant={stabilityProps.variant}
+												className="text-xs px-2 py-1"
+											>
+												{stabilityProps.label}
+											</Badge>
+										) : (
+											<Badge variant="outline" className="text-xs px-2 py-1">
+												STABLE
+											</Badge>
+										);
+									})()}
+								</TableCell>
+
+								<TableCell className="text-center">
 									<Link
 										href={`/playground?model=${encodeURIComponent(model.id)}`}
 										onClick={(e) => e.stopPropagation()}
@@ -966,6 +1052,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							<div className="flex-1 min-w-0">
 								<CardTitle className="text-base leading-tight flex items-center gap-2 flex-wrap">
 									{model.name || model.id}
+									{shouldShowStabilityWarning(model.stability) && (
+										<AlertTriangle className="h-4 w-4 text-orange-500" />
+									)}
 									{model.free && (
 										<Badge
 											variant="secondary"
@@ -1115,6 +1204,28 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										)}
 									</div>
 								))}
+							</div>
+
+							<div>
+								<div className="font-medium mb-2 text-sm">Stability:</div>
+								{(() => {
+									const mostUnstableStability = getMostUnstableStability(model);
+									const stabilityProps = getStabilityBadgeProps(
+										mostUnstableStability,
+									);
+									return stabilityProps ? (
+										<Badge
+											variant={stabilityProps.variant}
+											className="text-xs px-2 py-1"
+										>
+											{stabilityProps.label}
+										</Badge>
+									) : (
+										<Badge variant="outline" className="text-xs px-2 py-1">
+											STABLE
+										</Badge>
+									);
+								})()}
 							</div>
 
 							<div className="pt-4 border-t">
