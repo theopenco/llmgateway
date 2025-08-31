@@ -1,1 +1,0 @@
-ALTER TABLE "log" ALTER COLUMN "request_id" SET NOT NULL;

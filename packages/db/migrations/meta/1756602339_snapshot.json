@@ -1,6 +1,6 @@
 {
-  "id": "93febaca-5efc-42d7-acf7-502450983d6b",
-  "prevId": "49fbf59e-ce62-48a3-86ac-08dc83a93bf8",
+  "id": "ca27ab06-7842-4968-86b7-a78c3597f9fe",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -153,6 +153,19 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'active'"
+        },
+        "usage_limit": {
+          "name": "usage_limit",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "usage": {
+          "name": "usage",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
         },
         "project_id": {
           "name": "project_id",
@@ -555,6 +568,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "reasoning_effort": {
+          "name": "reasoning_effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "has_error": {
           "name": "has_error",
           "type": "boolean",
@@ -641,6 +660,42 @@
         "source": {
           "name": "source",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "custom_headers": {
+          "name": "custom_headers",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_request": {
+          "name": "raw_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_response": {
+          "name": "raw_response",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upstream_request": {
+          "name": "upstream_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upstream_response": {
+          "name": "upstream_response",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         }
@@ -733,7 +788,13 @@
           "name": "content",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "images": {
+          "name": "images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "sequence": {
           "name": "sequence",

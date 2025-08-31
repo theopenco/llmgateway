@@ -1,1 +1,0 @@
-ALTER TABLE "log" ADD COLUMN "request_id" text;

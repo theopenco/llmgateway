@@ -1,1 +1,0 @@
-ALTER TABLE "log" ADD COLUMN "reasoning_tokens" numeric;
