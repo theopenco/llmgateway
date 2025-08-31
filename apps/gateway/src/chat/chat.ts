@@ -2508,8 +2508,13 @@ chat.openapi(completions, async (c) => {
 				let totalTokens = null;
 				let reasoningTokens = null;
 				let cachedTokens = null;
+				let rawCachedResponseData = ""; // Raw SSE data from cached response
 
 				for (const chunk of cachedStreamingResponse.chunks) {
+					// Reconstruct raw SSE data for logging
+					const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
+					rawCachedResponseData += sseString;
+
 					try {
 						// Skip "[DONE]" markers as they are not JSON
 						if (chunk.data === "[DONE]") {
@@ -2579,9 +2584,9 @@ chat.openapi(completions, async (c) => {
 					customHeaders,
 					debugMode,
 					rawBody,
-					cachedStreamingResponse,
+					rawCachedResponseData, // Raw SSE data from cached response
 					null, // No upstream request for cached response
-					cachedStreamingResponse, // upstream response is same as cached response
+					rawCachedResponseData, // Raw SSE data from cached response (same for both)
 				);
 
 				await insertLog({
@@ -2799,6 +2804,10 @@ chat.openapi(completions, async (c) => {
 				id?: string;
 			}) => {
 				await stream.writeSSE(sseData);
+
+				// Collect raw response data for logging
+				const sseString = `${sseData.event ? `event: ${sseData.event}\n` : ""}data: ${sseData.data}${sseData.id ? `\nid: ${sseData.id}` : ""}\n\n`;
+				rawResponseData += sseString;
 
 				// Capture for streaming cache if enabled
 				if (cachingEnabled && streamingCacheKey) {
@@ -3050,6 +3059,8 @@ chat.openapi(completions, async (c) => {
 			let cachedTokens = null;
 			let streamingToolCalls = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
+			let rawUpstreamData = ""; // Raw data received from upstream provider
+			let rawResponseData = ""; // Raw data we send back to the client
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
 			try {
@@ -3062,6 +3073,8 @@ chat.openapi(completions, async (c) => {
 					// Convert the Uint8Array to a string
 					const chunk = new TextDecoder().decode(value);
 					buffer += chunk;
+					// Collect raw upstream data for logging
+					rawUpstreamData += chunk;
 
 					// Check buffer size to prevent memory exhaustion
 					if (buffer.length > MAX_BUFFER_SIZE) {
@@ -3752,19 +3765,11 @@ chat.openapi(completions, async (c) => {
 					rawBody,
 					streamingError
 						? streamingError // Pass structured error when there's an error
-						: {
-								content: fullContent,
-								reasoningContent: fullReasoningContent,
-								toolCalls: streamingToolCalls,
-							}, // Our formatted response
+						: rawResponseData, // Raw SSE data sent back to the client
 					requestBody, // The request sent to the provider
 					streamingError
 						? streamingError // Pass structured error as upstream response too
-						: {
-								content: fullContent,
-								reasoningContent: fullReasoningContent,
-								toolCalls: streamingToolCalls,
-							}, // Raw upstream chunks (same structure for streaming)
+						: rawUpstreamData, // Raw streaming data received from upstream provider
 				);
 
 				await insertLog({
