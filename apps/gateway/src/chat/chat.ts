@@ -1869,6 +1869,9 @@ chat.openapi(completions, async (c) => {
 	// Check if debug mode is enabled via x-debug header
 	const debugMode = c.req.header("x-debug") === "true";
 
+	// Constants for raw data logging
+	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
+
 	c.header("x-request-id", requestId);
 
 	// Extract custom X-LLMGateway-* headers
@@ -2605,9 +2608,11 @@ chat.openapi(completions, async (c) => {
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
 
 				for (const chunk of cachedStreamingResponse.chunks) {
-					// Reconstruct raw SSE data for logging
-					const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
-					rawCachedResponseData += sseString;
+					// Reconstruct raw SSE data for logging only in debug mode and within size limit
+					if (debugMode && rawCachedResponseData.length < MAX_RAW_DATA_SIZE) {
+						const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
+						rawCachedResponseData += sseString;
+					}
 
 					try {
 						// Skip "[DONE]" markers as they are not JSON
@@ -2886,6 +2891,9 @@ chat.openapi(completions, async (c) => {
 			let canceled = false;
 			let streamingError: unknown = null;
 
+			// Raw logging variables
+			let streamingRawResponseData = ""; // Raw SSE data sent back to the client
+
 			// Streaming cache variables
 			const streamingChunks: Array<{
 				data: string;
@@ -2903,9 +2911,11 @@ chat.openapi(completions, async (c) => {
 			}) => {
 				await stream.writeSSE(sseData);
 
-				// Collect raw response data for logging
-				const sseString = `${sseData.event ? `event: ${sseData.event}\n` : ""}data: ${sseData.data}${sseData.id ? `\nid: ${sseData.id}` : ""}\n\n`;
-				rawResponseData += sseString;
+				// Collect raw response data for logging only in debug mode and within size limit
+				if (debugMode && streamingRawResponseData.length < MAX_RAW_DATA_SIZE) {
+					const sseString = `${sseData.event ? `event: ${sseData.event}\n` : ""}data: ${sseData.data}${sseData.id ? `\nid: ${sseData.id}` : ""}\n\n`;
+					streamingRawResponseData += sseString;
+				}
 
 				// Capture for streaming cache if enabled
 				if (cachingEnabled && streamingCacheKey) {
@@ -3158,7 +3168,6 @@ chat.openapi(completions, async (c) => {
 			let streamingToolCalls = null;
 			let buffer = ""; // Buffer for accumulating partial data across chunks
 			let rawUpstreamData = ""; // Raw data received from upstream provider
-			let rawResponseData = ""; // Raw data we send back to the client
 			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 
 			try {
@@ -3171,8 +3180,10 @@ chat.openapi(completions, async (c) => {
 					// Convert the Uint8Array to a string
 					const chunk = new TextDecoder().decode(value);
 					buffer += chunk;
-					// Collect raw upstream data for logging
-					rawUpstreamData += chunk;
+					// Collect raw upstream data for logging only in debug mode and within size limit
+					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
+						rawUpstreamData += chunk;
+					}
 
 					// Check buffer size to prevent memory exhaustion
 					if (buffer.length > MAX_BUFFER_SIZE) {
@@ -3865,7 +3876,7 @@ chat.openapi(completions, async (c) => {
 					rawBody,
 					streamingError
 						? streamingError // Pass structured error when there's an error
-						: rawResponseData, // Raw SSE data sent back to the client
+						: streamingRawResponseData, // Raw SSE data sent back to the client
 					requestBody, // The request sent to the provider
 					streamingError
 						? streamingError // Pass structured error as upstream response too
