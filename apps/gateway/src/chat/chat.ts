@@ -3293,8 +3293,22 @@ chat.openapi(completions, async (c) => {
 							} catch (e) {
 								// If JSON parsing fails, this might be an incomplete event
 								// Since we already validated JSON completeness above, this is likely a format issue
-								// Log the error and skip this chunk
-								streamingError = e;
+								// Create structured error for logging
+								streamingError = {
+									message: e instanceof Error ? e.message : String(e),
+									type: "json_parse_error",
+									code: "json_parse_error",
+									details: {
+										name: e instanceof Error ? e.name : "ParseError",
+										eventData: eventData.substring(0, 5000),
+										provider: usedProvider,
+										model: usedModel,
+										eventLength: eventData.length,
+										bufferEnd: eventEnd,
+										bufferLength: bufferCopy.length,
+										timestamp: new Date().toISOString(),
+									},
+								};
 								console.warn("Failed to parse streaming JSON:", {
 									error: e instanceof Error ? e.message : String(e),
 									eventData:
@@ -3561,8 +3575,20 @@ chat.openapi(completions, async (c) => {
 						console.error("Failed to send error SSE:", sseError);
 					}
 
-					// Mark as having an error for logging
-					streamingError = error;
+					// Create structured error object for logging
+					streamingError = {
+						message: error instanceof Error ? error.message : String(error),
+						type: "streaming_error",
+						code: "streaming_error",
+						details: {
+							name: error instanceof Error ? error.name : "UnknownError",
+							stack: error instanceof Error ? error.stack : undefined,
+							timestamp: new Date().toISOString(),
+							provider: usedProvider,
+							model: usedModel,
+							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
+						},
+					};
 				}
 			} finally {
 				// Clean up the event listeners
@@ -3724,17 +3750,21 @@ chat.openapi(completions, async (c) => {
 					customHeaders,
 					debugMode,
 					rawBody,
-					{
-						content: fullContent,
-						reasoningContent: fullReasoningContent,
-						toolCalls: streamingToolCalls,
-					}, // Our formatted response
+					streamingError
+						? streamingError // Pass structured error when there's an error
+						: {
+								content: fullContent,
+								reasoningContent: fullReasoningContent,
+								toolCalls: streamingToolCalls,
+							}, // Our formatted response
 					requestBody, // The request sent to the provider
-					{
-						content: fullContent,
-						reasoningContent: fullReasoningContent,
-						toolCalls: streamingToolCalls,
-					}, // Raw upstream chunks (same structure for streaming)
+					streamingError
+						? streamingError // Pass structured error as upstream response too
+						: {
+								content: fullContent,
+								reasoningContent: fullReasoningContent,
+								toolCalls: streamingToolCalls,
+							}, // Raw upstream chunks (same structure for streaming)
 				);
 
 				await insertLog({
@@ -3755,9 +3785,12 @@ chat.openapi(completions, async (c) => {
 								statusCode: 500,
 								statusText: "Streaming Error",
 								responseText:
-									streamingError instanceof Error
-										? streamingError.message
-										: String(streamingError),
+									typeof streamingError === "object" &&
+									"details" in streamingError
+										? JSON.stringify(streamingError) // Store structured error as JSON string
+										: streamingError instanceof Error
+											? streamingError.message
+											: String(streamingError),
 							}
 						: null,
 					streamed: true,
