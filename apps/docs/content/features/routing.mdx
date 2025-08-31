@@ -1,0 +1,139 @@
+---
+title: Routing
+description: Learn how LLMGateway intelligently routes your requests to the best available models and providers.
+icon: Route
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Routing
+
+LLMGateway provides flexible and intelligent routing options to help you get the best performance and cost efficiency from your AI applications. Whether you want to use specific models, providers, or let our system automatically optimize your requests, we've got you covered.
+
+## Model Selection
+
+### Any Model Name
+
+You can use any model name from our [models page](https://llmgateway.io/models) or discover available models programmatically through the [/v1/models endpoint](/v1_models).
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+### Model ID Routing
+
+Choose a specific model ID to route to the **cheapest available provider** for that model. LLMGateway automatically finds the most cost-effective option across all configured providers.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+<Callout type="info">
+	Using model IDs without a provider prefix automatically routes to the most
+	cost-effective provider that supports that specific model.
+</Callout>
+
+### Provider-Specific Routing
+
+To use a specific provider, prefix the model name with the provider name followed by a slash:
+
+```bash
+# Use OpenAI specifically
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Use the CloudRift provider specifically
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "cloudrift/deepseek-v3",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+## Optimized Auto Routing
+
+Our most powerful feature is **optimized auto routing**, which automatically selects the best model for your specific use case without you having to specify a model at all.
+
+### Current Implementation
+
+The auto routing system currently:
+
+- **Chooses cost-effective models** by default for optimal price-to-performance ratio
+- **Automatically scales to more powerful models** based on your request's context size
+- **Handles large contexts intelligently** by selecting models with appropriate context windows
+
+```bash
+# Let LLMGateway choose the optimal model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Your request here..."}]
+  }'
+```
+
+<Callout type="success">
+	Auto routing analyzes your payload and automatically chooses between
+	cost-effective models for simple requests and more powerful models for complex
+	or large-context requests.
+</Callout>
+
+### Coming Soon: Advanced Optimization
+
+We're continuously improving our auto routing capabilities. Soon you'll benefit from:
+
+- **Tool call optimization**: Automatically select models that excel at function calling and structured outputs
+- **Content-aware routing**: Analyze message content to determine the best model for specific types of requests (coding, creative writing, analysis, etc.)
+- **Performance-based routing**: Route based on historical performance data for similar requests
+- **Multi-model orchestration**: Intelligently combine multiple models for complex workflows
+
+### How It Works
+
+1. **Request Analysis**: The system analyzes your request including message content, context size, and any special parameters
+2. **Model Selection**: Based on the analysis, it selects the most appropriate model considering cost, performance, and capabilities
+3. **Transparent Routing**: Your request is seamlessly routed to the chosen model and provider
+4. **Optimized Response**: You receive the best possible response while maintaining cost efficiency
+
+<Callout type="info">
+	Auto routing decisions are transparent in your usage logs, so you can always
+	see which model was selected for each request.
+</Callout>
+
+## Best Practices
+
+### For Development
+
+- Use specific model names during development and testing
+- Leverage auto routing for production workloads to optimize costs
+
+### For Production
+
+- Use auto routing (`"model": "auto"`) for the best balance of cost and performance
+- Monitor your usage patterns through the dashboard to understand routing decisions
+- Set up provider keys for multiple providers to maximize routing options
+
+### For Cost Optimization
+
+- Let auto routing handle model selection to automatically use the most cost-effective options
+- Use model IDs without provider prefixes to always get the cheapest available provider
+- Monitor your usage analytics to track cost savings from intelligent routing

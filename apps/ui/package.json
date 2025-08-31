@@ -7,9 +7,9 @@
 		".next"
 	],
 	"scripts": {
-		"build": "tsc && next build",
+		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" next build",
 		"dev": "next dev --port 3002 --turbopack",
-		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
+		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "next lint",
 		"start": "next start"
 	},
@@ -74,8 +74,8 @@
 	"devDependencies": {
 		"@tanstack/react-query-devtools": "5.84.1",
 		"@types/node": "^20",
-		"@types/react": "^19.1.10",
-		"@types/react-dom": "^19.1.7",
+		"@types/react": "^19.1.12",
+		"@types/react-dom": "^19.1.9",
 		"autoprefixer": "^10.4.20",
 		"eslint": "^8",
 		"eslint-config-next": "15.4.6",

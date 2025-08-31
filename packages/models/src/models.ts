@@ -88,7 +88,17 @@ export interface ProviderModelMapping {
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
+	/**
+	 * Stability level of the model for this specific provider (defaults to model-level stability if not specified)
+	 * - stable: Fully tested and production ready
+	 * - beta: Generally stable but may have minor issues
+	 * - unstable: May have significant issues or frequent changes
+	 * - experimental: Early stage, use with caution
+	 */
+	stability?: StabilityLevel;
 }
+
+export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
 export interface ModelDefinition {
 	/**
@@ -131,6 +141,14 @@ export interface ModelDefinition {
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: ("text" | "image")[];
+	/**
+	 * Stability level of the model (defaults to 'stable' if not specified)
+	 * - stable: Fully tested and production ready
+	 * - beta: Generally stable but may have minor issues
+	 * - unstable: May have significant issues or frequent changes
+	 * - experimental: Early stage, use with caution
+	 */
+	stability?: StabilityLevel;
 	/**
 	 * Whether this model supports system role messages (defaults to true if not specified)
 	 */

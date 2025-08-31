@@ -43,6 +43,9 @@ const modelSchema = z.object({
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
+			stability: z
+				.enum(["stable", "beta", "unstable", "experimental"])
+				.optional(),
 		}),
 	),
 	pricing: z.object({
@@ -62,6 +65,7 @@ const modelSchema = z.object({
 	free: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
 	deactivated_at: z.string().optional(),
+	stability: z.enum(["stable", "beta", "unstable", "experimental"]).optional(),
 });
 
 const listModelsResponseSchema = z.object({
@@ -80,12 +84,14 @@ const listModels = createRoute({
 				.string()
 				.optional()
 				.transform((val) => val === "true")
-				.describe("Include deactivated models in the response"),
+				.describe("Include deactivated models in the response")
+				.openapi({ example: "false" }),
 			exclude_deprecated: z
 				.string()
 				.optional()
 				.transform((val) => val === "true")
-				.describe("Exclude deprecated models from the response"),
+				.describe("Exclude deprecated models from the response")
+				.openapi({ example: "false" }),
 		}),
 	},
 	responses: {
@@ -196,6 +202,7 @@ modelsApi.openapi(listModels, async (c) => {
 						tools: provider.tools || false,
 						parallelToolCalls: provider.parallelToolCalls || false,
 						reasoning: provider.reasoning || false,
+						stability: provider.stability || model.stability,
 					};
 				}),
 				pricing: {
@@ -220,6 +227,7 @@ modelsApi.openapi(listModels, async (c) => {
 				free: model.free || false,
 				deprecated_at: model.deprecatedAt?.toISOString(),
 				deactivated_at: model.deactivatedAt?.toISOString(),
+				stability: model.stability,
 			};
 		});
 

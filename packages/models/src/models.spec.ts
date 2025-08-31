@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { models } from "./models";
-import { prepareRequestBody } from "./provider-api";
+import {
+	prepareRequestBody,
+	getCheapestModelForProvider,
+} from "./provider-api";
 
 import type { BaseMessage, OpenAIRequestBody } from "./types";
 
@@ -271,5 +274,62 @@ describe("prepareRequestBody", () => {
 
 			expect((body as OpenAIRequestBody).temperature).toBe(1);
 		});
+	});
+});
+
+describe("getCheapestModelForProvider", () => {
+	it("should return cheapest model for openai provider", () => {
+		const cheapestModel = getCheapestModelForProvider("openai");
+		expect(cheapestModel).toBeDefined();
+		expect(typeof cheapestModel).toBe("string");
+	});
+
+	it("should return cheapest model for anthropic provider", () => {
+		const cheapestModel = getCheapestModelForProvider("anthropic");
+		expect(cheapestModel).toBeDefined();
+		expect(typeof cheapestModel).toBe("string");
+	});
+
+	it("should return null for non-existent provider", () => {
+		const cheapestModel = getCheapestModelForProvider("non-existent" as any);
+		expect(cheapestModel).toBe(null);
+	});
+
+	it("should only consider models with pricing information", () => {
+		// Test that the function filters out models without pricing
+		const cheapestModel = getCheapestModelForProvider("openai");
+		expect(cheapestModel).toBeDefined();
+
+		// Verify the cheapest model has pricing information
+		if (cheapestModel) {
+			const modelWithProvider = models.find((model) =>
+				model.providers.some(
+					(p) =>
+						p.providerId === "openai" &&
+						p.modelName === cheapestModel &&
+						p.inputPrice !== undefined &&
+						p.outputPrice !== undefined,
+				),
+			);
+			expect(modelWithProvider).toBeDefined();
+		}
+	});
+
+	it("should exclude deprecated models", () => {
+		// This test verifies that deprecated models are not returned
+		const cheapestModel = getCheapestModelForProvider("openai");
+
+		if (cheapestModel) {
+			const modelWithProvider = models.find((model) =>
+				model.providers.some(
+					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+				),
+			);
+
+			if (modelWithProvider && modelWithProvider.deprecatedAt) {
+				// If the model has a deprecatedAt date, it should be in the future
+				expect(new Date() <= modelWithProvider.deprecatedAt).toBe(true);
+			}
+		}
 	});
 });

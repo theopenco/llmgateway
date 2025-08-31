@@ -3,6 +3,7 @@ import {
 	decimal,
 	integer,
 	json,
+	jsonb,
 	pgTable,
 	real,
 	text,
@@ -302,6 +303,10 @@ export const log = pgTable("log", {
 	source: text(),
 	customHeaders: json().$type<{ [key: string]: string }>(),
 	processedAt: timestamp(),
+	rawRequest: jsonb(),
+	rawResponse: jsonb(),
+	upstreamRequest: jsonb(),
+	upstreamResponse: jsonb(),
 });
 
 export const passkey = pgTable("passkey", {
