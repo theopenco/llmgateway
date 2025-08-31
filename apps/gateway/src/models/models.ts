@@ -43,6 +43,9 @@ const modelSchema = z.object({
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
+			stability: z
+				.enum(["stable", "beta", "unstable", "experimental"])
+				.optional(),
 		}),
 	),
 	pricing: z.object({
@@ -197,6 +200,7 @@ modelsApi.openapi(listModels, async (c) => {
 						tools: provider.tools || false,
 						parallelToolCalls: provider.parallelToolCalls || false,
 						reasoning: provider.reasoning || false,
+						stability: provider.stability || model.stability,
 					};
 				}),
 				pricing: {

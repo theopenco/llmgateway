@@ -84,6 +84,14 @@ export interface ProviderModelMapping {
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
+	/**
+	 * Stability level of the model for this specific provider (defaults to model-level stability if not specified)
+	 * - stable: Fully tested and production ready
+	 * - beta: Generally stable but may have minor issues
+	 * - unstable: May have significant issues or frequent changes
+	 * - experimental: Early stage, use with caution
+	 */
+	stability?: StabilityLevel;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
