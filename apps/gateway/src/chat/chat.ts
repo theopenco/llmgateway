@@ -2522,7 +2522,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check if the model supports reasoning
 	const supportsReasoning = modelInfo.providers.some(
-		(provider) => provider.reasoning === true,
+		(provider) => (provider as ProviderModelMapping).reasoning === true,
 	);
 
 	try {

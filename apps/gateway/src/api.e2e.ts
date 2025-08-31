@@ -521,7 +521,9 @@ describe("e2e", () => {
 			const reasoningProvider = providers?.find(
 				(p: ProviderModelMapping) => p.reasoning === true,
 			);
-			if (reasoningProvider?.reasoningOutput !== "omit") {
+			if (
+				(reasoningProvider as ProviderModelMapping)?.reasoningOutput !== "omit"
+			) {
 				expect(json.choices[0].message).toHaveProperty("reasoning_content");
 			}
 		},
@@ -630,7 +632,9 @@ describe("e2e", () => {
 			const reasoningProvider = providers?.find(
 				(p: ProviderModelMapping) => p.reasoning === true,
 			);
-			if (reasoningProvider?.reasoningOutput !== "omit") {
+			if (
+				(reasoningProvider as ProviderModelMapping)?.reasoningOutput !== "omit"
+			) {
 				const reasoningChunks = streamResult.chunks.filter(
 					(chunk: any) =>
 						chunk.choices?.[0]?.delta?.reasoning_content &&
@@ -747,7 +751,10 @@ describe("e2e", () => {
 				const reasoningProvider = providers?.find(
 					(p: ProviderModelMapping) => p.reasoning === true,
 				);
-				if (reasoningProvider?.reasoningOutput !== "omit") {
+				if (
+					(reasoningProvider as ProviderModelMapping)?.reasoningOutput !==
+					"omit"
+				) {
 					expect(json.choices[0].message).toHaveProperty("reasoning_content");
 					expect(typeof json.choices[0].message.reasoning_content).toBe(
 						"string",
@@ -890,7 +897,7 @@ describe("e2e", () => {
 	test.each(
 		testModels.filter((m) => {
 			const modelDef = models.find((def) => def.id === m.model);
-			return modelDef?.jsonOutput === true;
+			return (modelDef as ModelDefinition)?.jsonOutput === true;
 		}),
 	)("JSON output $model", getTestOptions(), async ({ model }) => {
 		const res = await app.request("/v1/chat/completions", {
