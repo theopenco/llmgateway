@@ -176,6 +176,7 @@ function createLogEntry(
 	debugMode: boolean,
 	rawRequest?: unknown,
 	rawResponse?: unknown,
+	upstreamRequest?: unknown,
 	upstreamResponse?: unknown,
 ) {
 	return {
@@ -203,6 +204,7 @@ function createLogEntry(
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: debugMode ? rawRequest || null : null,
 		rawResponse: debugMode ? rawResponse || null : null,
+		upstreamRequest: debugMode ? upstreamRequest || null : null,
 		upstreamResponse: debugMode ? upstreamResponse || null : null,
 	} as const;
 }
@@ -2578,6 +2580,7 @@ chat.openapi(completions, async (c) => {
 					debugMode,
 					rawBody,
 					cachedStreamingResponse,
+					null, // No upstream request for cached response
 					cachedStreamingResponse, // upstream response is same as cached response
 				);
 
@@ -2663,6 +2666,7 @@ chat.openapi(completions, async (c) => {
 					debugMode,
 					rawBody,
 					cachedResponse,
+					null, // No upstream request for cached response
 					cachedResponse, // upstream response is same as cached response
 				);
 
@@ -2860,6 +2864,7 @@ chat.openapi(completions, async (c) => {
 						debugMode,
 						rawBody,
 						null, // No response for canceled request
+						requestBody, // The request that was sent before cancellation
 						null, // No upstream response for canceled request
 					);
 
@@ -2980,6 +2985,7 @@ chat.openapi(completions, async (c) => {
 					debugMode,
 					rawBody,
 					null, // No response for error case
+					requestBody, // The request that was sent and resulted in error
 					null, // No upstream response for error case
 				);
 
@@ -3723,6 +3729,7 @@ chat.openapi(completions, async (c) => {
 						reasoningContent: fullReasoningContent,
 						toolCalls: streamingToolCalls,
 					}, // Our formatted response
+					requestBody, // The request sent to the provider
 					{
 						content: fullContent,
 						reasoningContent: fullReasoningContent,
@@ -3856,6 +3863,7 @@ chat.openapi(completions, async (c) => {
 			debugMode,
 			rawBody,
 			null, // No response for canceled request
+			requestBody, // The request that was prepared before cancellation
 			null, // No upstream response for canceled request
 		);
 
@@ -3930,6 +3938,7 @@ chat.openapi(completions, async (c) => {
 			debugMode,
 			rawBody,
 			errorResponseText, // Our formatted error response
+			requestBody, // The request that resulted in error
 			errorResponseText, // Raw upstream error response
 		);
 
@@ -4099,6 +4108,7 @@ chat.openapi(completions, async (c) => {
 		debugMode,
 		rawBody,
 		transformedResponse, // Our formatted response that we return to user
+		requestBody, // The request sent to the provider
 		json, // Raw upstream response from provider
 	);
 
