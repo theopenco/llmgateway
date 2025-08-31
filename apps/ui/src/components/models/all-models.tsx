@@ -1276,10 +1276,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<Card>
 									<CardContent className="p-4">
 										<div className="text-2xl font-bold">
-											{
-												modelsWithProviders.filter((m) => (m as any).free)
-													.length
-											}
+											{modelsWithProviders.filter((m) => m.free).length}
 										</div>
 										<div className="text-sm text-muted-foreground">
 											Free Models{hasActiveFilters ? " (filtered)" : ""}

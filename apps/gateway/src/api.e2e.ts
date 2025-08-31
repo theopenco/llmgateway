@@ -521,7 +521,7 @@ describe("e2e", () => {
 			const reasoningProvider = providers?.find(
 				(p: ProviderModelMapping) => p.reasoning === true,
 			);
-			if ((reasoningProvider as any)?.reasoningOutput !== "omit") {
+			if (reasoningProvider?.reasoningOutput !== "omit") {
 				expect(json.choices[0].message).toHaveProperty("reasoning_content");
 			}
 		},
@@ -630,7 +630,7 @@ describe("e2e", () => {
 			const reasoningProvider = providers?.find(
 				(p: ProviderModelMapping) => p.reasoning === true,
 			);
-			if ((reasoningProvider as any)?.reasoningOutput !== "omit") {
+			if (reasoningProvider?.reasoningOutput !== "omit") {
 				const reasoningChunks = streamResult.chunks.filter(
 					(chunk: any) =>
 						chunk.choices?.[0]?.delta?.reasoning_content &&
@@ -747,7 +747,7 @@ describe("e2e", () => {
 				const reasoningProvider = providers?.find(
 					(p: ProviderModelMapping) => p.reasoning === true,
 				);
-				if ((reasoningProvider as any)?.reasoningOutput !== "omit") {
+				if (reasoningProvider?.reasoningOutput !== "omit") {
 					expect(json.choices[0].message).toHaveProperty("reasoning_content");
 					expect(typeof json.choices[0].message.reasoning_content).toBe(
 						"string",
@@ -890,7 +890,7 @@ describe("e2e", () => {
 	test.each(
 		testModels.filter((m) => {
 			const modelDef = models.find((def) => def.id === m.model);
-			return (modelDef as any)?.jsonOutput === true;
+			return modelDef?.jsonOutput === true;
 		}),
 	)("JSON output $model", getTestOptions(), async ({ model }) => {
 		const res = await app.request("/v1/chat/completions", {
@@ -1301,10 +1301,12 @@ describe("e2e", () => {
 		expect(log.unifiedFinishReason).toBe("client_error");
 		expect(log.errorDetails).not.toBeNull();
 		expect(log.errorDetails).toHaveProperty("message");
-		expect((log.errorDetails as any).message).toContain(
+		expect((log.errorDetails as { message?: string })?.message).toContain(
 			"'messages' must contain",
 		);
-		expect((log.errorDetails as any).message).toContain("the word 'json'");
+		expect((log.errorDetails as { message?: string })?.message).toContain(
+			"the word 'json'",
+		);
 	});
 
 	test("completions with llmgateway/auto in credits mode", async () => {

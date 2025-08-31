@@ -73,17 +73,17 @@ chat.openapi(completionRoute, async (c) => {
 				if (errorJson.message) {
 					return c.json(
 						{ error: "gateway returned: " + errorJson.message },
-						response.status as any,
+						response.status,
 					);
 				}
 				return c.json(
 					{ error: `Failed to get chat completion: ${errorText}` },
-					response.status as any,
+					response.status,
 				);
 			} catch (err) {
 				return c.json(
 					{ error: `Failed to get chat completion: ${err}` },
-					response.status as any,
+					response.status,
 				);
 			}
 		}

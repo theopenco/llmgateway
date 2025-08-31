@@ -10,6 +10,7 @@ import {
 	apiKey,
 	inArray,
 } from "@llmgateway/db";
+import { hasErrorCode } from "@llmgateway/models";
 import z from "zod";
 
 import { getOrganization } from "./lib/cache";
@@ -56,10 +57,7 @@ export async function acquireLock(key: string): Promise<boolean> {
 		return true;
 	} catch (error) {
 		// If the insert failed due to a unique constraint violation, another process holds the lock
-		if (
-			typeof (error as any)?.code === "string" &&
-			(error as any).code === "23505"
-		) {
+		if (hasErrorCode(error) && error.code === "23505") {
 			return false;
 		}
 		// Re-throw unexpected errors so they can be handled upstream
@@ -386,7 +384,10 @@ export async function processLogQueue(): Promise<void> {
 	try {
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
 
-		const processedLogData = await Promise.all(
+		const processedLogData: (
+			| LogInsertData
+			| Omit<LogInsertData, "messages" | "content">
+		)[] = await Promise.all(
 			logData.map(async (data) => {
 				const organization = await getOrganization(data.organizationId);
 
@@ -404,7 +405,8 @@ export async function processLogQueue(): Promise<void> {
 		);
 
 		// Insert logs without processing credits or API key usage - they will be processed in batches
-		await db.insert(log).values(processedLogData as any);
+		// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
+		await db.insert(log).values(processedLogData as LogInsertData[]);
 	} catch (error) {
 		console.error("Error processing log message:", error);
 	}

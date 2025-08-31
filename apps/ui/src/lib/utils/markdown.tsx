@@ -16,7 +16,9 @@ const SyntaxHighlightedPre = ({
 	let language: Language = "text";
 
 	if (children && typeof children === "object" && "props" in children) {
-		const childProps = (children as any).props;
+		const childProps = (
+			children as { props?: { children?: string; className?: string } }
+		).props;
 		if (childProps?.children) {
 			code = childProps.children.trim();
 		}
