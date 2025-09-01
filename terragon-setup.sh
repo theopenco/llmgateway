@@ -35,6 +35,10 @@ sudo -u postgres createdb db 2>/dev/null || echo "✅ DB database already exists
 echo "📦 Installing Node.js dependencies..."
 pnpm install
 
+# Run prepare script (from origin/main)
+echo "🔧 Running prepare script..."
+pnpm run prepare
+
 # Set up database schemas and seed data
 echo "🌱 Setting up database schemas and seeding data..."
 pnpm push-test
