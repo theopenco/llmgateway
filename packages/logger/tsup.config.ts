@@ -1,10 +1,3 @@
-import { defineConfig } from "tsup";
+import { tsup } from "../../tsup.config";
 
-export default defineConfig({
-	entry: ["src/index.ts"],
-	format: ["esm", "cjs"],
-	dts: true,
-	sourcemap: true,
-	clean: true,
-	external: ["pino", "pino-pretty"],
-});
+export { tsup };
