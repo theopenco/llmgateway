@@ -1076,7 +1076,7 @@ export async function validateProviderKey(
 				} else if (errorJson.message) {
 					errorMessage = errorJson.message;
 				}
-			} catch (_err) {}
+			} catch {}
 
 			if (response.status === 401) {
 				return {
