@@ -3599,10 +3599,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract finishReason from transformedData to update tracking variable
-							if (
-								transformedData.choices?.[0]?.finish_reason &&
-								usedProvider === "openai"
-							) {
+							if (transformedData.choices?.[0]?.finish_reason) {
 								finishReason = transformedData.choices[0].finish_reason;
 							}
 
@@ -3970,6 +3967,10 @@ chat.openapi(completions, async (c) => {
 						? streamingError // Pass structured error as upstream response too
 						: rawUpstreamData, // Raw streaming data received from upstream provider
 				);
+
+				if (!finishReason && !streamingError && usedProvider === "routeway") {
+					finishReason = "stop";
+				}
 
 				await insertLog({
 					...baseLogEntry,
