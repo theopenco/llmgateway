@@ -1673,6 +1673,62 @@ describe("e2e", () => {
 		}
 	});
 
+	test("GPT-5-nano responses API parameter handling", async () => {
+		const envVarName = getProviderEnvVar("openai");
+		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		if (!envVarValue) {
+			console.log(
+				"Skipping GPT-5-nano responses API test - no OpenAI API key provided",
+			);
+			return;
+		}
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5-nano",
+				messages: [
+					{
+						role: "user",
+						content: "What is 2+2? Think step by step.",
+					},
+				],
+				max_tokens: 100,
+				reasoning_effort: "medium",
+			}),
+		});
+
+		const json = await res.json();
+		if (logMode) {
+			console.log("GPT-5-nano response:", JSON.stringify(json, null, 2));
+		}
+
+		// Should succeed - no unsupported parameter error
+		expect(res.status).toBe(200);
+		validateResponse(json);
+
+		const log = await validateLogs();
+		expect(log.streamed).toBe(false);
+		expect(log.usedModel).toBe("gpt-5-nano");
+		expect(log.usedProvider).toBe("openai");
+
+		// Verify it's a reasoning model response
+		expect(json).toHaveProperty("usage");
+		if (json.usage.reasoning_tokens !== undefined) {
+			expect(typeof json.usage.reasoning_tokens).toBe("number");
+			expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
+		}
+
+		// Check for reasoning content if available
+		expect(json.choices[0].message).toHaveProperty("content");
+		expect(typeof json.choices[0].message.content).toBe("string");
+		expect(json.choices[0].message.content.length).toBeGreaterThan(0);
+	});
+
 	test("Success when requesting multi-provider model without prefix", async () => {
 		const multiProviderModel = models.find((m) => m.providers.length > 1);
 		if (!multiProviderModel) {
