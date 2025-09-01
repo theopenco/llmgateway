@@ -1,4 +1,5 @@
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
@@ -22,7 +23,7 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 	const brevoApiKey = process.env.BREVO_API_KEY;
 
 	if (!brevoApiKey) {
-		console.log("BREVO_API_KEY not configured, skipping contact creation");
+		logger.debug("BREVO_API_KEY not configured, skipping contact creation");
 		return;
 	}
 
@@ -53,9 +54,12 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 			throw new Error(`Brevo API error: ${response.status} - ${error}`);
 		}
 
-		console.log(`Successfully created Brevo contact for ${email}`);
+		logger.info("Successfully created Brevo contact", { email });
 	} catch (error) {
-		console.error("Failed to create Brevo contact:", error);
+		logger.error(
+			"Failed to create Brevo contact",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 	}
 }
 
@@ -105,8 +109,8 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 		sendVerificationEmail: async ({ user, token }) => {
 			const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
 			if (!smtpHost || !smtpUser || !smtpPass) {
-				console.log(`email verification link: ${url}`);
-				console.error(
+				logger.info("Email verification link generated", { url });
+				logger.error(
 					"SMTP configuration is not set. Email verification will not work.",
 				);
 				return;
@@ -137,7 +141,10 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 					`,
 				});
 			} catch (error) {
-				console.error("Failed to send verification email:", error);
+				logger.error(
+					"Failed to send verification email",
+					error instanceof Error ? error : new Error(String(error)),
+				);
 				throw new Error("Failed to send verification email. Please try again.");
 			}
 		},

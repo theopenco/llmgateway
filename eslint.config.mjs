@@ -11,7 +11,7 @@ export default [
 			complexity: "off",
 			"max-depth": "off",
 			"max-params": "off",
-			"no-console": "off",
+			"no-console": "error",
 			"no-unused-vars": [
 				"error",
 				{
@@ -23,6 +23,21 @@ export default [
 					caughtErrorsIgnorePattern: "^_",
 				},
 			],
+		},
+	},
+	{
+		files: [
+			"**/*.spec.ts",
+			"**/*.spec.tsx",
+			"**/*.test.ts",
+			"**/*.test.tsx",
+			"**/*.e2e.ts",
+			"**/test-utils/**",
+			"apps/ui/**",
+			"apps/docs/**",
+		],
+		rules: {
+			"no-console": "off",
 		},
 	},
 	{

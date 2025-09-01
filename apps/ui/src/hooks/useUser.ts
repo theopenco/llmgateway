@@ -67,7 +67,7 @@ export function useUser(options?: UseUserOptions) {
 		if (!data.user.onboardingCompleted) {
 			router.push("/onboarding");
 		}
-	}, [data?.user, isLoading, router]);
+	}, [data?.user, isLoading, router, pathname]);
 
 	// Handle existing redirect logic
 	useEffect(() => {
@@ -116,8 +116,8 @@ export function useUpdateUser() {
 
 	return api.useMutation("patch", "/user/me", {
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ["user"] });
-			queryClient.invalidateQueries({ queryKey: ["session"] });
+			void queryClient.invalidateQueries({ queryKey: ["user"] });
+			void queryClient.invalidateQueries({ queryKey: ["session"] });
 		},
 	});
 }

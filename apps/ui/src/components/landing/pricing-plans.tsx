@@ -409,7 +409,6 @@ export function PricingPlans() {
 									subscriptionStatus?.plan !== "pro" &&
 									user ? (
 										<UpgradeToProDialog
-											onSuccess={() => fetchSubscriptionStatus()}
 											initialBillingCycle={
 												billingCycle === "annual" ? "yearly" : "monthly"
 											}

@@ -18,13 +18,11 @@ import { useApi } from "@/lib/fetch-client";
 
 interface UpgradeToProDialogProps {
 	children: React.ReactNode;
-	onSuccess?: () => void;
 	initialBillingCycle?: "monthly" | "yearly";
 }
 
 export function UpgradeToProDialog({
 	children,
-	onSuccess,
 	initialBillingCycle = "monthly",
 }: UpgradeToProDialogProps) {
 	const [open, setOpen] = useState(false);
@@ -33,23 +31,15 @@ export function UpgradeToProDialog({
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent>
-				<UpgradeDialogContent
-					onSuccess={() => {
-						setOpen(false);
-						onSuccess?.();
-					}}
-					initialBillingCycle={initialBillingCycle}
-				/>
+				<UpgradeDialogContent initialBillingCycle={initialBillingCycle} />
 			</DialogContent>
 		</Dialog>
 	);
 }
 
 function UpgradeDialogContent({
-	onSuccess,
 	initialBillingCycle = "monthly",
 }: {
-	onSuccess: () => void;
 	initialBillingCycle?: "monthly" | "yearly";
 }) {
 	const { toast } = useToast();

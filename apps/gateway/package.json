@@ -19,6 +19,7 @@
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.0",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"gpt-tokenizer": "3.0.1",
 		"hono": "^4.7.6",

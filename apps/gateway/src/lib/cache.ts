@@ -1,4 +1,5 @@
 import { db, type InferSelectModel } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import crypto from "crypto";
 
 import redisClient from "./redis";
@@ -25,7 +26,7 @@ export async function setCache(
 	try {
 		await redisClient.set(key, JSON.stringify(value), "EX", expirationSeconds);
 	} catch (error) {
-		console.error("Error setting cache:", error);
+		logger.error("Error setting cache:", error as Error);
 	}
 }
 
@@ -37,7 +38,7 @@ export async function getCache(key: string): Promise<any | null> {
 		}
 		return JSON.parse(cachedValue);
 	} catch (error) {
-		console.error("Error getting cache:", error);
+		logger.error("Error getting cache:", error as Error);
 		return null;
 	}
 }
@@ -74,7 +75,7 @@ export async function isCachingEnabled(
 
 		return config;
 	} catch (error) {
-		console.error("Error checking if caching is enabled:", error);
+		logger.error("Error checking if caching is enabled:", error as Error);
 		throw error;
 	}
 }
@@ -102,7 +103,7 @@ export async function getProject(projectId: string): Promise<any> {
 
 		return project;
 	} catch (error) {
-		console.error("Error fetching project:", error);
+		logger.error("Error fetching project:", error as Error);
 		throw error;
 	}
 }
@@ -130,7 +131,7 @@ export async function getOrganization(organizationId: string): Promise<any> {
 
 		return organization;
 	} catch (error) {
-		console.error("Error fetching organization:", error);
+		logger.error("Error fetching organization:", error as Error);
 		throw error;
 	}
 }
@@ -167,7 +168,7 @@ export async function getProviderKey(
 
 		return providerKey;
 	} catch (error) {
-		console.error("Error fetching provider key:", error);
+		logger.error("Error fetching provider key:", error as Error);
 		throw error;
 	}
 }
@@ -207,7 +208,7 @@ export async function getCustomProviderKey(
 
 		return providerKey;
 	} catch (error) {
-		console.error("Error fetching custom provider key:", error);
+		logger.error("Error fetching custom provider key:", error as Error);
 		throw error;
 	}
 }
@@ -246,7 +247,7 @@ export async function checkCustomProviderExists(
 
 		return exists;
 	} catch (error) {
-		console.error("Error checking if custom provider exists:", error);
+		logger.error("Error checking if custom provider exists:", error as Error);
 		throw error;
 	}
 }
@@ -290,7 +291,7 @@ export async function setStreamingCache(
 	try {
 		await redisClient.set(key, JSON.stringify(data), "EX", expirationSeconds);
 	} catch (error) {
-		console.error("Error setting streaming cache:", error);
+		logger.error("Error setting streaming cache:", error as Error);
 	}
 }
 
@@ -304,7 +305,7 @@ export async function getStreamingCache(
 		}
 		return JSON.parse(cachedValue);
 	} catch (error) {
-		console.error("Error getting streaming cache:", error);
+		logger.error("Error getting streaming cache:", error as Error);
 		return null;
 	}
 }

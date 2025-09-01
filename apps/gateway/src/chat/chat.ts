@@ -7,6 +7,7 @@ import {
 	shortid,
 	type tables,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import {
 	getCheapestFromAvailableProviders,
 	getModelStreamingSupport,
@@ -555,8 +556,9 @@ function estimateTokens(
 				).length;
 			} catch (error) {
 				// Fallback to simple estimation if encoding fails
-				console.error(
-					`Failed to encode chat messages in estimate tokens: ${error}`,
+				logger.error(
+					"Failed to encode chat messages in estimate tokens",
+					error instanceof Error ? error : new Error(String(error)),
 				);
 				calculatedPromptTokens =
 					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
@@ -569,7 +571,10 @@ function estimateTokens(
 				calculatedCompletionTokens = encode(content).length;
 			} catch (error) {
 				// Fallback to simple estimation if encoding fails
-				console.error(`Failed to encode completion text: ${error}`);
+				logger.error(
+					"Failed to encode completion text",
+					error instanceof Error ? error : new Error(String(error)),
+				);
 				calculatedCompletionTokens = content.length / 4;
 			}
 		}
@@ -2070,7 +2075,7 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (!supportsReasoning) {
-			console.error(
+			logger.error(
 				`Reasoning effort specified for non-reasoning model: ${requestedModel}`,
 				{
 					requestedModel,
@@ -2706,7 +2711,9 @@ chat.openapi(completions, async (c) => {
 						}
 					} catch (e) {
 						// Skip malformed chunks
-						console.warn("Failed to parse cached chunk:", e);
+						logger.warn("Failed to parse cached chunk", {
+							error: e instanceof Error ? e : new Error(String(e)),
+						});
 					}
 				}
 
@@ -3079,9 +3086,10 @@ chat.openapi(completions, async (c) => {
 
 			if (!res.ok) {
 				const errorResponseText = await res.text();
-				console.log(
-					`Provider error - Status: ${res.status}, Text: ${errorResponseText}`,
-				);
+				logger.error("Provider error", {
+					status: res.status,
+					errorText: errorResponseText,
+				});
 
 				// Determine the finish reason for error handling
 				const finishReason = getFinishReasonForError(
@@ -3238,7 +3246,7 @@ chat.openapi(completions, async (c) => {
 
 					// Check buffer size to prevent memory exhaustion
 					if (buffer.length > MAX_BUFFER_SIZE) {
-						console.warn(
+						logger.warn(
 							"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
 						);
 						buffer = "";
@@ -3379,7 +3387,7 @@ chat.openapi(completions, async (c) => {
 
 						// Debug logging for troublesome events
 						if (eventData.includes("event:") || eventData.includes("id:")) {
-							console.warn("Event data contains SSE field:", {
+							logger.warn("Event data contains SSE field", {
 								eventData:
 									eventData.substring(0, 200) +
 									(eventData.length > 200 ? "..." : ""),
@@ -3482,7 +3490,7 @@ chat.openapi(completions, async (c) => {
 										timestamp: new Date().toISOString(),
 									},
 								};
-								console.warn("Failed to parse streaming JSON:", {
+								logger.warn("Failed to parse streaming JSON", {
 									error: e instanceof Error ? e.message : String(e),
 									eventData:
 										eventData.substring(0, 200) +
@@ -3739,7 +3747,10 @@ chat.openapi(completions, async (c) => {
 				if (error instanceof Error && error.name === "AbortError") {
 					canceled = true;
 				} else {
-					console.error("Error reading stream:", error);
+					logger.error(
+						"Error reading stream",
+						error instanceof Error ? error : new Error(String(error)),
+					);
 
 					// Forward the error to the client with the buffered content that caused the error
 					try {
@@ -3763,7 +3774,12 @@ chat.openapi(completions, async (c) => {
 							id: String(eventId++),
 						});
 					} catch (sseError) {
-						console.error("Failed to send error SSE:", sseError);
+						logger.error(
+							"Failed to send error SSE",
+							sseError instanceof Error
+								? sseError
+								: new Error(String(sseError)),
+						);
 					}
 
 					// Create structured error object for logging
@@ -3809,8 +3825,9 @@ chat.openapi(completions, async (c) => {
 							).length;
 						} catch (error) {
 							// Fallback to simple estimation if encoding fails
-							console.error(
-								`Failed to encode chat messages in streaming: ${error}`,
+							logger.error(
+								"Failed to encode chat messages in streaming",
+								error instanceof Error ? error : new Error(String(error)),
 							);
 							calculatedPromptTokens =
 								messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) /
@@ -3823,8 +3840,9 @@ chat.openapi(completions, async (c) => {
 							calculatedCompletionTokens = encode(fullContent).length;
 						} catch (error) {
 							// Fallback to simple estimation if encoding fails
-							console.error(
-								`Failed to encode completion text in streaming: ${error}`,
+							logger.error(
+								"Failed to encode completion text in streaming",
+								error instanceof Error ? error : new Error(String(error)),
 							);
 							calculatedCompletionTokens =
 								estimateTokensFromContent(fullContent);
@@ -3903,7 +3921,10 @@ chat.openapi(completions, async (c) => {
 							id: String(eventId++),
 						});
 					} catch (error) {
-						console.error("Error sending final usage chunk:", error);
+						logger.error(
+							"Error sending final usage chunk",
+							error instanceof Error ? error : new Error(String(error)),
+						);
 					}
 				}
 
@@ -4010,7 +4031,10 @@ chat.openapi(completions, async (c) => {
 							cacheDuration,
 						);
 					} catch (error) {
-						console.error("Error saving streaming cache:", error);
+						logger.error(
+							"Error saving streaming cache",
+							error instanceof Error ? error : new Error(String(error)),
+						);
 					}
 				}
 			}
@@ -4123,9 +4147,10 @@ chat.openapi(completions, async (c) => {
 		// Get the error response text
 		const errorResponseText = await res.text();
 
-		console.log(
-			`Provider error - Status: ${res.status}, Text: ${errorResponseText}`,
-		);
+		logger.error("Provider error", {
+			status: res.status,
+			errorText: errorResponseText,
+		});
 
 		// Determine the finish reason first
 		const finishReason = getFinishReasonForError(res.status, errorResponseText);
@@ -4238,7 +4263,7 @@ chat.openapi(completions, async (c) => {
 
 	const json = await res.json();
 	if (process.env.NODE_ENV !== "production") {
-		console.log("response", JSON.stringify(json, null, 2));
+		logger.debug("API response", { response: json });
 	}
 	const responseText = JSON.stringify(json);
 
@@ -4257,9 +4282,9 @@ chat.openapi(completions, async (c) => {
 	} = parseProviderResponse(usedProvider, json, messages);
 
 	// Debug: Log images found in response
-	console.log("Gateway - parseProviderResponse extracted images:", images);
-	console.log("Gateway - Used provider:", usedProvider);
-	console.log("Gateway - Used model:", usedModel);
+	logger.debug("Gateway - parseProviderResponse extracted images", { images });
+	logger.debug("Gateway - Used provider", { usedProvider });
+	logger.debug("Gateway - Used model", { usedModel });
 
 	// Estimate tokens if not provided by the API
 	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(

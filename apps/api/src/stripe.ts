@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { db, eq, sql, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -57,18 +58,18 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 	// 1. Try to get organizationId from direct metadata
 	if (eventData.metadata?.organizationId) {
 		organizationId = eventData.metadata.organizationId;
-		console.log(`Found organizationId in direct metadata: ${organizationId}`);
+		logger.debug("Found organizationId in direct metadata", { organizationId });
 	}
 
 	// 2. Check line items metadata (common in invoices)
 	if (!organizationId && eventData.lines?.data) {
-		console.log(
+		logger.info(
 			`Checking ${eventData.lines.data.length} line items for organizationId`,
 		);
 		for (const lineItem of eventData.lines.data) {
 			if (lineItem.metadata?.organizationId) {
 				organizationId = lineItem.metadata.organizationId;
-				console.log(
+				logger.info(
 					`Found organizationId in line item metadata: ${organizationId}`,
 				);
 				break;
@@ -84,12 +85,12 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 			);
 			if (stripeSubscription.metadata?.organizationId) {
 				organizationId = stripeSubscription.metadata.organizationId;
-				console.log(
+				logger.info(
 					`Found organizationId in subscription metadata: ${organizationId}`,
 				);
 			}
 		} catch (error) {
-			console.error("Error retrieving subscription:", error);
+			logger.error("Error retrieving subscription:", error as Error);
 		}
 	}
 
@@ -103,14 +104,14 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 
 		if (organization) {
 			organizationId = organization.id;
-			console.log(
+			logger.info(
 				`Found organizationId via customer lookup: ${organizationId}`,
 			);
 		}
 	}
 
 	if (!organizationId) {
-		console.error(`Organization not found for event data:`, {
+		logger.error(`Organization not found for event data:`, {
 			hasMetadata: !!eventData.metadata,
 			customer: eventData.customer,
 			subscription: eventData.subscription,
@@ -127,13 +128,13 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 	});
 
 	if (!organization) {
-		console.error(
+		logger.error(
 			`Organization with ID ${organizationId} does not exist in database`,
 		);
 		return null;
 	}
 
-	console.log(
+	logger.info(
 		`Successfully resolved organization: ${organization.name} (${organization.id})`,
 	);
 	return { organizationId, organization };
@@ -174,7 +175,7 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 		const event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
 
-		console.log(JSON.stringify({ kind: "stripe-event", payload: event }));
+		logger.info(JSON.stringify({ kind: "stripe-event", payload: event }));
 
 		switch (event.type) {
 			case "payment_intent.succeeded":
@@ -205,12 +206,12 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 				await handleTrialWillEnd(event);
 				break;
 			default:
-				console.log(`Unhandled event type: ${event.type}`);
+				logger.info(`Unhandled event type: ${event.type}`);
 		}
 
 		return c.json({ received: true });
 	} catch (error) {
-		console.error("Webhook error:", error);
+		logger.error("Webhook error:", error as Error);
 		throw new HTTPException(400, {
 			message: `Webhook error: ${error instanceof Error ? error.message : "Unknown error"}`,
 		});
@@ -223,12 +224,12 @@ async function handleCheckoutSessionCompleted(
 	const session = event.data.object;
 	const { customer, metadata, subscription } = session;
 
-	console.log(
+	logger.info(
 		`Processing checkout session completed for customer: ${customer}, subscription: ${subscription}`,
 	);
 
 	if (!subscription) {
-		console.log("Not a subscription checkout session, skipping");
+		logger.info("Not a subscription checkout session, skipping");
 		return;
 	}
 
@@ -240,7 +241,7 @@ async function handleCheckoutSessionCompleted(
 	});
 
 	if (!result) {
-		console.error(
+		logger.error(
 			`Organization not found for customer: ${customer}, subscription: ${subscription}`,
 		);
 		return;
@@ -248,7 +249,7 @@ async function handleCheckoutSessionCompleted(
 
 	const { organizationId, organization } = result;
 
-	console.log(
+	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}`,
 	);
 
@@ -267,9 +268,8 @@ async function handleCheckoutSessionCompleted(
 			.where(eq(tables.organization.id, organizationId))
 			.returning();
 
-		console.log(
-			`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows:`,
-			result.length,
+		logger.info(
+			`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
 		);
 
 		// Create transaction record for subscription start
@@ -305,9 +305,9 @@ async function handleCheckoutSessionCompleted(
 			},
 		});
 	} catch (error) {
-		console.error(
+		logger.error(
 			`Error updating organization ${organizationId} to pro plan via checkout:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
@@ -331,7 +331,7 @@ async function handlePaymentIntentSucceeded(
 	});
 
 	if (!result) {
-		console.error("Could not resolve organization from payment intent");
+		logger.error("Could not resolve organization from payment intent");
 		return;
 	}
 	const { organizationId, organization } = result;
@@ -364,11 +364,11 @@ async function handlePaymentIntentSucceeded(
 			.then((rows) => rows[0]);
 
 		if (updatedTransaction) {
-			console.log(
+			logger.info(
 				`Updated pending transaction ${transactionId} to completed for organization ${organizationId}`,
 			);
 		} else {
-			console.warn(
+			logger.warn(
 				`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
 			);
 			// Fallback: create new transaction record
@@ -418,7 +418,7 @@ async function handlePaymentIntentSucceeded(
 		},
 	});
 
-	console.log(
+	logger.info(
 		`Added ${creditAmount} credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
 	);
 }
@@ -435,7 +435,7 @@ async function handlePaymentIntentFailed(
 	});
 
 	if (!result) {
-		console.error("Could not resolve organization from failed payment intent");
+		logger.error("Could not resolve organization from failed payment intent");
 		return;
 	}
 
@@ -464,11 +464,11 @@ async function handlePaymentIntentFailed(
 			.then((rows) => rows[0]);
 
 		if (updatedTransaction) {
-			console.log(
+			logger.info(
 				`Updated pending transaction ${transactionId} to failed for organization ${organizationId}`,
 			);
 		} else {
-			console.warn(
+			logger.warn(
 				`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
 			);
 			// Fallback: create new failed transaction record
@@ -497,7 +497,7 @@ async function handlePaymentIntentFailed(
 		});
 	}
 
-	console.log(
+	logger.info(
 		`Payment intent failed for organization ${organizationId}: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
 	);
 }
@@ -510,7 +510,7 @@ async function handleSetupIntentSucceeded(
 	const organizationId = metadata?.organizationId;
 
 	if (!organizationId || !payment_method) {
-		console.error(
+		logger.error(
 			`Missing organizationId or payment_method in setupIntent: ${event.id} ${setupIntent.id}`,
 		);
 		return;
@@ -520,7 +520,7 @@ async function handleSetupIntentSucceeded(
 	try {
 		stripeCustomerId = await ensureStripeCustomer(organizationId);
 	} catch (error) {
-		console.error(`Error ensuring Stripe customer: ${error} ${organizationId}`);
+		logger.error(`Error ensuring Stripe customer: ${error} ${organizationId}`);
 		return;
 	}
 
@@ -575,12 +575,12 @@ async function handleInvoicePaymentSucceeded(
 		}
 	}
 
-	console.log(
+	logger.info(
 		`Processing invoice payment succeeded for customer: ${customer}, subscription: ${subscriptionId}`,
 	);
 
 	if (!subscriptionId) {
-		console.log("Not a subscription invoice, skipping");
+		logger.info("Not a subscription invoice, skipping");
 		return; // Not a subscription invoice
 	}
 
@@ -592,7 +592,7 @@ async function handleInvoicePaymentSucceeded(
 	});
 
 	if (!result) {
-		console.error(
+		logger.error(
 			`Organization not found for customer: ${customer}, subscription: ${subscriptionId}`,
 		);
 		return;
@@ -600,7 +600,7 @@ async function handleInvoicePaymentSucceeded(
 
 	const { organizationId, organization } = result;
 
-	console.log(
+	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}`,
 	);
 
@@ -627,12 +627,11 @@ async function handleInvoicePaymentSucceeded(
 			.where(eq(tables.organization.id, organizationId))
 			.returning();
 
-		console.log(
-			`Successfully upgraded organization ${organizationId} to pro plan. Updated rows:`,
-			result.length,
+		logger.info(
+			`Successfully upgraded organization ${organizationId} to pro plan. Updated rows: ${result.length}`,
 		);
 
-		console.log(
+		logger.info(
 			`Verification - organization plan is now: ${result && result[0]?.plan}`,
 		);
 
@@ -658,9 +657,9 @@ async function handleInvoicePaymentSucceeded(
 			},
 		});
 	} catch (error) {
-		console.error(
+		logger.error(
 			`Error updating organization ${organizationId} to pro plan:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
@@ -685,7 +684,7 @@ async function handleSubscriptionUpdated(
 	});
 
 	if (!result) {
-		console.error(`Organization not found for customer: ${customer}`);
+		logger.error(`Organization not found for customer: ${customer}`);
 		return;
 	}
 
@@ -741,10 +740,10 @@ async function handleSubscriptionUpdated(
 				source: "stripe_subscription_updated",
 			},
 		});
-		console.log(`Reactivated subscription for organization ${organizationId}`);
+		logger.info(`Reactivated subscription for organization ${organizationId}`);
 	}
 
-	console.log(
+	logger.info(
 		`Updated subscription for organization ${organizationId}, expires at: ${planExpiresAt}, cancelled: ${!isSubscriptionActive}`,
 	);
 }
@@ -761,7 +760,7 @@ async function handleSubscriptionDeleted(
 	});
 
 	if (!result) {
-		console.error(`Organization not found for customer: ${customer}`);
+		logger.error(`Organization not found for customer: ${customer}`);
 		return;
 	}
 
@@ -810,7 +809,7 @@ async function handleSubscriptionDeleted(
 		},
 	});
 
-	console.log(`Downgraded organization ${organizationId} to free plan`);
+	logger.info(`Downgraded organization ${organizationId} to free plan`);
 }
 
 async function handleSubscriptionCreated(
@@ -819,7 +818,7 @@ async function handleSubscriptionCreated(
 	const subscription = event.data.object;
 	const { customer, metadata, trial_start, trial_end } = subscription;
 
-	console.log(
+	logger.info(
 		`Processing subscription created for customer: ${customer}, subscription: ${subscription.id}`,
 	);
 
@@ -830,7 +829,7 @@ async function handleSubscriptionCreated(
 	});
 
 	if (!result) {
-		console.error(
+		logger.error(
 			`Organization not found for customer: ${customer}, subscription: ${subscription.id}`,
 		);
 		return;
@@ -838,7 +837,7 @@ async function handleSubscriptionCreated(
 
 	const { organizationId, organization } = result;
 
-	console.log(
+	logger.info(
 		`Found organization: ${organization.name} (${organization.id}) for subscription creation`,
 	);
 
@@ -867,7 +866,7 @@ async function handleSubscriptionCreated(
 			.where(eq(tables.organization.id, organizationId))
 			.returning();
 
-		console.log(
+		logger.info(
 			`Successfully updated organization ${organizationId} with subscription ${subscription.id}. Trial active: ${hasTrialPeriod}`,
 		);
 
@@ -895,9 +894,9 @@ async function handleSubscriptionCreated(
 			},
 		});
 	} catch (error) {
-		console.error(
+		logger.error(
 			`Error updating organization ${organizationId} with subscription ${subscription.id}:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
@@ -909,7 +908,7 @@ async function handleTrialWillEnd(
 	const subscription = event.data.object;
 	const { customer, metadata } = subscription;
 
-	console.log(
+	logger.info(
 		`Processing trial will end for customer: ${customer}, subscription: ${subscription.id}`,
 	);
 
@@ -920,7 +919,7 @@ async function handleTrialWillEnd(
 	});
 
 	if (!result) {
-		console.error(
+		logger.error(
 			`Organization not found for customer: ${customer}, subscription: ${subscription.id}`,
 		);
 		return;
@@ -928,7 +927,7 @@ async function handleTrialWillEnd(
 
 	const { organizationId, organization } = result;
 
-	console.log(
+	logger.info(
 		`Found organization: ${organization.name} (${organization.id}) for trial ending`,
 	);
 
@@ -941,7 +940,7 @@ async function handleTrialWillEnd(
 			})
 			.where(eq(tables.organization.id, organizationId));
 
-		console.log(
+		logger.info(
 			`Successfully marked trial as ending for organization ${organizationId}`,
 		);
 
@@ -960,9 +959,9 @@ async function handleTrialWillEnd(
 			},
 		});
 	} catch (error) {
-		console.error(
+		logger.error(
 			`Error updating organization ${organizationId} trial status:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}

@@ -1,6 +1,7 @@
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { db } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import "dotenv/config";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -61,9 +62,9 @@ app.onError((error, c) => {
 		const status = error.status;
 
 		if (status >= 500) {
-			console.error("500 HTTPException", error);
+			logger.error("HTTP 500 exception", error);
 		} else {
-			console.log("non-500 HTTPException", error);
+			logger.warn("HTTP client error", { status, message: error.message });
 		}
 
 		return c.json(
@@ -78,7 +79,10 @@ app.onError((error, c) => {
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
-	console.error("Unhandled error:", error);
+	logger.error(
+		"Unhandled error",
+		error instanceof Error ? error : new Error(String(error)),
+	);
 	return c.json(
 		{
 			error: true,
@@ -151,7 +155,10 @@ app.openapi(root, async (c) => {
 		} catch (error) {
 			health.status = "error";
 			health.redis.error = "Redis connection failed";
-			console.error("Redis healthcheck failed:", error);
+			logger.error(
+				"Redis healthcheck failed",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 		}
 	} else {
 		health.redis.connected = true;
@@ -164,7 +171,10 @@ app.openapi(root, async (c) => {
 		} catch (error) {
 			health.status = "error";
 			health.database.error = "Database connection failed";
-			console.error("Database healthcheck failed:", error);
+			logger.error(
+				"Database healthcheck failed",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 		}
 	} else {
 		health.database.connected = true;

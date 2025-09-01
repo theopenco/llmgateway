@@ -1,5 +1,5 @@
 {
-	"name": "@llmgateway/models",
+	"name": "@llmgateway/logger",
 	"version": "1.0.0",
 	"private": true,
 	"type": "module",
@@ -13,14 +13,17 @@
 	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
-	"files": [
-		"dist/"
-	],
 	"scripts": {
 		"build": "tsc && tsup"
 	},
 	"dependencies": {
-		"@llmgateway/logger": "workspace:*"
+		"pino": "^9.4.0",
+		"pino-pretty": "^11.3.0"
 	},
-	"devDependencies": {}
+	"devDependencies": {
+		"@types/node": "^22.9.0",
+		"tsup": "8.4.0",
+		"typescript": "5.8.3",
+		"vitest": "^3.2.3"
+	}
 }

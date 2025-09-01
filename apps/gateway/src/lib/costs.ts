@@ -1,3 +1,4 @@
+import { logger } from "@llmgateway/logger";
 import { type Model, type ModelDefinition, models } from "@llmgateway/models";
 import { encode, encodeChat } from "gpt-tokenizer";
 
@@ -70,7 +71,7 @@ export function calculateCosts(
 					).length;
 				} catch (error) {
 					// If encoding fails, leave as null
-					console.error(`Failed to encode chat messages in costs: ${error}`);
+					logger.error(`Failed to encode chat messages in costs: ${error}`);
 				}
 			} else if (fullOutput.prompt) {
 				// For text prompt
@@ -78,7 +79,7 @@ export function calculateCosts(
 					calculatedPromptTokens = encode(fullOutput.prompt).length;
 				} catch (error) {
 					// If encoding fails, leave as null
-					console.error(`Failed to encode prompt text: ${error}`);
+					logger.error(`Failed to encode prompt text: ${error}`);
 				}
 			}
 		}
@@ -89,7 +90,7 @@ export function calculateCosts(
 				calculatedCompletionTokens = encode(fullOutput.completion).length;
 			} catch (error) {
 				// If encoding fails, leave as null
-				console.error(`Failed to encode completion text: ${error}`);
+				logger.error(`Failed to encode completion text: ${error}`);
 			}
 		}
 	}

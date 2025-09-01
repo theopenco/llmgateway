@@ -1,3 +1,4 @@
+import { logger } from "@llmgateway/logger";
 import Redis from "ioredis";
 
 const redisClient = new Redis({
@@ -6,7 +7,12 @@ const redisClient = new Redis({
 	password: process.env.REDIS_PASSWORD,
 });
 
-redisClient.on("error", (err) => console.error("Redis Client Error", err));
+redisClient.on("error", (err) =>
+	logger.error(
+		"Redis Client Error",
+		err instanceof Error ? err : new Error(String(err)),
+	),
+);
 
 export const LOG_QUEUE = "log_queue_" + process.env.NODE_ENV;
 
@@ -17,7 +23,10 @@ export async function publishToQueue(
 	try {
 		await redisClient.lpush(queue, JSON.stringify(message));
 	} catch (error) {
-		console.error("Error publishing to queue:", error);
+		logger.error(
+			"Error publishing to queue",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw error;
 	}
 }
@@ -34,7 +43,10 @@ export async function consumeFromQueue(
 
 		return result;
 	} catch (error) {
-		console.error("Error consuming from queue:", error);
+		logger.error(
+			"Error consuming from queue",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw error;
 	}
 }

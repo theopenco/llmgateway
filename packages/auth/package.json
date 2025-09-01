@@ -17,6 +17,7 @@
 		"build": "tsc && tsup"
 	},
 	"dependencies": {
+		"@llmgateway/logger": "workspace:*",
 		"@types/nodemailer": "^6.4.14",
 		"better-auth": "1.2.7",
 		"nodemailer": "^7.0.5"

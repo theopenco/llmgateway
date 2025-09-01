@@ -1,3 +1,4 @@
+import { logger } from "@llmgateway/logger";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
@@ -9,7 +10,7 @@ export async function runMigrations(): Promise<void> {
 	const databaseUrl =
 		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db";
 
-	console.log("🔄 Starting database migrations...");
+	logger.info("Starting database migrations");
 
 	// Create a drizzle instance for migrations
 	const migrationDb = drizzle({
@@ -21,9 +22,12 @@ export async function runMigrations(): Promise<void> {
 		await migrate(migrationDb, {
 			migrationsFolder: "./migrations", // we copy this in the dockerfile
 		});
-		console.log("✅ Database migrations completed successfully");
+		logger.info("Database migrations completed successfully");
 	} catch (error) {
-		console.error("❌ Database migration failed:", error);
+		logger.error(
+			"Database migration failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw error;
 	}
 }

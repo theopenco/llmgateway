@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { closeDatabase, runMigrations } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
 import { sendInstallationBeacon } from "./lib/beacon";
@@ -12,7 +13,10 @@ async function startServer() {
 		try {
 			await runMigrations();
 		} catch (error) {
-			console.error("Failed to run migrations, exiting...", error);
+			logger.error(
+				"Failed to run migrations, exiting",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 			process.exit(1);
 		}
 	}
@@ -21,7 +25,7 @@ async function startServer() {
 	// This runs in the background and won't block startup
 	void sendInstallationBeacon();
 
-	console.log("listening on port", port);
+	logger.info("Server listening", { port });
 
 	return serve({
 		port,
@@ -45,26 +49,29 @@ const closeServer = (server: any): Promise<void> => {
 
 const gracefulShutdown = async (signal: string, server: any) => {
 	if (isShuttingDown) {
-		console.log("Shutdown already in progress, ignoring signal:", signal);
+		logger.info("Shutdown already in progress, ignoring signal", { signal });
 		return;
 	}
 
 	isShuttingDown = true;
-	console.log(`Received ${signal}, starting graceful shutdown...`);
+	logger.info("Starting graceful shutdown", { signal });
 
 	try {
-		console.log("Closing HTTP server...");
+		logger.info("Closing HTTP server");
 		await closeServer(server);
-		console.log("HTTP server closed");
+		logger.info("HTTP server closed");
 
-		console.log("Closing database connection...");
+		logger.info("Closing database connection");
 		await closeDatabase();
-		console.log("Database connection closed");
+		logger.info("Database connection closed");
 
-		console.log("Graceful shutdown completed");
+		logger.info("Graceful shutdown completed");
 		process.exit(0);
 	} catch (error) {
-		console.error("Error during graceful shutdown:", error);
+		logger.error(
+			"Error during graceful shutdown",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		process.exit(1);
 	}
 };
@@ -76,16 +83,19 @@ startServer()
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
 		process.on("uncaughtException", (error) => {
-			console.error("Uncaught exception:", error);
+			logger.error("Uncaught exception", error);
 			process.exit(1);
 		});
 
 		process.on("unhandledRejection", (reason, promise) => {
-			console.error("Unhandled rejection at:", promise, "reason:", reason);
+			logger.error("Unhandled rejection", { promise, reason });
 			process.exit(1);
 		});
 	})
 	.catch((error) => {
-		console.error("Failed to start server:", error);
+		logger.error(
+			"Failed to start server",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		process.exit(1);
 	});

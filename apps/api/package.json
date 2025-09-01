@@ -19,6 +19,7 @@
 		"@hono/zod-validator": "^0.7.0",
 		"@llmgateway/auth": "workspace:*",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/logger": "workspace:*",
 		"bcrypt-ts": "7.0.0",
 		"better-auth": "1.2.7",
 		"drizzle-zod": "0.7.1",
