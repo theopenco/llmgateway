@@ -107,7 +107,7 @@ function getFinishReasonForError(
 /**
  * Validates and normalizes the x-source header
  * Strips http(s):// and www. if present
- * Validates allowed characters: a-zA-Z0-9, -, .
+ * Validates allowed characters: a-zA-Z0-9, -, ., /
  */
 function validateAndNormalizeSource(
 	source: string | undefined,
@@ -122,12 +122,12 @@ function validateAndNormalizeSource(
 	// Strip www. if present
 	normalized = normalized.replace(/^www\./, "");
 
-	// Validate allowed characters: a-zA-Z0-9, -, .
-	const allowedPattern = /^[a-zA-Z0-9.-]+$/;
+	// Validate allowed characters: a-zA-Z0-9, -, ., /
+	const allowedPattern = /^[a-zA-Z0-9./-]+$/;
 	if (!allowedPattern.test(normalized)) {
 		throw new HTTPException(400, {
 			message:
-				"Invalid x-source header: only alphanumeric characters, hyphens, and dots are allowed",
+				"Invalid x-source header: only alphanumeric characters, hyphens, dots, and slashes are allowed",
 		});
 	}
 
