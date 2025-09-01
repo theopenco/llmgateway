@@ -6,10 +6,11 @@ import {
 	eq,
 	and,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { providers, models } from "@llmgateway/models";
 
 export async function syncProvidersAndModels() {
-	console.log("Starting providers and models sync...");
+	logger.info("Starting providers and models sync...");
 
 	try {
 		const database = db;
@@ -49,7 +50,7 @@ export async function syncProvidersAndModels() {
 				});
 		}
 
-		console.log(`Synced ${providers.length} providers`);
+		logger.info(`Synced ${providers.length} providers`);
 
 		for (const modelDef of models) {
 			await database
@@ -203,14 +204,14 @@ export async function syncProvidersAndModels() {
 			}
 		}
 
-		console.log(`Synced ${models.length} models`);
+		logger.info(`Synced ${models.length} models`);
 
 		const mappingCount = await database.select().from(modelProviderMapping);
-		console.log(`Total model-provider mappings: ${mappingCount.length}`);
+		logger.info(`Total model-provider mappings: ${mappingCount.length}`);
 
-		console.log("Providers and models sync completed successfully");
+		logger.info("Providers and models sync completed successfully");
 	} catch (error) {
-		console.error("Error syncing providers and models:", error);
+		logger.error("Error syncing providers and models:", error as Error);
 		throw error;
 	}
 }

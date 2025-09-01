@@ -13,6 +13,7 @@ import {
 	avg,
 	sum,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 /**
  * Helper function to get the start of the current minute (rounded down)
@@ -42,7 +43,7 @@ function getPreviousMinuteStart(): Date {
  * Calculate and store 1-minute historical data for model-provider mappings
  */
 export async function calculateMinutelyHistory() {
-	console.log("Starting minutely history calculation...");
+	logger.info("Starting minutely history calculation...");
 
 	try {
 		const database = db;
@@ -95,7 +96,7 @@ export async function calculateMinutelyHistory() {
 				.limit(1);
 
 			if (!modelExists || !providerExists) {
-				console.warn(
+				logger.warn(
 					`Skipping history for non-existent model ${stat.modelId} or provider ${stat.providerId}`,
 				);
 				continue;
@@ -108,7 +109,7 @@ export async function calculateMinutelyHistory() {
 					? (Number(stat.totalOutputTokens || 0) / stat.totalDuration) * 1000
 					: 0;
 
-			// Insert or update history record for this minute
+			// Insert or update a history record for this minute
 			await database
 				.insert(modelProviderMappingHistory)
 				.values({
@@ -140,11 +141,11 @@ export async function calculateMinutelyHistory() {
 				});
 		}
 
-		console.log(
+		logger.info(
 			`Recorded history for ${mappingStats.length} model-provider mappings`,
 		);
 	} catch (error) {
-		console.error("Error calculating minutely history:", error);
+		logger.error("Error calculating minutely history:", error as Error);
 		throw error;
 	}
 }
@@ -153,7 +154,7 @@ export async function calculateMinutelyHistory() {
  * Calculate 5-minute aggregated statistics from historical data
  */
 export async function calculateAggregatedStatistics() {
-	console.log("Starting 5-minute aggregated statistics calculation...");
+	logger.info("Starting 5-minute aggregated statistics calculation...");
 
 	try {
 		const database = db;
@@ -192,7 +193,7 @@ export async function calculateAggregatedStatistics() {
 				.where(eq(provider.id, aggregate.providerId));
 		}
 
-		console.log(
+		logger.info(
 			`Updated statistics for ${providerAggregates.length} providers`,
 		);
 
@@ -229,7 +230,7 @@ export async function calculateAggregatedStatistics() {
 				.where(eq(model.id, aggregate.modelId));
 		}
 
-		console.log(`Updated statistics for ${modelAggregates.length} models`);
+		logger.info(`Updated statistics for ${modelAggregates.length} models`);
 
 		// Update model-provider mapping statistics (aggregated from history)
 		const mappingAggregates = await database
@@ -282,14 +283,14 @@ export async function calculateAggregatedStatistics() {
 			}
 		}
 
-		console.log(
+		logger.info(
 			`Updated statistics for ${mappingAggregates.length} model-provider mappings`,
 		);
-		console.log(
+		logger.info(
 			"5-minute aggregated statistics calculation completed successfully",
 		);
 	} catch (error) {
-		console.error("Error calculating aggregated statistics:", error);
+		logger.error("Error calculating aggregated statistics:", error as Error);
 		throw error;
 	}
 }
@@ -299,11 +300,11 @@ export async function calculateAggregatedStatistics() {
  * @deprecated Use calculateMinutelyHistory and calculateAggregatedStatistics separately
  */
 export async function calculateUsageStatistics() {
-	console.log("Starting usage statistics calculation...");
+	logger.info("Starting usage statistics calculation...");
 	try {
 		await calculateAggregatedStatistics();
 	} catch (error) {
-		console.error("Error calculating usage statistics:", error);
+		logger.error("Error calculating usage statistics:", error as Error);
 	}
 }
 
@@ -311,9 +312,9 @@ let minutelyIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
 
 export function startStatsCalculator() {
-	console.log("Starting statistics calculator...");
-	console.log("- Minutely history: runs every minute");
-	console.log("- Aggregated stats: runs every 5 minutes");
+	logger.info("Starting statistics calculator...");
+	logger.info("- Minutely history: runs every minute");
+	logger.info("- Aggregated stats: runs every 5 minutes");
 
 	// Start minutely history calculation (runs every minute)
 	void calculateMinutelyHistory();
@@ -338,12 +339,12 @@ export function stopStatsCalculator() {
 	if (minutelyIntervalId) {
 		clearInterval(minutelyIntervalId);
 		minutelyIntervalId = null;
-		console.log("Minutely history calculator stopped");
+		logger.info("Minutely history calculator stopped");
 	}
 
 	if (aggregatedIntervalId) {
 		clearInterval(aggregatedIntervalId);
 		aggregatedIntervalId = null;
-		console.log("Aggregated statistics calculator stopped");
+		logger.info("Aggregated statistics calculator stopped");
 	}
 }
