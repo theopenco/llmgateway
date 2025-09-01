@@ -51,31 +51,6 @@ type PatchPaths = {
 
 // Generic server-side data fetcher with proper typing
 export async function fetchServerData<T>(
-	method: "GET",
-	path: GetPaths,
-	options?: Parameters<ReturnType<typeof createServerApiClient>["GET"]>[1],
-): Promise<T | null>;
-export async function fetchServerData<T>(
-	method: "POST",
-	path: PostPaths,
-	options?: Parameters<ReturnType<typeof createServerApiClient>["POST"]>[1],
-): Promise<T | null>;
-export async function fetchServerData<T>(
-	method: "PUT",
-	path: PutPaths,
-	options?: Parameters<ReturnType<typeof createServerApiClient>["PUT"]>[1],
-): Promise<T | null>;
-export async function fetchServerData<T>(
-	method: "DELETE",
-	path: DeletePaths,
-	options?: Parameters<ReturnType<typeof createServerApiClient>["DELETE"]>[1],
-): Promise<T | null>;
-export async function fetchServerData<T>(
-	method: "PATCH",
-	path: PatchPaths,
-	options?: Parameters<ReturnType<typeof createServerApiClient>["PATCH"]>[1],
-): Promise<T | null>;
-export async function fetchServerData<T>(
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
 	path: keyof paths,
 	options?: any,

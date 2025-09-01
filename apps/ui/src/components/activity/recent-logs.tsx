@@ -353,8 +353,17 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 										...log,
 										createdAt: new Date(log.createdAt),
 										updatedAt: new Date(log.updatedAt),
-										toolChoice: log.toolChoice,
-										customHeaders: log.customHeaders,
+										toolChoice: log.toolChoice as
+											| "none"
+											| "auto"
+											| "required"
+											| { function: { name: string }; type: "function" }
+											| null
+											| undefined,
+										customHeaders: log.customHeaders as
+											| { [key: string]: string }
+											| null
+											| undefined,
 									}}
 								/>
 							))}
