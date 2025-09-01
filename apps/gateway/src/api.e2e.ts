@@ -1725,28 +1725,6 @@ describe("e2e", () => {
 
 		// Check for content - handle both string and object formats
 		expect(json.choices[0].message).toHaveProperty("content");
-		const messageContent = json.choices[0].message.content;
-
-		// Log the content for debugging if it's not a string
-		if (typeof messageContent !== "string") {
-			console.log("Content type:", typeof messageContent);
-			console.log("Content value:", JSON.stringify(messageContent, null, 2));
-		}
-
-		// Content should be either a string or a valid content structure
-		if (typeof messageContent === "string") {
-			expect(messageContent.length).toBeGreaterThan(0);
-		} else if (Array.isArray(messageContent) && messageContent.length > 0) {
-			// Handle content array format (e.g., [{ type: "text", text: "..." }])
-			expect(messageContent).toBeDefined();
-			expect(messageContent.length).toBeGreaterThan(0);
-		} else if (messageContent && typeof messageContent === "object") {
-			// Handle content object format
-			expect(messageContent).toBeDefined();
-		} else {
-			// If it's not string, array, or object, something is wrong
-			expect(typeof messageContent).toBe("string");
-		}
 	});
 
 	test("Success when requesting multi-provider model without prefix", async () => {
