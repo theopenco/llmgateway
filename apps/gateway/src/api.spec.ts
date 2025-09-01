@@ -719,4 +719,60 @@ describe("test", () => {
 			/Custom headers \(X-LLMGateway-\*\) require a Pro plan/i,
 		);
 	});
+
+	test("Custom headers are ignored when x-ignore-issues is true", async () => {
+		// Downgrade org to free
+		await db
+			.update(tables.organization)
+			.set({ plan: "free" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		// Create API key and provider key so request can route
+		await db.insert(tables.apiKey).values({
+			id: "token-id-ignore",
+			token: "token-with-ignore",
+			projectId: "project-id",
+			description: "Test API Key with ignore issues",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-ignore",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+		});
+
+		// Simulate hosted/paid mode
+		process.env.HOSTED = "true";
+		process.env.PAID_MODE = "true";
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer token-with-ignore`,
+				"X-LLMGateway-uid": "abc123",
+				"x-ignore-issues": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini",
+				messages: [
+					{
+						role: "user",
+						content: "Hello!",
+					},
+				],
+			}),
+		});
+
+		// Should succeed instead of returning 402
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("choices.[0].message.content");
+
+		// Wait for the worker to process the log and check that custom headers were NOT stored
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].customHeaders).toBeNull();
+	});
 });
