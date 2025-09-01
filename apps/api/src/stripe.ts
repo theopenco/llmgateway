@@ -90,7 +90,7 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 				);
 			}
 		} catch (error) {
-			logger.error("Error retrieving subscription:", error);
+			logger.error("Error retrieving subscription:", error as Error);
 		}
 	}
 
@@ -211,7 +211,7 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 		return c.json({ received: true });
 	} catch (error) {
-		logger.error("Webhook error:", error);
+		logger.error("Webhook error:", error as Error);
 		throw new HTTPException(400, {
 			message: `Webhook error: ${error instanceof Error ? error.message : "Unknown error"}`,
 		});
@@ -269,8 +269,7 @@ async function handleCheckoutSessionCompleted(
 			.returning();
 
 		logger.info(
-			`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows:`,
-			result.length,
+			`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
 		);
 
 		// Create transaction record for subscription start
@@ -308,7 +307,7 @@ async function handleCheckoutSessionCompleted(
 	} catch (error) {
 		logger.error(
 			`Error updating organization ${organizationId} to pro plan via checkout:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
@@ -629,8 +628,7 @@ async function handleInvoicePaymentSucceeded(
 			.returning();
 
 		logger.info(
-			`Successfully upgraded organization ${organizationId} to pro plan. Updated rows:`,
-			result.length,
+			`Successfully upgraded organization ${organizationId} to pro plan. Updated rows: ${result.length}`,
 		);
 
 		logger.info(
@@ -661,7 +659,7 @@ async function handleInvoicePaymentSucceeded(
 	} catch (error) {
 		logger.error(
 			`Error updating organization ${organizationId} to pro plan:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
@@ -898,7 +896,7 @@ async function handleSubscriptionCreated(
 	} catch (error) {
 		logger.error(
 			`Error updating organization ${organizationId} with subscription ${subscription.id}:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
@@ -963,7 +961,7 @@ async function handleTrialWillEnd(
 	} catch (error) {
 		logger.error(
 			`Error updating organization ${organizationId} trial status:`,
-			error,
+			error as Error,
 		);
 		throw error;
 	}
