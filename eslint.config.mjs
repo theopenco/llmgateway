@@ -26,21 +26,6 @@ export default [
 		},
 	},
 	{
-		files: [
-			"**/*.spec.ts",
-			"**/*.spec.tsx",
-			"**/*.test.ts",
-			"**/*.test.tsx",
-			"**/*.e2e.ts",
-			"**/test-utils/**",
-			"apps/ui/**",
-			"apps/docs/**",
-		],
-		rules: {
-			"no-console": "off",
-		},
-	},
-	{
 		ignores: [
 			"**/.tanstack/",
 			"**/.next/",
