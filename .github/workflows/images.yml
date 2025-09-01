@@ -7,6 +7,10 @@ on:
     branches:
       - main
       - hotfix
+      - 'feature/**'
+    paths:
+      - '**/*.dockerfile'
+      - '.github/workflows/images.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,7 +42,7 @@ jobs:
 
   push-split:
     needs: setup
-    if: needs.setup.result == 'success'
+    if: needs.setup.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'release')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -77,7 +81,7 @@ jobs:
 
   push-unified:
     needs: setup
-    if: needs.setup.result == 'success'
+    if: needs.setup.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'release')
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -106,6 +110,55 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}-unified:${{ needs.setup.outputs.image_tag }}
             ghcr.io/${{ github.repository }}-unified:latest
+          cache-from: type=gha,scope=unified
+          cache-to: type=gha,mode=max,scope=unified
+          build-args: |
+            APP_VERSION=${{ needs.setup.outputs.image_tag }}
+
+  build-split:
+    needs: setup
+    if: needs.setup.result == 'success' && github.ref != 'refs/heads/main' && github.event_name != 'release'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [api, gateway, ui, docs]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build split (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/split.dockerfile
+          push: false
+          target: ${{ matrix.app }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          build-args: |
+            APP_VERSION=${{ needs.setup.outputs.image_tag }}
+
+  build-unified:
+    needs: setup
+    if: needs.setup.result == 'success' && github.ref != 'refs/heads/main' && github.event_name != 'release'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build unified (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/unified.dockerfile
+          push: false
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha,scope=unified
           cache-to: type=gha,mode=max,scope=unified
           build-args: |
