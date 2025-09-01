@@ -156,7 +156,7 @@ export function PlaygroundClient() {
 		if (targetModel !== selectedModel) {
 			setSelectedModel(targetModel);
 		}
-	}, [searchParams]);
+	}, [searchParams, selectedModel]);
 
 	const handleModelSelect = (model: string) => {
 		setSelectedModel(model);

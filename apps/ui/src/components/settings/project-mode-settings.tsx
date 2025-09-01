@@ -57,11 +57,11 @@ export function ProjectModeSettings({
 
 	const api = useApi();
 	const updateProject = api.useMutation("patch", "/projects/{id}", {
-		onSuccess: (data) => {
+		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
 				params: { path: { id: orgId } },
 			}).queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 		},
 	});
 
