@@ -66,6 +66,16 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 			},
+		],
+	},
+	{
+		id: "llama-3.3-70b-instruct-free",
+		name: "Meta Llama 3.3 70B Instruct (Free)",
+		family: "meta",
+		free: true,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
 			{
 				providerId: "routeway",
 				modelName: "llama-3.3-70b-instruct:free",
