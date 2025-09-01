@@ -528,6 +528,7 @@ export async function prepareRequestBody(
 		case "alibaba":
 		case "nebius":
 		case "zai":
+		case "routeway":
 		case "custom": {
 			if (stream) {
 				requestBody.stream_options = {
@@ -826,6 +827,9 @@ export function getProviderEndpoint(
 			case "zai":
 				url = "https://api.z.ai";
 				break;
+			case "routeway":
+				url = "https://api.routeway.ai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -898,6 +902,7 @@ export function getProviderEndpoint(
 		case "moonshot":
 		case "alibaba":
 		case "nebius":
+		case "routeway":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

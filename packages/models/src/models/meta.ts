@@ -66,6 +66,18 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 			},
+			{
+				providerId: "routeway",
+				modelName: "llama-3.3-70b-instruct:free",
+				inputPrice: 0.0 / 1e6,
+				outputPrice: 0.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: false,
+			},
 		],
 	},
 	{
