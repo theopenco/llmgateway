@@ -482,7 +482,7 @@ export async function prepareRequestBody(
 					responsesBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
-					responsesBody.max_completion_tokens = max_tokens;
+					responsesBody.max_output_tokens = max_tokens;
 				}
 
 				return responsesBody;
