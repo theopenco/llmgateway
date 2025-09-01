@@ -6,6 +6,7 @@ LLM Gateway is an open-source API gateway for Large Language Models (LLMs). It a
 - Manage API keys for different providers in one place
 - Track token usage and costs across all your LLM interactions
 - Analyze performance metrics to optimize your LLM usage
+- Build lots of things on top!
 
 ## Features
 
