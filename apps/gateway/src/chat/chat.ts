@@ -137,9 +137,18 @@ function validateAndNormalizeSource(
 /**
  * Extracts X-LLMGateway-* headers from the request context
  * Returns a key-value object where keys are the suffix after x-llmgateway- and values are header values
+ * If x-ignore-issues: true is present, custom headers are filtered out to prevent errors
  */
 function extractCustomHeaders(c: any): Record<string, string> {
 	const customHeaders: Record<string, string> = {};
+
+	// Check if x-ignore-issues header is set to true
+	const ignoreIssues = c.req.header("x-ignore-issues") === "true";
+
+	// If ignoring issues, don't extract custom headers to avoid errors
+	if (ignoreIssues) {
+		return customHeaders;
+	}
 
 	// Get all headers from the raw request
 	const headers = c.req.raw.headers;
