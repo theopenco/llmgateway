@@ -11,7 +11,7 @@ export interface LoggerOptions {
 class LLMGatewayLogger {
 	private logger: Logger;
 
-	constructor(options: LoggerOptions = {}) {
+	public constructor(options: LoggerOptions = {}) {
 		const {
 			name = "llmgateway",
 			level = this.getDefaultLevel(),
@@ -62,23 +62,23 @@ class LLMGatewayLogger {
 	}
 
 	// Core logging methods
-	trace(message: string, extra?: object): void {
+	public trace(message: string, extra?: object): void {
 		this.logger.trace(extra, message);
 	}
 
-	debug(message: string, extra?: object): void {
+	public debug(message: string, extra?: object): void {
 		this.logger.debug(extra, message);
 	}
 
-	info(message: string, extra?: object): void {
+	public info(message: string, extra?: object): void {
 		this.logger.info(extra, message);
 	}
 
-	warn(message: string, extra?: object): void {
+	public warn(message: string, extra?: object): void {
 		this.logger.warn(extra, message);
 	}
 
-	error(message: string, error?: Error | object): void {
+	public error(message: string, error?: Error | object): void {
 		if (error instanceof Error) {
 			this.logger.error({ err: error }, message);
 		} else {
@@ -86,7 +86,7 @@ class LLMGatewayLogger {
 		}
 	}
 
-	fatal(message: string, error?: Error | object): void {
+	public fatal(message: string, error?: Error | object): void {
 		if (error instanceof Error) {
 			this.logger.fatal({ err: error }, message);
 		} else {
@@ -95,7 +95,7 @@ class LLMGatewayLogger {
 	}
 
 	// Create child logger with additional context
-	child(bindings: object): LLMGatewayLogger {
+	public child(bindings: object): LLMGatewayLogger {
 		const childPino = this.logger.child(bindings);
 		const childLogger = Object.create(LLMGatewayLogger.prototype);
 		childLogger.logger = childPino;
