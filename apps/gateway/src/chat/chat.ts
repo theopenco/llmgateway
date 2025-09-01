@@ -524,7 +524,7 @@ function parseProviderResponse(
 /**
  * Estimates token counts when not provided by the API using gpt-tokenizer
  */
-function estimateTokens(
+export function estimateTokens(
 	usedProvider: Provider,
 	messages: any[],
 	content: string | null,
@@ -583,7 +583,7 @@ function estimateTokens(
 /**
  * Estimates tokens from content length using simple division
  */
-function estimateTokensFromContent(content: string): number {
+export function estimateTokensFromContent(content: string): number {
 	return Math.max(1, Math.round(content.length / 4));
 }
 
@@ -1016,7 +1016,7 @@ function transformToOpenAIFormat(
  * Transforms streaming chunk to OpenAI format for non-OpenAI providers
  */
 // Helper function to calculate prompt tokens when missing or 0
-function calculatePromptTokensFromMessages(messages: any[]): number {
+export function calculatePromptTokensFromMessages(messages: any[]): number {
 	try {
 		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
 			role: m.role,

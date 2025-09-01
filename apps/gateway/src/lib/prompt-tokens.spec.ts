@@ -1,94 +1,10 @@
-import { encode, encodeChat } from "gpt-tokenizer";
 import { describe, it, expect, vi } from "vitest";
 
-// Import the actual functions from chat.ts to test them
-// Note: These functions are not exported, so we'll need to move them to a separate module
-// For now, we'll test the token calculation logic by importing gpt-tokenizer directly
-
-const DEFAULT_TOKENIZER_MODEL = "gpt-4o-mini";
-
-interface ChatMessage {
-	role: "user" | "system" | "assistant" | undefined;
-	content: string;
-	name?: string;
-}
-
-// Copy the actual functions from chat.ts to test them
-function estimateTokensFromContent(content: string): number {
-	return Math.max(1, Math.round(content.length / 4));
-}
-
-function calculatePromptTokensFromMessages(messages: any[]): number {
-	try {
-		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
-			role: m.role,
-			content:
-				typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-			name: m.name,
-		}));
-		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch {
-		return Math.max(
-			1,
-			Math.round(
-				messages.reduce(
-					(acc: number, m: any) => acc + (m.content?.length || 0),
-					0,
-				) / 4,
-			),
-		);
-	}
-}
-
-function estimateTokens(
-	usedProvider: string,
-	messages: any[],
-	content: string | null,
-	promptTokens: number | null,
-	completionTokens: number | null,
-) {
-	let calculatedPromptTokens = promptTokens;
-	let calculatedCompletionTokens = completionTokens;
-
-	if (!promptTokens || !completionTokens) {
-		if (!promptTokens && messages && messages.length > 0) {
-			try {
-				const chatMessages: ChatMessage[] = messages.map((m) => ({
-					role: m.role,
-					content:
-						typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
-					name: m.name,
-				}));
-				calculatedPromptTokens = encodeChat(
-					chatMessages,
-					DEFAULT_TOKENIZER_MODEL,
-				).length;
-			} catch (error) {
-				console.error(
-					`Failed to encode chat messages in estimate tokens: ${error}`,
-				);
-				calculatedPromptTokens =
-					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
-			}
-		}
-
-		if (!completionTokens && content) {
-			try {
-				calculatedCompletionTokens = encode(content).length;
-			} catch (error) {
-				console.error(`Failed to encode completion text: ${error}`);
-				calculatedCompletionTokens = content.length / 4;
-			}
-		}
-	}
-
-	return {
-		calculatedPromptTokens,
-		calculatedCompletionTokens,
-	};
-}
+import {
+	estimateTokens,
+	calculatePromptTokensFromMessages,
+	estimateTokensFromContent,
+} from "../chat/chat";
 
 describe("Prompt token calculation", () => {
 	describe("estimateTokensFromContent", () => {
