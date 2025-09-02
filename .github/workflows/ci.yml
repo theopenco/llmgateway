@@ -24,7 +24,7 @@ jobs:
     uses: ./.github/workflows/run.yml
     secrets: inherit
     with:
-      cmd: docker compose up -d && pnpm build && bash .github/start.sh
+      cmd: pnpm run setup && pnpm build && bash .github/start.sh
 
   test:
     uses: ./.github/workflows/run.yml
