@@ -828,6 +828,9 @@ function transformToOpenAIFormat(
 	cachedTokens: number | null,
 	toolResults: any,
 	images: ImageObject[],
+	requestedModel: string,
+	requestedProvider: string | null,
+	baseModelName: string,
 ) {
 	let transformedResponse = json;
 
@@ -838,7 +841,7 @@ function transformToOpenAIFormat(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: usedModel,
+				model: `${usedProvider}/${baseModelName}`,
 				choices: [
 					{
 						index: 0,
@@ -875,6 +878,13 @@ function transformToOpenAIFormat(
 						},
 					}),
 				},
+				metadata: {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				},
 			};
 			break;
 		}
@@ -883,7 +893,7 @@ function transformToOpenAIFormat(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: usedModel,
+				model: `${usedProvider}/${baseModelName}`,
 				choices: [
 					{
 						index: 0,
@@ -919,6 +929,13 @@ function transformToOpenAIFormat(
 						},
 					}),
 				},
+				metadata: {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				},
 			};
 			break;
 		}
@@ -930,7 +947,7 @@ function transformToOpenAIFormat(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: usedModel,
+					model: `${usedProvider}/${baseModelName}`,
 					choices: [
 						{
 							index: 0,
@@ -955,6 +972,13 @@ function transformToOpenAIFormat(
 							reasoning_tokens: reasoningTokens,
 						}),
 					},
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
 				};
 			} else {
 				// Always transform reasoning field to reasoning_content even if response already has an id
@@ -966,6 +990,15 @@ function transformToOpenAIFormat(
 						delete message.reasoning;
 					}
 				}
+				// Add metadata to existing response
+				transformedResponse.model = `${usedProvider}/${baseModelName}`;
+				transformedResponse.metadata = {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				};
 			}
 			break;
 		}
@@ -977,7 +1010,7 @@ function transformToOpenAIFormat(
 					id: json.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created_at || Math.floor(Date.now() / 1000),
-					model: json.model || usedModel,
+					model: `${usedProvider}/${baseModelName}`,
 					choices: [
 						{
 							index: 0,
@@ -1008,9 +1041,41 @@ function transformToOpenAIFormat(
 							},
 						}),
 					},
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
+				};
+			} else {
+				// For standard chat completions format, update model field and add metadata
+				if (transformedResponse && typeof transformedResponse === "object") {
+					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.metadata = {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					};
+				}
+			}
+			break;
+		}
+		default: {
+			// For any other provider, add metadata to existing response
+			if (transformedResponse && typeof transformedResponse === "object") {
+				transformedResponse.model = `${usedProvider}/${baseModelName}`;
+				transformedResponse.metadata = {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
 				};
 			}
-			// If not responses format, leave as is (standard chat completions format)
 			break;
 		}
 	}
@@ -1828,6 +1893,13 @@ const completions = createRoute({
 									cached_tokens: z.number().optional(),
 								})
 								.optional(),
+						}),
+						metadata: z.object({
+							requested_model: z.string(),
+							requested_provider: z.string().nullable(),
+							used_model: z.string(),
+							used_provider: z.string(),
+							underlying_used_model: z.string(),
 						}),
 					}),
 				},
@@ -4325,6 +4397,9 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
+		modelInput,
+		requestedProvider || null,
+		baseModelName,
 	);
 
 	const baseLogEntry = createLogEntry(
