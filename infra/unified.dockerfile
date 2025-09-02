@@ -97,11 +97,35 @@ RUN --mount=type=cache,target=/app/.turbo pnpm build
 RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data && \
     chown -R postgres:postgres /var/lib/postgresql
 
-# Deploy all services with a single command
-RUN pnpm --filter=api --prod deploy /app/services/api && \
-    pnpm --filter=gateway --prod deploy /app/services/gateway && \
-    pnpm --filter=ui --prod deploy /app/services/ui && \
-    pnpm --filter=docs --prod deploy /app/services/docs
+# Deploy all services using turbo prune
+RUN mkdir -p /tmp/prune && \
+    pnpm turbo prune api --docker --out-dir=/tmp/prune/api && \
+    pnpm turbo prune gateway --docker --out-dir=/tmp/prune/gateway && \
+    pnpm turbo prune ui --docker --out-dir=/tmp/prune/ui && \
+    pnpm turbo prune docs --docker --out-dir=/tmp/prune/docs && \
+    \
+    # Deploy API
+    cp -r /tmp/prune/api/json/* /app/services/api/ && \
+    cd /app/services/api && pnpm install --prod --frozen-lockfile && \
+    cp -r /tmp/prune/api/full/* /app/services/api/ && \
+    \
+    # Deploy Gateway
+    cp -r /tmp/prune/gateway/json/* /app/services/gateway/ && \
+    cd /app/services/gateway && pnpm install --prod --frozen-lockfile && \
+    cp -r /tmp/prune/gateway/full/* /app/services/gateway/ && \
+    \
+    # Deploy UI
+    cp -r /tmp/prune/ui/json/* /app/services/ui/ && \
+    cd /app/services/ui && pnpm install --prod --frozen-lockfile && \
+    cp -r /tmp/prune/ui/full/* /app/services/ui/ && \
+    \
+    # Deploy Docs
+    cp -r /tmp/prune/docs/json/* /app/services/docs/ && \
+    cd /app/services/docs && pnpm install --prod --frozen-lockfile && \
+    cp -r /tmp/prune/docs/full/* /app/services/docs/ && \
+    \
+    # Cleanup
+    rm -rf /tmp/prune
 
 # Copy migrations files to API service
 COPY packages/db/migrations /app/services/api/migrations

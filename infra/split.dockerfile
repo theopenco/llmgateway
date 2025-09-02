@@ -100,56 +100,60 @@ ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
 FROM runtime AS api
-WORKDIR /app/temp
-COPY --from=builder /app/apps ./apps
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-RUN pnpm --filter=api --prod deploy ../dist/api
-RUN rm -rf /app/temp
-WORKDIR /app/dist/api
+WORKDIR /app
+# Use turbo prune to create a pruned subset for the api app
+RUN --mount=from=builder,source=/app,target=/source \
+    cd /source && \
+    pnpm turbo prune api --docker && \
+    cp -r out/json/* /app/ && \
+    pnpm install --prod --frozen-lockfile && \
+    cp -r out/full/* /app/
 # copy migrations files for API service to run migrations at runtime
 COPY --from=builder /app/packages/db/migrations ./migrations
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 ENV TELEMETRY_ACTIVE=true
-CMD ["pnpm", "start"]
+CMD ["pnpm", "start", "--filter=api"]
 
 FROM runtime AS gateway
-WORKDIR /app/temp
-COPY --from=builder /app/apps ./apps
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-RUN pnpm --filter=gateway --prod deploy ../dist/gateway
-RUN rm -rf /app/temp
-WORKDIR /app/dist/gateway
+WORKDIR /app
+# Use turbo prune to create a pruned subset for the gateway app
+RUN --mount=from=builder,source=/app,target=/source \
+    cd /source && \
+    pnpm turbo prune gateway --docker && \
+    cp -r out/json/* /app/ && \
+    pnpm install --prod --frozen-lockfile && \
+    cp -r out/full/* /app/
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["pnpm", "start", "--filter=gateway"]
 
 FROM runtime AS ui
-WORKDIR /app/temp
-COPY --from=builder /app/apps ./apps
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-RUN pnpm --filter=ui --prod deploy ../dist/ui
-RUN rm -rf /app/temp
-WORKDIR /app/dist/ui
+WORKDIR /app
+# Use turbo prune to create a pruned subset for the ui app
+RUN --mount=from=builder,source=/app,target=/source \
+    cd /source && \
+    pnpm turbo prune ui --docker && \
+    cp -r out/json/* /app/ && \
+    pnpm install --prod --frozen-lockfile && \
+    cp -r out/full/* /app/
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["pnpm", "start", "--filter=ui"]
 
 FROM runtime AS docs
-WORKDIR /app/temp
-COPY --from=builder /app/apps ./apps
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-RUN pnpm --filter=docs --prod deploy ../dist/docs
-RUN rm -rf /app/temp
-WORKDIR /app/dist/docs
+WORKDIR /app
+# Use turbo prune to create a pruned subset for the docs app
+RUN --mount=from=builder,source=/app,target=/source \
+    cd /source && \
+    pnpm turbo prune docs --docker && \
+    cp -r out/json/* /app/ && \
+    pnpm install --prod --frozen-lockfile && \
+    cp -r out/full/* /app/
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["pnpm", "start", "--filter=docs"]
