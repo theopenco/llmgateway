@@ -13,6 +13,6 @@ jobs:
       contents: write
     steps:
       - name: Auto Merge
-        uses: steebchen/actions/automerge@v0.12.0
+        uses: steebchen/actions/automerge@v0.14.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
