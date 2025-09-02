@@ -2279,7 +2279,18 @@ chat.openapi(completions, async (c) => {
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
+		let allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
+
+		// If free_models_only is true, expand to include free models
+		if (free_models_only) {
+			allowedAutoModels = [
+				...allowedAutoModels,
+				"gpt-oss-20b-free",
+				"llama-3.1-70b-instruct-free",
+				"llama-3.3-70b-instruct-free",
+			];
+		}
+
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
