@@ -1754,6 +1754,11 @@ const completionsRequestSchema = z.object({
 			description: "Controls the reasoning effort for reasoning-capable models",
 			example: "medium",
 		}),
+	free_models_only: z.boolean().optional().default(false).openapi({
+		description:
+			"When used with auto routing, only route to free models (models with zero input and output pricing)",
+		example: false,
+	}),
 });
 
 const completions = createRoute({
@@ -1909,6 +1914,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		reasoning_effort,
+		free_models_only,
 	} = validationResult.data;
 
 	// Extract and validate source from x-source header
@@ -2310,6 +2316,12 @@ chat.openapi(completions, async (c) => {
 				for (const provider of suitableProviders) {
 					const totalPrice =
 						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+
+					// If free_models_only is true, only consider free models (totalPrice === 0)
+					if (free_models_only && totalPrice > 0) {
+						continue;
+					}
+
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
 						selectedModel = modelDef;
@@ -2321,20 +2333,44 @@ chat.openapi(completions, async (c) => {
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
-			const cheapestResult = getCheapestFromAvailableProviders(
-				selectedProviders,
-				selectedModel,
-			);
+			// If free_models_only is true, filter to only free providers
+			const finalProviders = free_models_only
+				? selectedProviders.filter((provider) => {
+						const totalPrice =
+							((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+						return totalPrice === 0;
+					})
+				: selectedProviders;
 
-			if (cheapestResult) {
-				usedProvider = cheapestResult.providerId;
-				usedModel = cheapestResult.modelName;
-			} else {
-				// Fallback to first available provider if price comparison fails
-				usedProvider = selectedProviders[0].providerId;
-				usedModel = selectedProviders[0].modelName;
+			if (finalProviders.length > 0) {
+				const cheapestResult = getCheapestFromAvailableProviders(
+					finalProviders,
+					selectedModel,
+				);
+
+				if (cheapestResult) {
+					usedProvider = cheapestResult.providerId;
+					usedModel = cheapestResult.modelName;
+				} else {
+					// Fallback to first available provider if price comparison fails
+					usedProvider = finalProviders[0].providerId;
+					usedModel = finalProviders[0].modelName;
+				}
+			} else if (free_models_only) {
+				// If no free models are available, return error
+				throw new HTTPException(400, {
+					message:
+						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
+				});
 			}
 		} else {
+			if (free_models_only) {
+				// If free_models_only is true but no suitable model found, return error
+				throw new HTTPException(400, {
+					message:
+						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
+				});
+			}
 			// Default fallback if no suitable model is found - use cheapest allowed model
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
