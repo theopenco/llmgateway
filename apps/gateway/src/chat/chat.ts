@@ -2283,13 +2283,7 @@ chat.openapi(completions, async (c) => {
 
 		// If free_models_only is true, expand to include free models
 		if (free_models_only) {
-			allowedAutoModels = [
-				...allowedAutoModels,
-				"kimi-k2-free",
-				"gpt-oss-20b-free",
-				"llama-3.1-70b-instruct-free",
-				"llama-3.3-70b-instruct-free",
-			];
+			allowedAutoModels = [...allowedAutoModels, "kimi-k2-free"];
 		}
 
 		let selectedModel: ModelDefinition | undefined;
