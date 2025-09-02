@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { useAppConfig } from "./config";
 
-// React hook to get the auth client
+// React hook to get the auth client x
 export function useAuthClient() {
 	const config = useAppConfig();
 
