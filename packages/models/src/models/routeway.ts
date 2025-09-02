@@ -10,7 +10,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "deepseek-r1t2-chimera:free",
 				inputPrice: 0.0 / 1e6,
@@ -34,7 +33,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "glm-4.5-air:free",
 				inputPrice: 0.0 / 1e6,
@@ -58,7 +56,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "kimi-k2:free",
 				inputPrice: 0.0 / 1e6,
@@ -82,7 +79,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "gpt-oss-20b:free",
 				inputPrice: 0.0 / 1e6,
@@ -106,7 +102,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "gpt-4.1:free",
 				inputPrice: 0.0 / 1e6,
@@ -130,7 +125,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "llama-3.3-70b-instruct:free",
 				inputPrice: 0.0 / 1e6,
