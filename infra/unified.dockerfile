@@ -1,8 +1,5 @@
 FROM debian:12-slim
 
-ARG APP_VERSION
-ENV APP_VERSION=$APP_VERSION
-
 # Install base dependencies and runtime requirements
 # Add PostgreSQL 17 official repository
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -145,6 +142,9 @@ ENV RUN_MIGRATIONS=true
 
 # Use tini as init system
 ENTRYPOINT ["/usr/bin/tini", "--"]
+
+ARG APP_VERSION
+ENV APP_VERSION=$APP_VERSION
 
 # Start all services
 CMD ["/start.sh"]

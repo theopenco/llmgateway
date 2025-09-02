@@ -82,8 +82,6 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm build
 
 FROM debian:12-slim AS runtime
-ARG APP_VERSION
-ENV APP_VERSION=$APP_VERSION
 
 # Install base runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends bash && rm -rf /var/lib/apt/lists/*
@@ -97,6 +95,9 @@ COPY --from=builder /usr/bin/tini /tini
 RUN node -v && pnpm -v
 
 ENTRYPOINT ["/tini", "--"]
+
+ARG APP_VERSION
+ENV APP_VERSION=$APP_VERSION
 
 FROM runtime AS api
 WORKDIR /app/temp
