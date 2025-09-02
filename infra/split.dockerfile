@@ -63,19 +63,20 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
     fi
 
 # Copy package files and install dependencies
-COPY ../.npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY ../apps/api/package.json ./apps/api/
-COPY ../apps/gateway/package.json ./apps/gateway/
-COPY ../apps/ui/package.json ./apps/ui/
-COPY ../apps/docs/package.json ./apps/docs/
-COPY ../packages/auth/package.json ./packages/auth/
-COPY ../packages/db/package.json ./packages/db/
-COPY ../packages/models/package.json ./packages/models/
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/ui/package.json ./apps/ui/
+COPY apps/docs/package.json ./apps/docs/
+COPY packages/auth/package.json ./packages/auth/
+COPY packages/db/package.json ./packages/db/
+COPY packages/models/package.json ./packages/models/
+COPY packages/logger/package.json ./packages/logger/
 
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
-COPY .. .
+COPY . .
 
 # Build all apps
 RUN --mount=type=cache,target=/app/.turbo pnpm build

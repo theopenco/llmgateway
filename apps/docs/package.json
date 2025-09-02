@@ -18,7 +18,7 @@
 	},
 	"dependencies": {
 		"class-variance-authority": "^0.7.1",
-		"fumadocs-core": "15.6.10",
+		"fumadocs-core": "15.7.7",
 		"fumadocs-mdx": "11.7.5",
 		"fumadocs-openapi": "9.3.3",
 		"fumadocs-ui": "15.6.10",

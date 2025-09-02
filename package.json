@@ -11,7 +11,7 @@
 		"clean:node_modules": "find . -type d -name \"node_modules\" -exec rm -rf {} +",
 		"dev": "turbo run dev",
 		"format": "NODE_OPTIONS=\"--max-old-space-size=8192\" eslint --fix . && prettier --write .",
-		"generate": "turbo run generate && pnpm format",
+		"generate": "turbo run generate",
 		"postinstall": "husky && sync-editorconfig || true",
 		"lint": "NODE_OPTIONS=\"--max-old-space-size=8192\" eslint . && prettier --check .",
 		"migrate": "pnpm --filter db migrate",

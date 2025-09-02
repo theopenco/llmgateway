@@ -757,7 +757,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 	const renderTableView = () => (
 		<div className="rounded-md border">
-			<div className="relative w-full overflow-auto h-[63vh]">
+			<div className="relative w-full">
 				<Table className="relative">
 					<TableHeader className="sticky top-0">
 						<TableRow>
@@ -1422,10 +1422,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<Card>
 									<CardContent className="p-4">
 										<div className="text-2xl font-bold">
-											{
-												modelsWithProviders.filter((m) => (m as any).free)
-													.length
-											}
+											{modelsWithProviders.filter((m) => m.free).length}
 										</div>
 										<div className="text-sm text-muted-foreground">
 											Free Models{hasActiveFilters ? " (filtered)" : ""}

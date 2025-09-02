@@ -1,6 +1,141 @@
 name: llmgateway-prod
 
 services:
+  # Gateway Service
+  gateway:
+    image: ghcr.io/theopenco/llmgateway-gateway:latest
+    container_name: llmgateway-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-4001}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - NODE_ENV=production
+      - PORT=80
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
+      # LLM Provider API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_AI_STUDIO_API_KEY=${GOOGLE_AI_STUDIO_API_KEY}
+
+  # API Service
+  api:
+    image: ghcr.io/theopenco/llmgateway-api:latest
+    container_name: llmgateway-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-4002}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - NODE_ENV=production
+      - RUN_MIGRATIONS=true
+      - PORT=80
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
+      - UI_URL=${UI_URL:-http://localhost:3002}
+      - API_URL=${API_URL:-http://localhost:4002}
+      - ORIGIN_URL=${ORIGIN_URL:-http://localhost:3002}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
+      - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
+      - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
+      - POSTHOG_KEY=${POSTHOG_KEY}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+
+  # UI Service (Static files served via Nginx)
+  ui:
+    image: ghcr.io/theopenco/llmgateway-ui:latest
+    container_name: llmgateway-ui
+    restart: unless-stopped
+    ports:
+      - "${UI_PORT:-3002}:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - API_URL=${API_URL:-http://localhost:4002}
+      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - POSTHOG_KEY=${POSTHOG_KEY}
+
+  # Docs Service
+  docs:
+    image: ghcr.io/theopenco/llmgateway-docs:latest
+    container_name: llmgateway-docs
+    restart: unless-stopped
+    ports:
+      - "${DOCS_PORT:-3005}:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - POSTHOG_KEY=${POSTHOG_KEY}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+
   # PostgreSQL Database
   postgres:
     platform: linux/amd64
@@ -49,144 +184,6 @@ services:
       retries: 5
     networks:
       - llmgateway-network
-
-  # Gateway Service
-  gateway:
-    image: ghcr.io/theopenco/llmgateway-gateway:latest
-    container_name: llmgateway-gateway
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - PORT=80
-      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      # LLM Provider API Keys
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - VERTEX_API_KEY=${VERTEX_API_KEY}
-      - GOOGLE_AI_STUDIO_API_KEY=${GOOGLE_AI_STUDIO_API_KEY}
-      - INFERENCE_NET_API_KEY=${INFERENCE_NET_API_KEY}
-      - TOGETHER_AI_API_KEY=${TOGETHER_AI_API_KEY}
-    ports:
-      - "${GATEWAY_PORT:-4001}:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:80/",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - llmgateway-network
-
-  # API Service
-  api:
-    image: ghcr.io/theopenco/llmgateway-api:latest
-    container_name: llmgateway-api
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - RUN_MIGRATIONS=true
-      - PORT=80
-      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
-      - UI_URL=${UI_URL:-http://localhost:3002}
-      - API_URL=${API_URL:-http://localhost:4002}
-      - ORIGIN_URL=${ORIGIN_URL:-http://localhost:3002}
-      - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
-      - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
-      - POSTHOG_KEY=${POSTHOG_KEY}
-      - POSTHOG_HOST=${POSTHOG_HOST}
-      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
-      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
-    ports:
-      - "${API_PORT:-4002}:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:80/",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - llmgateway-network
-
-  # UI Service (Static files served via Nginx)
-  ui:
-    image: ghcr.io/theopenco/llmgateway-ui:latest
-    container_name: llmgateway-ui
-    restart: unless-stopped
-    ports:
-      - "${UI_PORT:-3002}:80"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:80/",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - llmgateway-network
-    environment:
-      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
-      - API_URL=${API_URL:-http://localhost:4002}
-      - POSTHOG_HOST=${POSTHOG_HOST}
-      - POSTHOG_KEY=${POSTHOG_KEY}
-      - API=${API:-http://localhost:4002}
-
-  # Docs Service
-  docs:
-    image: ghcr.io/theopenco/llmgateway-docs:latest
-    container_name: llmgateway-docs
-    restart: unless-stopped
-    ports:
-      - "${DOCS_PORT:-3005}:80"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:80/",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - llmgateway-network
-    environment:
-      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
-      - POSTHOG_KEY=${POSTHOG_KEY}
-      - POSTHOG_HOST=${POSTHOG_HOST}
 
 volumes:
   postgres_data:

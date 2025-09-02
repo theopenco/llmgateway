@@ -482,7 +482,7 @@ export async function prepareRequestBody(
 					responsesBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
-					responsesBody.max_completion_tokens = max_tokens;
+					responsesBody.max_output_tokens = max_tokens;
 				}
 
 				return responsesBody;
@@ -528,6 +528,7 @@ export async function prepareRequestBody(
 		case "alibaba":
 		case "nebius":
 		case "zai":
+		case "routeway":
 		case "custom": {
 			if (stream) {
 				requestBody.stream_options = {
@@ -826,6 +827,9 @@ export function getProviderEndpoint(
 			case "zai":
 				url = "https://api.z.ai";
 				break;
+			case "routeway":
+				url = "https://api.routeway.ai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -898,6 +902,7 @@ export function getProviderEndpoint(
 		case "moonshot":
 		case "alibaba":
 		case "nebius":
+		case "routeway":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
@@ -1033,8 +1038,9 @@ export async function validateProviderKey(
 		const providerMapping = modelDef?.providers.find(
 			(p) => p.providerId === provider && p.modelName === validationModel,
 		);
-		const supportedParameters = (providerMapping as ProviderModelMapping)
-			?.supportedParameters;
+		const supportedParameters = (
+			providerMapping as ProviderModelMapping | undefined
+		)?.supportedParameters;
 		const supportsMaxTokens =
 			supportedParameters?.includes("max_tokens") ?? true;
 

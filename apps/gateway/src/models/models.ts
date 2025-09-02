@@ -259,9 +259,7 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 
 	// Start with explicit supported parameters if any provider defines them
 	for (const provider of model.providers) {
-		const supportedParameters = (provider as any)?.supportedParameters as
-			| string[]
-			| undefined;
+		const supportedParameters = provider.supportedParameters;
 		if (supportedParameters && supportedParameters.length > 0) {
 			const params = [...supportedParameters];
 			// If any provider supports reasoning, expose the reasoning parameter

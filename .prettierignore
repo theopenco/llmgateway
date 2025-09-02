@@ -9,3 +9,5 @@ migrations
 .content-collections
 .tanstack
 .conductor
+v1.d.ts
+apps/docs/content/(api)/

@@ -217,14 +217,12 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
 								{children}
-
-								{/* Social Icons */}
 								<div className="flex items-center gap-2 lg:order-first lg:mr-4">
 									<a
 										href={config.githubUrl}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
+										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors hidden lg:block"
 										aria-label="GitHub"
 									>
 										<Github className="h-5 w-5" />
@@ -233,7 +231,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 										href={config.discordUrl}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors"
+										className="text-muted-foreground hover:text-accent-foreground p-2 rounded-md transition-colors hidden lg:block"
 										aria-label="Discord"
 									>
 										<svg

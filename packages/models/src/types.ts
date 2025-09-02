@@ -199,7 +199,7 @@ export interface OpenAIResponsesRequestBody {
 	tool_choice?: ToolChoiceType;
 	stream?: boolean;
 	temperature?: number;
-	max_completion_tokens?: number;
+	max_output_tokens?: number;
 }
 
 export interface AnthropicRequestBody extends BaseRequestBody {

@@ -86,6 +86,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY packages/auth/package.json ./packages/auth/
 COPY packages/db/package.json ./packages/db/
 COPY packages/models/package.json ./packages/models/
+COPY packages/logger/package.json ./packages/logger/
 
 RUN pnpm install --frozen-lockfile
 

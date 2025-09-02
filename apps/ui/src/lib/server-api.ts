@@ -28,36 +28,54 @@ export async function createServerApiClient() {
 	});
 }
 
-// Generic server-side data fetcher
+// Type-safe method signatures for different HTTP methods
+type GetPaths = {
+	[P in keyof paths]: paths[P] extends { get: any } ? P : never;
+}[keyof paths];
+
+type PostPaths = {
+	[P in keyof paths]: paths[P] extends { post: any } ? P : never;
+}[keyof paths];
+
+type PutPaths = {
+	[P in keyof paths]: paths[P] extends { put: any } ? P : never;
+}[keyof paths];
+
+type DeletePaths = {
+	[P in keyof paths]: paths[P] extends { delete: any } ? P : never;
+}[keyof paths];
+
+type PatchPaths = {
+	[P in keyof paths]: paths[P] extends { patch: any } ? P : never;
+}[keyof paths];
+
+// Generic server-side data fetcher with proper typing
 export async function fetchServerData<T>(
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
 	path: keyof paths,
-	options?: {
-		params?: Record<string, unknown>;
-		body?: Record<string, unknown>;
-	},
+	options?: any,
 ): Promise<T | null> {
 	try {
 		const client = await createServerApiClient();
 
-		let response: any;
+		let response: { data?: T; error?: any };
 		const requestOptions = options || {};
 
 		switch (method) {
 			case "GET":
-				response = await client.GET(path as any, requestOptions);
+				response = await client.GET(path as GetPaths, requestOptions);
 				break;
 			case "POST":
-				response = await client.POST(path as any, requestOptions);
+				response = await client.POST(path as PostPaths, requestOptions);
 				break;
 			case "PUT":
-				response = await client.PUT(path as any, requestOptions);
+				response = await client.PUT(path as PutPaths, requestOptions);
 				break;
 			case "DELETE":
-				response = await client.DELETE(path as any, requestOptions);
+				response = await client.DELETE(path as DeletePaths, requestOptions);
 				break;
 			case "PATCH":
-				response = await client.PATCH(path as any, requestOptions);
+				response = await client.PATCH(path as PatchPaths, requestOptions);
 				break;
 			default:
 				throw new Error(`Unsupported HTTP method: ${method}`);
@@ -69,7 +87,7 @@ export async function fetchServerData<T>(
 			return null;
 		}
 
-		return response.data as T;
+		return response.data ?? null;
 	} catch (error) {
 		console.error(`Server API error for ${method} ${path}:`, error);
 		return null;

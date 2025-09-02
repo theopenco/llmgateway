@@ -15,6 +15,7 @@ import {
 	getProviderHeaders,
 	type Model,
 	type ModelDefinition,
+	type ProviderModelMapping,
 	models,
 	prepareRequestBody,
 	type BaseMessage,
@@ -106,7 +107,7 @@ function getFinishReasonForError(
 /**
  * Validates and normalizes the x-source header
  * Strips http(s):// and www. if present
- * Validates allowed characters: a-zA-Z0-9, -, .
+ * Validates allowed characters: a-zA-Z0-9, -, ., /
  */
 function validateAndNormalizeSource(
 	source: string | undefined,
@@ -121,12 +122,12 @@ function validateAndNormalizeSource(
 	// Strip www. if present
 	normalized = normalized.replace(/^www\./, "");
 
-	// Validate allowed characters: a-zA-Z0-9, -, .
-	const allowedPattern = /^[a-zA-Z0-9.-]+$/;
+	// Validate allowed characters: a-zA-Z0-9, -, ., /
+	const allowedPattern = /^[a-zA-Z0-9./-]+$/;
 	if (!allowedPattern.test(normalized)) {
 		throw new HTTPException(400, {
 			message:
-				"Invalid x-source header: only alphanumeric characters, hyphens, and dots are allowed",
+				"Invalid x-source header: only alphanumeric characters, hyphens, dots, and slashes are allowed",
 		});
 	}
 
@@ -525,7 +526,7 @@ function parseProviderResponse(
 /**
  * Estimates token counts when not provided by the API using gpt-tokenizer
  */
-function estimateTokens(
+export function estimateTokens(
 	usedProvider: Provider,
 	messages: any[],
 	content: string | null,
@@ -588,7 +589,7 @@ function estimateTokens(
 /**
  * Estimates tokens from content length using simple division
  */
-function estimateTokensFromContent(content: string): number {
+export function estimateTokensFromContent(content: string): number {
 	return Math.max(1, Math.round(content.length / 4));
 }
 
@@ -827,6 +828,9 @@ function transformToOpenAIFormat(
 	cachedTokens: number | null,
 	toolResults: any,
 	images: ImageObject[],
+	requestedModel: string,
+	requestedProvider: string | null,
+	baseModelName: string,
 ) {
 	let transformedResponse = json;
 
@@ -837,7 +841,7 @@ function transformToOpenAIFormat(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: usedModel,
+				model: `${usedProvider}/${baseModelName}`,
 				choices: [
 					{
 						index: 0,
@@ -874,6 +878,13 @@ function transformToOpenAIFormat(
 						},
 					}),
 				},
+				metadata: {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				},
 			};
 			break;
 		}
@@ -882,7 +893,7 @@ function transformToOpenAIFormat(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: usedModel,
+				model: `${usedProvider}/${baseModelName}`,
 				choices: [
 					{
 						index: 0,
@@ -918,6 +929,13 @@ function transformToOpenAIFormat(
 						},
 					}),
 				},
+				metadata: {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				},
 			};
 			break;
 		}
@@ -929,7 +947,7 @@ function transformToOpenAIFormat(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: usedModel,
+					model: `${usedProvider}/${baseModelName}`,
 					choices: [
 						{
 							index: 0,
@@ -954,6 +972,13 @@ function transformToOpenAIFormat(
 							reasoning_tokens: reasoningTokens,
 						}),
 					},
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
 				};
 			} else {
 				// Always transform reasoning field to reasoning_content even if response already has an id
@@ -965,6 +990,15 @@ function transformToOpenAIFormat(
 						delete message.reasoning;
 					}
 				}
+				// Add metadata to existing response
+				transformedResponse.model = `${usedProvider}/${baseModelName}`;
+				transformedResponse.metadata = {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				};
 			}
 			break;
 		}
@@ -976,7 +1010,7 @@ function transformToOpenAIFormat(
 					id: json.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created_at || Math.floor(Date.now() / 1000),
-					model: json.model || usedModel,
+					model: `${usedProvider}/${baseModelName}`,
 					choices: [
 						{
 							index: 0,
@@ -1007,9 +1041,41 @@ function transformToOpenAIFormat(
 							},
 						}),
 					},
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
+				};
+			} else {
+				// For standard chat completions format, update model field and add metadata
+				if (transformedResponse && typeof transformedResponse === "object") {
+					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.metadata = {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					};
+				}
+			}
+			break;
+		}
+		default: {
+			// For any other provider, add metadata to existing response
+			if (transformedResponse && typeof transformedResponse === "object") {
+				transformedResponse.model = `${usedProvider}/${baseModelName}`;
+				transformedResponse.metadata = {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
 				};
 			}
-			// If not responses format, leave as is (standard chat completions format)
 			break;
 		}
 	}
@@ -1021,7 +1087,7 @@ function transformToOpenAIFormat(
  * Transforms streaming chunk to OpenAI format for non-OpenAI providers
  */
 // Helper function to calculate prompt tokens when missing or 0
-function calculatePromptTokensFromMessages(messages: any[]): number {
+export function calculatePromptTokensFromMessages(messages: any[]): number {
 	try {
 		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
 			role: m.role,
@@ -1748,11 +1814,16 @@ const completionsRequestSchema = z.object({
 		.enum(["low", "medium", "high"])
 		.nullable()
 		.optional()
-		.transform((val) => (val === null || (val as any) === "" ? undefined : val))
+		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description: "Controls the reasoning effort for reasoning-capable models",
 			example: "medium",
 		}),
+	free_models_only: z.boolean().optional().default(false).openapi({
+		description:
+			"When used with auto routing, only route to free models (models with zero input and output pricing)",
+		example: false,
+	}),
 });
 
 const completions = createRoute({
@@ -1827,6 +1898,13 @@ const completions = createRoute({
 									cached_tokens: z.number().optional(),
 								})
 								.optional(),
+						}),
+						metadata: z.object({
+							requested_model: z.string(),
+							requested_provider: z.string().nullable(),
+							used_model: z.string(),
+							used_provider: z.string(),
+							underlying_used_model: z.string(),
 						}),
 					}),
 				},
@@ -1908,6 +1986,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		reasoning_effort,
+		free_models_only,
 	} = validationResult.data;
 
 	// Extract and validate source from x-source header
@@ -2070,7 +2149,7 @@ chat.openapi(completions, async (c) => {
 	if (reasoning_effort !== undefined) {
 		// Check if any provider for this model supports reasoning
 		const supportsReasoning = modelInfo.providers.some(
-			(provider) => (provider as any).reasoning === true,
+			(provider) => (provider as ProviderModelMapping).reasoning === true,
 		);
 
 		if (!supportsReasoning) {
@@ -2082,7 +2161,7 @@ chat.openapi(completions, async (c) => {
 					reasoning_effort,
 					modelProviders: modelInfo.providers.map((p) => ({
 						providerId: p.providerId,
-						reasoning: (p as any).reasoning,
+						reasoning: (p as ProviderModelMapping).reasoning,
 					})),
 				},
 			);
@@ -2272,7 +2351,13 @@ chat.openapi(completions, async (c) => {
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
+		let allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
+
+		// If free_models_only is true, expand to include free models
+		if (free_models_only) {
+			allowedAutoModels = [...allowedAutoModels, "kimi-k2-free"];
+		}
+
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
@@ -2309,6 +2394,12 @@ chat.openapi(completions, async (c) => {
 				for (const provider of suitableProviders) {
 					const totalPrice =
 						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+
+					// If free_models_only is true, only consider free models (totalPrice === 0)
+					if (free_models_only && totalPrice > 0) {
+						continue;
+					}
+
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
 						selectedModel = modelDef;
@@ -2320,20 +2411,44 @@ chat.openapi(completions, async (c) => {
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
-			const cheapestResult = getCheapestFromAvailableProviders(
-				selectedProviders,
-				selectedModel,
-			);
+			// If free_models_only is true, filter to only free providers
+			const finalProviders = free_models_only
+				? selectedProviders.filter((provider) => {
+						const totalPrice =
+							((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+						return totalPrice === 0;
+					})
+				: selectedProviders;
 
-			if (cheapestResult) {
-				usedProvider = cheapestResult.providerId;
-				usedModel = cheapestResult.modelName;
-			} else {
-				// Fallback to first available provider if price comparison fails
-				usedProvider = selectedProviders[0].providerId;
-				usedModel = selectedProviders[0].modelName;
+			if (finalProviders.length > 0) {
+				const cheapestResult = getCheapestFromAvailableProviders(
+					finalProviders,
+					selectedModel,
+				);
+
+				if (cheapestResult) {
+					usedProvider = cheapestResult.providerId;
+					usedModel = cheapestResult.modelName;
+				} else {
+					// Fallback to first available provider if price comparison fails
+					usedProvider = finalProviders[0].providerId;
+					usedModel = finalProviders[0].modelName;
+				}
+			} else if (free_models_only) {
+				// If no free models are available, return error
+				throw new HTTPException(400, {
+					message:
+						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
+				});
 			}
 		} else {
+			if (free_models_only) {
+				// If free_models_only is true but no suitable model found, return error
+				throw new HTTPException(400, {
+					message:
+						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
+				});
+			}
 			// Default fallback if no suitable model is found - use cheapest allowed model
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
@@ -2584,7 +2699,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check if the model supports reasoning
 	const supportsReasoning = modelInfo.providers.some(
-		(provider) => (provider as any).reasoning === true,
+		(provider) => (provider as ProviderModelMapping).reasoning === true,
 	);
 
 	// Check if messages contain existing tool calls or tool results
@@ -2768,7 +2883,8 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: false,
 					cached: true,
 					toolResults:
-						(cachedStreamingResponse.metadata as any)?.toolResults || null,
+						(cachedStreamingResponse.metadata as { toolResults?: any })
+							?.toolResults || null,
 				});
 
 				// Return cached streaming response by replaying chunks with original timing
@@ -3597,10 +3713,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract finishReason from transformedData to update tracking variable
-							if (
-								transformedData.choices?.[0]?.finish_reason &&
-								usedProvider === "openai"
-							) {
+							if (transformedData.choices?.[0]?.finish_reason) {
 								finishReason = transformedData.choices[0].finish_reason;
 							}
 
@@ -3969,6 +4082,10 @@ chat.openapi(completions, async (c) => {
 						: rawUpstreamData, // Raw streaming data received from upstream provider
 				);
 
+				if (!finishReason && !streamingError && usedProvider === "routeway") {
+					finishReason = "stop";
+				}
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
@@ -4322,6 +4439,9 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
+		modelInput,
+		requestedProvider || null,
+		baseModelName,
 	);
 
 	const baseLogEntry = createLogEntry(

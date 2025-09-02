@@ -20,19 +20,12 @@ services:
       - UI_URL=${UI_URL:-http://localhost:3002}
       - API_URL=${API_URL:-http://localhost:4002}
       - ORIGIN_URL=${ORIGIN_URL:-http://localhost:3002}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
 
       # Authentication
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
       - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
       - AUTH_SECRET=${AUTH_SECRET:-your-secret-key}
-
-      # LLM Provider API Keys (add the ones you need)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - VERTEX_API_KEY=${VERTEX_API_KEY:-}
-      - GOOGLE_AI_STUDIO_API_KEY=${GOOGLE_AI_STUDIO_API_KEY:-}
-      - INFERENCE_NET_API_KEY=${INFERENCE_NET_API_KEY:-}
-      - TOGETHER_AI_API_KEY=${TOGETHER_AI_API_KEY:-}
 
       # Analytics (optional)
       - POSTHOG_KEY=${POSTHOG_KEY:-}
@@ -43,6 +36,11 @@ services:
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
       - STRIPE_PRO_MONTHLY_PRICE_ID=${STRIPE_PRO_MONTHLY_PRICE_ID:-}
       - STRIPE_PRO_YEARLY_PRICE_ID=${STRIPE_PRO_YEARLY_PRICE_ID:-}
+
+      # LLM Provider API Keys (add the ones you need)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_AI_STUDIO_API_KEY=${GOOGLE_AI_STUDIO_API_KEY:-}
 
 volumes:
   llmgateway_postgres:

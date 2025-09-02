@@ -223,6 +223,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "routeway",
+		name: "RouteWay",
+		description: "RouteWay's OpenAI-compatible large language models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#4f46e5",
+		website: "https://api.routeway.ai",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

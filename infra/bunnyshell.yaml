@@ -1,0 +1,213 @@
+kind: Environment
+name: bunnyshell-test
+type: primary
+urlHandle: piveif
+components:
+  - kind: Application
+    name: api
+    gitRepo: "https://github.com/theopenco/llmgateway.git"
+    gitBranch: main
+    gitApplicationPath: /
+    dockerCompose:
+      build:
+        context: .
+        dockerfile: infra/split.dockerfile
+        target: api
+      environment:
+        API_URL: "https://api-{{env.base_domain}}"
+        COOKIE_DOMAIN: .bunnyenv.com
+        DATABASE_URL: "postgres://postgres:llmgateway_dev_password@postgres:5432/llmgateway"
+        NODE_ENV: production
+        ORIGIN_URL: "https://ui-{{env.base_domain}}"
+        PASSKEY_RP_ID: localhost
+        PASSKEY_RP_NAME: LLMGateway
+        PORT: "80"
+        POSTHOG_HOST: ""
+        POSTHOG_KEY: ""
+        RUN_MIGRATIONS: "true"
+        STRIPE_SECRET_KEY: ""
+        STRIPE_WEBHOOK_SECRET: ""
+        UI_URL: "https://ui-{{env.base_domain}}"
+      healthcheck:
+        test:
+          - CMD
+          - wget
+          - "--no-verbose"
+          - "--tries=1"
+          - "--spider"
+          - "http://localhost:80/"
+        timeout: 10s
+        interval: 30s
+        retries: 3
+      ports:
+        - "4002:80"
+      restart: unless-stopped
+    hosts:
+      - hostname: "api-{{ env.base_domain }}"
+        path: /
+        servicePort: 4002
+  - kind: Application
+    name: docs
+    gitRepo: "https://github.com/theopenco/llmgateway.git"
+    gitBranch: main
+    gitApplicationPath: /
+    dockerCompose:
+      build:
+        context: .
+        dockerfile: infra/split.dockerfile
+        target: docs
+      environment:
+        DOCS_URL: "https://docs-{{env.base_domain}}"
+        POSTHOG_HOST: ""
+        POSTHOG_KEY: ""
+      healthcheck:
+        test:
+          - CMD
+          - wget
+          - "--no-verbose"
+          - "--tries=1"
+          - "--spider"
+          - "http://localhost:80/"
+        timeout: 10s
+        interval: 30s
+        retries: 3
+      ports:
+        - "3005:80"
+      restart: unless-stopped
+    hosts:
+      - hostname: "docs-{{ env.base_domain }}"
+        path: /
+        servicePort: 3005
+  - kind: Application
+    name: gateway
+    gitRepo: "https://github.com/theopenco/llmgateway.git"
+    gitBranch: main
+    gitApplicationPath: /
+    dockerCompose:
+      build:
+        context: .
+        dockerfile: infra/split.dockerfile
+        target: gateway
+      environment:
+        NODE_ENV: production
+        PORT: "80"
+        DATABASE_URL: "postgres://postgres:llmgateway_dev_password@postgres:5432/llmgateway"
+        REDIS_HOST: redis
+        REDIS_PASSWORD: redis_dev_password
+        REDIS_PORT: "6379"
+        # LLM Provider API Keys
+        OPENAI_API_KEY: ""
+        GOOGLE_AI_STUDIO_API_KEY: ""
+        INFERENCE_NET_API_KEY: ""
+        ANTHROPIC_API_KEY: ""
+      healthcheck:
+        test:
+          - CMD
+          - wget
+          - "--no-verbose"
+          - "--tries=1"
+          - "--spider"
+          - "http://localhost:80/"
+        timeout: 10s
+        interval: 30s
+        retries: 3
+      ports:
+        - "4001:80"
+      restart: unless-stopped
+    hosts:
+      - hostname: "gateway-{{ env.base_domain }}"
+        path: /
+        servicePort: 4001
+  - kind: Database
+    name: postgres
+    dockerCompose:
+      environment:
+        POSTGRES_DB: llmgateway
+        POSTGRES_PASSWORD: llmgateway_dev_password
+        POSTGRES_USER: postgres
+      healthcheck:
+        test:
+          - CMD-SHELL
+          - "pg_isready -U postgres"
+        timeout: 5s
+        interval: 10s
+        retries: 5
+      image: "postgres:17-alpine"
+      ports:
+        - "5432:5432"
+      restart: unless-stopped
+    volumes:
+      - name: postgres-data
+        mount: /var/lib/postgresql/data
+        subPath: ""
+  - kind: Service
+    name: redis
+    dockerCompose:
+      command:
+        - redis-server
+        - "--appendonly"
+        - "yes"
+        - "--requirepass"
+        - redis_dev_password
+      healthcheck:
+        test:
+          - CMD
+          - redis-cli
+          - "--raw"
+          - incr
+          - ping
+        timeout: 3s
+        interval: 10s
+        retries: 5
+      image: "redis:8-alpine"
+      ports:
+        - "6379:6379"
+      restart: unless-stopped
+    hosts:
+      - hostname: "redis-{{ env.base_domain }}"
+        path: /
+        servicePort: 6379
+    volumes:
+      - name: redis-data
+        mount: /data
+        subPath: ""
+  - kind: Application
+    name: ui
+    gitRepo: "https://github.com/theopenco/llmgateway.git"
+    gitBranch: main
+    gitApplicationPath: /
+    dockerCompose:
+      build:
+        context: .
+        dockerfile: infra/split.dockerfile
+        target: ui
+      environment:
+        API_URL: "https://api-{{env.base_domain}}"
+        DOCS_URL: "https://docs-{{env.base_domain}}"
+        POSTHOG_HOST: ""
+        POSTHOG_KEY: ""
+      healthcheck:
+        test:
+          - CMD
+          - wget
+          - "--no-verbose"
+          - "--tries=1"
+          - "--spider"
+          - "http://localhost:80/"
+        timeout: 10s
+        interval: 30s
+        retries: 3
+      ports:
+        - "3002:80"
+      restart: unless-stopped
+    hosts:
+      - hostname: "ui-{{ env.base_domain }}"
+        path: /
+        servicePort: 3002
+volumes:
+  - name: postgres-data
+    size: 1Gi
+    type: disk
+  - name: redis-data
+    size: 1Gi
+    type: disk

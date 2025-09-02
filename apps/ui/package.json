@@ -10,7 +10,6 @@
 		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" next build",
 		"dev": "next dev --port 3002 --turbopack",
 		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
-		"lint": "next lint",
 		"start": "next start"
 	},
 	"dependencies": {
@@ -77,8 +76,6 @@
 		"@types/react": "^19.1.12",
 		"@types/react-dom": "^19.1.9",
 		"autoprefixer": "^10.4.20",
-		"eslint": "^8",
-		"eslint-config-next": "15.4.6",
 		"openapi-typescript": "7.8.0",
 		"postcss": "^8.5.6",
 		"tailwindcss": "^3.4.1",

@@ -19,6 +19,7 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	alibaba: "ALIBABA_API_KEY",
 	nebius: "NEBIUS_API_KEY",
 	zai: "Z_AI_API_KEY",
+	routeway: "ROUTEWAY_API_KEY",
 	custom: "UNUSED",
 };
 

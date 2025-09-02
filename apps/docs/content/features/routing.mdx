@@ -92,6 +92,28 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+### Free Models Only
+
+When using auto routing, you can restrict the selection to only free models (models with zero input and output pricing) by setting the `free_models_only` parameter to `true`:
+
+```bash
+# Auto route to free models only
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "free_models_only": true
+  }'
+```
+
+<Callout type="info">
+	The `free_models_only` parameter only works with auto routing (`"model":
+	"auto"`). If no free models are available that meet your request requirements,
+	the API will return an error.
+</Callout>
+
 <Callout type="success">
 	Auto routing analyzes your payload and automatically chooses between
 	cost-effective models for simple requests and more powerful models for complex
