@@ -1,12 +1,12 @@
 ---
-id: "15"
+id: "17"
 slug: "routeway-free-models"
 date: "2025-09-02"
 title: "Enhanced Auto-Routing & 5 New Free Models via RouteWay"
 summary: "Expanding auto-routing options & access DeepSeek R1T2 Chimera, GLM-4.5 Air, Kimi K2, GPT-OSS 20B, and GPT-4.1 completely free through our RouteWay integration."
 image:
-  src: "/changelog/gemini-2-5-flash-image-preview.png"
-  alt: "Gemini 2.5 Flash Image Preview - First image generation model on LLM Gateway"
+  src: "/changelog/routeway-free-models.png"
+  alt: "Enhanced Auto-Routing & 5 New Free Models via RouteWay"
   width: 1768
   height: 677
 ---
