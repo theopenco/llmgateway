@@ -2285,6 +2285,7 @@ chat.openapi(completions, async (c) => {
 		if (free_models_only) {
 			allowedAutoModels = [
 				...allowedAutoModels,
+				"kimi-k2-free",
 				"gpt-oss-20b-free",
 				"llama-3.1-70b-instruct-free",
 				"llama-3.3-70b-instruct-free",
