@@ -10,7 +10,7 @@ jobs:
 
     steps:
       - name: Autofix
-        uses: steebchen/actions/autofix@v0.12.0
+        uses: steebchen/actions/autofix@v0.14.1
         with:
           token: ${{ secrets.GH_TOKEN }}
           format-command: pnpm generate
