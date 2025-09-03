@@ -16,7 +16,7 @@
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",
 		"@hono/swagger-ui": "^0.5.1",
-		"@hono/zod-openapi": "^0.19.6",
+		"@hono/zod-openapi": "^1.1.0",
 		"@hono/zod-validator": "^0.7.0",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
