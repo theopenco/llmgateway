@@ -8,8 +8,7 @@ if ! id "node" &>/dev/null; then
     adduser --system --shell /bin/sh --no-create-home node
 fi
 
-# Ensure log directories exist
-mkdir -p /var/log/supervisor
+# Log directories already created at build time
 
 # Initialize PostgreSQL if data directory is empty
 if [ ! -s "/var/lib/postgresql/data/PG_VERSION" ]; then
@@ -39,19 +38,6 @@ if ! su postgres -c "/usr/lib/postgresql/17/bin/pg_isready -h /var/run/postgresq
     # Clean up any stale PID files
     echo "Cleaning up stale PID files..."
     rm -f "$PGDATA_DIR/postmaster.pid"
-    
-    echo "Ensuring PostgreSQL data directory has correct ownership..."
-    chown -R postgres:postgres /var/lib/postgresql
-    chmod 700 /var/lib/postgresql/data
-    
-    echo "Ensuring log file has correct ownership..."
-    touch /var/log/postgresql.log
-    chown postgres:postgres /var/log/postgresql.log
-    
-    echo "Ensuring socket directory exists and has correct permissions..."
-    mkdir -p /var/run/postgresql
-    chown postgres:postgres /var/run/postgresql
-    chmod 755 /var/run/postgresql
     
     echo "Starting PostgreSQL with pg_ctl..."
     su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA_DIR -l /var/log/postgresql.log -o '-k /var/run/postgresql -p 5432' start" || {
@@ -114,20 +100,6 @@ su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA_DIR stop -m fast" |
 sleep 2
 
 echo "PostgreSQL setup complete."
-
-echo "About to skip ownership changes..."
-# Skip ALL ownership changes for faster startup
-echo "Skipping ownership changes for faster startup."
-
-# Create log directories
-echo "Creating log directories..."
-mkdir -p /var/log/supervisor
-echo "Log directories created."
-
-# Wait a moment for filesystem operations to complete
-echo "Sleeping for 2 seconds..."
-sleep 2
-echo "Sleep complete."
 
 echo "Starting all services with supervisord..."
 

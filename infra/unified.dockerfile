@@ -117,7 +117,8 @@ RUN mkdir -p /app/services /var/log/supervisor /var/log/postgresql /run/postgres
     chmod 755 /var/lib/postgresql && \
     chmod 700 /var/lib/postgresql/data && \
     touch /var/log/postgresql.log && \
-    chown postgres:postgres /var/log/postgresql.log
+    chown postgres:postgres /var/log/postgresql.log && \
+    chown postgres:postgres /run/postgresql
 
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
