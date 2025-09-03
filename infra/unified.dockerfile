@@ -15,13 +15,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     tini \
     gosu \
+    dpkg-dev \
+    gcc \
+    g++ \
+    libc6-dev \
+    libssl-dev \
+    make \
+    git \
+    cmake \
     && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     postgresql-17 \
     postgresql-contrib-17 \
     postgresql-client-17 \
-    redis-server \
+    && cd /usr/src \
+    && wget -O redis-stable.tar.gz https://github.com/redis/redis/archive/refs/tags/8.2.1.tar.gz \
+    && tar xvf redis-stable.tar.gz \
+    && cd redis-8.2.1 \
+    && export BUILD_TLS=yes \
+    && make -j "$(nproc)" all \
+    && make install \
+    && cd /usr/src \
+    && rm -rf redis-stable.tar.gz redis-8.2.1 \
+    && adduser --system --group --no-create-home redis \
     && apt-get remove -y build-essential wget gnupg lsb-release \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
@@ -93,9 +110,15 @@ COPY . .
 # Build all apps
 RUN --mount=type=cache,target=/app/.turbo pnpm build
 
-# Create directories
-RUN mkdir -p /app/services /var/log/supervisor /run/postgresql /var/lib/postgresql/data && \
-    chown -R postgres:postgres /var/lib/postgresql
+# Create directories with correct ownership
+RUN mkdir -p /app/services /var/log/supervisor /var/log/postgresql /run/postgresql && \
+    mkdir -p /var/lib/postgresql/data && \
+    chown -R postgres:postgres /var/lib/postgresql && \
+    chmod 755 /var/lib/postgresql && \
+    chmod 700 /var/lib/postgresql/data && \
+    touch /var/log/postgresql.log && \
+    chown postgres:postgres /var/log/postgresql.log && \
+    chown postgres:postgres /run/postgresql
 
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
