@@ -8,23 +8,14 @@ if ! id "node" &>/dev/null; then
     adduser --system --shell /bin/sh --no-create-home node
 fi
 
-# Create log directories and files
-mkdir -p /var/log/supervisor /var/log/postgresql
-touch /var/log/postgresql.log
-chown postgres:postgres /var/log/postgresql.log
-chmod 644 /var/log/postgresql.log
+# Ensure log directories exist
+mkdir -p /var/log/supervisor
 
 # Initialize PostgreSQL if data directory is empty
 if [ ! -s "/var/lib/postgresql/data/PG_VERSION" ]; then
     echo "Initializing PostgreSQL database..."
-    
-    # Ensure PostgreSQL data directory has correct ownership
-    chown -R postgres:postgres /var/lib/postgresql
-    chmod 700 /var/lib/postgresql/data
-
-    # Initialize database
+    # Initialize database (ownership already set during build)
     su postgres -c "/usr/lib/postgresql/17/bin/initdb -D /var/lib/postgresql/data"
-
     echo "PostgreSQL cluster initialized successfully."
 fi
 
@@ -32,30 +23,47 @@ fi
 echo "Checking if application database exists..."
 
 # Start PostgreSQL temporarily for setup if not running
-if ! su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/data status" >/dev/null 2>&1; then
+PGDATA_DIR="/var/lib/postgresql/data"
+if [ ! -f "$PGDATA_DIR/postmaster.pid" ] || ! kill -0 `cat $PGDATA_DIR/postmaster.pid 2>/dev/null` 2>/dev/null; then
     echo "Starting PostgreSQL for database setup..."
-    su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/data -l /var/log/postgresql.log start"
+    su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA_DIR -l /var/log/postgresql.log -o '-p 5432' start"
     
-    # Wait for PostgreSQL to start
-    sleep 5
+    # Wait for PostgreSQL to start with longer timeout
+    timeout=60
+    while [ $timeout -gt 0 ]; do
+        if su postgres -c "/usr/lib/postgresql/17/bin/pg_isready -h localhost -p 5432 -U postgres" >/dev/null 2>&1; then
+            echo "PostgreSQL is ready!"
+            break
+        fi
+        echo "Waiting for PostgreSQL to start... ($timeout seconds remaining)"
+        sleep 2
+        timeout=$((timeout - 2))
+    done
+    
+    if [ $timeout -le 0 ]; then
+        echo "ERROR: PostgreSQL failed to start within 60 seconds"
+        echo "Checking PostgreSQL log:"
+        cat /var/log/postgresql.log
+        exit 1
+    fi
 fi
 
 # Check if database exists and create if needed
-if ! su postgres -c "/usr/lib/postgresql/17/bin/psql -lqt" | cut -d \| -f 1 | grep -qw "$POSTGRES_DB"; then
+if ! su postgres -c "/usr/lib/postgresql/17/bin/psql -h localhost -p 5432 -U postgres -lqt" | cut -d \| -f 1 | grep -qw "$POSTGRES_DB"; then
     echo "Creating database $POSTGRES_DB..."
-    su postgres -c "/usr/lib/postgresql/17/bin/createdb $POSTGRES_DB" || true
+    su postgres -c "/usr/lib/postgresql/17/bin/createdb -h localhost -p 5432 -U postgres $POSTGRES_DB" || true
 fi
 
 # Set postgres password
 echo "Setting postgres user password..."
-su postgres -c "/usr/lib/postgresql/17/bin/psql -c \"ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';\"" || true
+su postgres -c "/usr/lib/postgresql/17/bin/psql -h localhost -p 5432 -U postgres -c \"ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';\"" || true
 
 # Run initialization scripts if they exist
 if [ -d "/docker-entrypoint-initdb.d" ]; then
     for f in /docker-entrypoint-initdb.d/*; do
         case "$f" in
-            *.sql)    echo "Running $f"; su postgres -c "/usr/lib/postgresql/17/bin/psql -d $POSTGRES_DB -f $f"; echo ;;
-            *.sql.gz) echo "Running $f"; gunzip -c "$f" | su postgres -c "/usr/lib/postgresql/17/bin/psql -d $POSTGRES_DB"; echo ;;
+            *.sql)    echo "Running $f"; su postgres -c "/usr/lib/postgresql/17/bin/psql -h localhost -p 5432 -U postgres -d $POSTGRES_DB -f $f"; echo ;;
+            *.sql.gz) echo "Running $f"; gunzip -c "$f" | su postgres -c "/usr/lib/postgresql/17/bin/psql -h localhost -p 5432 -U postgres -d $POSTGRES_DB"; echo ;;
             *)        echo "Ignoring $f" ;;
         esac
     done
@@ -63,7 +71,9 @@ fi
 
 # Stop PostgreSQL (it will be started by supervisord)
 echo "Stopping temporary PostgreSQL instance..."
-su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/data stop" || true
+su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA_DIR stop -m fast" || true
+# Wait for it to stop
+sleep 2
 
 echo "PostgreSQL setup complete."
 
