@@ -35,7 +35,7 @@
 		"@steebchen/lint-next": "^1.19.4",
 		"@steebchen/prettier-config": "^1.4.2",
 		"commitlint": "19.8.1",
-		"concurrently": "^9.1.2",
+		"concurrently": "^9.2.1",
 		"cross-env-shell": "7.0.3",
 		"dotenv": "16.5.0",
 		"esbuild-fix-imports-plugin": "1.0.21",
