@@ -20,7 +20,7 @@
 		"class-variance-authority": "^0.7.1",
 		"fumadocs-core": "15.6.10",
 		"fumadocs-mdx": "11.7.5",
-		"fumadocs-openapi": "9.3.3",
+		"fumadocs-openapi": "9.3.4",
 		"fumadocs-ui": "15.6.10",
 		"gateway": "workspace:*",
 		"lucide-react": "^0.539.0",
