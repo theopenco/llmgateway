@@ -99,6 +99,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				stability: "unstable" as const,
 			},
 			{
 				providerId: "deepseek",
