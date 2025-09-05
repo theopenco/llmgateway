@@ -13,7 +13,7 @@
 		"start": "next start"
 	},
 	"dependencies": {
-		"@content-collections/core": "0.9.1",
+		"@content-collections/core": "0.11.1",
 		"@content-collections/next": "0.2.1",
 		"@hey-api/client-fetch": "0.13.1",
 		"@hookform/resolvers": "5.1.1",
