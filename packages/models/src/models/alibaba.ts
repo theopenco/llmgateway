@@ -376,4 +376,28 @@ export const alibabaModels = [
 		],
 		jsonOutput: true,
 	},
+	{
+		id: "qwen3-max",
+		name: "Qwen3 Max",
+		family: "alibaba",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "alibaba",
+				modelName: "qwen3-max-preview",
+				inputPrice: 3 / 1e6,
+				outputPrice: 15 / 1e6,
+				cachedInputPrice: 0.6 / 1e6,
+				requestPrice: 0,
+				contextSize: 256000,
+				maxOutput: 32800,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
