@@ -28,6 +28,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 	];
 
 	const resourcesItems = [
+		{ name: "Blog", href: "/blog" },
 		{ name: "Models", href: "/models" },
 		{ name: "Playground", href: "/playground" },
 		{ name: "Providers", href: "/providers" },

@@ -4,7 +4,16 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { AlertTriangle } from "lucide-react";
+import {
+	AlertTriangle,
+	Play,
+	Zap,
+	Eye,
+	Wrench,
+	MessageSquare,
+	ImagePlus,
+} from "lucide-react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
@@ -12,6 +21,7 @@ import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { ProviderCard } from "@/components/models/provider-card";
 import { Badge } from "@/lib/components/badge";
+import { Button } from "@/lib/components/button";
 
 interface PageProps {
 	params: Promise<{ name: string }>;
@@ -76,13 +86,13 @@ export default async function ModelPage({ params }: PageProps) {
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2">
 							<h1 className="text-4xl font-bold tracking-tight">
-								{modelDef.id}
+								{modelDef.name}
 							</h1>
 							{shouldShowStabilityWarning(modelDef.stability) && (
 								<AlertTriangle className="h-8 w-8 text-orange-500" />
 							)}
 						</div>
-						<div className="flex items-center gap-2 mb-4">
+						<div className="flex flex-wrap items-center gap-2 mb-4">
 							<CopyModelName modelName={decodedName} />
 							{(() => {
 								const stabilityProps = getStabilityBadgeProps(
@@ -101,6 +111,16 @@ export default async function ModelPage({ params }: PageProps) {
 									</Badge>
 								);
 							})()}
+
+							<Link
+								href={`/playground?model=${encodeURIComponent(modelDef.id)}`}
+								prefetch={true}
+							>
+								<Button variant="outline" size="sm" className="gap-2">
+									<Play className="h-3 w-3" />
+									Try in Playground
+								</Button>
+							</Link>
 						</div>
 
 						<div className="flex flex-wrap gap-4 text-sm text-muted-foreground mb-4">
@@ -138,43 +158,85 @@ export default async function ModelPage({ params }: PageProps) {
 							</span>
 						</div>
 
-						<p className="text-muted-foreground max-w-4xl">
-							{modelDef.id} is available across multiple providers with
-							different configurations, pricing, and performance
-							characteristics. Choose the provider that best fits your needs.
-						</p>
-						{shouldShowStabilityWarning(modelDef.stability) && (
-							<div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-								<div className="flex items-start gap-3">
-									<AlertTriangle className="h-5 w-5 text-orange-500 mt-0.5 flex-shrink-0" />
-									<div>
-										<h3 className="font-medium text-orange-800 mb-1">
-											{modelDef.stability === "experimental"
-												? "Experimental"
-												: "Unstable"}{" "}
-											Model Warning
-										</h3>
-										<p className="text-sm text-orange-700">
-											This model is marked as {modelDef.stability} and may have
-											issues with reliability, performance, or consistency. Use
-											with caution in production environments.
-										</p>
+						<div className="flex flex-wrap items-center gap-4 mb-6">
+							{(() => {
+								const items: Array<{
+									key: string;
+									icon: any;
+									label: string;
+									color: string;
+								}> = [];
+								const hasStreaming = modelProviders.some((p) => p.streaming);
+								const hasVision = modelProviders.some((p) => p.vision);
+								const hasTools = modelProviders.some((p) => p.tools);
+								const hasReasoning = modelProviders.some((p) => p.reasoning);
+								const hasImageGen = Array.isArray((modelDef as any)?.output)
+									? ((modelDef as any).output as string[]).includes("image")
+									: false;
+
+								if (hasStreaming) {
+									items.push({
+										key: "streaming",
+										icon: Zap,
+										label: "Streaming",
+										color: "text-blue-500",
+									});
+								}
+								if (hasVision) {
+									items.push({
+										key: "vision",
+										icon: Eye,
+										label: "Vision",
+										color: "text-green-500",
+									});
+								}
+								if (hasTools) {
+									items.push({
+										key: "tools",
+										icon: Wrench,
+										label: "Tools",
+										color: "text-purple-500",
+									});
+								}
+								if (hasReasoning) {
+									items.push({
+										key: "reasoning",
+										icon: MessageSquare,
+										label: "Reasoning",
+										color: "text-orange-500",
+									});
+								}
+								if (hasImageGen) {
+									items.push({
+										key: "image",
+										icon: ImagePlus,
+										label: "Image Generation",
+										color: "text-pink-500",
+									});
+								}
+
+								return items.map(({ key, icon: Icon, label, color }) => (
+									<div
+										key={key}
+										className="inline-flex items-center gap-2 text-sm text-foreground"
+									>
+										<Icon className={`h-4 w-4 ${color}`} />
+										<span className="text-muted-foreground">{label}</span>
 									</div>
-								</div>
-							</div>
-						)}
+								));
+							})()}
+						</div>
 					</div>
 
 					<div className="mb-8">
 						<div className="flex items-center justify-between mb-6">
 							<div>
 								<h2 className="text-2xl font-semibold mb-2">
-									Providers for {modelDef.id}
+									Providers for {modelDef.name}
 								</h2>
 								<p className="text-muted-foreground">
 									LLM Gateway routes requests to the best providers that are
-									able to handle your prompt size and parameters, with fallbacks
-									to maximize uptime.
+									able to handle your prompt size and parameters.
 								</p>
 							</div>
 						</div>

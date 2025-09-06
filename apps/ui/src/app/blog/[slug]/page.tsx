@@ -1,4 +1,4 @@
-import { allChangelogs, type Changelog } from "content-collections";
+import { allBlogs, type Blog } from "content-collections";
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
 import Image from "next/image";
@@ -9,16 +9,14 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-interface ChangelogEntryPageProps {
+interface BlogEntryPageProps {
 	params: Promise<{ slug: string }>;
 }
 
-export default async function ChangelogEntryPage({
-	params,
-}: ChangelogEntryPageProps) {
+export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 	const { slug } = await params;
 
-	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
+	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
 
 	if (!entry) {
 		notFound();
@@ -27,17 +25,16 @@ export default async function ChangelogEntryPage({
 	return (
 		<>
 			<HeroRSC navbarOnly />
-
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="max-w-4xl mx-auto">
 						<div className="mb-8">
 							<Link
-								href="/changelog"
+								href="/blog"
 								className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
 							>
 								<ArrowLeftIcon className="mr-2 h-4 w-4" />
-								Back to changelog
+								Back to blog
 							</Link>
 						</div>
 
@@ -85,26 +82,26 @@ export default async function ChangelogEntryPage({
 }
 
 export async function generateStaticParams() {
-	return allChangelogs.map((entry) => ({
+	return allBlogs.map((entry: Blog) => ({
 		slug: entry.slug,
 	}));
 }
 
-export async function generateMetadata({ params }: ChangelogEntryPageProps) {
+export async function generateMetadata({ params }: BlogEntryPageProps) {
 	const { slug } = await params;
 
-	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
+	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
 
 	if (!entry) {
 		return {};
 	}
 
 	return {
-		title: `${entry.title} - Changelog - LLM Gateway`,
-		description: entry.summary || "LLM Gateway changelog entry",
+		title: `${entry.title} - Blog - LLM Gateway`,
+		description: entry.summary || "LLM Gateway blog post",
 		openGraph: {
-			title: `${entry.title} - Changelog - LLM Gateway`,
-			description: entry.summary || "LLM Gateway changelog entry",
+			title: `${entry.title} - Blog - LLM Gateway`,
+			description: entry.summary || "LLM Gateway blog post",
 			type: "article",
 			images: entry.image
 				? [
@@ -119,8 +116,8 @@ export async function generateMetadata({ params }: ChangelogEntryPageProps) {
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${entry.title} - Changelog - LLM Gateway`,
-			description: entry.summary || "LLM Gateway changelog entry",
+			title: `${entry.title} - Blog - LLM Gateway`,
+			description: entry.summary || "LLM Gateway blog post",
 		},
 	};
 }

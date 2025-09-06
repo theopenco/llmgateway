@@ -12,6 +12,26 @@ const nextConfig: NextConfig = {
 	// 	devtoolSegmentExplorer: true,
 	// 	globalNotFound: true,
 	// },
+	async rewrites() {
+		return [
+			{
+				source: "/docs",
+				destination: "https://docs.llmgateway.com",
+			},
+			{
+				source: "/discord",
+				destination: "https://discord.gg/3u7jpXf36B",
+			},
+			{
+				source: "/github",
+				destination: "https://github.com/theopenco/llmgateway",
+			},
+			{
+				source: "/twitter",
+				destination: "https://twitter.com/llmgateway",
+			},
+		];
+	},
 };
 
 // withContentCollections must be the outermost plugin
