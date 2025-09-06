@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { useState } from "react";
 
+import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
@@ -27,6 +28,16 @@ export function OrganizationRetentionSettings() {
 		selectedOrganization?.retentionLevel || "retain",
 	);
 
+	// Fetch projects to check if any have caching enabled
+	const { data: projectsData } = api.useQuery("get", "/orgs/{id}/projects", {
+		params: { path: { id: selectedOrganization?.id || "" } },
+		enabled: !!selectedOrganization?.id,
+	});
+
+	const projectsWithCaching =
+		projectsData?.projects?.filter((project) => project.cachingEnabled) || [];
+	const hasCachingEnabled = projectsWithCaching.length > 0;
+
 	if (!selectedOrganization) {
 		return (
 			<div className="space-y-2">
@@ -38,16 +49,33 @@ export function OrganizationRetentionSettings() {
 		);
 	}
 
+	const updateProject = api.useMutation("patch", "/projects/{id}");
+
 	const handleSave = async () => {
 		try {
+			// Update organization retention level
 			await updateOrganization.mutateAsync({
 				params: { path: { id: selectedOrganization.id } },
 				body: { retentionLevel },
 			});
 
+			// If switching to metadata-only and there are projects with caching enabled,
+			// disable caching for all those projects
+			if (retentionLevel === "none" && hasCachingEnabled) {
+				for (const project of projectsWithCaching) {
+					await updateProject.mutateAsync({
+						params: { path: { id: project.id } },
+						body: { cachingEnabled: false },
+					});
+				}
+			}
+
 			toast({
 				title: "Settings saved",
-				description: "Your data retention settings have been updated.",
+				description:
+					retentionLevel === "none" && hasCachingEnabled
+						? `Data retention settings updated. Caching disabled for ${projectsWithCaching.length} project${projectsWithCaching.length > 1 ? "s" : ""}.`
+						: "Your data retention settings have been updated.",
 			});
 		} catch {
 			toast({
@@ -75,6 +103,17 @@ export function OrganizationRetentionSettings() {
 			<Separator />
 
 			<div className="space-y-4">
+				{retentionLevel === "none" && hasCachingEnabled && (
+					<Alert>
+						<AlertDescription>
+							⚠️ {projectsWithCaching.length} project
+							{projectsWithCaching.length > 1 ? "s" : ""} currently have caching
+							enabled. Switching to metadata-only retention will disable caching
+							for all projects.
+						</AlertDescription>
+					</Alert>
+				)}
+
 				<RadioGroup
 					value={retentionLevel}
 					onValueChange={(value: "retain" | "none") => setRetentionLevel(value)}
