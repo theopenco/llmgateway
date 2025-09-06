@@ -64,12 +64,6 @@ export function PlaygroundClient() {
 	const addMessage = useAddMessage();
 	const { data: currentChatData } = useChat(currentChatId ?? "");
 	useChats();
-	const { data: subscriptionStatus, isLoading: isSubscriptionLoading } =
-		api.useQuery("get", "/subscriptions/status", {});
-	const { data: orgsData, isLoading: isOrgsLoading } = api.useQuery(
-		"get",
-		"/orgs",
-	);
 
 	const [showApiKeyManager, setShowApiKeyManager] = useState(false);
 
@@ -204,38 +198,12 @@ export function PlaygroundClient() {
 			return;
 		}
 
-		if (!isApiKeyLoaded || isSubscriptionLoading || isOrgsLoading) {
+		if (!isApiKeyLoaded) {
 			return;
 		}
 
 		if (!userApiKey) {
 			setShowApiKeyManager(true);
-			return;
-		}
-
-		// Check if user has pro plan or enough credits
-		if (subscriptionStatus?.plan === "pro") {
-			// For pro users, check if subscription is expired or cancelled
-			if (
-				subscriptionStatus.subscriptionCancelled ||
-				(subscriptionStatus.planExpiresAt &&
-					new Date(subscriptionStatus.planExpiresAt) < new Date())
-			) {
-				setError(
-					"Your pro subscription has expired or been cancelled. Please renew your subscription or purchase credits.",
-				);
-				return;
-			}
-		} else if (subscriptionStatus) {
-			// only evaluate when the call succeeded
-			const org = orgsData?.organizations?.[0];
-			const credits = parseFloat(org?.credits ?? "0");
-			if (!org || Number.isNaN(credits) || credits <= 0) {
-				setError("You don't have enough credits to send this message.");
-				return;
-			}
-		} else {
-			setError("Unable to verify subscription status. Please retry.");
 			return;
 		}
 
