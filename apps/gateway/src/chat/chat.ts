@@ -49,6 +49,7 @@ import {
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
 } from "../lib/provider";
+import { checkFreeModelRateLimit } from "../lib/rate-limit";
 
 import type { ServerTypes } from "../vars";
 
@@ -2663,6 +2664,30 @@ chat.openapi(completions, async (c) => {
 						"Email verification required to use free models. Please verify your email address.",
 				});
 			}
+
+			// Check rate limits for free models
+			const rateLimitResult = await checkFreeModelRateLimit(
+				project.organizationId,
+				requestedModel,
+				modelInfo as ModelDefinition,
+			);
+			if (!rateLimitResult.allowed) {
+				const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
+				const limit = parseFloat(organization.credits || "0") > 0 ? "20" : "1";
+				const resetTime = (
+					Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
+				).toString();
+
+				c.header("Retry-After", retryAfter);
+				c.header("X-RateLimit-Limit", limit);
+				c.header("X-RateLimit-Remaining", "0");
+				c.header("X-RateLimit-Reset", resetTime);
+
+				throw new HTTPException(429, {
+					message:
+						"Rate limit exceeded for free models. Please try again later.",
+				});
+			}
 		}
 
 		usedToken = getProviderTokenFromEnv(usedProvider);
@@ -2729,6 +2754,31 @@ chat.openapi(completions, async (c) => {
 					throw new HTTPException(403, {
 						message:
 							"Email verification required to use free models. Please verify your email address.",
+					});
+				}
+
+				// Check rate limits for free models
+				const rateLimitResult = await checkFreeModelRateLimit(
+					project.organizationId,
+					requestedModel,
+					modelInfo as ModelDefinition,
+				);
+				if (!rateLimitResult.allowed) {
+					const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
+					const limit =
+						parseFloat(organization.credits || "0") > 0 ? "20" : "1";
+					const resetTime = (
+						Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
+					).toString();
+
+					c.header("Retry-After", retryAfter);
+					c.header("X-RateLimit-Limit", limit);
+					c.header("X-RateLimit-Remaining", "0");
+					c.header("X-RateLimit-Reset", resetTime);
+
+					throw new HTTPException(429, {
+						message:
+							"Rate limit exceeded for free models. Please try again later.",
 					});
 				}
 			}
