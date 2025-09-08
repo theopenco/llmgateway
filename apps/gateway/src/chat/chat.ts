@@ -49,8 +49,56 @@ import {
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
 } from "../lib/provider";
+import { checkFreeModelRateLimit } from "../lib/rate-limit";
 
 import type { ServerTypes } from "../vars";
+import type { Context } from "hono";
+
+// Helper function to validate free model usage
+async function validateFreeModelUsage(
+	c: Context<ServerTypes>,
+	organizationId: string,
+	requestedModel: string,
+	modelInfo: ModelDefinition,
+) {
+	const user = await getUserFromOrganization(organizationId);
+	if (!user) {
+		throw new HTTPException(500, {
+			message: "User not found",
+		});
+	}
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message:
+				"Email verification required to use free models. Please verify your email address.",
+		});
+	}
+
+	// Check rate limits for free models
+	const rateLimitResult = await checkFreeModelRateLimit(
+		organizationId,
+		requestedModel,
+		modelInfo,
+	);
+
+	// Always set limit and remaining headers
+	c.header("X-RateLimit-Limit", rateLimitResult.limit.toString());
+	c.header("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
+
+	if (!rateLimitResult.allowed) {
+		// Only set retry and reset headers when rate limited
+		const retryAfter = rateLimitResult.retryAfter?.toString();
+		if (retryAfter) {
+			c.header("Retry-After", retryAfter);
+			const resetTime = (Math.floor(Date.now() / 1000) + retryAfter).toString();
+			c.header("X-RateLimit-Reset", resetTime);
+		}
+
+		throw new HTTPException(429, {
+			message: "Rate limit exceeded for free models. Please try again later.",
+		});
+	}
+}
 
 // Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {
@@ -2649,22 +2697,6 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		// Check email verification for free models
-		if ((modelInfo as ModelDefinition).free) {
-			const user = await getUserFromOrganization(project.organizationId);
-			if (!user) {
-				throw new HTTPException(500, {
-					message: "User not found",
-				});
-			}
-			if (!user.emailVerified) {
-				throw new HTTPException(403, {
-					message:
-						"Email verification required to use free models. Please verify your email address.",
-				});
-			}
-		}
-
 		usedToken = getProviderTokenFromEnv(usedProvider);
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
@@ -2717,28 +2749,25 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			// Check email verification for free models
-			if ((modelInfo as ModelDefinition).free) {
-				const user = await getUserFromOrganization(project.organizationId);
-				if (!user) {
-					throw new HTTPException(500, {
-						message: "User not found",
-					});
-				}
-				if (!user.emailVerified) {
-					throw new HTTPException(403, {
-						message:
-							"Email verification required to use free models. Please verify your email address.",
-					});
-				}
-			}
-
 			usedToken = getProviderTokenFromEnv(usedProvider);
 		}
 	} else {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
 		});
+	}
+
+	// Check email verification and rate limits for free models (only when using credits/environment tokens)
+	if (
+		(modelInfo as ModelDefinition).free &&
+		(!providerKey || !providerKey.token)
+	) {
+		await validateFreeModelUsage(
+			c,
+			project.organizationId,
+			usedModel,
+			modelInfo as ModelDefinition,
+		);
 	}
 
 	if (!usedToken) {
