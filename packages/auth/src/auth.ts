@@ -6,6 +6,8 @@ import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import nodemailer from "nodemailer";
 
+import { checkSignupRateLimit } from "./rate-limit";
+
 const apiUrl = process.env.API_URL || "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
 const uiUrl = process.env.UI_URL || "http://localhost:3002";
@@ -152,6 +154,45 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 	secret: process.env.AUTH_SECRET || "your-secret-key",
 	baseURL: apiUrl || "http://localhost:4002",
 	hooks: {
+		before: createAuthMiddleware(async (ctx) => {
+			// Check rate limit for signup attempts
+			if (ctx.path.startsWith("/sign-up")) {
+				const request = ctx.context.request;
+
+				// Get IP address from various possible headers
+				let ipAddress = request.headers.get("x-forwarded-for");
+				if (ipAddress) {
+					// x-forwarded-for can be a comma-separated list, take the first IP
+					ipAddress = ipAddress.split(",")[0]?.trim();
+				} else {
+					ipAddress =
+						request.headers.get("x-real-ip") ||
+						request.headers.get("cf-connecting-ip") ||
+						request.headers.get("x-client-ip") ||
+						"unknown";
+				}
+
+				if (ipAddress && ipAddress !== "unknown") {
+					const rateLimitResult = await checkSignupRateLimit(ipAddress);
+
+					if (!rateLimitResult.allowed) {
+						logger.warn("Signup rate limit exceeded", {
+							ip: ipAddress,
+							resetTime: new Date(rateLimitResult.resetTime),
+						});
+
+						throw new Error(
+							"Too many signup attempts. Please try again in 5 minutes.",
+						);
+					}
+
+					logger.debug("Signup rate limit check passed", {
+						ip: ipAddress,
+						remaining: rateLimitResult.remaining,
+					});
+				}
+			}
+		}),
 		after: createAuthMiddleware(async (ctx) => {
 			// Check if this is a signup event
 			if (ctx.path.startsWith("/sign-up")) {

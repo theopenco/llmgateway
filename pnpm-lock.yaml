@@ -481,12 +481,18 @@ importers:
       '@llmgateway/logger':
         specifier: workspace:*
         version: link:../logger
+      '@types/ioredis':
+        specifier: ^5.0.0
+        version: 5.0.0
       '@types/nodemailer':
         specifier: ^6.4.14
         version: 6.4.17
       better-auth:
         specifier: 1.2.7
         version: 1.2.7
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.6.1
       nodemailer:
         specifier: ^7.0.5
         version: 7.0.5
@@ -3256,6 +3262,10 @@ packages:
 
   '@types/hast@3.0.4':
     resolution: {integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==}
+
+  '@types/ioredis@5.0.0':
+    resolution: {integrity: sha512-zJbJ3FVE17CNl5KXzdeSPtdltc4tMT3TzC6fxQS0sQngkbFZ6h+0uTafsRqu+eSLIugf6Yb0Ea0SUuRr42Nk9g==}
+    deprecated: This is a stub types definition. ioredis provides its own type definitions, so you do not need this installed.
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
@@ -8621,9 +8631,13 @@ snapshots:
   '@llmgateway/auth@file:packages/auth':
     dependencies:
       '@llmgateway/logger': file:packages/logger
+      '@types/ioredis': 5.0.0
       '@types/nodemailer': 6.4.17
       better-auth: 1.2.7
+      ioredis: 5.6.1
       nodemailer: 7.0.5
+    transitivePeerDependencies:
+      - supports-color
 
   '@llmgateway/db@file:packages/db':
     dependencies:
@@ -10156,6 +10170,12 @@ snapshots:
   '@types/hast@3.0.4':
     dependencies:
       '@types/unist': 3.0.3
+
+  '@types/ioredis@5.0.0':
+    dependencies:
+      ioredis: 5.6.1
+    transitivePeerDependencies:
+      - supports-color
 
   '@types/json-schema@7.0.15': {}
 
