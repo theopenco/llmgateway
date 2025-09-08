@@ -1,0 +1,157 @@
+---
+title: Vision Support
+description: Learn how to send images to vision-enabled models using URLs or inline base64 data.
+icon: Eye
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Vision Support
+
+LLMGateway supports vision-enabled models that can analyze and describe images. You can provide images via HTTPS URLs or inline base64-encoded data.
+
+## Vision-Enabled Models
+
+You can find all vision-enabled models on our [models page with vision filter](https://llmgateway.io/models?filters=1&vision=true). These models can process both text and image content in the same request.
+
+## Image Formats
+
+### Using HTTPS URLs
+
+You can provide any publicly accessible HTTPS URL pointing to an image:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What do you see in this image?"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "https://example.com/image.jpg"
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+### Using Base64 Inline Data
+
+You can also provide images as base64-encoded data URIs:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Describe this image"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD..."
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Content Array Format
+
+When using vision models, the `content` field should be an array containing both text and image content blocks:
+
+- **Text content**: `{"type": "text", "text": "Your message"}`
+- **Image content**: `{"type": "image_url", "image_url": {"url": "image_url_or_data_uri"}}`
+
+## Multiple Images
+
+You can include multiple images in a single request:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Compare these two images"
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "https://example.com/image1.jpg"
+            }
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "https://example.com/image2.jpg"
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Simple String Content
+
+<Callout type="info">
+	For vision models, you can still use simple string content for text-only
+	messages. The array format is only required when including images.
+</Callout>
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello! How can you help me today?"
+      }
+    ]
+  }'
+```
+
+## Supported Image Types
+
+Vision models typically support common image formats including:
+
+- JPEG (.jpg, .jpeg)
+- PNG (.png)
+- WebP (.webp)
+- GIF (.gif)
+
+The specific formats supported may vary by model provider. Check the individual model documentation for format limitations and file size restrictions.
+
+## Error Handling
+
+If an image URL is inaccessible or the image format is unsupported, the gateway will handle the error gracefully and may substitute a placeholder or error message in the request to the underlying model.
