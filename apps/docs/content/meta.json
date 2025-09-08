@@ -10,6 +10,7 @@
 		"self-host",
 		"---Features---",
 		"features/routing",
+		"features/image-generation",
 		"features/custom-providers",
 		"features/metadata",
 		"features/source",
