@@ -43,9 +43,20 @@ const anthropicRequestSchema = z.object({
 		description: "Maximum number of tokens to generate",
 		example: 1024,
 	}),
-	system: z.string().optional().openapi({
-		description: "System prompt to provide context",
-	}),
+	system: z
+		.union([
+			z.string(),
+			z.array(
+				z.object({
+					type: z.literal("text"),
+					text: z.string(),
+				}),
+			),
+		])
+		.optional()
+		.openapi({
+			description: "System prompt to provide context",
+		}),
 	temperature: z.number().min(0).max(1).optional().openapi({
 		description: "Sampling temperature between 0 and 1",
 		example: 0.7,
@@ -123,9 +134,18 @@ anthropic.openapi(messages, async (c) => {
 
 	// Add system message if provided
 	if (anthropicRequest.system) {
+		let systemContent: string;
+		if (typeof anthropicRequest.system === "string") {
+			systemContent = anthropicRequest.system;
+		} else {
+			// Handle array format - concatenate all text blocks
+			systemContent = anthropicRequest.system
+				.map((block) => block.text)
+				.join(" ");
+		}
 		openaiMessages.push({
 			role: "system",
-			content: anthropicRequest.system,
+			content: systemContent,
 		});
 	}
 
