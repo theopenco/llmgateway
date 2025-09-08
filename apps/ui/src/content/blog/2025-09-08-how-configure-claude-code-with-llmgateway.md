@@ -1,12 +1,12 @@
 ---
 id: blog-claude-code-llmgateway
-slug: configure-claude-code-with-llmgateway
-date: 2025-01-15
-title: Configure Claude Code to Use Any Model via LLMGateway
+slug: how-to-configure-claude-code-with-llmgateway
+date: 2025-09-08
+title: How to configure Claude Code to Use Any Model via LLMGateway
 summary: Learn how to configure Claude Code to access any LLM model through LLMGateway's unified API, including models with tool calling support.
 categories: ["Guides"]
 image:
-  src: "/blog/configure-claude-code-with-llmgateway.png"
+  src: "/blog/how-to-configure-claude-code-with-llmgateway.png"
   alt: "Configure Claude Code with LLMGateway"
   width: 2282
   height: 1198
