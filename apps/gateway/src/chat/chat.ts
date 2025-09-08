@@ -52,14 +52,14 @@ import {
 import { checkFreeModelRateLimit } from "../lib/rate-limit";
 
 import type { ServerTypes } from "../vars";
+import type { Context } from "hono";
 
 // Helper function to validate free model usage
 async function validateFreeModelUsage(
-	c: any,
+	c: Context<ServerTypes>,
 	organizationId: string,
 	requestedModel: string,
 	modelInfo: ModelDefinition,
-	organization: any,
 ) {
 	const user = await getUserFromOrganization(organizationId);
 	if (!user) {
@@ -81,17 +81,21 @@ async function validateFreeModelUsage(
 		modelInfo,
 	);
 
-	const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
-	const resetTime = (
-		Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
-	).toString();
-
-	c.header("Retry-After", retryAfter);
+	// Always set limit and remaining headers
 	c.header("X-RateLimit-Limit", rateLimitResult.limit.toString());
 	c.header("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
-	c.header("X-RateLimit-Reset", resetTime);
 
 	if (!rateLimitResult.allowed) {
+		// Only set retry and reset headers when rate limited
+		const retryAfter = rateLimitResult.retryAfter?.toString();
+		if (retryAfter) {
+			c.header("Retry-After", retryAfter);
+			const resetTime = (
+				Math.floor(Date.now() / 1000) + rateLimitResult.retryAfter
+			).toString();
+			c.header("X-RateLimit-Reset", resetTime);
+		}
+
 		throw new HTTPException(429, {
 			message: "Rate limit exceeded for free models. Please try again later.",
 		});
@@ -2772,7 +2776,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			requestedModel,
 			modelInfo as ModelDefinition,
-			organization,
 		);
 	}
 

@@ -3,6 +3,8 @@ import { logger } from "@llmgateway/logger";
 import { getOrganization } from "./cache";
 import redisClient from "./redis";
 
+import type { ModelDefinition } from "@llmgateway/models";
+
 /**
  * Rate limiting configuration for free models
  */
@@ -19,7 +21,9 @@ const FREE_MODEL_RATE_LIMITS = {
 /**
  * Check if a model is free based on model definition
  */
-export function isFreeModel(modelDefinition: any): boolean {
+export function isFreeModel(
+	modelDefinition: Partial<ModelDefinition> | null | undefined,
+): boolean {
 	return modelDefinition?.free === true;
 }
 
@@ -54,7 +58,7 @@ async function hasElevatedLimits(organizationId: string): Promise<boolean> {
 export async function checkFreeModelRateLimit(
 	organizationId: string,
 	model: string,
-	modelDefinition: any,
+	modelDefinition: Partial<ModelDefinition> | null | undefined,
 ): Promise<{
 	allowed: boolean;
 	retryAfter?: number;
