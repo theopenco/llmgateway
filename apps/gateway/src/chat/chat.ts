@@ -2695,17 +2695,6 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		// Check email verification and rate limits for free models
-		if ((modelInfo as ModelDefinition).free) {
-			await validateFreeModelUsage(
-				c,
-				project.organizationId,
-				requestedModel,
-				modelInfo as ModelDefinition,
-				organization,
-			);
-		}
-
 		usedToken = getProviderTokenFromEnv(usedProvider);
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
@@ -2758,23 +2747,33 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			// Check email verification and rate limits for free models
-			if ((modelInfo as ModelDefinition).free) {
-				await validateFreeModelUsage(
-					c,
-					project.organizationId,
-					requestedModel,
-					modelInfo as ModelDefinition,
-					organization,
-				);
-			}
-
 			usedToken = getProviderTokenFromEnv(usedProvider);
 		}
 	} else {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
 		});
+	}
+
+	// Check email verification and rate limits for free models (only when using credits/environment tokens)
+	if (
+		(modelInfo as ModelDefinition).free &&
+		(!providerKey || !providerKey.token)
+	) {
+		const organization = await getOrganization(project.organizationId);
+		if (!organization) {
+			throw new HTTPException(500, {
+				message: "Could not find organization",
+			});
+		}
+
+		await validateFreeModelUsage(
+			c,
+			project.organizationId,
+			requestedModel,
+			modelInfo as ModelDefinition,
+			organization,
+		);
 	}
 
 	if (!usedToken) {
