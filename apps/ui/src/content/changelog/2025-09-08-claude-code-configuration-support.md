@@ -4,6 +4,7 @@ slug: "claude-code-configuration-support"
 date: "2025-09-08"
 title: "Claude Code Configuration Now Supported"
 summary: "Configure Claude Code to use any LLM model through LLMGateway's unified API with simple environment variable setup."
+draft: true
 image:
   src: "/changelog/claude-code-configuration-support.png"
   alt: "Claude Code configuration support on LLM Gateway"
