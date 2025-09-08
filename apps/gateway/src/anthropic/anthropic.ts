@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
 
 import type { ServerTypes } from "../vars";
 
@@ -156,6 +157,9 @@ const messages = createRoute({
 			content: {
 				"application/json": {
 					schema: anthropicResponseSchema,
+				},
+				"text/event-stream": {
+					schema: z.string(),
 				},
 			},
 			description: "Successful response",
@@ -434,19 +438,223 @@ anthropic.openapi(messages, async (c) => {
 
 	if (!response.ok) {
 		const errorData = await response.json();
-		// console.log(
-		// 	"Error response from chat completions:",
-		// 	JSON.stringify(errorData, null, 2),
-		// );
-		// console.log(
-		// 	"OpenAI request that failed:",
-		// 	JSON.stringify(openaiRequest, null, 2),
-		// );
 		throw new HTTPException(response.status as 400 | 401 | 403 | 404 | 500, {
 			message: errorData.error?.message || "Request failed",
 		});
 	}
 
+	// Handle streaming response
+	if (anthropicRequest.stream) {
+		return streamSSE(c, async (stream) => {
+			if (!response.body) {
+				throw new HTTPException(500, { message: "No response body" });
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+
+			let buffer = "";
+			let messageId = "";
+			let model = "";
+			let contentBlocks: any[] = [];
+			let currentToolCall: any = null;
+			let usage = { input_tokens: 0, output_tokens: 0 };
+
+			try {
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) {
+						break;
+					}
+
+					buffer += decoder.decode(value, { stream: true });
+					const lines = buffer.split("\n");
+					buffer = lines.pop() || "";
+
+					for (const line of lines) {
+						if (line.startsWith("data: ")) {
+							const data = line.slice(6);
+							if (data === "[DONE]") {
+								// Send final Anthropic streaming event
+								await stream.writeSSE({
+									data: JSON.stringify({
+										type: "message_stop",
+									}),
+									event: "message_stop",
+								});
+								return;
+							}
+
+							try {
+								const chunk = JSON.parse(data);
+
+								if (!messageId && chunk.id) {
+									messageId = chunk.id;
+									model = chunk.model || anthropicRequest.model;
+
+									// Send message_start event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_start",
+											message: {
+												id: messageId,
+												type: "message",
+												role: "assistant",
+												model: model,
+												content: [],
+												stop_reason: null,
+												stop_sequence: null,
+												usage: { input_tokens: 0, output_tokens: 0 },
+											},
+										}),
+										event: "message_start",
+									});
+								}
+
+								const choice = chunk.choices?.[0];
+								if (!choice) {
+									continue;
+								}
+
+								const delta = choice.delta;
+								if (!delta) {
+									continue;
+								}
+
+								// Handle content delta
+								if (delta.content) {
+									if (contentBlocks.length === 0) {
+										contentBlocks.push({ type: "text", text: "" });
+										// Send content_block_start event
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: 0,
+												content_block: { type: "text", text: "" },
+											}),
+											event: "content_block_start",
+										});
+									}
+
+									contentBlocks[0].text += delta.content;
+
+									// Send content_block_delta event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: 0,
+											delta: { type: "text_delta", text: delta.content },
+										}),
+										event: "content_block_delta",
+									});
+								}
+
+								// Handle tool calls
+								if (delta.tool_calls) {
+									for (const toolCall of delta.tool_calls) {
+										if (toolCall.index !== undefined) {
+											const index = contentBlocks.length;
+
+											if (
+												!currentToolCall ||
+												currentToolCall.index !== toolCall.index
+											) {
+												currentToolCall = {
+													type: "tool_use",
+													id: toolCall.id || `tool_${toolCall.index}`,
+													name: toolCall.function?.name || "",
+													input: "",
+													index: toolCall.index,
+												};
+												contentBlocks.push(currentToolCall);
+
+												// Send content_block_start for tool use
+												await stream.writeSSE({
+													data: JSON.stringify({
+														type: "content_block_start",
+														index: index,
+														content_block: {
+															type: "tool_use",
+															id: currentToolCall.id,
+															name: currentToolCall.name,
+															input: {},
+														},
+													}),
+													event: "content_block_start",
+												});
+											}
+
+											if (toolCall.function?.arguments) {
+												currentToolCall.input += toolCall.function.arguments;
+
+												// Send content_block_delta for tool use
+												await stream.writeSSE({
+													data: JSON.stringify({
+														type: "content_block_delta",
+														index: index,
+														delta: {
+															type: "input_json_delta",
+															partial_json: toolCall.function.arguments,
+														},
+													}),
+													event: "content_block_delta",
+												});
+											}
+										}
+									}
+								}
+
+								// Handle finish_reason
+								if (choice.finish_reason) {
+									// Send content_block_stop events
+									for (let i = 0; i < contentBlocks.length; i++) {
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: i,
+											}),
+											event: "content_block_stop",
+										});
+									}
+
+									// Update usage if available
+									if (chunk.usage) {
+										usage = {
+											input_tokens: chunk.usage.prompt_tokens || 0,
+											output_tokens: chunk.usage.completion_tokens || 0,
+										};
+									}
+
+									// Send message_delta with usage
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_delta",
+											delta: {
+												stop_reason: determineStopReason(choice.finish_reason),
+												stop_sequence: null,
+											},
+											usage: usage,
+										}),
+										event: "message_delta",
+									});
+								}
+							} catch {
+								// Ignore parsing errors for individual chunks
+							}
+						}
+					}
+				}
+			} catch (error) {
+				throw new HTTPException(500, {
+					message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+				});
+			} finally {
+				reader.releaseLock();
+			}
+		});
+	}
+
+	// Handle non-streaming response
 	const openaiResponse = await response.json();
 
 	// Transform OpenAI response to Anthropic format
