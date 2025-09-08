@@ -1272,7 +1272,7 @@ describe("e2e", () => {
 									},
 									{
 										type: "text",
-										text: "",
+										text: "", // empty text – note this may need special handling
 									},
 									// provide image url if vision is supported
 									...(provider.vision
