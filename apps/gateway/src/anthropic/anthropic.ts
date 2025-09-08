@@ -84,11 +84,11 @@ const anthropicResponseSchema = z.object({
 });
 
 const messages = createRoute({
-	operationId: "v1_anthropic_messages",
+	operationId: "v1_messages",
 	summary: "Anthropic Messages",
 	description: "Create a message using Anthropic's API format",
 	method: "post",
-	path: "/messages",
+	path: "/",
 	security: [
 		{
 			bearerAuth: [],

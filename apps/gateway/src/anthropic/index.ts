@@ -6,4 +6,4 @@ import type { ServerTypes } from "../vars";
 
 export const exposed = new OpenAPIHono<ServerTypes>();
 
-exposed.route("/anthropic", anthropic);
+exposed.route("/messages", anthropic);
