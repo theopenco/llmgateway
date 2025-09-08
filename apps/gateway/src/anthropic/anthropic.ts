@@ -6,23 +6,39 @@ import type { ServerTypes } from "../vars";
 export const anthropic = new OpenAPIHono<ServerTypes>();
 
 const anthropicMessageSchema = z.object({
-	role: z.enum(["user", "assistant"]),
+	role: z.enum(["user", "assistant", "tool"]),
 	content: z.union([
 		z.string(),
 		z.array(
-			z.object({
-				type: z.enum(["text", "image"]),
-				text: z.string().optional(),
-				source: z
-					.object({
+			z.union([
+				z.object({
+					type: z.literal("text"),
+					text: z.string(),
+				}),
+				z.object({
+					type: z.literal("image"),
+					source: z.object({
 						type: z.literal("base64"),
 						media_type: z.string(),
 						data: z.string(),
-					})
-					.optional(),
-			}),
+					}),
+				}),
+				z.object({
+					type: z.literal("tool_use"),
+					id: z.string(),
+					name: z.string(),
+					input: z.record(z.unknown()),
+				}),
+				z.object({
+					type: z.literal("tool_result"),
+					tool_use_id: z.string(),
+					content: z.union([z.string(), z.array(z.unknown())]).optional(),
+					is_error: z.boolean().optional(),
+				}),
+			]),
 		),
 	]),
+	tool_call_id: z.string().optional(), // For tool role messages
 });
 
 const anthropicToolSchema = z.object({
@@ -129,6 +145,11 @@ const messages = createRoute({
 anthropic.openapi(messages, async (c) => {
 	const anthropicRequest = c.req.valid("json");
 
+	// console.log(
+	// 	"Original Anthropic request:",
+	// 	JSON.stringify(anthropicRequest, null, 2),
+	// );
+
 	// Transform Anthropic request to OpenAI format
 	const openaiMessages: any[] = [];
 
@@ -151,6 +172,28 @@ anthropic.openapi(messages, async (c) => {
 
 	// Transform messages
 	for (const message of anthropicRequest.messages) {
+		// Convert tool role messages to user messages with tool_result content
+		if (message.role === "tool") {
+			const toolContent = Array.isArray(message.content)
+				? message.content
+				: [{ type: "text" as const, text: String(message.content) }];
+
+			// Find tool_call_id if it exists in the content
+			const toolCallId =
+				toolContent.find((block) => "tool_use_id" in block)?.tool_use_id ||
+				toolContent.find((block) => "id" in block)?.id;
+
+			openaiMessages.push({
+				role: "tool" as any,
+				content:
+					typeof message.content === "string"
+						? message.content
+						: JSON.stringify(message.content),
+				tool_call_id: toolCallId,
+			});
+			continue;
+		}
+
 		if (typeof message.content === "string") {
 			openaiMessages.push({
 				role: message.role,
@@ -170,12 +213,65 @@ anthropic.openapi(messages, async (c) => {
 						},
 					};
 				}
+				if (block.type === "tool_use") {
+					// Convert Anthropic tool_use to OpenAI tool_calls format
+					return {
+						type: "tool_call",
+						id: block.id,
+						function: {
+							name: block.name,
+							arguments: JSON.stringify(block.input),
+						},
+					};
+				}
+				if (block.type === "tool_result") {
+					// Convert tool_result to text content
+					let resultText = "";
+					if (typeof block.content === "string") {
+						resultText = block.content;
+					} else if (Array.isArray(block.content)) {
+						resultText = JSON.stringify(block.content);
+					}
+					return {
+						type: "text",
+						text: `Tool result${block.is_error ? " (error)" : ""}: ${resultText}`,
+					};
+				}
 				return block;
 			});
-			openaiMessages.push({
-				role: message.role,
-				content,
-			});
+
+			// Special handling for assistant messages with tool_use blocks
+			if (
+				message.role === "assistant" &&
+				message.content.some((block) => block.type === "tool_use")
+			) {
+				const toolCalls = message.content
+					.filter((block) => block.type === "tool_use")
+					.map((block) => ({
+						id: block.id,
+						type: "function" as const,
+						function: {
+							name: block.name,
+							arguments: JSON.stringify(block.input),
+						},
+					}));
+
+				const textContent = message.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text)
+					.join("");
+
+				openaiMessages.push({
+					role: message.role,
+					content: textContent || null,
+					tool_calls: toolCalls,
+				});
+			} else {
+				openaiMessages.push({
+					role: message.role,
+					content,
+				});
+			}
 		}
 	}
 
@@ -204,6 +300,8 @@ anthropic.openapi(messages, async (c) => {
 	if (openaiTools) {
 		openaiRequest.tools = openaiTools;
 	}
+
+	// console.log("Transformed OpenAI request:", JSON.stringify(openaiRequest, null, 2));
 
 	// Make request to the existing chat completions endpoint
 	const chatCompletionsUrl = new URL(c.req.url);
