@@ -55,10 +55,15 @@ export async function checkFreeModelRateLimit(
 	organizationId: string,
 	model: string,
 	modelDefinition: any,
-): Promise<{ allowed: boolean; retryAfter?: number }> {
+): Promise<{
+	allowed: boolean;
+	retryAfter?: number;
+	remaining: number;
+	limit: number;
+}> {
 	// Only apply rate limiting to free models
 	if (!isFreeModel(modelDefinition)) {
-		return { allowed: true };
+		return { allowed: true, remaining: 0, limit: 0 };
 	}
 
 	try {
@@ -99,7 +104,7 @@ export async function checkFreeModelRateLimit(
 				retryAfter,
 			});
 
-			return { allowed: false, retryAfter };
+			return { allowed: false, retryAfter, remaining: 0, limit };
 		}
 
 		// Add current request to sliding window
@@ -114,10 +119,14 @@ export async function checkFreeModelRateLimit(
 			hasElevated,
 		});
 
-		return { allowed: true };
+		return {
+			allowed: true,
+			remaining: Math.max(0, limit - currentCount - 1),
+			limit,
+		};
 	} catch (error) {
 		logger.error("Error checking free model rate limit:", error as Error);
 		// Allow request on error to avoid blocking users due to Redis issues
-		return { allowed: true };
+		return { allowed: true, remaining: 0, limit: 0 };
 	}
 }

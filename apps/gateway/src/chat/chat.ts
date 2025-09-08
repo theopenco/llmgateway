@@ -53,6 +53,51 @@ import { checkFreeModelRateLimit } from "../lib/rate-limit";
 
 import type { ServerTypes } from "../vars";
 
+// Helper function to validate free model usage
+async function validateFreeModelUsage(
+	c: any,
+	organizationId: string,
+	requestedModel: string,
+	modelInfo: ModelDefinition,
+	organization: any,
+) {
+	const user = await getUserFromOrganization(organizationId);
+	if (!user) {
+		throw new HTTPException(500, {
+			message: "User not found",
+		});
+	}
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message:
+				"Email verification required to use free models. Please verify your email address.",
+		});
+	}
+
+	// Check rate limits for free models
+	const rateLimitResult = await checkFreeModelRateLimit(
+		organizationId,
+		requestedModel,
+		modelInfo,
+	);
+
+	const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
+	const resetTime = (
+		Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
+	).toString();
+
+	c.header("Retry-After", retryAfter);
+	c.header("X-RateLimit-Limit", rateLimitResult.limit.toString());
+	c.header("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
+	c.header("X-RateLimit-Reset", resetTime);
+
+	if (!rateLimitResult.allowed) {
+		throw new HTTPException(429, {
+			message: "Rate limit exceeded for free models. Please try again later.",
+		});
+	}
+}
+
 // Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
@@ -2650,45 +2695,15 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		// Check email verification for free models
+		// Check email verification and rate limits for free models
 		if ((modelInfo as ModelDefinition).free) {
-			const user = await getUserFromOrganization(project.organizationId);
-			if (!user) {
-				throw new HTTPException(500, {
-					message: "User not found",
-				});
-			}
-			if (!user.emailVerified) {
-				throw new HTTPException(403, {
-					message:
-						"Email verification required to use free models. Please verify your email address.",
-				});
-			}
-
-			// Check rate limits for free models
-			const rateLimitResult = await checkFreeModelRateLimit(
+			await validateFreeModelUsage(
+				c,
 				project.organizationId,
 				requestedModel,
 				modelInfo as ModelDefinition,
+				organization,
 			);
-
-			const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
-			const limit = parseFloat(organization.credits || "0") > 0 ? "20" : "1";
-			const resetTime = (
-				Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
-			).toString();
-
-			c.header("Retry-After", retryAfter);
-			c.header("X-RateLimit-Limit", limit);
-			c.header("X-RateLimit-Remaining", "0");
-			c.header("X-RateLimit-Reset", resetTime);
-
-			if (!rateLimitResult.allowed) {
-				throw new HTTPException(429, {
-					message:
-						"Rate limit exceeded for free models. Please try again later.",
-				});
-			}
 		}
 
 		usedToken = getProviderTokenFromEnv(usedProvider);
@@ -2743,45 +2758,15 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			// Check email verification for free models
+			// Check email verification and rate limits for free models
 			if ((modelInfo as ModelDefinition).free) {
-				const user = await getUserFromOrganization(project.organizationId);
-				if (!user) {
-					throw new HTTPException(500, {
-						message: "User not found",
-					});
-				}
-				if (!user.emailVerified) {
-					throw new HTTPException(403, {
-						message:
-							"Email verification required to use free models. Please verify your email address.",
-					});
-				}
-
-				// Check rate limits for free models
-				const rateLimitResult = await checkFreeModelRateLimit(
+				await validateFreeModelUsage(
+					c,
 					project.organizationId,
 					requestedModel,
 					modelInfo as ModelDefinition,
+					organization,
 				);
-
-				const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
-				const limit = parseFloat(organization.credits || "0") > 0 ? "20" : "1";
-				const resetTime = (
-					Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
-				).toString();
-
-				c.header("Retry-After", retryAfter);
-				c.header("X-RateLimit-Limit", limit);
-				c.header("X-RateLimit-Remaining", "0");
-				c.header("X-RateLimit-Reset", resetTime);
-
-				if (!rateLimitResult.allowed) {
-					throw new HTTPException(429, {
-						message:
-							"Rate limit exceeded for free models. Please try again later.",
-					});
-				}
 			}
 
 			usedToken = getProviderTokenFromEnv(usedProvider);
