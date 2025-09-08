@@ -2762,13 +2762,6 @@ chat.openapi(completions, async (c) => {
 		(modelInfo as ModelDefinition).free &&
 		(!providerKey || !providerKey.token)
 	) {
-		const organization = await getOrganization(project.organizationId);
-		if (!organization) {
-			throw new HTTPException(500, {
-				message: "Could not find organization",
-			});
-		}
-
 		await validateFreeModelUsage(
 			c,
 			project.organizationId,
