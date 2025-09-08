@@ -157,6 +157,24 @@ function extractCustomHeaders(c: any): Record<string, string> {
 }
 
 /**
+ * Get the user associated with an organization (first user found)
+ */
+async function getUserFromOrganization(organizationId: string) {
+	const userOrg = await db.query.userOrganization.findFirst({
+		where: {
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			user: true,
+		},
+	});
+
+	return userOrg?.user || null;
+}
+
+/**
  * Creates a partial log entry with common fields to reduce duplication
  */
 function createLogEntry(
@@ -2631,6 +2649,22 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
+		// Check email verification for free models
+		if ((modelInfo as ModelDefinition).free) {
+			const user = await getUserFromOrganization(project.organizationId);
+			if (!user) {
+				throw new HTTPException(500, {
+					message: "User not found",
+				});
+			}
+			if (!user.emailVerified) {
+				throw new HTTPException(403, {
+					message:
+						"Email verification required to use free models. Please verify your email address.",
+				});
+			}
+		}
+
 		usedToken = getProviderTokenFromEnv(usedProvider);
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
@@ -2681,6 +2715,22 @@ chat.openapi(completions, async (c) => {
 					message:
 						"No API key set for provider and organization has insufficient credits",
 				});
+			}
+
+			// Check email verification for free models
+			if ((modelInfo as ModelDefinition).free) {
+				const user = await getUserFromOrganization(project.organizationId);
+				if (!user) {
+					throw new HTTPException(500, {
+						message: "User not found",
+					});
+				}
+				if (!user.emailVerified) {
+					throw new HTTPException(403, {
+						message:
+							"Email verification required to use free models. Please verify your email address.",
+					});
+				}
 			}
 
 			usedToken = getProviderTokenFromEnv(usedProvider);
