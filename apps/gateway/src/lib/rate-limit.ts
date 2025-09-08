@@ -7,9 +7,9 @@ import redisClient from "./redis";
  * Rate limiting configuration for free models
  */
 const FREE_MODEL_RATE_LIMITS = {
-	// 1 request per minute for orgs with 0 credits
-	BASE_LIMIT: 1,
-	BASE_WINDOW: 60, // seconds
+	// 5 request per 10 minutes for orgs with 0 credits
+	BASE_LIMIT: 5,
+	BASE_WINDOW: 600, // 10 minutes in seconds
 
 	// 20 requests per minute for orgs with > 0 credits
 	ELEVATED_LIMIT: 20,
