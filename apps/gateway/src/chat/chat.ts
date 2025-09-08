@@ -90,9 +90,7 @@ async function validateFreeModelUsage(
 		const retryAfter = rateLimitResult.retryAfter?.toString();
 		if (retryAfter) {
 			c.header("Retry-After", retryAfter);
-			const resetTime = (
-				Math.floor(Date.now() / 1000) + rateLimitResult.retryAfter
-			).toString();
+			const resetTime = (Math.floor(Date.now() / 1000) + retryAfter).toString();
 			c.header("X-RateLimit-Reset", resetTime);
 		}
 
@@ -2774,7 +2772,7 @@ chat.openapi(completions, async (c) => {
 		await validateFreeModelUsage(
 			c,
 			project.organizationId,
-			requestedModel,
+			usedModel,
 			modelInfo as ModelDefinition,
 		);
 	}
