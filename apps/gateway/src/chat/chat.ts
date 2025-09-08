@@ -2671,18 +2671,19 @@ chat.openapi(completions, async (c) => {
 				requestedModel,
 				modelInfo as ModelDefinition,
 			);
+
+			const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
+			const limit = parseFloat(organization.credits || "0") > 0 ? "20" : "1";
+			const resetTime = (
+				Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
+			).toString();
+
+			c.header("Retry-After", retryAfter);
+			c.header("X-RateLimit-Limit", limit);
+			c.header("X-RateLimit-Remaining", "0");
+			c.header("X-RateLimit-Reset", resetTime);
+
 			if (!rateLimitResult.allowed) {
-				const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
-				const limit = parseFloat(organization.credits || "0") > 0 ? "20" : "1";
-				const resetTime = (
-					Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
-				).toString();
-
-				c.header("Retry-After", retryAfter);
-				c.header("X-RateLimit-Limit", limit);
-				c.header("X-RateLimit-Remaining", "0");
-				c.header("X-RateLimit-Reset", resetTime);
-
 				throw new HTTPException(429, {
 					message:
 						"Rate limit exceeded for free models. Please try again later.",
@@ -2763,19 +2764,19 @@ chat.openapi(completions, async (c) => {
 					requestedModel,
 					modelInfo as ModelDefinition,
 				);
+
+				const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
+				const limit = parseFloat(organization.credits || "0") > 0 ? "20" : "1";
+				const resetTime = (
+					Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
+				).toString();
+
+				c.header("Retry-After", retryAfter);
+				c.header("X-RateLimit-Limit", limit);
+				c.header("X-RateLimit-Remaining", "0");
+				c.header("X-RateLimit-Reset", resetTime);
+
 				if (!rateLimitResult.allowed) {
-					const retryAfter = rateLimitResult.retryAfter?.toString() || "60";
-					const limit =
-						parseFloat(organization.credits || "0") > 0 ? "20" : "1";
-					const resetTime = (
-						Math.floor(Date.now() / 1000) + (rateLimitResult.retryAfter || 60)
-					).toString();
-
-					c.header("Retry-After", retryAfter);
-					c.header("X-RateLimit-Limit", limit);
-					c.header("X-RateLimit-Remaining", "0");
-					c.header("X-RateLimit-Reset", resetTime);
-
 					throw new HTTPException(429, {
 						message:
 							"Rate limit exceeded for free models. Please try again later.",
