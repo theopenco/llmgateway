@@ -502,7 +502,12 @@ export async function prepareRequestBody(
 					requestBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
-					requestBody.max_tokens = max_tokens;
+					// GPT-5 models use max_completion_tokens instead of max_tokens
+					if (usedModel.startsWith("gpt-5")) {
+						requestBody.max_completion_tokens = max_tokens;
+					} else {
+						requestBody.max_tokens = max_tokens;
+					}
 				}
 				if (top_p !== undefined) {
 					requestBody.top_p = top_p;
