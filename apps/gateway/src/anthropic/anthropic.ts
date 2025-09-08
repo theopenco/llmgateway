@@ -164,7 +164,36 @@ const messages = createRoute({
 });
 
 anthropic.openapi(messages, async (c) => {
-	const anthropicRequest = c.req.valid("json");
+	// Manual request parsing with better error handling
+	let rawRequest: any;
+	try {
+		rawRequest = await c.req.json();
+	} catch (error) {
+		// console.log("Failed to parse JSON from request:", error);
+		throw new HTTPException(400, {
+			message: `Invalid JSON in request body: ${error}`,
+		});
+	}
+
+	// console.log("Raw Anthropic request:", JSON.stringify(rawRequest, null, 2));
+
+	// Validate with our schema
+	const validation = anthropicRequestSchema.safeParse(rawRequest);
+	if (!validation.success) {
+		// console.log(
+		// 	"Anthropic request validation failed:",
+		// 	JSON.stringify(validation.error.issues, null, 2),
+		// );
+		throw new HTTPException(400, {
+			message: `Invalid request format: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+		});
+	}
+
+	const anthropicRequest = validation.data;
+	// console.log(
+	// 	"Validated Anthropic request:",
+	// 	JSON.stringify(anthropicRequest, null, 2),
+	// );
 
 	// Transform Anthropic request to OpenAI format
 	const openaiMessages: any[] = [];
@@ -215,7 +244,7 @@ anthropic.openapi(messages, async (c) => {
 		if (message.role === "assistant" && message.tool_calls) {
 			openaiMessages.push({
 				role: message.role,
-				content: message.content || null,
+				content: message.content || "",
 				tool_calls: message.tool_calls,
 			});
 			continue;
@@ -241,7 +270,7 @@ anthropic.openapi(messages, async (c) => {
 
 			openaiMessages.push({
 				role: message.role,
-				content: message.content || null,
+				content: message.content || "",
 				tool_calls: toolCalls,
 			});
 			continue;
@@ -271,7 +300,7 @@ anthropic.openapi(messages, async (c) => {
 
 			openaiMessages.push({
 				role: message.role,
-				content: textContent || null,
+				content: textContent || "",
 				tool_calls: toolCalls,
 			});
 			continue;
@@ -314,25 +343,44 @@ anthropic.openapi(messages, async (c) => {
 
 		// Handle regular messages and multi-modal content
 		if (Array.isArray(message.content)) {
-			const content = message.content.map((block) => {
-				if (block.type === "text" && block.text) {
-					return { type: "text", text: block.text };
-				}
-				if (block.type === "image" && block.source) {
-					return {
-						type: "image_url",
-						image_url: {
-							url: `data:${block.source.media_type};base64,${block.source.data}`,
-						},
-					};
-				}
-				return block;
-			});
+			// Check if this is complex multi-modal content that should be flattened
+			const hasOnlyText = message.content.every(
+				(block) => block.type === "text",
+			);
 
-			openaiMessages.push({
-				role: message.role,
-				content,
-			});
+			if (hasOnlyText) {
+				// For text-only content, flatten to a simple string to avoid content type issues
+				const textContent = message.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text)
+					.join("");
+
+				openaiMessages.push({
+					role: message.role,
+					content: textContent,
+				});
+			} else {
+				// For true multi-modal content, transform blocks
+				const content = message.content.map((block) => {
+					if (block.type === "text" && block.text) {
+						return { type: "text", text: block.text };
+					}
+					if (block.type === "image" && block.source) {
+						return {
+							type: "image_url",
+							image_url: {
+								url: `data:${block.source.media_type};base64,${block.source.data}`,
+							},
+						};
+					}
+					return block;
+				});
+
+				openaiMessages.push({
+					role: message.role,
+					content,
+				});
+			}
 		} else {
 			// Simple string content
 			openaiMessages.push({
@@ -386,6 +434,14 @@ anthropic.openapi(messages, async (c) => {
 
 	if (!response.ok) {
 		const errorData = await response.json();
+		// console.log(
+		// 	"Error response from chat completions:",
+		// 	JSON.stringify(errorData, null, 2),
+		// );
+		// console.log(
+		// 	"OpenAI request that failed:",
+		// 	JSON.stringify(openaiRequest, null, 2),
+		// );
 		throw new HTTPException(response.status as 400 | 401 | 403 | 404 | 500, {
 			message: errorData.error?.message || "Request failed",
 		});
