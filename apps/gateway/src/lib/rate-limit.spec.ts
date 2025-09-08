@@ -114,7 +114,7 @@ describe("Rate Limiting", () => {
 				credits: "0",
 			});
 
-			vi.mocked(redis.zcard).mockResolvedValue(1); // At limit (1)
+			vi.mocked(redis.zcard).mockResolvedValue(5); // At limit (5)
 			const futureTimestamp = Date.now() + 30000; // 30 seconds in future
 			vi.mocked(redis.zrange).mockResolvedValue([
 				"123",
@@ -129,6 +129,8 @@ describe("Rate Limiting", () => {
 
 			expect(result.allowed).toBe(false);
 			expect(result.retryAfter).toBeGreaterThan(0);
+			expect(result.remaining).toBe(0);
+			expect(result.limit).toBe(5);
 		});
 
 		it("should block requests when elevated rate limit is exceeded", async () => {
@@ -153,6 +155,8 @@ describe("Rate Limiting", () => {
 
 			expect(result.allowed).toBe(false);
 			expect(result.retryAfter).toBeGreaterThan(0);
+			expect(result.remaining).toBe(0);
+			expect(result.limit).toBe(20);
 		});
 
 		it("should allow requests on Redis errors", async () => {
