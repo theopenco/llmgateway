@@ -6,6 +6,7 @@ import "dotenv/config";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { anthropic } from "./anthropic/anthropic";
 import { chat } from "./chat/chat";
 import redisClient from "./lib/redis";
 import { models } from "./models";
@@ -191,6 +192,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
 v1.route("/models", models);
+v1.route("/anthropic", anthropic);
 
 app.route("/v1", v1);
 
