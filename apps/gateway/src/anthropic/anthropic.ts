@@ -166,11 +166,6 @@ const messages = createRoute({
 anthropic.openapi(messages, async (c) => {
 	const anthropicRequest = c.req.valid("json");
 
-	// console.log(
-	// 	"Original Anthropic request:",
-	// 	JSON.stringify(anthropicRequest, null, 2),
-	// );
-
 	// Transform Anthropic request to OpenAI format
 	const openaiMessages: any[] = [];
 
@@ -372,11 +367,6 @@ anthropic.openapi(messages, async (c) => {
 	if (openaiTools) {
 		openaiRequest.tools = openaiTools;
 	}
-
-	// console.log(
-	// 	"Transformed OpenAI request:",
-	// 	JSON.stringify(openaiRequest, null, 2),
-	// );
 
 	// Make request to the existing chat completions endpoint
 	const chatCompletionsUrl = new URL(c.req.url);
