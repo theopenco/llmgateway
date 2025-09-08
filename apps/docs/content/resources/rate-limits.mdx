@@ -1,0 +1,97 @@
+---
+title: Rate Limits
+description: Understanding rate limits for free and paid models on LLMGateway.
+icon: Timer
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Rate Limits
+
+LLMGateway implements rate limits to ensure fair usage and optimal performance for all users. The rate limits differ based on your account status and the type of models you're using.
+
+## Free Models
+
+Free models (models with zero input and output pricing) have rate limits that depend on your account's credit status:
+
+### Base Rate Limits
+
+For organizations with **zero credits**:
+
+- **5 requests per 10 minutes**
+- Applies to all free model requests
+- Resets every 10 minutes
+
+### Elevated Rate Limits
+
+For organizations that have **purchased at least some credits**:
+
+- **20 requests per minute**
+- Applies to all free model requests
+- Resets every minute
+
+<Callout type="info">
+	When using free models with elevated limits, your credits will **not** be
+	deducted. The elevated rate limits are simply a benefit for users who have
+	added credits to their account.
+</Callout>
+
+## Paid Models
+
+**Paid AI models are not currently rate limited.** You can make as many requests as needed to paid models, subject only to your account's credit balance and any provider-specific limits.
+
+## Rate Limit Headers
+
+All API responses include rate limit information in the headers:
+
+```http
+X-RateLimit-Limit: 20
+X-RateLimit-Remaining: 19
+X-RateLimit-Reset: 1640995200
+```
+
+- `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
+- `X-RateLimit-Remaining`: Number of requests remaining in the current window
+- `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
+
+## Rate Limit Exceeded
+
+When you exceed your rate limit, you'll receive a `429 Too Many Requests` response:
+
+```json
+{
+	"error": {
+		"message": "Rate limit exceeded. Try again later.",
+		"type": "rate_limit_error",
+		"code": "rate_limit_exceeded"
+	}
+}
+```
+
+## Best Practices
+
+### Upgrading Your Limits
+
+To unlock elevated rate limits for free models:
+
+1. Add credits to your account through the dashboard
+2. Your rate limits will automatically increase to 20 requests per minute
+3. Free model usage will still not deduct from your credits
+
+### Handling Rate Limits
+
+- Implement exponential backoff when you receive 429 responses
+- Monitor the `X-RateLimit-Remaining` header to avoid hitting limits
+- Consider using paid models for high-volume applications
+
+### Cost Optimization
+
+- Use free models for development and testing
+- Switch to paid models for production workloads requiring higher throughput
+- Monitor your usage patterns through the dashboard
+
+<Callout type="success">
+	Adding even a small amount of credits to your account (e.g., $5) will
+	immediately upgrade your free model rate limits from 5 requests per 10 minutes
+	to 20 requests per minute.
+</Callout>
