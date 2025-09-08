@@ -6,7 +6,7 @@ import type { ServerTypes } from "../vars";
 export const anthropic = new OpenAPIHono<ServerTypes>();
 
 const anthropicMessageSchema = z.object({
-	role: z.enum(["user", "assistant", "tool"]),
+	role: z.enum(["user", "assistant", "tool", "function"]),
 	content: z.union([
 		z.string(),
 		z.array(
@@ -38,7 +38,28 @@ const anthropicMessageSchema = z.object({
 			]),
 		),
 	]),
-	tool_call_id: z.string().optional(), // For tool role messages
+	// OpenAI message properties
+	tool_call_id: z.string().optional(),
+	name: z.string().optional(),
+	tool_calls: z
+		.array(
+			z.object({
+				id: z.string(),
+				type: z.literal("function"),
+				function: z.object({
+					name: z.string(),
+					arguments: z.string(),
+				}),
+			}),
+		)
+		.optional(),
+	function_call: z
+		.object({
+			id: z.string().optional(),
+			name: z.string(),
+			arguments: z.union([z.string(), z.record(z.unknown())]),
+		})
+		.optional(),
 });
 
 const anthropicToolSchema = z.object({
@@ -170,37 +191,134 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
-	// Transform messages
+	// Transform messages using the approach from claude-code-proxy
 	for (const message of anthropicRequest.messages) {
-		// Convert tool role messages to user messages with tool_result content
+		// Handle tool role → convert to OpenAI tool format
 		if (message.role === "tool") {
-			const toolContent = Array.isArray(message.content)
-				? message.content
-				: [{ type: "text" as const, text: String(message.content) }];
-
-			// Find tool_call_id if it exists in the content
-			const toolCallId =
-				toolContent.find((block) => "tool_use_id" in block)?.tool_use_id ||
-				toolContent.find((block) => "id" in block)?.id;
-
 			openaiMessages.push({
-				role: "tool" as any,
+				role: "tool",
 				content:
 					typeof message.content === "string"
 						? message.content
 						: JSON.stringify(message.content),
-				tool_call_id: toolCallId,
+				tool_call_id: message.tool_call_id,
 			});
 			continue;
 		}
 
-		if (typeof message.content === "string") {
+		// Handle function role → convert to OpenAI tool format (legacy)
+		if (message.role === "function") {
+			openaiMessages.push({
+				role: "tool",
+				content: message.content,
+				tool_call_id: message.tool_call_id || message.name,
+			});
+			continue;
+		}
+
+		// Handle assistant messages with tool_calls (OpenAI format)
+		if (message.role === "assistant" && message.tool_calls) {
 			openaiMessages.push({
 				role: message.role,
-				content: message.content,
+				content: message.content || null,
+				tool_calls: message.tool_calls,
 			});
-		} else if (Array.isArray(message.content)) {
-			// Handle multi-modal content
+			continue;
+		}
+
+		// Handle assistant messages with function_call (legacy OpenAI format)
+		if (message.role === "assistant" && message.function_call) {
+			const toolCalls = [
+				{
+					id:
+						message.function_call.id ||
+						`call_${Math.random().toString(36).substring(2, 10)}`,
+					type: "function" as const,
+					function: {
+						name: message.function_call.name,
+						arguments:
+							typeof message.function_call.arguments === "string"
+								? message.function_call.arguments
+								: JSON.stringify(message.function_call.arguments),
+					},
+				},
+			];
+
+			openaiMessages.push({
+				role: message.role,
+				content: message.content || null,
+				tool_calls: toolCalls,
+			});
+			continue;
+		}
+
+		// Handle assistant messages with tool_use blocks (native Anthropic format)
+		if (
+			message.role === "assistant" &&
+			Array.isArray(message.content) &&
+			message.content.some((block) => block.type === "tool_use")
+		) {
+			const toolCalls = message.content
+				.filter((block) => block.type === "tool_use")
+				.map((block) => ({
+					id: block.id,
+					type: "function" as const,
+					function: {
+						name: block.name,
+						arguments: JSON.stringify(block.input),
+					},
+				}));
+
+			const textContent = message.content
+				.filter((block) => block.type === "text")
+				.map((block) => block.text)
+				.join("");
+
+			openaiMessages.push({
+				role: message.role,
+				content: textContent || null,
+				tool_calls: toolCalls,
+			});
+			continue;
+		}
+
+		// Handle user messages with tool_result blocks (native Anthropic format)
+		if (
+			message.role === "user" &&
+			Array.isArray(message.content) &&
+			message.content.some((block) => block.type === "tool_result")
+		) {
+			// Convert each tool_result block to a separate tool message
+			for (const block of message.content) {
+				if (block.type === "tool_result") {
+					openaiMessages.push({
+						role: "tool",
+						content:
+							typeof block.content === "string"
+								? block.content
+								: JSON.stringify(block.content),
+						tool_call_id: block.tool_use_id,
+					});
+				}
+			}
+
+			// Handle any remaining text content as a user message
+			const textContent = message.content
+				.filter((block) => block.type === "text")
+				.map((block) => block.text)
+				.join("");
+
+			if (textContent) {
+				openaiMessages.push({
+					role: "user",
+					content: textContent,
+				});
+			}
+			continue;
+		}
+
+		// Handle regular messages and multi-modal content
+		if (Array.isArray(message.content)) {
 			const content = message.content.map((block) => {
 				if (block.type === "text" && block.text) {
 					return { type: "text", text: block.text };
@@ -213,65 +331,19 @@ anthropic.openapi(messages, async (c) => {
 						},
 					};
 				}
-				if (block.type === "tool_use") {
-					// Convert Anthropic tool_use to OpenAI tool_calls format
-					return {
-						type: "tool_call",
-						id: block.id,
-						function: {
-							name: block.name,
-							arguments: JSON.stringify(block.input),
-						},
-					};
-				}
-				if (block.type === "tool_result") {
-					// Convert tool_result to text content
-					let resultText = "";
-					if (typeof block.content === "string") {
-						resultText = block.content;
-					} else if (Array.isArray(block.content)) {
-						resultText = JSON.stringify(block.content);
-					}
-					return {
-						type: "text",
-						text: `Tool result${block.is_error ? " (error)" : ""}: ${resultText}`,
-					};
-				}
 				return block;
 			});
 
-			// Special handling for assistant messages with tool_use blocks
-			if (
-				message.role === "assistant" &&
-				message.content.some((block) => block.type === "tool_use")
-			) {
-				const toolCalls = message.content
-					.filter((block) => block.type === "tool_use")
-					.map((block) => ({
-						id: block.id,
-						type: "function" as const,
-						function: {
-							name: block.name,
-							arguments: JSON.stringify(block.input),
-						},
-					}));
-
-				const textContent = message.content
-					.filter((block) => block.type === "text")
-					.map((block) => block.text)
-					.join("");
-
-				openaiMessages.push({
-					role: message.role,
-					content: textContent || null,
-					tool_calls: toolCalls,
-				});
-			} else {
-				openaiMessages.push({
-					role: message.role,
-					content,
-				});
-			}
+			openaiMessages.push({
+				role: message.role,
+				content,
+			});
+		} else {
+			// Simple string content
+			openaiMessages.push({
+				role: message.role,
+				content: message.content,
+			});
 		}
 	}
 
@@ -301,7 +373,10 @@ anthropic.openapi(messages, async (c) => {
 		openaiRequest.tools = openaiTools;
 	}
 
-	// console.log("Transformed OpenAI request:", JSON.stringify(openaiRequest, null, 2));
+	// console.log(
+	// 	"Transformed OpenAI request:",
+	// 	JSON.stringify(openaiRequest, null, 2),
+	// );
 
 	// Make request to the existing chat completions endpoint
 	const chatCompletionsUrl = new URL(c.req.url);
