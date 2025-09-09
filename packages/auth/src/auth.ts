@@ -106,6 +106,14 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 	emailVerification: {
 		sendOnSignUp: true,
 		autoSignInAfterVerification: true,
+		afterEmailVerification: async (user: {
+			id: string;
+			email: string;
+			name?: string | null;
+		}) => {
+			// Add verified email to Brevo CRM
+			await createBrevoContact(user.email, user.name || undefined);
+		},
 		sendVerificationEmail: async ({ user, token }) => {
 			const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
 			if (!smtpHost || !smtpUser || !smtpPass) {
@@ -181,19 +189,6 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 						organizationId: organization.id,
 						mode: "hybrid",
 					});
-				}
-			}
-
-			// Check if this is an email verification event
-			if (ctx.path.startsWith("/verify-email")) {
-				const newSession = ctx.context.newSession;
-
-				// If we have a new session with a user, create Brevo contact
-				if (newSession?.user) {
-					await createBrevoContact(
-						newSession.user.email,
-						newSession.user.name || undefined,
-					);
 				}
 			}
 		}),
