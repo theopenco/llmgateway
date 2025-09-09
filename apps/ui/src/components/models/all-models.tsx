@@ -24,10 +24,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 
 import Footer from "@/components/landing/footer";
 import { getProviderIcon } from "@/components/ui/providers-icons";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -86,12 +87,21 @@ type SortDirection = "asc" | "desc";
 export function AllModels({ children }: { children: React.ReactNode }) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const isMobile = useIsMobile();
 
 	const [viewMode, setViewMode] = useState<"table" | "grid">(
 		(searchParams.get("view") as "table" | "grid") === "grid"
 			? "grid"
 			: "table",
 	);
+
+	useEffect(() => {
+		const viewParam = searchParams.get("view");
+		if (!viewParam && isMobile && viewMode !== "grid") {
+			setViewMode("grid");
+		}
+	}, [isMobile, searchParams, viewMode]);
+
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	// Search and filter states
@@ -757,9 +767,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 	const renderTableView = () => (
 		<div className="rounded-md border">
-			<div className="relative w-full">
-				<Table className="relative">
-					<TableHeader className="sticky top-0">
+			<div className="relative w-full overflow-x-auto sm:overflow-x-hidden">
+				<Table className="min-w-[700px] sm:min-w-0">
+					<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
 						<TableRow>
 							<TableHead className="w-[250px] bg-background/95 backdrop-blur-sm border-b">
 								<Button
@@ -1262,7 +1272,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				>
 					<TooltipProvider delayDuration={300} skipDelayDuration={100}>
 						<div className="container mx-auto py-8 space-y-6">
-							<div className="flex items-center justify-between">
+							<div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4">
 								<div>
 									<h1 className="text-3xl font-bold">Models</h1>
 									<p className="text-muted-foreground mt-2">

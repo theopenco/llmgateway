@@ -81,18 +81,18 @@ export default async function ModelPage({ params }: PageProps) {
 	return (
 		<>
 			<Navbar />
-			<div className="min-h-screen bg-background py-32">
+			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
 					<div className="mb-8">
-						<div className="flex items-center gap-3 mb-2">
-							<h1 className="text-4xl font-bold tracking-tight">
+						<div className="flex items-center gap-3 mb-2 flex-wrap">
+							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
 								{modelDef.name}
 							</h1>
 							{shouldShowStabilityWarning(modelDef.stability) && (
-								<AlertTriangle className="h-8 w-8 text-orange-500" />
+								<AlertTriangle className="h-6 w-6 md:h-8 md:w-8 text-orange-500" />
 							)}
 						</div>
-						<div className="flex flex-wrap items-center gap-2 mb-4">
+						<div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
 							<CopyModelName modelName={decodedName} />
 							{(() => {
 								const stabilityProps = getStabilityBadgeProps(
@@ -101,12 +101,15 @@ export default async function ModelPage({ params }: PageProps) {
 								return stabilityProps ? (
 									<Badge
 										variant={stabilityProps.variant}
-										className="text-sm px-3 py-1"
+										className="text-xs md:text-sm px-2 md:px-3 py-1"
 									>
 										{stabilityProps.label}
 									</Badge>
 								) : (
-									<Badge variant="outline" className="text-sm px-3 py-1">
+									<Badge
+										variant="outline"
+										className="text-xs md:text-sm px-2 md:px-3 py-1"
+									>
 										STABLE
 									</Badge>
 								);
@@ -123,14 +126,14 @@ export default async function ModelPage({ params }: PageProps) {
 							</Link>
 						</div>
 
-						<div className="flex flex-wrap gap-4 text-sm text-muted-foreground mb-4">
-							<span>
+						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
+							<div>
 								{Math.max(
 									...modelProviders.map((p) => p.contextSize || 0),
 								).toLocaleString()}{" "}
 								context
-							</span>
-							<span>
+							</div>
+							<div>
 								Starting at $
 								{(() => {
 									const inputPrices = modelProviders
@@ -142,8 +145,8 @@ export default async function ModelPage({ params }: PageProps) {
 										: "N/A";
 								})()}
 								/M input tokens
-							</span>
-							<span>
+							</div>
+							<div>
 								Starting at $
 								{(() => {
 									const outputPrices = modelProviders
@@ -155,9 +158,10 @@ export default async function ModelPage({ params }: PageProps) {
 										: "N/A";
 								})()}
 								/M output tokens
-							</span>
+							</div>
 						</div>
 
+						{/* Capabilities (using same icons as /models) */}
 						<div className="flex flex-wrap items-center gap-4 mb-6">
 							{(() => {
 								const items: Array<{
@@ -229,9 +233,9 @@ export default async function ModelPage({ params }: PageProps) {
 					</div>
 
 					<div className="mb-8">
-						<div className="flex items-center justify-between mb-6">
+						<div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-2">
 							<div>
-								<h2 className="text-2xl font-semibold mb-2">
+								<h2 className="text-xl md:text-2xl font-semibold mb-2">
 									Providers for {modelDef.name}
 								</h2>
 								<p className="text-muted-foreground">
