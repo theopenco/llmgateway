@@ -50,7 +50,7 @@ export ANTHROPIC_MODEL=glm-4.5v # choose your model with tool support
 
 ## 📚 Complete Guide
 
-Read our comprehensive guide: **[Configure Claude Code to Use Any Model via LLMGateway](/blog/configure-claude-code-with-llmgateway)**
+Read our comprehensive guide: **[Configure Claude Code to Use Any Model via LLMGateway](/blog/how-to-configure-claude-code-with-llmgateway)**
 
 The guide covers:
 
