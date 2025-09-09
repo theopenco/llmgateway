@@ -194,7 +194,6 @@ export const routewayModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "routeway",
 				modelName: "nemotron-nano-9b-v2:free",
 				inputPrice: 0.0 / 1e6,
