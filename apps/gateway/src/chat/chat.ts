@@ -2212,7 +2212,12 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if reasoning_effort is specified but model doesn't support reasoning
-	if (reasoning_effort !== undefined) {
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		reasoning_effort !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
 		// Check if any provider for this model supports reasoning
 		const supportsReasoning = modelInfo.providers.some(
 			(provider) => (provider as ProviderModelMapping).reasoning === true,
