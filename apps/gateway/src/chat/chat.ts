@@ -2419,26 +2419,6 @@ chat.openapi(completions, async (c) => {
 		// Only consider hardcoded models for auto selection
 		let allowedAutoModels = ["gpt-5-nano", "gpt-4.1-nano"];
 
-		// If reasoning_effort is specified, expand to include reasoning-capable models
-		if (reasoning_effort !== undefined) {
-			allowedAutoModels = [
-				...allowedAutoModels,
-				"qwen3-30b-a3b-thinking-2507",
-				"qwen3-max",
-				"claude-3-7-sonnet-20250219",
-				"claude-opus-4-1",
-				"o1",
-				"gpt-oss-120b",
-				"gpt-oss-20b",
-				"gpt-5",
-				"gpt-5-mini",
-				"gpt-5-nano",
-				"glm-4.5",
-				"glm-4.5v",
-				"glm-4.5-x",
-			];
-		}
-
 		// If free_models_only is true, expand to include free models
 		if (free_models_only) {
 			allowedAutoModels = [...allowedAutoModels, "kimi-k2-free"];
