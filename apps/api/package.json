@@ -34,6 +34,6 @@
 		"zod-openapi": "^4.2.4"
 	},
 	"devDependencies": {
-		"@types/node": "^24.0.3"
+		"@types/node": "^24.3.1"
 	}
 }
