@@ -6,6 +6,7 @@ import { type ReactNode, useEffect } from "react";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
 import { TopBar } from "@/components/dashboard/top-bar";
+import { EmailVerificationBanner } from "@/components/email-verification-banner";
 import { useDashboardState } from "@/lib/dashboard-state";
 
 interface DashboardLayoutClientProps {
@@ -63,6 +64,7 @@ export function DashboardLayoutClient({
 						selectedOrganization={selectedOrganization}
 						onProjectCreated={handleProjectCreated}
 					/>
+					<EmailVerificationBanner />
 					<main className="bg-background w-full flex-1 overflow-y-auto pt-10 pb-4 px-4 md:p-6 lg:p-8">
 						{children}
 					</main>
