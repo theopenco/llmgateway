@@ -10,10 +10,15 @@
 		"self-host",
 		"---Features---",
 		"features/routing",
+		"features/source",
+		"features/image-generation",
+		"features/vision",
 		"features/custom-providers",
 		"features/metadata",
-		"features/source",
 		"features/...",
+		"---Resources---",
+		"resources/rate-limits",
+		"resources/...",
 		"---References---",
 		"...(api)"
 	]
