@@ -163,3 +163,12 @@ code {
 @utility animate-accordion-up {
 	animation: accordion-up 0.2s ease-out;
 }
+
+@utility scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+@utility scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}

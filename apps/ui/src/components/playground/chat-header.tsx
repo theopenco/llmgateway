@@ -26,29 +26,32 @@ export function ChatHeader({
 	return (
 		<header
 			className={cn(
-				"flex items-center p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
+				"border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60",
 				className,
 			)}
 		>
-			<div className="flex items-center gap-4">
-				<SidebarTrigger />
-				<ModelSelector
-					selectedModel={selectedModel}
-					onModelSelect={handleModelSelect}
-				/>
-				<Button
-					variant="outline"
-					className="flex items-center gap-2"
-					onClick={onManageApiKey}
-				>
-					<Key className="h-4 w-4" />
-					Manage API Key
-				</Button>
-			</div>
-			<div className="flex items-center gap-4 ml-auto">
-				<Link href="/dashboard" prefetch={true}>
-					<span className="text-nowrap">Go to Dashboard</span>
-				</Link>
+			<div className="flex items-center p-4 overflow-x-auto scrollbar-hide">
+				<div className="flex items-center gap-4 min-w-0 flex-shrink-0">
+					<SidebarTrigger />
+					<ModelSelector
+						selectedModel={selectedModel}
+						onModelSelect={handleModelSelect}
+					/>
+					<Button
+						variant="outline"
+						className="flex items-center gap-2 whitespace-nowrap"
+						onClick={onManageApiKey}
+					>
+						<Key className="h-4 w-4" />
+						<span className="hidden sm:inline">Manage API Key</span>
+						<span className="sm:hidden">API Key</span>
+					</Button>
+					<Link href="/dashboard" prefetch={true} className="flex-shrink-0">
+						<span className="text-nowrap text-sm text-muted-foreground hover:text-foreground transition-colors">
+							Go to Dashboard
+						</span>
+					</Link>
+				</div>
 			</div>
 		</header>
 	);
