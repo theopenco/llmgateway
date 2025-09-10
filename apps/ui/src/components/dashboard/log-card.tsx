@@ -85,12 +85,6 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<Package className="h-3.5 w-3.5" />
 							<span>{log.usedModel}</span>
 						</div>
-						{log.usedModelMapping && log.usedModelMapping !== log.usedModel && (
-							<div className="flex items-center gap-1">
-								<Package className="h-3.5 w-3.5" />
-								<span>{log.usedModelMapping}</span>
-							</div>
-						)}
 						<div className="flex items-center gap-1">
 							<Zap className="h-3.5 w-3.5" />
 							<span>{log.cached ? "Cached" : "Not cached"}</span>
@@ -151,15 +145,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>{log.requestedModel}</div>
 								<div className="text-muted-foreground">Used Model</div>
 								<div>{log.usedModel}</div>
-								{log.usedModelMapping &&
-									log.usedModelMapping !== log.usedModel && (
-										<>
-											<div className="text-muted-foreground">
-												Used Model Mapping
-											</div>
-											<div>{log.usedModelMapping}</div>
-										</>
-									)}
+								{log.usedModelMapping && (
+									<>
+										<div className="text-muted-foreground">
+											Used Model Provider Mapping
+										</div>
+										<div>{log.usedModelMapping}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Provider</div>
 								<div>{log.usedProvider}</div>
 							</div>
