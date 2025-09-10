@@ -185,4 +185,27 @@ export const routewayModels = [
 		],
 		jsonOutput: true,
 	},
+	{
+		id: "nemotron-nano-9b-v2",
+		name: "Nemotron Nano 9B V2",
+		family: "nvidia",
+		free: true,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "routeway",
+				modelName: "nemotron-nano-9b-v2:free",
+				inputPrice: 0.0 / 1e6,
+				outputPrice: 0.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 128_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: false,
+			},
+		],
+		jsonOutput: true,
+	},
 ] as const satisfies ModelDefinition[];

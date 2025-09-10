@@ -262,6 +262,7 @@ export const log = pgTable("log", {
 	requestedModel: text().notNull(),
 	requestedProvider: text(),
 	usedModel: text().notNull(),
+	usedModelMapping: text(),
 	usedProvider: text().notNull(),
 	responseSize: integer().notNull(),
 	content: text(),

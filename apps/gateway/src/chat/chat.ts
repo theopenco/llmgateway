@@ -231,6 +231,7 @@ function createLogEntry(
 	apiKey: ApiKey,
 	providerKeyId: string | undefined,
 	usedModel: string,
+	usedModelMapping: string | undefined,
 	usedProvider: string,
 	requestedModel: string,
 	requestedProvider: string | undefined,
@@ -258,6 +259,7 @@ function createLogEntry(
 		apiKeyId: apiKey.id,
 		usedMode: providerKeyId ? "api-keys" : "credits",
 		usedModel,
+		usedModelMapping,
 		usedProvider,
 		requestedModel,
 		requestedProvider,
@@ -362,7 +364,6 @@ function parseProviderResponse(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			// Extract content and reasoning content from Google response parts
 			const parts = json.candidates?.[0]?.content?.parts || [];
@@ -664,7 +665,6 @@ export function estimateTokensFromContent(content: string): number {
  */
 function extractContentFromProvider(data: any, provider: Provider): string {
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const contentParts = parts.filter((part: any) => !part.thought);
@@ -702,7 +702,6 @@ function extractReasoningContentFromProvider(
 			}
 			return "";
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const reasoningParts = parts.filter((part: any) => part.thought);
@@ -725,7 +724,6 @@ function extractImagesFromProvider(
 	provider: Provider,
 ): ImageObject[] {
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
@@ -785,9 +783,8 @@ function extractToolCallsFromProvider(
 				];
 			}
 			return null;
-		case "google-vertex":
 		case "google-ai-studio": {
-			// Google Vertex AI tool calls in streaming
+			// Google AI Studio tool calls in streaming
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			return (
 				parts
@@ -822,7 +819,6 @@ function extractTokenUsage(
 	let cachedTokens = null;
 
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount || null;
@@ -901,7 +897,6 @@ function transformToOpenAIFormat(
 	let transformedResponse = json;
 
 	switch (usedProvider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
@@ -1441,7 +1436,6 @@ function transformStreamingChunkToOpenAIFormat(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const hasText = parts.some((part: any) => part.text);
@@ -2624,6 +2618,10 @@ chat.openapi(completions, async (c) => {
 
 	const baseModelName = finalModelInfo?.id || usedModel;
 
+	// Create the model mapping values according to new schema
+	const usedModelMapping = usedModel; // Store the original provider model name
+	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
+
 	let url: string | undefined;
 
 	// Get the provider key for the selected provider based on project mode
@@ -2916,7 +2914,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3003,7 +3002,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3214,7 +3214,8 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						providerKey?.id,
-						usedModel,
+						usedModelFormatted,
+						usedModelMapping,
 						usedProvider,
 						requestedModel,
 						requestedProvider,
@@ -3336,7 +3337,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3733,10 +3735,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// For Google providers, add usage information when available
-							if (
-								usedProvider === "google-vertex" ||
-								usedProvider === "google-ai-studio"
-							) {
+							if (usedProvider === "google-ai-studio") {
 								const usage = extractTokenUsage(
 									data,
 									usedProvider,
@@ -3859,7 +3858,6 @@ chat.openapi(completions, async (c) => {
 
 							// Handle provider-specific finish reason extraction
 							switch (usedProvider) {
-								case "google-vertex":
 								case "google-ai-studio":
 									if (data.candidates?.[0]?.finishReason) {
 										finishReason = data.candidates[0].finishReason;
@@ -4135,7 +4133,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -4279,7 +4278,8 @@ chat.openapi(completions, async (c) => {
 			project,
 			apiKey,
 			providerKey?.id,
-			usedModel,
+			usedModelFormatted,
+			usedModelMapping,
 			usedProvider,
 			requestedModel,
 			requestedProvider,
@@ -4355,7 +4355,8 @@ chat.openapi(completions, async (c) => {
 			project,
 			apiKey,
 			providerKey?.id,
-			usedModel,
+			usedModelFormatted,
+			usedModelMapping,
 			usedProvider,
 			requestedModel,
 			requestedProvider,
@@ -4528,7 +4529,8 @@ chat.openapi(completions, async (c) => {
 		project,
 		apiKey,
 		providerKey?.id,
-		usedModel,
+		usedModelFormatted,
+		usedModelMapping,
 		usedProvider,
 		requestedModel,
 		requestedProvider,

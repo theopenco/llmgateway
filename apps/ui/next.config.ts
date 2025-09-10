@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
 		return [
 			{
 				source: "/docs",
-				destination: "https://docs.llmgateway.com",
+				destination: "https://docs.llmgateway.io",
 				permanent: true,
 			},
 			{

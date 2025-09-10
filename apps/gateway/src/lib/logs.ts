@@ -44,7 +44,6 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
 			break;
-		case "google-vertex":
 		case "google-ai-studio":
 			if (finishReason === "STOP") {
 				return UnifiedFinishReason.COMPLETED;
