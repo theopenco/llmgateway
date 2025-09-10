@@ -145,6 +145,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>{log.requestedModel}</div>
 								<div className="text-muted-foreground">Used Model</div>
 								<div>{log.usedModel}</div>
+								{log.usedModelMapping && (
+									<>
+										<div className="text-muted-foreground">
+											Used Model Provider Mapping
+										</div>
+										<div>{log.usedModelMapping}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Provider</div>
 								<div>{log.usedProvider}</div>
 							</div>
