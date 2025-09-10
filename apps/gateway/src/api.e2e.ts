@@ -1865,6 +1865,76 @@ describe("e2e", () => {
 		const log = await validateLogs();
 		expect(log.streamed).toBe(false);
 	});
+
+	test("auto model with reasoning_effort returns reasoning_content", async () => {
+		// Set up credits mode which is required for auto model routing
+		await db
+			.update(tables.organization)
+			.set({ credits: "1000" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db
+			.update(tables.project)
+			.set({ mode: "credits" })
+			.where(eq(tables.project.id, "project-id"));
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "auto",
+				messages: [
+					{
+						role: "user",
+						content: "What is 3 + 5? Think step by step.",
+					},
+				],
+				reasoning_effort: "medium",
+			}),
+		});
+
+		const json = await res.json();
+		if (logMode) {
+			console.log("auto reasoning response:", JSON.stringify(json, null, 2));
+		}
+
+		expect(res.status).toBe(200);
+		validateResponse(json);
+
+		const log = await validateLogs();
+		expect(log.streamed).toBe(false);
+
+		// Verify basic response structure
+		expect(json).toHaveProperty("usage");
+		expect(json.usage).toHaveProperty("prompt_tokens");
+		expect(json.usage).toHaveProperty("completion_tokens");
+		expect(json.usage).toHaveProperty("total_tokens");
+		expect(typeof json.usage.prompt_tokens).toBe("number");
+		expect(typeof json.usage.completion_tokens).toBe("number");
+		expect(typeof json.usage.total_tokens).toBe("number");
+		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+		expect(json.usage.completion_tokens).toBeGreaterThan(0);
+		expect(json.usage.total_tokens).toBeGreaterThan(0);
+
+		// Check for reasoning tokens if available
+		if (json.usage.reasoning_tokens !== undefined) {
+			expect(typeof json.usage.reasoning_tokens).toBe("number");
+			expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
+		}
+
+		// Verify that auto model routed to a reasoning-capable model
+		expect(log.requestedModel).toBe("auto");
+		expect(log.usedProvider).toBeTruthy();
+		expect(log.usedModel).toBeTruthy();
+
+		// Most importantly: verify reasoning_content is returned
+		expect(json.choices[0].message).toHaveProperty("reasoning_content");
+		expect(typeof json.choices[0].message.reasoning_content).toBe("string");
+		expect(json.choices[0].message.reasoning_content.length).toBeGreaterThan(0);
+	});
 });
 
 async function readAll(stream: ReadableStream<Uint8Array> | null): Promise<{
