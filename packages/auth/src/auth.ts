@@ -157,18 +157,16 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 		before: createAuthMiddleware(async (ctx) => {
 			// Check rate limit for signup attempts
 			if (ctx.path.startsWith("/sign-up")) {
-				const request = ctx.context.request;
-
 				// Get IP address from various possible headers
-				let ipAddress = request.headers.get("x-forwarded-for");
+				let ipAddress = ctx.headers?.get("x-forwarded-for");
 				if (ipAddress) {
 					// x-forwarded-for can be a comma-separated list, take the first IP
 					ipAddress = ipAddress.split(",")[0]?.trim();
 				} else {
 					ipAddress =
-						request.headers.get("x-real-ip") ||
-						request.headers.get("cf-connecting-ip") ||
-						request.headers.get("x-client-ip") ||
+						ctx.headers?.get("x-real-ip") ||
+						ctx.headers?.get("cf-connecting-ip") ||
+						ctx.headers?.get("x-client-ip") ||
 						"unknown";
 				}
 

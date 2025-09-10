@@ -35,8 +35,8 @@ export async function checkSignupRateLimit(
 ): Promise<RateLimitResult> {
 	const config: RateLimitConfig = {
 		keyPrefix: "signup_rate_limit",
-		windowSizeMs: 5 * 60 * 1000, // 5 minutes
-		maxRequests: 1,
+		windowSizeMs: 10 * 60 * 1000, // 10 minutes
+		maxRequests: 2,
 	};
 
 	return await checkRateLimit(ipAddress, config);
