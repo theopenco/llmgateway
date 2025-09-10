@@ -132,6 +132,8 @@ const anthropicResponseSchema = z.object({
 	}),
 });
 
+type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
+
 const messages = createRoute({
 	operationId: "v1_messages",
 	summary: "Anthropic Messages",
@@ -169,7 +171,7 @@ const messages = createRoute({
 
 anthropic.openapi(messages, async (c) => {
 	// Manual request parsing with better error handling
-	let rawRequest: any;
+	let rawRequest: unknown;
 	try {
 		rawRequest = await c.req.json();
 	} catch (error) {
@@ -193,14 +195,14 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
-	const anthropicRequest = validation.data;
+	const anthropicRequest: AnthropicRequest = validation.data;
 	// console.log(
 	// 	"Validated Anthropic request:",
 	// 	JSON.stringify(anthropicRequest, null, 2),
 	// );
 
 	// Transform Anthropic request to OpenAI format
-	const openaiMessages: any[] = [];
+	const openaiMessages: Array<Record<string, unknown>> = [];
 
 	// Add system message if provided
 	if (anthropicRequest.system) {
@@ -408,7 +410,7 @@ anthropic.openapi(messages, async (c) => {
 	}
 
 	// Build OpenAI request
-	const openaiRequest: any = {
+	const openaiRequest: Record<string, unknown> = {
 		model: anthropicRequest.model,
 		messages: openaiMessages,
 		max_tokens: anthropicRequest.max_tokens,
@@ -456,9 +458,16 @@ anthropic.openapi(messages, async (c) => {
 			let buffer = "";
 			let messageId = "";
 			let model = "";
-			let contentBlocks: any[] = [];
-			let currentToolCall: any = null;
+			let contentBlocks: Array<{
+				type: string;
+				text?: string;
+				id?: string;
+				name?: string;
+				input?: string;
+			}> = [];
 			let usage = { input_tokens: 0, output_tokens: 0 };
+			let currentTextBlockIndex: number | null = null;
+			const toolCallBlockIndex = new Map<number, number>();
 
 			try {
 				while (true) {
@@ -473,7 +482,7 @@ anthropic.openapi(messages, async (c) => {
 
 					for (const line of lines) {
 						if (line.startsWith("data: ")) {
-							const data = line.slice(6);
+							const data = line.slice(6).trim();
 							if (data === "[DONE]") {
 								// Send final Anthropic streaming event
 								await stream.writeSSE({
@@ -483,6 +492,11 @@ anthropic.openapi(messages, async (c) => {
 									event: "message_stop",
 								});
 								return;
+							}
+
+							// Skip empty data lines
+							if (!data) {
+								continue;
 							}
 
 							try {
@@ -523,26 +537,45 @@ anthropic.openapi(messages, async (c) => {
 
 								// Handle content delta
 								if (delta.content) {
-									if (contentBlocks.length === 0) {
-										contentBlocks.push({ type: "text", text: "" });
-										// Send content_block_start event
-										await stream.writeSSE({
-											data: JSON.stringify({
-												type: "content_block_start",
-												index: 0,
-												content_block: { type: "text", text: "" },
-											}),
-											event: "content_block_start",
-										});
+									// Find or create a text block
+									if (currentTextBlockIndex === null) {
+										// Look for existing text block (search from end)
+										let lastTextBlockIndex = -1;
+										for (let i = contentBlocks.length - 1; i >= 0; i--) {
+											if (contentBlocks[i].type === "text") {
+												lastTextBlockIndex = i;
+												break;
+											}
+										}
+
+										if (lastTextBlockIndex !== -1) {
+											currentTextBlockIndex = lastTextBlockIndex;
+										} else {
+											// Create new text block
+											currentTextBlockIndex = contentBlocks.length;
+											contentBlocks.push({ type: "text", text: "" });
+											// Send content_block_start event
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_start",
+													index: currentTextBlockIndex,
+													content_block: { type: "text", text: "" },
+												}),
+												event: "content_block_start",
+											});
+										}
 									}
 
-									contentBlocks[0].text += delta.content;
+									const textBlock = contentBlocks[currentTextBlockIndex];
+									if (textBlock && textBlock.text !== undefined) {
+										textBlock.text += delta.content;
+									}
 
 									// Send content_block_delta event
 									await stream.writeSSE({
 										data: JSON.stringify({
 											type: "content_block_delta",
-											index: 0,
+											index: currentTextBlockIndex,
 											delta: { type: "text_delta", text: delta.content },
 										}),
 										event: "content_block_delta",
@@ -552,54 +585,58 @@ anthropic.openapi(messages, async (c) => {
 								// Handle tool calls
 								if (delta.tool_calls) {
 									for (const toolCall of delta.tool_calls) {
-										if (toolCall.index !== undefined) {
-											const index = contentBlocks.length;
+										if (toolCall.index === undefined) {
+											continue;
+										}
 
-											if (
-												!currentToolCall ||
-												currentToolCall.index !== toolCall.index
-											) {
-												currentToolCall = {
-													type: "tool_use",
-													id: toolCall.id || `tool_${toolCall.index}`,
-													name: toolCall.function?.name || "",
-													input: "",
-													index: toolCall.index,
-												};
-												contentBlocks.push(currentToolCall);
+										let blockIndex = toolCallBlockIndex.get(toolCall.index);
+										if (blockIndex === undefined) {
+											blockIndex = contentBlocks.length;
+											toolCallBlockIndex.set(toolCall.index, blockIndex);
+											const id = toolCall.id || `tool_${toolCall.index}`;
+											const name = toolCall.function?.name || "";
+											contentBlocks.push({
+												type: "tool_use",
+												id,
+												name,
+												input: "",
+											});
 
-												// Send content_block_start for tool use
-												await stream.writeSSE({
-													data: JSON.stringify({
-														type: "content_block_start",
-														index: index,
-														content_block: {
-															type: "tool_use",
-															id: currentToolCall.id,
-															name: currentToolCall.name,
-															input: {},
-														},
-													}),
-													event: "content_block_start",
-												});
-											}
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_start",
+													index: blockIndex,
+													content_block: {
+														type: "tool_use",
+														id,
+														name,
+														input: {},
+													},
+												}),
+												event: "content_block_start",
+											});
+										}
 
-											if (toolCall.function?.arguments) {
-												currentToolCall.input += toolCall.function.arguments;
+										if (toolCall.function?.arguments) {
+											const toolBlock = contentBlocks[blockIndex] as {
+												type: "tool_use";
+												id: string;
+												name: string;
+												input: string;
+											};
+											toolBlock.input += toolCall.function.arguments;
 
-												// Send content_block_delta for tool use
-												await stream.writeSSE({
-													data: JSON.stringify({
-														type: "content_block_delta",
-														index: index,
-														delta: {
-															type: "input_json_delta",
-															partial_json: toolCall.function.arguments,
-														},
-													}),
-													event: "content_block_delta",
-												});
-											}
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_delta",
+													index: blockIndex,
+													delta: {
+														type: "input_json_delta",
+														partial_json: toolCall.function.arguments,
+													},
+												}),
+												event: "content_block_delta",
+											});
 										}
 									}
 								}
