@@ -35,6 +35,10 @@ export interface paths {
                                     connected: boolean;
                                     error?: string;
                                 };
+                                redis: {
+                                    connected: boolean;
+                                    error?: string;
+                                };
                             };
                         };
                     };
