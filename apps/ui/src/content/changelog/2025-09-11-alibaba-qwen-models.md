@@ -2,8 +2,8 @@
 id: "19"
 slug: "alibaba-qwen-models-support"
 date: "2025-09-11"
-title: "New Alibaba Qwen Models: Max, Plus, Flash and Vision"
-summary: "Added support for qwen-max, qwen-max-latest, qwen-plus-latest, qwen-flash, qwen-vl-max, and qwen-vl-plus via Alibaba provider."
+title: "New Alibaba Qwen Models: Qwen3 Next, Max, Plus, Flash, Vision"
+summary: "Added support for qwen-max, qwen-max-latest, qwen-plus-latest, qwen-flash, qwen-vl-max, qwen-vl-plus and the new Qwen3 Next 80B A3B Instruct and Thinking models."
 image:
   src: "/changelog/alibaba-qwen-models-support-09-11.png"
   alt: "Alibaba Qwen models now available on LLM Gateway"
@@ -12,6 +12,22 @@ image:
 ---
 
 We’ve added support for the latest Alibaba Qwen models through our unified API. These models bring strong reasoning, speed-focused variants, and multimodal (vision) capabilities.
+
+## 🧠 New Qwen3 Next Generation Models
+
+**qwen3-next-80b-a3b-instruct** — next-gen 80B instruct model
+
+- Pricing: Input $0.50 / 1M tokens, Output $2.00 / 1M tokens
+- Context: 129,024 tokens, Max output: 32,768 tokens
+- Capabilities: Streaming, Tools, JSON output
+  [Try in Playground](/playground?model=qwen3-next-80b-a3b-instruct)
+
+**qwen3-next-80b-a3b-thinking** — next-gen reasoning model
+
+- Pricing: Input $0.50 / 1M tokens, Output $6.00 / 1M tokens
+- Context: 131,072 tokens, Max output: 32,768 tokens
+- Capabilities: Streaming, Reasoning, Tools, JSON output
+  [Try in Playground](/playground?model=qwen3-next-80b-a3b-thinking)
 
 ## 🚀 New Text Models
 
