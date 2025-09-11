@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { redisClient } from "./auth/config";
 import { authHandler } from "./auth/handler";
 import { routes } from "./routes";
 import { beacon } from "./routes/beacon";
@@ -93,6 +94,10 @@ const root = createRoute({
 									connected: z.boolean(),
 									error: z.string().optional(),
 								}),
+								redis: z.object({
+									connected: z.boolean(),
+									error: z.string().optional(),
+								}),
 							}),
 						})
 						.openapi({}),
@@ -118,6 +123,18 @@ app.openapi(root, async (c) => {
 		health.database.error = "Database connection failed";
 		logger.error(
 			"Database healthcheck failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+
+	try {
+		await redisClient.ping();
+		health.redis.connected = true;
+	} catch (error) {
+		health.status = "error";
+		health.redis.error = "Redis connection failed";
+		logger.error(
+			"Redis healthcheck failed",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}
