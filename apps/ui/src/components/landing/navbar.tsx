@@ -18,6 +18,51 @@ import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
+import type { ReactNode } from "react";
+
+function ListItem({
+	title,
+	href,
+	children,
+	external,
+}: {
+	title: string;
+	href: string;
+	children: ReactNode;
+	external?: boolean;
+}) {
+	return (
+		<li>
+			<NavigationMenuLink asChild>
+				{external ? (
+					<a
+						href={href}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+					>
+						<div className="text-sm font-medium leading-none">{title}</div>
+						<p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+							{children}
+						</p>
+					</a>
+				) : (
+					<Link
+						href={href}
+						prefetch={true}
+						className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+					>
+						<div className="text-sm font-medium leading-none">{title}</div>
+						<p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+							{children}
+						</p>
+					</Link>
+				)}
+			</NavigationMenuLink>
+		</li>
+	);
+}
+
 export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 	const config = useAppConfig();
 
@@ -32,8 +77,50 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 		{ name: "Models", href: "/models" },
 		{ name: "Playground", href: "/playground" },
 		{ name: "Providers", href: "/providers" },
+		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
 	];
+
+	const resourcesLinks: Array<{
+		title: string;
+		href: string;
+		description: string;
+		external?: boolean;
+	}> = [
+		{
+			title: "Blog",
+			href: "/blog",
+			description: "Product updates, tutorials, benchmarks, and announcements.",
+		},
+		{
+			title: "Playground",
+			href: "/playground",
+			description: "Try models in your browser with streaming and tools.",
+		},
+		{
+			title: "Docs",
+			href: config.docsUrl ?? "#",
+			description:
+				"Guides, API reference, and examples to get you shipping fast.",
+			external: true,
+		},
+		{
+			title: "Models",
+			href: "/models",
+			description: "Explore all supported models, pricing, and capabilities.",
+		},
+		{
+			title: "Changelog",
+			href: "/changelog",
+			description: "What’s new in LLM Gateway across releases.",
+		},
+		{
+			title: "Providers",
+			href: "/providers",
+			description: "Connect and manage your provider API keys.",
+		},
+	];
+
 	const [menuState, setMenuState] = useState(false);
 	const [isScrolled, setIsScrolled] = useState(false);
 
@@ -118,21 +205,42 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 											Resources
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
-											<ul className="grid w-[200px] gap-2 p-4">
-												{resourcesItems.map((item, index) => (
-													<li key={index}>
-														<NavigationMenuLink asChild>
-															<Link
-																href={item.href}
-																className="block select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-																prefetch={true}
-															>
-																<div className="text-sm font-medium leading-none">
-																	{item.name}
-																</div>
-															</Link>
-														</NavigationMenuLink>
-													</li>
+											<ul className="grid gap-3 p-6 md:w-[480px] lg:w-[640px] lg:grid-cols-[.8fr_1fr]">
+												<li className="row-span-3">
+													<NavigationMenuLink asChild>
+														<a
+															className="flex h-full w-full select-none flex-col justify-end rounded-md bg-gradient-to-b from-muted/50 to-muted p-6 no-underline outline-none focus:shadow-md"
+															href={
+																config.docsUrl
+																	? `${config.docsUrl}/quick-start`
+																	: "#"
+															}
+															target={config.docsUrl ? "_blank" : undefined}
+															rel={
+																config.docsUrl
+																	? "noopener noreferrer"
+																	: undefined
+															}
+														>
+															<div className="mb-2 mt-4 text-lg font-medium">
+																Quick Start
+															</div>
+															<p className="text-sm leading-tight text-muted-foreground">
+																Get started in minutes. Install, configure
+																providers, and call the API.
+															</p>
+														</a>
+													</NavigationMenuLink>
+												</li>
+												{resourcesLinks.map((link) => (
+													<ListItem
+														key={link.title}
+														title={link.title}
+														href={link.href}
+														external={link.external}
+													>
+														{link.description}
+													</ListItem>
 												))}
 											</ul>
 										</NavigationMenuContent>

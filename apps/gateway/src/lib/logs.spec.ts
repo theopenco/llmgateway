@@ -28,14 +28,14 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
-	it("maps Google Vertex finish reasons correctly", () => {
-		expect(getUnifiedFinishReason("STOP", "google-vertex")).toBe(
+	it("maps Google AI Studio finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("STOP", "google-ai-studio")).toBe(
 			UnifiedFinishReason.COMPLETED,
 		);
-		expect(getUnifiedFinishReason("MAX_TOKENS", "google-vertex")).toBe(
+		expect(getUnifiedFinishReason("MAX_TOKENS", "google-ai-studio")).toBe(
 			UnifiedFinishReason.LENGTH_LIMIT,
 		);
-		expect(getUnifiedFinishReason("SAFETY", "google-vertex")).toBe(
+		expect(getUnifiedFinishReason("SAFETY", "google-ai-studio")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
 	});

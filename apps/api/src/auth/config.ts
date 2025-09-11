@@ -217,6 +217,15 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 	emailVerification: {
 		sendOnSignUp: true,
 		autoSignInAfterVerification: true,
+		// TODO this should be afterEmailVerification in better-auth v1.3
+		onEmailVerification: async (user: {
+			id: string;
+			email: string;
+			name?: string | null;
+		}) => {
+			// Add verified email to Brevo CRM
+			await createBrevoContact(user.email, user.name || undefined);
+		},
 		sendVerificationEmail: async ({ user, token }) => {
 			const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
 			if (!smtpHost || !smtpUser || !smtpPass) {

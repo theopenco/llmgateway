@@ -108,6 +108,12 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+<Callout type="success">
+	Adding even a small amount of credits to your account (e.g., $5) will
+	immediately upgrade your free model rate limits from 5 requests per 10 minutes
+	to 20 requests per minute.
+</Callout>
+
 <Callout type="info">
 	The `free_models_only` parameter only works with auto routing (`"model":
 	"auto"`). If no free models are available that meet your request requirements,

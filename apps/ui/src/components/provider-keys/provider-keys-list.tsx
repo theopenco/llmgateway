@@ -150,131 +150,129 @@ export function ProviderKeysList({
 	return (
 		<div className="space-y-6">
 			<div className="space-y-2">
-				{availableProviders
-					.filter((provider) => provider.id !== "google-vertex")
-					.map((provider) => {
-						const LogoComponent =
-							ProviderIcons[provider.id as keyof typeof ProviderIcons];
-						const existingKey = existingKeysMap.get(provider.id);
-						const hasKey = !!existingKey;
+				{availableProviders.map((provider) => {
+					const LogoComponent =
+						ProviderIcons[provider.id as keyof typeof ProviderIcons];
+					const existingKey = existingKeysMap.get(provider.id);
+					const hasKey = !!existingKey;
 
-						return (
-							<div
-								key={provider.id}
-								className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
-							>
-								<div className="flex items-center gap-3">
-									<div className="flex items-center justify-center w-10 h-10 rounded-lg bg-background border">
-										{LogoComponent ? (
-											<LogoComponent className="h-6 w-6" />
-										) : (
-											<div className="w-6 h-6 bg-muted rounded" />
-										)}
-									</div>
-									<div className="flex flex-col">
-										<div className="flex items-center gap-2">
-											<span className="font-medium">{provider.name}</span>
-											{hasKey && existingKey.name && (
-												<Badge variant="outline" className="text-xs">
-													{existingKey.name}
-												</Badge>
-											)}
-											{hasKey && existingKey.baseUrl && (
-												<Badge variant="outline" className="text-xs">
-													{existingKey.baseUrl}
-												</Badge>
-											)}
-										</div>
-										{hasKey && (
-											<div className="flex items-center gap-2 mt-1">
-												<Badge
-													variant={
-														existingKey.status === "active"
-															? "default"
-															: "secondary"
-													}
-													className="text-xs"
-												>
-													{existingKey.status}
-												</Badge>
-												<span className="text-xs text-muted-foreground font-mono block max-w-[200px] truncate">
-													{existingKey.maskedToken}
-												</span>
-											</div>
-										)}
-									</div>
-								</div>
-
-								<div className="flex items-center gap-2">
-									{hasKey ? (
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<Button variant="ghost" size="sm">
-													<MoreHorizontal className="h-4 w-4" />
-													<span className="sr-only">Open menu</span>
-												</Button>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent align="end">
-												<DropdownMenuLabel>Actions</DropdownMenuLabel>
-												<DropdownMenuItem
-													onClick={() =>
-														toggleStatus(existingKey.id, existingKey.status)
-													}
-												>
-													{existingKey.status === "active"
-														? "Deactivate"
-														: "Activate"}
-												</DropdownMenuItem>
-												<DropdownMenuSeparator />
-												<AlertDialog>
-													<AlertDialogTrigger asChild>
-														<DropdownMenuItem
-															onSelect={(e) => e.preventDefault()}
-															className="text-destructive focus:text-destructive"
-														>
-															Delete
-														</DropdownMenuItem>
-													</AlertDialogTrigger>
-													<AlertDialogContent>
-														<AlertDialogHeader>
-															<AlertDialogTitle>
-																Are you absolutely sure?
-															</AlertDialogTitle>
-															<AlertDialogDescription>
-																This action cannot be undone. This will
-																permanently delete the provider key and any
-																applications using it will no longer be able to
-																access the API.
-															</AlertDialogDescription>
-														</AlertDialogHeader>
-														<AlertDialogFooter>
-															<AlertDialogCancel>Cancel</AlertDialogCancel>
-															<AlertDialogAction
-																onClick={() => deleteKey(existingKey.id)}
-																className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-															>
-																Delete
-															</AlertDialogAction>
-														</AlertDialogFooter>
-													</AlertDialogContent>
-												</AlertDialog>
-											</DropdownMenuContent>
-										</DropdownMenu>
+					return (
+						<div
+							key={provider.id}
+							className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+						>
+							<div className="flex items-center gap-3">
+								<div className="flex items-center justify-center w-10 h-10 rounded-lg bg-background border">
+									{LogoComponent ? (
+										<LogoComponent className="h-6 w-6" />
 									) : (
-										<CreateProviderKeyDialog
-											selectedOrganization={selectedOrganization}
-											preselectedProvider={provider.id}
-											existingProviderKeys={data?.providerKeys || []}
-										>
-											<Button variant="outline" size="sm">
-												Add
-											</Button>
-										</CreateProviderKeyDialog>
+										<div className="w-6 h-6 bg-muted rounded" />
+									)}
+								</div>
+								<div className="flex flex-col">
+									<div className="flex items-center gap-2">
+										<span className="font-medium">{provider.name}</span>
+										{hasKey && existingKey.name && (
+											<Badge variant="outline" className="text-xs">
+												{existingKey.name}
+											</Badge>
+										)}
+										{hasKey && existingKey.baseUrl && (
+											<Badge variant="outline" className="text-xs">
+												{existingKey.baseUrl}
+											</Badge>
+										)}
+									</div>
+									{hasKey && (
+										<div className="flex items-center gap-2 mt-1">
+											<Badge
+												variant={
+													existingKey.status === "active"
+														? "default"
+														: "secondary"
+												}
+												className="text-xs"
+											>
+												{existingKey.status}
+											</Badge>
+											<span className="text-xs text-muted-foreground font-mono block max-w-[200px] truncate">
+												{existingKey.maskedToken}
+											</span>
+										</div>
 									)}
 								</div>
 							</div>
-						);
-					})}
+
+							<div className="flex items-center gap-2">
+								{hasKey ? (
+									<DropdownMenu>
+										<DropdownMenuTrigger asChild>
+											<Button variant="ghost" size="sm">
+												<MoreHorizontal className="h-4 w-4" />
+												<span className="sr-only">Open menu</span>
+											</Button>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent align="end">
+											<DropdownMenuLabel>Actions</DropdownMenuLabel>
+											<DropdownMenuItem
+												onClick={() =>
+													toggleStatus(existingKey.id, existingKey.status)
+												}
+											>
+												{existingKey.status === "active"
+													? "Deactivate"
+													: "Activate"}
+											</DropdownMenuItem>
+											<DropdownMenuSeparator />
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<DropdownMenuItem
+														onSelect={(e) => e.preventDefault()}
+														className="text-destructive focus:text-destructive"
+													>
+														Delete
+													</DropdownMenuItem>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>
+															Are you absolutely sure?
+														</AlertDialogTitle>
+														<AlertDialogDescription>
+															This action cannot be undone. This will
+															permanently delete the provider key and any
+															applications using it will no longer be able to
+															access the API.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<AlertDialogAction
+															onClick={() => deleteKey(existingKey.id)}
+															className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+														>
+															Delete
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								) : (
+									<CreateProviderKeyDialog
+										selectedOrganization={selectedOrganization}
+										preselectedProvider={provider.id}
+										existingProviderKeys={data?.providerKeys || []}
+									>
+										<Button variant="outline" size="sm">
+											Add
+										</Button>
+									</CreateProviderKeyDialog>
+								)}
+							</div>
+						</div>
+					);
+				})}
 			</div>
 		</div>
 	);

@@ -363,9 +363,9 @@ export const logs: Log[] = [
 		apiKeyId: "test-api-key-id",
 		duration: 2134,
 		requestedModel: "gemini-2.0-flash",
-		requestedProvider: "google-vertex",
+		requestedProvider: "google-ai-studio",
 		usedModel: "gemini-2.0-flash",
-		usedProvider: "google-vertex",
+		usedProvider: "google-ai-studio",
 		responseSize: 4321,
 		content:
 			"Your Kubernetes deployment is experiencing issues due to resource constraints. The pods are being terminated because they're exceeding their memory limits. I recommend increasing the memory request and limit in your deployment YAML. Additionally, you should implement horizontal pod autoscaling based on memory utilization to handle varying loads. Finally, consider implementing a liveness probe with appropriate parameters to prevent Kubernetes from killing pods during temporary spikes.",
