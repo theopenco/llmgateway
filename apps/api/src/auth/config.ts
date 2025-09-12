@@ -299,19 +299,6 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 					});
 				}
 			}
-
-			// Check if this is an email verification event
-			if (ctx.path.startsWith("/verify-email")) {
-				const newSession = ctx.context.newSession;
-
-				// If we have a new session with a user, create Brevo contact
-				if (newSession?.user) {
-					await createBrevoContact(
-						newSession.user.email,
-						newSession.user.name || undefined,
-					);
-				}
-			}
 		}),
 	},
 });
