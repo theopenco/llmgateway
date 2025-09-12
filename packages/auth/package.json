@@ -18,6 +18,7 @@
 		"build": "tsc && tsup"
 	},
 	"dependencies": {
+		"@llmgateway/db": "workspace:*",
 		"better-auth": "1.2.7"
 	}
 }
