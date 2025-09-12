@@ -190,7 +190,18 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 		sendVerificationEmail: async ({ user, token }) => {
 			const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
 			if (!smtpHost || !smtpUser || !smtpPass) {
-				logger.info("Email verification link generated", { url });
+				const isDev = process.env.NODE_ENV === "development";
+				const maskedUrl = isDev
+					? url
+					: url.replace(
+							/token=[^&]+/,
+							`token=${token.slice(0, 4)}...${token.slice(-4)}`,
+						);
+
+				logger.info("Email verification link generated", {
+					...(isDev ? { url } : { maskedUrl }),
+					userId: user.id,
+				});
 				logger.error(
 					"SMTP configuration is not set. Email verification will not work.",
 				);
@@ -256,8 +267,23 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 							resetTime: new Date(rateLimitResult.resetTime),
 						});
 
-						throw new Error(
-							"Too many signup attempts. Please try again in 5 minutes.",
+						const retryAfterSeconds = Math.ceil(
+							(rateLimitResult.resetTime - Date.now()) / 1000,
+						);
+
+						return new Response(
+							JSON.stringify({
+								error: "too_many_requests",
+								message: "Too many signup attempts. Please try again later.",
+								retryAfter: retryAfterSeconds,
+							}),
+							{
+								status: 429,
+								headers: {
+									"Content-Type": "application/json",
+									"Retry-After": retryAfterSeconds.toString(),
+								},
+							},
 						);
 					}
 
@@ -267,6 +293,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 					});
 				}
 			}
+			return;
 		}),
 		after: createAuthMiddleware(async (ctx) => {
 			// Check if this is a signup event
@@ -277,25 +304,28 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 				if (newSession?.user) {
 					const userId = newSession.user.id;
 
-					// Create a default organization
-					const [organization] = await db
-						.insert(tables.organization)
-						.values({
-							name: "Default Organization",
-						})
-						.returning();
+					// Perform all DB operations in a single transaction for atomicity
+					await db.transaction(async (tx) => {
+						// Create a default organization
+						const [organization] = await tx
+							.insert(tables.organization)
+							.values({
+								name: "Default Organization",
+							})
+							.returning();
 
-					// Link user to organization
-					await db.insert(tables.userOrganization).values({
-						userId,
-						organizationId: organization.id,
-					});
+						// Link user to organization
+						await tx.insert(tables.userOrganization).values({
+							userId,
+							organizationId: organization.id,
+						});
 
-					// Create a default project
-					await db.insert(tables.project).values({
-						name: "Default Project",
-						organizationId: organization.id,
-						mode: "hybrid",
+						// Create a default project
+						await tx.insert(tables.project).values({
+							name: "Default Project",
+							organizationId: organization.id,
+							mode: "hybrid",
+						});
 					});
 				}
 			}
