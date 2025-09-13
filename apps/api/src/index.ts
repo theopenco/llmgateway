@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { redisClient } from "./auth/config";
 import { authHandler } from "./auth/handler";
+import { tracingMiddleware } from "./middleware/tracing";
 import { routes } from "./routes";
 import { beacon } from "./routes/beacon";
 import { stripeRoutes } from "./stripe";
@@ -29,6 +30,9 @@ export const config = {
 };
 
 export const app = new OpenAPIHono<ServerTypes>();
+
+// Add tracing middleware first
+app.use("*", tracingMiddleware);
 
 app.use(
 	"*",

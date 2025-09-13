@@ -1,5 +1,5 @@
 {
-	"name": "@llmgateway/logger",
+	"name": "@llmgateway/instrumentation",
 	"version": "1.0.0",
 	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
@@ -18,9 +18,16 @@
 		"build": "tsc && tsup"
 	},
 	"dependencies": {
+		"@google-cloud/opentelemetry-cloud-trace-exporter": "3.0.0",
+		"@google-cloud/opentelemetry-cloud-trace-propagator": "0.21.0",
+		"@llmgateway/logger": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
-		"pino": "^9.4.0",
-		"pino-pretty": "^13.1.1"
+		"@opentelemetry/auto-instrumentations-node": "0.64.1",
+		"@opentelemetry/core": "2.1.0",
+		"@opentelemetry/resources": "2.1.0",
+		"@opentelemetry/sdk-node": "0.205.0",
+		"@opentelemetry/sdk-trace-base": "2.1.0",
+		"hono": "^4.6.15"
 	},
 	"devDependencies": {}
 }

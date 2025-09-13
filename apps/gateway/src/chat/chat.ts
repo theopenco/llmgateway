@@ -63,6 +63,7 @@ async function validateFreeModelUsage(
 ) {
 	const user = await getUserFromOrganization(organizationId);
 	if (!user) {
+		logger.error("User not found", { organizationId });
 		throw new HTTPException(500, {
 			message: "User not found",
 		});

@@ -3,6 +3,7 @@ import { withContentCollections } from "@content-collections/next";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+	productionBrowserSourceMaps: true,
 	eslint: {
 		ignoreDuringBuilds: true,
 	},
@@ -12,6 +13,12 @@ const nextConfig: NextConfig = {
 	// 	devtoolSegmentExplorer: true,
 	// 	globalNotFound: true,
 	// },
+	webpack: (config, { isServer }) => {
+		if (isServer) {
+			config.devtool = "source-map";
+		}
+		return config;
+	},
 	async redirects() {
 		return [
 			{

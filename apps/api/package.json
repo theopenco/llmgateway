@@ -11,7 +11,7 @@
 		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup && pnpm run generate",
 		"dev": "nodemon -e ts,json --exec 'tsx src/serve.ts'",
 		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
-		"start": "node dist/serve.js"
+		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",
@@ -20,7 +20,10 @@
 		"@hono/zod-validator": "^0.7.0",
 		"@llmgateway/auth": "workspace:*",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
+		"@opentelemetry/api": "1.9.0",
+		"@opentelemetry/sdk-node": "0.205.0",
 		"bcrypt-ts": "7.0.0",
 		"better-auth": "1.2.7",
 		"drizzle-zod": "0.7.1",
@@ -35,8 +38,5 @@
 		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
 	},
-	"devDependencies": {
-		"@types/node": "^24.3.1",
-		"@types/nodemailer": "^6.4.17"
-	}
+	"devDependencies": {}
 }

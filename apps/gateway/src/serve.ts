@@ -1,25 +1,47 @@
 import { serve } from "@hono/node-server";
 import { closeDatabase } from "@llmgateway/db";
+import {
+	initializeInstrumentation,
+	shutdownInstrumentation,
+} from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
 import redisClient from "./lib/redis";
 import { startWorker, stopWorker } from "./worker";
 
+import type { ServerType } from "@hono/node-server";
+import type { NodeSDK } from "@opentelemetry/sdk-node";
+
 const port = Number(process.env.PORT) || 4001;
 
-logger.info("Server starting", { port });
+let sdk: NodeSDK | null = null;
 
-void startWorker();
+async function startServer() {
+	// Initialize tracing for gateway service
+	try {
+		sdk = await initializeInstrumentation({
+			serviceName: process.env.OTEL_SERVICE_NAME || "llmgateway-gateway",
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+		});
+	} catch (error) {
+		logger.error("Failed to initialize instrumentation", error as Error);
+		// Continue without tracing
+	}
 
-const server = serve({
-	port,
-	fetch: app.fetch,
-});
+	logger.info("Server starting", { port });
+
+	void startWorker();
+
+	return serve({
+		port,
+		fetch: app.fetch,
+	});
+}
 
 let isShuttingDown = false;
 
-const closeServer = (): Promise<void> => {
+const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
 		server.close((error) => {
 			if (error) {
@@ -31,7 +53,7 @@ const closeServer = (): Promise<void> => {
 	});
 };
 
-const gracefulShutdown = async (signal: string) => {
+const gracefulShutdown = async (signal: string, server: ServerType) => {
 	if (isShuttingDown) {
 		logger.warn("Shutdown already in progress, ignoring signal", { signal });
 		return;
@@ -48,7 +70,7 @@ const gracefulShutdown = async (signal: string) => {
 		logger.info("Worker stopped successfully");
 
 		logger.info("Closing HTTP server");
-		await closeServer();
+		await closeServer(server);
 		logger.info("HTTP server closed");
 
 		logger.info("Closing Redis connection");
@@ -58,6 +80,11 @@ const gracefulShutdown = async (signal: string) => {
 		logger.info("Closing database connection");
 		await closeDatabase();
 		logger.info("Database connection closed");
+
+		// Shutdown instrumentation last to ensure all spans are flushed
+		if (sdk) {
+			await shutdownInstrumentation(sdk);
+		}
 
 		logger.info("Graceful shutdown completed");
 		process.exit(0);
@@ -70,15 +97,26 @@ const gracefulShutdown = async (signal: string) => {
 	}
 };
 
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+// Start the server
+startServer()
+	.then((server) => {
+		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
+		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
-process.on("uncaughtException", (error) => {
-	logger.fatal("Uncaught exception", error);
-	process.exit(1);
-});
+		process.on("uncaughtException", (error) => {
+			logger.fatal("Uncaught exception", error);
+			process.exit(1);
+		});
 
-process.on("unhandledRejection", (reason, promise) => {
-	logger.fatal("Unhandled rejection", { promise, reason });
-	process.exit(1);
-});
+		process.on("unhandledRejection", (reason, promise) => {
+			logger.fatal("Unhandled rejection", { promise, reason });
+			process.exit(1);
+		});
+	})
+	.catch((error) => {
+		logger.error(
+			"Failed to start server",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		process.exit(1);
+	});

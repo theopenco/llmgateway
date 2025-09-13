@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { chat } from "./chat/chat";
 import redisClient from "./lib/redis";
+import { tracingMiddleware } from "./middleware/tracing";
 import { models } from "./models";
 
 import type { ServerTypes } from "./vars";
@@ -42,6 +43,9 @@ export const config = {
 };
 
 export const app = new OpenAPIHono<ServerTypes>();
+
+// Add tracing middleware first
+app.use("*", tracingMiddleware);
 
 // Middleware to check for application/json content type on POST requests
 app.use("*", async (c, next) => {
