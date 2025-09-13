@@ -8,21 +8,36 @@ on:
       - main
       - hotfix
   pull_request:
-    paths:
-      - "**/package.json"
-      - "**/tsconfig.json"
-      - "**/tsup.ts"
-      - "pnpm-lock.yaml"
-      - "infra/**.dockerfile"
-      - ".github/workflows/images.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      images-changed: ${{ steps.changes.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check for relevant file changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            images:
+              - '**/package.json'
+              - '**/tsconfig.json'
+              - '**/tsup.ts'
+              - 'pnpm-lock.yaml'
+              - 'infra/**.dockerfile'
+              - '.github/workflows/images.yml'
+
   setup:
     runs-on: ubuntu-latest
+    needs: check-changes
     if: github.event_name != 'pull_request'
     outputs:
       image_tag: ${{ steps.set-tag.outputs.IMAGE_TAG }}
@@ -278,7 +293,8 @@ jobs:
 
   # PR-specific jobs that only build without pushing
   test-build-split:
-    if: github.event_name == 'pull_request'
+    needs: check-changes
+    if: github.event_name == 'pull_request' && needs.check-changes.outputs.images-changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -307,7 +323,8 @@ jobs:
             APP_VERSION=pr-test
 
   test-build-unified:
-    if: github.event_name == 'pull_request'
+    needs: check-changes
+    if: github.event_name == 'pull_request' && needs.check-changes.outputs.images-changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -329,3 +346,23 @@ jobs:
           cache-to: type=gha,mode=max,scope=unified-linux-amd64
           build-args: |
             APP_VERSION=pr-test
+
+  # Skip jobs for PR when files haven't changed - ensures jobs show as skipped
+  test-build-split-skip:
+    needs: check-changes
+    if: github.event_name == 'pull_request' && needs.check-changes.outputs.images-changed != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [api, gateway, ui, docs]
+    steps:
+      - name: Skip - no relevant file changes
+        run: echo "Skipping test-build-split for ${{ matrix.app }} - no relevant file changes detected"
+
+  test-build-unified-skip:
+    needs: check-changes
+    if: github.event_name == 'pull_request' && needs.check-changes.outputs.images-changed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip - no relevant file changes
+        run: echo "Skipping test-build-unified - no relevant file changes detected"
