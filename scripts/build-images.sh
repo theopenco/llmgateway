@@ -42,7 +42,7 @@ Build and push Docker images for LLMGateway
 OPTIONS:
     --push              Push images to registry (default: false)
     --registry REGISTRY Registry to push to (default: ghcr.io)
-    --repo REPO         Repository base name (default: steebchen/llmgateway/llmgateway)
+    --repo REPO         Repository base name (default: theopenco/llmgateway)
     --platforms PLATFORMS Platforms to build for (default: linux/amd64,linux/arm64)
     --split-only        Build only split images
     --unified-only      Build only unified images

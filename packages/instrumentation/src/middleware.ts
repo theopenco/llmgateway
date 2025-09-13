@@ -8,6 +8,8 @@ import {
 } from "@opentelemetry/api";
 import { createMiddleware } from "hono/factory";
 
+import type { Context } from "hono";
+
 export interface TracingMiddlewareOptions {
 	serviceName: string;
 }
@@ -119,7 +121,7 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 	});
 }
 
-function getClientIp(c: any): string {
+function getClientIp(c: Context): string {
 	// Enhanced client IP detection logic (from API version)
 	return (
 		c.req.header("cf-connecting-ip") ||
