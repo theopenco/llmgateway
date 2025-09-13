@@ -144,17 +144,24 @@ chat.openapi(completionRoute, async (c) => {
 				!Array.isArray(responseData.choices) ||
 				responseData.choices.length === 0
 			) {
-				logger.error("Invalid response structure from gateway", responseData);
-				return c.json({ error: "Invalid response from gateway" }, 500);
+				logger.error("Invalid response structure from gateway", {
+					requestedModel: model,
+					usedModel: responseData.model || "unknown",
+					usedProvider: responseData.provider || "unknown",
+					responseData,
+				});
+				throw new Error("Invalid response from gateway - no choices array");
 			}
 
 			const firstChoice = responseData.choices[0];
 			if (!firstChoice.message) {
-				logger.error("No message in first choice", firstChoice);
-				return c.json(
-					{ error: "Invalid response structure from gateway" },
-					500,
-				);
+				logger.error("No message in first choice", {
+					requestedModel: model,
+					usedModel: responseData.model || "unknown",
+					usedProvider: responseData.provider || "unknown",
+					firstChoice,
+				});
+				throw new Error("Invalid response structure from gateway - no message");
 			}
 
 			const responseObject: {
