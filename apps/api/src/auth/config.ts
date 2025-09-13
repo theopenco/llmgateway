@@ -258,39 +258,37 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 						"unknown";
 				}
 
-				if (ipAddress && ipAddress !== "unknown") {
-					const rateLimitResult = await checkSignupRateLimit(ipAddress);
+				const rateLimitResult = await checkSignupRateLimit(ipAddress);
 
-					if (!rateLimitResult.allowed) {
-						logger.warn("Signup rate limit exceeded", {
-							ip: ipAddress,
-							resetTime: new Date(rateLimitResult.resetTime),
-						});
+				if (!rateLimitResult.allowed) {
+					logger.warn("Signup rate limit exceeded", {
+						ip: ipAddress,
+						resetTime: new Date(rateLimitResult.resetTime),
+					});
 
-						const retryAfterSeconds = Math.ceil(
-							(rateLimitResult.resetTime - Date.now()) / 1000,
-						);
-
-						return new Response(
-							JSON.stringify({
-								error: "too_many_requests",
-								message: "Too many signup attempts. Please try again later.",
-								retryAfter: retryAfterSeconds,
-							}),
-							{
-								status: 429,
-								headers: {
-									"Content-Type": "application/json",
-									"Retry-After": retryAfterSeconds.toString(),
-								},
-							},
-						);
-					}
+					const retryAfterSeconds = Math.ceil(
+						(rateLimitResult.resetTime - Date.now()) / 1000,
+					);
 
 					logger.debug("Signup rate limit check passed", {
 						ip: ipAddress,
 						remaining: rateLimitResult.remaining,
 					});
+
+					return new Response(
+						JSON.stringify({
+							error: "too_many_requests",
+							message: `Too many signup attempts. Please try again later (${retryAfterSeconds / 60} minutes)`,
+							retryAfter: retryAfterSeconds,
+						}),
+						{
+							status: 429,
+							headers: {
+								"Content-Type": "application/json",
+								"Retry-After": retryAfterSeconds.toString(),
+							},
+						},
+					);
 				}
 			}
 			return;
