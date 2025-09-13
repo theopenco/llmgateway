@@ -1,4 +1,5 @@
 import { useApi } from "@/lib/fetch-client";
+
 import type { Organization } from "@/lib/types";
 
 export interface OrganizationsResponse {

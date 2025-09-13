@@ -21,11 +21,12 @@ import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
-import type { Organization } from "@/lib/types";
 
 import { providers } from "@llmgateway/models";
 
 import { ProviderSelect } from "./provider-select";
+
+import type { Organization } from "@/lib/types";
 
 interface CreateProviderKeyDialogProps {
 	children: React.ReactNode;

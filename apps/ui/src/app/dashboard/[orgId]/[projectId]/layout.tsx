@@ -3,8 +3,8 @@ import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { fetchServerData } from "@/lib/server-api";
-import type { User } from "@/lib/types";
 
+import type { User } from "@/lib/types";
 import type { ReactNode } from "react";
 
 // Force dynamic rendering since this layout uses cookies for authentication

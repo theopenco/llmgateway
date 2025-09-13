@@ -76,7 +76,7 @@ export default [
 							position: "before",
 						},
 					],
-					pathGroupsExcludedImportTypes: ["builtin"],
+					pathGroupsExcludedImportTypes: ["builtin", "type"],
 				},
 			],
 		},

@@ -30,8 +30,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
-import type { ActivitT, ActivityModelUsage } from "@/types/activity";
 
+import type { ActivitT, ActivityModelUsage } from "@/types/activity";
 import type { TooltipProps } from "recharts";
 
 // Helper function to get all unique models from the data

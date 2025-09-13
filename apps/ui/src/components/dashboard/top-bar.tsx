@@ -1,6 +1,6 @@
-import type { Organization, Project } from "@/lib/types";
-
 import { ProjectSwitcher } from "./project-switcher";
+
+import type { Organization, Project } from "@/lib/types";
 
 interface TopBarProps {
 	projects: Project[];

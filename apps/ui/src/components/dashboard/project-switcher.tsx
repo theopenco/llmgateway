@@ -11,9 +11,10 @@ import {
 	DropdownMenuTrigger,
 	DropdownMenuGroup,
 } from "@/lib/components/dropdown-menu";
-import type { Project, Organization } from "@/lib/types";
 
 import { NewProjectDialog } from "./new-project-dialog";
+
+import type { Project, Organization } from "@/lib/types";
 
 interface ProjectSwitcherProps {
 	projects: Project[];

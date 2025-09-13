@@ -12,8 +12,6 @@ import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import type { ProviderId } from "@llmgateway/models";
-
 import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
 import {
@@ -22,6 +20,7 @@ import {
 } from "../provider-keys/provider-logo";
 import { AuthLink } from "../shared/auth-link";
 
+import type { ProviderId } from "@llmgateway/models";
 import type { Language, Token } from "prism-react-renderer";
 import type { CSSProperties } from "react";
 

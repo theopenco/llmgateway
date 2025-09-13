@@ -10,9 +10,10 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
-import type { Organization } from "@/lib/types";
 
 import { NewOrganizationDialog } from "./new-organization-dialog";
+
+import type { Organization } from "@/lib/types";
 
 interface OrganizationSwitcherProps {
 	organizations: Organization[];

@@ -27,11 +27,12 @@ import {
 } from "@/lib/components/dropdown-menu";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-import type { Organization } from "@/lib/types";
 
 import { providers } from "@llmgateway/models";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
+
+import type { Organization } from "@/lib/types";
 
 interface ProviderKeysListProps {
 	selectedOrganization: Organization | null;

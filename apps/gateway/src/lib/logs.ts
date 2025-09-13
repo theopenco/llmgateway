@@ -1,5 +1,6 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
+
 import type { InferInsertModel } from "@llmgateway/db";
 import type { log } from "@llmgateway/db";
 

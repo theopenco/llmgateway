@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 
 import { useApi } from "@/lib/fetch-client";
+
 import type { User } from "@/lib/types";
 
 interface UserProviderProps {

@@ -1,5 +1,6 @@
 import { ProjectModeSettings } from "@/components/settings/project-mode-settings";
 import { fetchServerData } from "@/lib/server-api";
+
 import type { Project, Organization } from "@/lib/types";
 import type { ProjectModeSettingsData } from "@/types/settings";
 

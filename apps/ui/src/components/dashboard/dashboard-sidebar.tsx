@@ -71,11 +71,11 @@ import {
 } from "@/lib/components/sidebar";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
-import type { Organization, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { OrganizationSwitcher } from "./organization-switcher";
 
+import type { Organization, User } from "@/lib/types";
 import type { LucideIcon } from "lucide-react";
 
 // Configuration

@@ -7,6 +7,7 @@ import { Card } from "@/lib/components/card";
 import { formatContextSize } from "@/lib/utils";
 
 import { models } from "@llmgateway/models";
+
 import type { ModelDefinition, StabilityLevel } from "@llmgateway/models";
 
 export function ModelsList() {

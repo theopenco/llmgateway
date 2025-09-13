@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { getLastUsedProjectId } from "@/lib/last-used-project-server";
 import { fetchServerData } from "@/lib/server-api";
+
 import type { User } from "@/lib/types";
 
 // Force dynamic rendering since this page uses cookies for authentication

@@ -4,7 +4,6 @@ import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
 
 import type { source } from "@/lib/source";
-
 import type { InferPageType } from "fumadocs-core/source";
 
 const processor = remark()

@@ -18,10 +18,11 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
-import type { Log } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
 
 import { LogCard } from "../dashboard/log-card";
+
+import type { Log } from "@llmgateway/db";
 
 const UnifiedFinishReason = {
 	COMPLETED: "completed",

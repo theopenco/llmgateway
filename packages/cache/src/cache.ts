@@ -1,10 +1,11 @@
 import crypto from "crypto";
 
 import { db, type InferSelectModel } from "@llmgateway/db";
-import type { tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import redisClient from "./redis";
+
+import type { tables } from "@llmgateway/db";
 
 export function generateCacheKey(payload: Record<string, any>): string {
 	return crypto

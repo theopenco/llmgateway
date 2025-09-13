@@ -1,7 +1,9 @@
 import { ChangelogComponent } from "@/components/changelog";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import { allChangelogs, type Changelog } from "content-collections";
+import { allChangelogs } from "content-collections";
+
+import type { Changelog } from "content-collections";
 
 export default async function ChangelogPage() {
 	const sortedEntries = allChangelogs

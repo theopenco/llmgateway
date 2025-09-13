@@ -44,9 +44,10 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-import type { Project, ApiKey } from "@/lib/types";
 
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
+
+import type { Project, ApiKey } from "@/lib/types";
 
 interface ApiKeysListProps {
 	selectedProject: Project | null;

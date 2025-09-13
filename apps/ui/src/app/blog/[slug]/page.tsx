@@ -8,7 +8,9 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-import { allBlogs, type Blog } from "content-collections";
+import { allBlogs } from "content-collections";
+
+import type { Blog } from "content-collections";
 
 interface BlogEntryPageProps {
 	params: Promise<{ slug: string }>;
