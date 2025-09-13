@@ -8,6 +8,7 @@ import {
 } from "@opentelemetry/api";
 import { createMiddleware } from "hono/factory";
 
+import type { Attributes } from "@opentelemetry/api";
 import type { Context } from "hono";
 
 export interface TracingMiddlewareOptions {
@@ -40,7 +41,7 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 		// Check for force-trace header
 		const forceTrace = c.req.header("x-force-trace");
 
-		const attributes: Record<string, string> = {
+		const attributes: Attributes = {
 			"http.method": method,
 			"http.url": c.req.url,
 			"http.route": path,
