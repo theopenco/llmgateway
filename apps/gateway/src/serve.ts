@@ -1,8 +1,6 @@
-// eslint-disable-next-line import/order
-import "./instrumentation";
-
 import { serve } from "@hono/node-server";
 import { closeDatabase } from "@llmgateway/db";
+import { initializeInstrumentation } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
@@ -10,6 +8,12 @@ import redisClient from "./lib/redis";
 import { startWorker, stopWorker } from "./worker";
 
 const port = Number(process.env.PORT) || 4001;
+
+// Initialize tracing for gateway service
+initializeInstrumentation({
+	serviceName: process.env.OTEL_SERVICE_NAME || "llmgateway-gateway",
+	projectId: process.env.GOOGLE_CLOUD_PROJECT,
+});
 
 logger.info("Server starting", { port });
 

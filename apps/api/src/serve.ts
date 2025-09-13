@@ -1,8 +1,6 @@
-// eslint-disable-next-line import/order
-import "./instrumentation";
-
 import { serve } from "@hono/node-server";
 import { closeDatabase, runMigrations } from "@llmgateway/db";
+import { initializeInstrumentation } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
@@ -10,6 +8,12 @@ import { sendInstallationBeacon } from "./lib/beacon";
 
 async function startServer() {
 	const port = Number(process.env.PORT) || 4002;
+
+	// Initialize tracing for API service
+	initializeInstrumentation({
+		serviceName: process.env.OTEL_SERVICE_NAME || "llmgateway-api",
+		projectId: process.env.GOOGLE_CLOUD_PROJECT,
+	});
 
 	// Run migrations if the environment variable is set
 	if (process.env.RUN_MIGRATIONS === "true") {
