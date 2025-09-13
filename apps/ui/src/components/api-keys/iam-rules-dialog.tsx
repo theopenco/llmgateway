@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Shield, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { MultiModelSelector } from "@/components/api-keys/multi-model-selector";
+import { MultiProviderSelector } from "@/components/api-keys/multi-provider-selector";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -66,15 +68,15 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [newRule, setNewRule] = useState<{
 		ruleType: IamRule["ruleType"];
-		models: string;
-		providers: string;
+		models: string[];
+		providers: string[];
 		pricingType: string;
 		maxInputPrice: string;
 		maxOutputPrice: string;
 	}>({
 		ruleType: "allow_models",
-		models: "",
-		providers: "",
+		models: [],
+		providers: [],
 		pricingType: "",
 		maxInputPrice: "",
 		maxOutputPrice: "",
@@ -108,17 +110,14 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 		const ruleValue: IamRule["ruleValue"] = {};
 
 		// Parse rule value based on rule type
-		if (newRule.ruleType.includes("models") && newRule.models) {
-			ruleValue.models = newRule.models
-				.split(",")
-				.map((m) => m.trim())
-				.filter(Boolean);
+		if (newRule.ruleType.includes("models") && newRule.models.length > 0) {
+			ruleValue.models = newRule.models;
 		}
-		if (newRule.ruleType.includes("providers") && newRule.providers) {
-			ruleValue.providers = newRule.providers
-				.split(",")
-				.map((p) => p.trim())
-				.filter(Boolean);
+		if (
+			newRule.ruleType.includes("providers") &&
+			newRule.providers.length > 0
+		) {
+			ruleValue.providers = newRule.providers;
 		}
 		if (newRule.ruleType.includes("pricing")) {
 			if (newRule.pricingType && newRule.pricingType !== "any") {
@@ -152,8 +151,8 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 					// Reset form
 					setNewRule({
 						ruleType: "allow_models",
-						models: "",
-						providers: "",
+						models: [],
+						providers: [],
 						pricingType: "",
 						maxInputPrice: "",
 						maxOutputPrice: "",
@@ -294,17 +293,16 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 							{(newRule.ruleType === "allow_models" ||
 								newRule.ruleType === "deny_models") && (
 								<div>
-									<Label htmlFor="models">Models (comma-separated)</Label>
-									<Input
-										id="models"
-										value={newRule.models}
-										onChange={(e) =>
+									<Label htmlFor="models">Models</Label>
+									<MultiModelSelector
+										selectedModels={newRule.models}
+										onModelsChange={(models) =>
 											setNewRule((prev) => ({
 												...prev,
-												models: e.target.value,
+												models,
 											}))
 										}
-										placeholder="gpt-4o, claude-3-5-sonnet-20241022"
+										placeholder="Select models..."
 									/>
 								</div>
 							)}
@@ -312,17 +310,16 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 							{(newRule.ruleType === "allow_providers" ||
 								newRule.ruleType === "deny_providers") && (
 								<div>
-									<Label htmlFor="providers">Providers (comma-separated)</Label>
-									<Input
-										id="providers"
-										value={newRule.providers}
-										onChange={(e) =>
+									<Label htmlFor="providers">Providers</Label>
+									<MultiProviderSelector
+										selectedProviders={newRule.providers}
+										onProvidersChange={(providers) =>
 											setNewRule((prev) => ({
 												...prev,
-												providers: e.target.value,
+												providers,
 											}))
 										}
-										placeholder="openai, anthropic, google"
+										placeholder="Select providers..."
 									/>
 								</div>
 							)}
@@ -397,9 +394,10 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 							className="w-full"
 							disabled={
 								!newRule.ruleType ||
-								(newRule.ruleType.includes("models") && !newRule.models) ||
+								(newRule.ruleType.includes("models") &&
+									newRule.models.length === 0) ||
 								(newRule.ruleType.includes("providers") &&
-									!newRule.providers) ||
+									newRule.providers.length === 0) ||
 								(newRule.ruleType.includes("pricing") &&
 									!newRule.pricingType &&
 									!newRule.maxInputPrice &&
