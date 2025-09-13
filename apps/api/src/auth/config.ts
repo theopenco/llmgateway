@@ -245,17 +245,19 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 		before: createAuthMiddleware(async (ctx) => {
 			// Check rate limit for signup attempts
 			if (ctx.path.startsWith("/sign-up")) {
-				// Get IP address from various possible headers
-				let ipAddress = ctx.headers?.get("x-forwarded-for");
-				if (ipAddress) {
-					// x-forwarded-for can be a comma-separated list, take the first IP
-					ipAddress = ipAddress.split(",")[0]?.trim();
-				} else {
-					ipAddress =
-						ctx.headers?.get("x-real-ip") ||
-						ctx.headers?.get("cf-connecting-ip") ||
-						ctx.headers?.get("x-client-ip") ||
-						"unknown";
+				// Get IP address from various possible headers, prioritizing CF-Connecting-IP
+				let ipAddress = ctx.headers?.get("cf-connecting-ip");
+				if (!ipAddress) {
+					ipAddress = ctx.headers?.get("x-forwarded-for");
+					if (ipAddress) {
+						// x-forwarded-for can be a comma-separated list, take the first IP
+						ipAddress = ipAddress.split(",")[0]?.trim();
+					} else {
+						ipAddress =
+							ctx.headers?.get("x-real-ip") ||
+							ctx.headers?.get("x-client-ip") ||
+							"unknown";
+					}
 				}
 
 				const rateLimitResult = await checkSignupRateLimit(ipAddress);
