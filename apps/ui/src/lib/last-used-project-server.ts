@@ -12,20 +12,3 @@ export async function getLastUsedProjectId(
 	const cookie = cookieStore.get(`${COOKIE_NAME}-${orgId}`);
 	return cookie?.value ?? null;
 }
-
-/**
- * Set the last used project ID in cookies (server-side)
- */
-export async function setLastUsedProjectId(
-	orgId: string,
-	projectId: string,
-): Promise<void> {
-	const cookieStore = await cookies();
-	cookieStore.set(`${COOKIE_NAME}-${orgId}`, projectId, {
-		httpOnly: false, // Allow client-side access for navigation
-		secure: process.env.NODE_ENV === "production",
-		sameSite: "lax",
-		maxAge: 60 * 60 * 24 * 30, // 30 days
-		path: "/",
-	});
-}

@@ -1,7 +1,7 @@
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
+import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
-import { setLastUsedProjectId } from "@/lib/last-used-project-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { User } from "@/lib/types";
@@ -49,14 +49,10 @@ export default async function ProjectLayout({
 		}
 	}
 
-	// Record this project as the last used for this organization
-	if (orgId && projectId) {
-		await setLastUsedProjectId(orgId, projectId);
-	}
-
 	return (
 		<UserProvider initialUserData={initialUserData}>
 			<SidebarProvider>
+				<LastUsedProjectTracker orgId={orgId} projectId={projectId} />
 				<DashboardLayoutClient
 					initialOrganizationsData={initialOrganizationsData}
 					initialProjectsData={initialProjectsData}
