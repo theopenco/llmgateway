@@ -275,6 +275,7 @@ export function ApiKeysList({
 							<TableHead>Status</TableHead>
 							<TableHead>Usage</TableHead>
 							<TableHead>Usage Limit</TableHead>
+							<TableHead>IAM Rules</TableHead>
 							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
 					</TableHeader>
@@ -379,6 +380,34 @@ export function ApiKeysList({
 											</form>
 										</DialogContent>
 									</Dialog>
+								</TableCell>
+								<TableCell>
+									{key.iamRules && key.iamRules.length > 0 ? (
+										<IamRulesDialog apiKey={key}>
+											<Button variant="outline" size="sm" className="text-xs">
+												{
+													key.iamRules.filter(
+														(rule) => rule.status === "active",
+													).length
+												}{" "}
+												rule
+												{key.iamRules.filter((rule) => rule.status === "active")
+													.length !== 1
+													? "s"
+													: ""}
+											</Button>
+										</IamRulesDialog>
+									) : (
+										<IamRulesDialog apiKey={key}>
+											<Button
+												variant="ghost"
+												size="sm"
+												className="text-xs text-muted-foreground"
+											>
+												No rules
+											</Button>
+										</IamRulesDialog>
+									)}
 								</TableCell>
 								<TableCell className="text-right">
 									<DropdownMenu>
@@ -616,6 +645,38 @@ export function ApiKeysList({
 										</form>
 									</DialogContent>
 								</Dialog>
+							</div>
+						</div>
+						<div className="pt-2 border-t">
+							<div className="text-xs text-muted-foreground mb-1">
+								IAM Rules
+							</div>
+							<div className="flex items-center">
+								{key.iamRules && key.iamRules.length > 0 ? (
+									<IamRulesDialog apiKey={key}>
+										<Button variant="outline" size="sm" className="text-xs h-7">
+											{
+												key.iamRules.filter((rule) => rule.status === "active")
+													.length
+											}{" "}
+											active rule
+											{key.iamRules.filter((rule) => rule.status === "active")
+												.length !== 1
+												? "s"
+												: ""}
+										</Button>
+									</IamRulesDialog>
+								) : (
+									<IamRulesDialog apiKey={key}>
+										<Button
+											variant="ghost"
+											size="sm"
+											className="text-xs text-muted-foreground h-7"
+										>
+											No rules configured
+										</Button>
+									</IamRulesDialog>
+								)}
 							</div>
 						</div>
 					</div>

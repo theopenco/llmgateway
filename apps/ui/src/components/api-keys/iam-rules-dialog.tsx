@@ -121,7 +121,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 				.filter(Boolean);
 		}
 		if (newRule.ruleType.includes("pricing")) {
-			if (newRule.pricingType) {
+			if (newRule.pricingType && newRule.pricingType !== "any") {
 				ruleValue.pricingType = newRule.pricingType;
 			}
 			if (newRule.maxInputPrice) {
@@ -339,7 +339,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 												<SelectValue placeholder="Select pricing type" />
 											</SelectTrigger>
 											<SelectContent>
-												<SelectItem value="">Any</SelectItem>
+												<SelectItem value="any">Any</SelectItem>
 												<SelectItem value="free">Free Only</SelectItem>
 												<SelectItem value="paid">Paid Only</SelectItem>
 											</SelectContent>
