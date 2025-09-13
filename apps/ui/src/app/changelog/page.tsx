@@ -1,7 +1,7 @@
+// eslint-disable-next-line import/order
+import { allChangelogs } from "content-collections";
 import { ChangelogComponent } from "@/components/changelog";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-
-import { allChangelogs } from "content-collections";
 
 import type { Changelog } from "content-collections";
 
