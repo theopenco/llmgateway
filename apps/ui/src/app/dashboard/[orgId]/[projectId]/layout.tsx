@@ -1,6 +1,7 @@
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
+import { setLastUsedProjectId } from "@/lib/last-used-project-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { User } from "@/lib/types";
@@ -46,6 +47,11 @@ export default async function ProjectLayout({
 		} catch (error) {
 			console.warn("Failed to fetch projects for organization:", orgId, error);
 		}
+	}
+
+	// Record this project as the last used for this organization
+	if (orgId && projectId) {
+		await setLastUsedProjectId(orgId, projectId);
 	}
 
 	return (
