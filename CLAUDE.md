@@ -107,7 +107,7 @@ When running curl commands against the local API, you can use `test-token` as au
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always use pnpm for package management
-- Use localStorage instead of cookies for client-side data persistence
+- Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
 - No unnecessary code comments
 
