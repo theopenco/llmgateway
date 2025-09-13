@@ -37,6 +37,7 @@ import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";
+import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
 import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import {
@@ -722,6 +723,14 @@ export function DashboardSidebar({
 
 	const logout = async () => {
 		posthog.reset();
+
+		// Clear last used project cookies before signing out
+		try {
+			await clearLastUsedProjectCookiesAction();
+		} catch (error) {
+			console.error("Failed to clear last used project cookies:", error);
+		}
+
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {

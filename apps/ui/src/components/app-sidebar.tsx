@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 
 import { useUser } from "@/hooks/useUser";
+import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
 import { useAuth } from "@/lib/auth-client";
 import { Badge } from "@/lib/components/badge";
 import {
@@ -52,6 +53,14 @@ export function AppSidebar() {
 
 	const logout = async () => {
 		posthog.reset();
+
+		// Clear last used project cookies before signing out
+		try {
+			await clearLastUsedProjectCookiesAction();
+		} catch (error) {
+			console.error("Failed to clear last used project cookies:", error);
+		}
+
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {

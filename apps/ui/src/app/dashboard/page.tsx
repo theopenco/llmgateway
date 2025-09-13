@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { getLastUsedProjectId } from "@/lib/last-used-project-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { User } from "@/lib/types";
@@ -59,7 +60,14 @@ export default async function DashboardPage() {
 				};
 
 				if (projects.projects && projects.projects.length > 0) {
-					const defaultProjectId = projects.projects[0].id;
+					// Check for last used project first, fallback to first project
+					const lastUsedProjectId = await getLastUsedProjectId(defaultOrgId);
+					const defaultProjectId =
+						lastUsedProjectId &&
+						projects.projects.some((p) => p.id === lastUsedProjectId)
+							? lastUsedProjectId
+							: projects.projects[0].id;
+
 					// Redirect to the proper route structure
 					redirect(`/dashboard/${defaultOrgId}/${defaultProjectId}`);
 				}
