@@ -1,9 +1,3 @@
-import {
-	models,
-	providers,
-	type ModelDefinition,
-	type StabilityLevel,
-} from "@llmgateway/models";
 import { Check, ChevronDown, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/lib/components/badge";
@@ -14,6 +8,13 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
+
+import {
+	models,
+	providers,
+	type ModelDefinition,
+	type StabilityLevel,
+} from "@llmgateway/models";
 
 interface ModelSelectorProps {
 	selectedModel: string;

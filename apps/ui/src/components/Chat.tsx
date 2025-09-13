@@ -3,8 +3,6 @@
 import { Loader2, Info } from "lucide-react";
 import { useState } from "react";
 
-import { ApiKeyManager } from "./playground/api-key-manager";
-import { ChatHeader } from "./playground/chat-header";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
@@ -12,6 +10,9 @@ import { Input } from "@/lib/components/input";
 import { ScrollArea } from "@/lib/components/scroll-area";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
+
+import { ApiKeyManager } from "./playground/api-key-manager";
+import { ChatHeader } from "./playground/chat-header";
 
 interface Message {
 	role: "user" | "assistant";

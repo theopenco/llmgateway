@@ -1,6 +1,5 @@
-import { UnifiedFinishReason } from "@llmgateway/db";
-
-import { publishToQueue, LOG_QUEUE } from "./redis";
+import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
+import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
 
 import type { InferInsertModel } from "@llmgateway/db";
 import type { log } from "@llmgateway/db";
@@ -44,7 +43,6 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
 			break;
-		case "google-vertex":
 		case "google-ai-studio":
 			if (finishReason === "STOP") {
 				return UnifiedFinishReason.COMPLETED;
@@ -79,10 +77,6 @@ export function getUnifiedFinishReason(
  * Insert a log entry into the database.
  * This function is extracted to prepare for future implementation using a message queue.
  */
-export type LogInsertData = Omit<
-	InferInsertModel<typeof log>,
-	"id" | "createdAt" | "updatedAt"
->;
 
 export type LogData = InferInsertModel<typeof log>;
 

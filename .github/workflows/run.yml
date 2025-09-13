@@ -54,3 +54,4 @@ jobs:
           ALIBABA_API_KEY: ${{ secrets.ALIBABA_API_KEY }}
           NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
           Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
+          ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}

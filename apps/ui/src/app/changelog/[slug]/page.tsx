@@ -1,4 +1,4 @@
-import { allChangelogs, type Changelog } from "content-collections";
+import { allChangelogs } from "content-collections";
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
 import Image from "next/image";
@@ -8,6 +8,8 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
+
+import type { Changelog } from "content-collections";
 
 interface ChangelogEntryPageProps {
 	params: Promise<{ slug: string }>;

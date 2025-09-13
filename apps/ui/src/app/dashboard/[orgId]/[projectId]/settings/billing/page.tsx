@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { PaymentStatusHandler } from "./payment-status-handler";
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
@@ -12,6 +11,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+
+import { PaymentStatusHandler } from "./payment-status-handler";
 
 interface BillingPageProps {
 	params: Promise<{

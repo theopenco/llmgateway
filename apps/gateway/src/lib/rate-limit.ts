@@ -1,7 +1,5 @@
+import { getOrganization, redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
-
-import { getOrganization } from "./cache";
-import redisClient from "./redis";
 
 import type { ModelDefinition } from "@llmgateway/models";
 

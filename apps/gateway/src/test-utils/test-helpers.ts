@@ -1,7 +1,7 @@
+import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 
-import redisClient from "../lib/redis";
-import { processLogQueue } from "../worker";
+import { processLogQueue } from "../../../worker/src/worker";
 
 export { getProviderEnvVar } from "../lib/provider";
 

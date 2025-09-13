@@ -1,41 +1,154 @@
-# Instructions
+# CLAUDE.md
 
-## General
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- when writing commit messages, always use the conventional commit messages format
-- do not write useless comments about implemented changes
-- never add unnecessary basic code comments
-- always use pnpm for installing or managing dependencies and running scripts
-- after adding features, make sure that the tests pass using `pnpm test:unit` and `pnpm test:e2e`
-- after adding features, make sure that the build passes using `pnpm build`
-- after adding features or editing files, make sure to format the code and ensure no linting errors using `pnpm format`
-- after adding or adapting API routes, make sure to `pnpm generate` to re-generate the OpenAPI schemas.
-- always ensure DRY principles to reuse code as much as possible
-- Use localStorage instead of cookies for client-side data persistence.
-- For smoke testing apps, build with 'pnpm build', run 'pnpm --filter=[app] --prod deploy dist/[app]' for each package, then run start.sh to verify 'pnpm start' works.
+## Development Commands
 
-## Database operations
+### Setup and Dependencies
 
-- use drizzle with the latest object syntax
-- for DB changes, do not write manual migration files
-- for read queries, always use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- do not apply any migrations, just use `pnpm push`
-- if any tables or columns do not exist, run `pnpm push` to sync the schema to the database
+- `pnpm install` - Install all dependencies
+- `pnpm setup` - Full development environment setup (starts Docker, syncs DB, seeds data)
+- `docker compose up -d` - Start PostgreSQL and Redis services
 
-## Packages
+### Development
 
-### apps/ui
+- `pnpm dev` - Start all development servers (UI on :3002, API on :4002, Gateway on :4001, Docs on :3005)
+- `pnpm build` - Build all applications for production
+- `pnpm clean` - Clean build artifacts and cache directories
 
-This is a Next.js App Router project. Use next/link for links and next/navigation's router.push/replace or redirect() for programmatic navigation. Never use window.location.
+### Code Quality
 
-### apps/docs
+Always run `pnpm format` before committing code. Run `pnpm generate` if API routes were modified.
 
-This is a NextJS project using Fumadocs.
+- `pnpm format` - Format code and fix linting issues
+- `pnpm lint` - Check linting and formatting (without fixing)
+- `pnpm generate` - Regenerate OpenAPI schemas from API routes
 
-### apps/gateway
+### Testing
 
-This is a hono project. Always use hono+zod+openapi for validation and typesafety.
+- `pnpm test:unit` - Run unit tests (\*.spec.ts files)
+- `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 
-### apps/api
+When running curl commands against the local API, you can use `test-token` as authentication.
 
-This is a hono project. Always use hono+zod+openapi for validation and typesafety.
+#### E2E Test Options
+
+- `TEST_MODELS` - Run tests only for specific models (comma-separated list of `provider/model-id` pairs)
+  Example: `TEST_MODELS="openai/gpt-4o-mini,anthropic/claude-3-5-sonnet-20241022" pnpm test:e2e`
+  This is useful for quick testing as the full e2e suite can take too long with all models.
+- `FULL_MODE` - Include free models in tests (default: only paid models)
+- `LOG_MODE` - Enable detailed logging of responses
+
+### Database Operations
+
+- `pnpm push-dev` - Push schema changes to development database
+- `pnpm push-test` - Push schema changes to test database
+- `pnpm migrate` - Run database migrations
+- `pnpm seed` - Seed database with initial data
+- `pnpm reset` - Reset database (destructive)
+- `pnpm sync` - Sync both dev and test databases
+
+## Architecture Overview
+
+**LLMGateway** is a monorepo containing a full-stack LLM API gateway with multiple services:
+
+### Core Services
+
+- **Gateway** (`apps/gateway`) - LLM request routing and provider management (Hono + Zod + OpenAPI)
+- **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
+- **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
+- **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
+
+### Shared Packages
+
+- **@llmgateway/db** - Database schema, migrations, and utilities (Drizzle ORM)
+- **@llmgateway/models** - LLM provider definitions and model configurations
+- **@llmgateway/auth** - Authentication utilities and session management
+
+## Technology Stack
+
+### Backend
+
+- **Framework**: Hono (lightweight web framework)
+- **Database**: PostgreSQL with Drizzle ORM
+- **Caching**: Redis
+- **Authentication**: Better Auth with passkey support
+- **Validation**: Zod schemas
+- **API Documentation**: OpenAPI/Swagger
+
+### Frontend
+
+- **Framework**: Next.js App Router (React Server Components)
+- **State Management**: TanStack Query
+- **UI Components**: Radix UI with Tailwind CSS
+- **Build Tool**: Next.js (Turbopack during dev; Node/Edge runtime)
+- **Navigation**: Use `next/link` for links and `next/navigation`'s router for programmatic navigation
+
+### Development Tools
+
+- **Monorepo**: Turbo with pnpm workspaces
+- **TypeScript**: Strict mode enabled
+- **Testing**: Vitest for unit and E2E tests
+- **Linting**: ESLint with custom configuration
+- **Formatting**: Prettier
+
+## Development Guidelines
+
+### Database Operations
+
+- Use Drizzle ORM with latest object syntax
+- For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
+- For schema changes: Use `pnpm push` instead of writing migrations which will generate .sql files
+- Always sync schema with `pnpm push` after table/column changes
+
+### Code Standards
+
+- Always use top-level `import`, never use require or dynamic imports
+- Use conventional commit message format and limit the commit message title to max 50 characters
+- When writing pull request titles, use the conventional commit message format and limit to max 50 characters
+- Always use pnpm for package management
+- Use cookies for user-settings which are not saved in the database to ensure SSR works
+- Apply DRY principles for code reuse
+- No unnecessary code comments
+
+### Testing and Quality Assurance
+
+- Run `pnpm test:unit` and `pnpm test:e2e` after adding features
+- Run `pnpm build` to ensure production builds work
+- Run `pnpm format` after code changes
+- Run `pnpm generate` after API route changes to update OpenAPI schemas
+
+### Service URLs (Development)
+
+- UI: http://localhost:3002
+- API: http://localhost:4002
+- Gateway: http://localhost:4001
+- Docs: http://localhost:3005
+- PostgreSQL: localhost:5432
+- Redis: localhost:6379
+
+## Key Features
+
+### LLM Gateway
+
+- Multi-provider support (OpenAI, Anthropic, Google Vertex AI, etc.)
+- OpenAI-compatible API interface
+- Request routing and load balancing
+- Response caching with Redis
+- Usage tracking and cost analytics
+
+### Management Platform
+
+- User authentication with passkey support
+- API key management
+- Project and organization management
+- Billing integration with Stripe
+- Real-time usage monitoring
+- Provider key management
+
+### Database Schema
+
+- Users, organizations, and projects
+- API keys and provider configurations
+- Usage tracking and billing records
+- Analytics and performance metrics

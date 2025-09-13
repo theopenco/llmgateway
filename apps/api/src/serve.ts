@@ -1,12 +1,33 @@
-import { serve } from "@hono/node-server";
+import { serve, type ServerType } from "@hono/node-server";
+
 import { closeDatabase, runMigrations } from "@llmgateway/db";
+import {
+	initializeInstrumentation,
+	shutdownInstrumentation,
+} from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
-import { app } from "./index";
+import { app } from ".";
+import { redisClient } from "./auth/config";
 import { sendInstallationBeacon } from "./lib/beacon";
+
+import type { NodeSDK } from "@opentelemetry/sdk-node";
+
+let sdk: NodeSDK | null = null;
 
 async function startServer() {
 	const port = Number(process.env.PORT) || 4002;
+
+	// Initialize tracing for API service
+	try {
+		sdk = await initializeInstrumentation({
+			serviceName: process.env.OTEL_SERVICE_NAME || "llmgateway-api",
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+		});
+	} catch (error) {
+		logger.error("Failed to initialize instrumentation", error as Error);
+		// Continue without tracing
+	}
 
 	// Run migrations if the environment variable is set
 	if (process.env.RUN_MIGRATIONS === "true") {
@@ -35,9 +56,9 @@ async function startServer() {
 
 let isShuttingDown = false;
 
-const closeServer = (server: any): Promise<void> => {
+const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
-		server.close((error: any) => {
+		server.close((error) => {
 			if (error) {
 				reject(error);
 			} else {
@@ -47,7 +68,7 @@ const closeServer = (server: any): Promise<void> => {
 	});
 };
 
-const gracefulShutdown = async (signal: string, server: any) => {
+const gracefulShutdown = async (signal: string, server: ServerType) => {
 	if (isShuttingDown) {
 		logger.info("Shutdown already in progress, ignoring signal", { signal });
 		return;
@@ -61,9 +82,18 @@ const gracefulShutdown = async (signal: string, server: any) => {
 		await closeServer(server);
 		logger.info("HTTP server closed");
 
+		logger.info("Closing Redis connection");
+		await redisClient.quit();
+		logger.info("Redis connection closed");
+
 		logger.info("Closing database connection");
 		await closeDatabase();
 		logger.info("Database connection closed");
+
+		// Shutdown instrumentation last to ensure all spans are flushed
+		if (sdk) {
+			await shutdownInstrumentation(sdk);
+		}
 
 		logger.info("Graceful shutdown completed");
 		process.exit(0);

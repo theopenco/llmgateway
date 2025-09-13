@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { EditIcon, KeyIcon, MoreHorizontal, PlusIcon } from "lucide-react";
 
-import { CreateApiKeyDialog } from "./create-api-key-dialog";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -45,6 +44,8 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
+import { CreateApiKeyDialog } from "./create-api-key-dialog";
 
 import type { Project, ApiKey } from "@/lib/types";
 

@@ -4,7 +4,6 @@ import { MonitorSmartphone, HelpCircle, Plus } from "lucide-react";
 import Link from "next/link";
 import React, { forwardRef, useId, useRef } from "react";
 
-import { AnimatedBeam } from "./animated-beam";
 import { ProviderIcons } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
@@ -15,6 +14,8 @@ import {
 } from "@/lib/components/tooltip";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
+
+import { AnimatedBeam } from "./animated-beam";
 
 const Circle = forwardRef<
 	HTMLDivElement,

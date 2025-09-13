@@ -1,5 +1,4 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { auth } from "@llmgateway/auth";
 
 import { activity } from "./activity";
 import { chat } from "./chat";
@@ -12,6 +11,7 @@ import { payments } from "./payments";
 import projects from "./projects";
 import { subscriptions } from "./subscriptions";
 import { user } from "./user";
+import { apiAuth as auth } from "../auth/config";
 
 import type { ServerTypes } from "../vars";
 

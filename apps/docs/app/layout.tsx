@@ -1,7 +1,9 @@
+// eslint-disable-next-line import/order
+import "./global.css";
+
 import { RootProvider } from "fumadocs-ui/provider";
 import { Inter } from "next/font/google";
 
-import "./global.css";
 import { ConfigProvider } from "@/lib/context";
 import { PostHogProvider } from "@/lib/providers";
 

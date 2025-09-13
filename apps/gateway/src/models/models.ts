@@ -1,4 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { HTTPException } from "hono/http-exception";
+
 import { logger } from "@llmgateway/logger";
 import {
 	models as modelsList,
@@ -6,7 +8,6 @@ import {
 	type ProviderModelMapping,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { HTTPException } from "hono/http-exception";
 
 import type { ServerTypes } from "../vars";
 

@@ -1,4 +1,22 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { encode, encodeChat } from "gpt-tokenizer";
+import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
+
+import {
+	checkCustomProviderExists,
+	generateCacheKey,
+	generateStreamingCacheKey,
+	getCache,
+	getCustomProviderKey,
+	getOrganization,
+	getProject,
+	getProviderKey,
+	getStreamingCache,
+	isCachingEnabled,
+	setCache,
+	setStreamingCache,
+} from "@llmgateway/cache";
 import {
 	type ApiKey,
 	db,
@@ -25,24 +43,7 @@ import {
 	hasMaxTokens,
 	providers,
 } from "@llmgateway/models";
-import { encode, encodeChat } from "gpt-tokenizer";
-import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
-import {
-	checkCustomProviderExists,
-	generateCacheKey,
-	generateStreamingCacheKey,
-	getCache,
-	getCustomProviderKey,
-	getOrganization,
-	getProject,
-	getProviderKey,
-	getStreamingCache,
-	isCachingEnabled,
-	setCache,
-	setStreamingCache,
-} from "../lib/cache";
 import { calculateCosts } from "../lib/costs";
 import { insertLog } from "../lib/logs";
 import {
@@ -63,6 +64,7 @@ async function validateFreeModelUsage(
 ) {
 	const user = await getUserFromOrganization(organizationId);
 	if (!user) {
+		logger.error("User not found", { organizationId });
 		throw new HTTPException(500, {
 			message: "User not found",
 		});
@@ -231,6 +233,7 @@ function createLogEntry(
 	apiKey: ApiKey,
 	providerKeyId: string | undefined,
 	usedModel: string,
+	usedModelMapping: string | undefined,
 	usedProvider: string,
 	requestedModel: string,
 	requestedProvider: string | undefined,
@@ -258,6 +261,7 @@ function createLogEntry(
 		apiKeyId: apiKey.id,
 		usedMode: providerKeyId ? "api-keys" : "credits",
 		usedModel,
+		usedModelMapping,
 		usedProvider,
 		requestedModel,
 		requestedProvider,
@@ -362,7 +366,6 @@ function parseProviderResponse(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			// Extract content and reasoning content from Google response parts
 			const parts = json.candidates?.[0]?.content?.parts || [];
@@ -664,7 +667,6 @@ export function estimateTokensFromContent(content: string): number {
  */
 function extractContentFromProvider(data: any, provider: Provider): string {
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const contentParts = parts.filter((part: any) => !part.thought);
@@ -702,7 +704,6 @@ function extractReasoningContentFromProvider(
 			}
 			return "";
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const reasoningParts = parts.filter((part: any) => part.thought);
@@ -725,7 +726,6 @@ function extractImagesFromProvider(
 	provider: Provider,
 ): ImageObject[] {
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
@@ -785,9 +785,8 @@ function extractToolCallsFromProvider(
 				];
 			}
 			return null;
-		case "google-vertex":
 		case "google-ai-studio": {
-			// Google Vertex AI tool calls in streaming
+			// Google AI Studio tool calls in streaming
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			return (
 				parts
@@ -822,7 +821,6 @@ function extractTokenUsage(
 	let cachedTokens = null;
 
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount || null;
@@ -901,7 +899,6 @@ function transformToOpenAIFormat(
 	let transformedResponse = json;
 
 	switch (usedProvider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
@@ -1441,7 +1438,6 @@ function transformStreamingChunkToOpenAIFormat(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const hasText = parts.some((part: any) => part.text);
@@ -2212,7 +2208,12 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if reasoning_effort is specified but model doesn't support reasoning
-	if (reasoning_effort !== undefined) {
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		reasoning_effort !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
 		// Check if any provider for this model supports reasoning
 		const supportsReasoning = modelInfo.providers.some(
 			(provider) => (provider as ProviderModelMapping).reasoning === true,
@@ -2448,11 +2449,21 @@ chat.openapi(completions, async (c) => {
 				availableProviders.includes(provider.providerId),
 			);
 
-			// Filter by context size requirement
+			// Filter by context size requirement and reasoning capability if needed
 			const suitableProviders = availableModelProviders.filter((provider) => {
 				// Use the provider's context size, defaulting to a reasonable value if not specified
 				const modelContextSize = provider.contextSize ?? 8192;
-				return modelContextSize >= requiredContextSize;
+				const contextSizeMet = modelContextSize >= requiredContextSize;
+
+				// If reasoning_effort is specified, only include providers that support reasoning
+				if (reasoning_effort !== undefined) {
+					return (
+						contextSizeMet &&
+						(provider as ProviderModelMapping).reasoning === true
+					);
+				}
+
+				return contextSizeMet;
 			});
 
 			if (suitableProviders.length > 0) {
@@ -2623,6 +2634,10 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const baseModelName = finalModelInfo?.id || usedModel;
+
+	// Create the model mapping values according to new schema
+	const usedModelMapping = usedModel; // Store the original provider model name
+	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
 
 	let url: string | undefined;
 
@@ -2916,7 +2931,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3003,7 +3019,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3214,7 +3231,8 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						providerKey?.id,
-						usedModel,
+						usedModelFormatted,
+						usedModelMapping,
 						usedProvider,
 						requestedModel,
 						requestedProvider,
@@ -3336,7 +3354,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3733,10 +3752,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// For Google providers, add usage information when available
-							if (
-								usedProvider === "google-vertex" ||
-								usedProvider === "google-ai-studio"
-							) {
+							if (usedProvider === "google-ai-studio") {
 								const usage = extractTokenUsage(
 									data,
 									usedProvider,
@@ -3859,7 +3875,6 @@ chat.openapi(completions, async (c) => {
 
 							// Handle provider-specific finish reason extraction
 							switch (usedProvider) {
-								case "google-vertex":
 								case "google-ai-studio":
 									if (data.candidates?.[0]?.finishReason) {
 										finishReason = data.candidates[0].finishReason;
@@ -4135,7 +4150,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -4279,7 +4295,8 @@ chat.openapi(completions, async (c) => {
 			project,
 			apiKey,
 			providerKey?.id,
-			usedModel,
+			usedModelFormatted,
+			usedModelMapping,
 			usedProvider,
 			requestedModel,
 			requestedProvider,
@@ -4355,7 +4372,8 @@ chat.openapi(completions, async (c) => {
 			project,
 			apiKey,
 			providerKey?.id,
-			usedModel,
+			usedModelFormatted,
+			usedModelMapping,
 			usedProvider,
 			requestedModel,
 			requestedProvider,
@@ -4528,7 +4546,8 @@ chat.openapi(completions, async (c) => {
 		project,
 		apiKey,
 		providerKey?.id,
-		usedModel,
+		usedModelFormatted,
+		usedModelMapping,
 		usedProvider,
 		requestedModel,
 		requestedProvider,

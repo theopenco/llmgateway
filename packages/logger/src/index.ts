@@ -1,12 +1,29 @@
+import { isSpanContextValid, trace, TraceFlags } from "@opentelemetry/api";
 import pino, { type Logger } from "pino";
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
+
+export interface TraceContext {
+	traceId?: string;
+	spanId?: string;
+	traceFlags?: string;
+}
 
 export interface LoggerOptions {
 	name?: string;
 	level?: LogLevel;
 	prettyPrint?: boolean;
 }
+
+// Google Cloud Logging severity mapping
+const PinoLevelToSeverityLookup: Record<string, string> = {
+	trace: "DEBUG",
+	debug: "DEBUG",
+	info: "INFO",
+	warn: "WARNING",
+	error: "ERROR",
+	fatal: "CRITICAL",
+};
 
 class LLMGatewayLogger {
 	private logger: Logger;
@@ -21,6 +38,21 @@ class LLMGatewayLogger {
 		this.logger = pino({
 			name,
 			level,
+			// Always ignore pid and hostname
+			base: undefined,
+			// Add Google Cloud Logging compatibility
+			...(!prettyPrint && {
+				formatters: {
+					level(label: string, number: number) {
+						return {
+							severity:
+								PinoLevelToSeverityLookup[label] ||
+								PinoLevelToSeverityLookup.info,
+							level: number,
+						};
+					},
+				},
+			}),
 			...(prettyPrint && {
 				transport: {
 					target: "pino-pretty",
@@ -61,36 +93,72 @@ class LLMGatewayLogger {
 		return nodeEnv !== "production";
 	}
 
+	private getTraceContext(): object {
+		const span = trace.getActiveSpan();
+		if (!span) {
+			return {};
+		}
+
+		const spanContext = span.spanContext();
+		if (!spanContext || !isSpanContextValid(spanContext)) {
+			return {};
+		}
+
+		const projectId = process.env.GOOGLE_CLOUD_PROJECT;
+		const traceId = spanContext.traceId;
+
+		return {
+			// Google Cloud Logging trace correlation
+			"logging.googleapis.com/trace": projectId
+				? `projects/${projectId}/traces/${traceId}`
+				: traceId,
+			"logging.googleapis.com/spanId": spanContext.spanId,
+			"logging.googleapis.com/trace_sampled": Boolean(
+				spanContext.traceFlags & TraceFlags.SAMPLED,
+			),
+			// Additional context for manual correlation
+			traceId,
+			spanId: spanContext.spanId,
+			traceFlags: spanContext.traceFlags.toString(),
+		};
+	}
+
 	// Core logging methods
 	public trace(message: string, extra?: object): void {
-		this.logger.trace(extra, message);
+		const traceContext = this.getTraceContext();
+		this.logger.trace({ ...traceContext, ...extra }, message);
 	}
 
 	public debug(message: string, extra?: object): void {
-		this.logger.debug(extra, message);
+		const traceContext = this.getTraceContext();
+		this.logger.debug({ ...traceContext, ...extra }, message);
 	}
 
 	public info(message: string, extra?: object): void {
-		this.logger.info(extra, message);
+		const traceContext = this.getTraceContext();
+		this.logger.info({ ...traceContext, ...extra }, message);
 	}
 
 	public warn(message: string, extra?: object): void {
-		this.logger.warn(extra, message);
+		const traceContext = this.getTraceContext();
+		this.logger.warn({ ...traceContext, ...extra }, message);
 	}
 
 	public error(message: string, error?: Error | object): void {
+		const traceContext = this.getTraceContext();
 		if (error instanceof Error) {
-			this.logger.error({ err: error }, message);
+			this.logger.error({ ...traceContext, err: error }, message);
 		} else {
-			this.logger.error(error, message);
+			this.logger.error({ ...traceContext, ...error }, message);
 		}
 	}
 
 	public fatal(message: string, error?: Error | object): void {
+		const traceContext = this.getTraceContext();
 		if (error instanceof Error) {
-			this.logger.fatal({ err: error }, message);
+			this.logger.fatal({ ...traceContext, err: error }, message);
 		} else {
-			this.logger.fatal(error, message);
+			this.logger.fatal({ ...traceContext, ...error }, message);
 		}
 	}
 

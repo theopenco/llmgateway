@@ -1,7 +1,8 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { db } from "@llmgateway/db";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+
+import { db } from "@llmgateway/db";
 
 import type { ServerTypes } from "../vars";
 

@@ -32,11 +32,11 @@ import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect } from "react";
 
-import { OrganizationSwitcher } from "./organization-switcher";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";
+import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
 import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import {
@@ -72,6 +72,8 @@ import {
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
+
+import { OrganizationSwitcher } from "./organization-switcher";
 
 import type { Organization, User } from "@/lib/types";
 import type { LucideIcon } from "lucide-react";
@@ -722,6 +724,14 @@ export function DashboardSidebar({
 
 	const logout = async () => {
 		posthog.reset();
+
+		// Clear last used project cookies before signing out
+		try {
+			await clearLastUsedProjectCookiesAction();
+		} catch (error) {
+			console.error("Failed to clear last used project cookies:", error);
+		}
+
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {
