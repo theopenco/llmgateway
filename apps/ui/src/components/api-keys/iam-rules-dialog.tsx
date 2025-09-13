@@ -345,42 +345,46 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 											</SelectContent>
 										</Select>
 									</div>
-									<div>
-										<Label htmlFor="maxInputPrice">
-											Max Input Price ($/M tokens)
-										</Label>
-										<Input
-											id="maxInputPrice"
-											type="number"
-											step="0.000001"
-											value={newRule.maxInputPrice}
-											onChange={(e) =>
-												setNewRule((prev) => ({
-													...prev,
-													maxInputPrice: e.target.value,
-												}))
-											}
-											placeholder="0.002500"
-										/>
-									</div>
-									<div>
-										<Label htmlFor="maxOutputPrice">
-											Max Output Price ($/M tokens)
-										</Label>
-										<Input
-											id="maxOutputPrice"
-											type="number"
-											step="0.000001"
-											value={newRule.maxOutputPrice}
-											onChange={(e) =>
-												setNewRule((prev) => ({
-													...prev,
-													maxOutputPrice: e.target.value,
-												}))
-											}
-											placeholder="0.010000"
-										/>
-									</div>
+									{newRule.pricingType !== "free" && (
+										<>
+											<div>
+												<Label htmlFor="maxInputPrice">
+													Max Input Price ($/M tokens)
+												</Label>
+												<Input
+													id="maxInputPrice"
+													type="number"
+													step="0.000001"
+													value={newRule.maxInputPrice}
+													onChange={(e) =>
+														setNewRule((prev) => ({
+															...prev,
+															maxInputPrice: e.target.value,
+														}))
+													}
+													placeholder="0.002500"
+												/>
+											</div>
+											<div>
+												<Label htmlFor="maxOutputPrice">
+													Max Output Price ($/M tokens)
+												</Label>
+												<Input
+													id="maxOutputPrice"
+													type="number"
+													step="0.000001"
+													value={newRule.maxOutputPrice}
+													onChange={(e) =>
+														setNewRule((prev) => ({
+															...prev,
+															maxOutputPrice: e.target.value,
+														}))
+													}
+													placeholder="0.010000"
+												/>
+											</div>
+										</>
+									)}
 								</>
 							)}
 						</div>
