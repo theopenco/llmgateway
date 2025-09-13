@@ -1,6 +1,7 @@
+import { HTTPException } from "hono/http-exception";
+
 import { db } from "@llmgateway/db";
 import { models, type ModelDefinition } from "@llmgateway/models";
-import { HTTPException } from "hono/http-exception";
 
 export interface IamRule {
 	id: string;

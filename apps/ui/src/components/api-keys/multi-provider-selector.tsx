@@ -1,6 +1,5 @@
 "use client";
 
-import { providers } from "@llmgateway/models";
 import { Check, ChevronDown, X } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 
@@ -14,6 +13,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
 import { Input } from "@/lib/components/input";
+
+import { providers } from "@llmgateway/models";
 
 import type { ProviderId } from "@llmgateway/models";
 

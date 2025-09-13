@@ -1,11 +1,5 @@
 "use client";
 
-import {
-	models,
-	providers,
-	type ModelDefinition,
-	type StabilityLevel,
-} from "@llmgateway/models";
 import { Check, ChevronDown, AlertTriangle, X } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 
@@ -18,6 +12,13 @@ import {
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
 import { Input } from "@/lib/components/input";
+
+import {
+	models,
+	providers,
+	type ModelDefinition,
+	type StabilityLevel,
+} from "@llmgateway/models";
 
 interface MultiModelSelectorProps {
 	selectedModels: string[];
