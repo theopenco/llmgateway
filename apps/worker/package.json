@@ -17,6 +17,7 @@
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
 		"stripe": "18.1.1",
 		"zod": "3.25.75"
 	},

@@ -75,6 +75,7 @@ COPY packages/models/package.json ./packages/models/
 COPY packages/logger/package.json ./packages/logger/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/instrumentation/package.json ./packages/instrumentation/
+COPY packages/shared/package.json ./packages/shared/
 
 RUN pnpm install --frozen-lockfile
 
