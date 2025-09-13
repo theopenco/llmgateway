@@ -5,7 +5,6 @@ import { useMemo, useCallback } from "react";
 
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
-import { lastUsedProjectClient } from "@/lib/last-used-project";
 
 import type { Organization, Project } from "@/lib/types";
 
@@ -119,9 +118,6 @@ export function useDashboardState({
 	const handleProjectSelect = useCallback(
 		(project: Project | null) => {
 			if (project?.id) {
-				// Set the last used project in cookie for this organization
-				lastUsedProjectClient.set(project.organizationId, project.id);
-
 				// Extract the current page from pathname (e.g., 'api-keys', 'provider-keys', etc.)
 				const pathParts = pathname.split("/");
 				const currentPage = pathParts[4]; // /dashboard/[orgId]/[projectId]/[page]

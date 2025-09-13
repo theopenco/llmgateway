@@ -13,7 +13,7 @@ export async function setLastUsedProjectAction(
 ): Promise<void> {
 	const cookieStore = await cookies();
 	cookieStore.set(`${COOKIE_NAME}-${orgId}`, projectId, {
-		httpOnly: false, // Allow client-side access for navigation
+		httpOnly: true, // Secure HTTP-only cookie
 		secure: process.env.NODE_ENV === "production",
 		sameSite: "lax",
 		maxAge: 60 * 60 * 24 * 30, // 30 days
