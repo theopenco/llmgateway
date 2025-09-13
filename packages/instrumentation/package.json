@@ -30,8 +30,6 @@
 		"hono": "^4.6.15"
 	},
 	"devDependencies": {
-		"@types/node": "^24.3.1",
-		"tsup": "8.4.0",
-		"typescript": "5.8.3"
+		"@types/node": "^24.3.1"
 	}
 }
