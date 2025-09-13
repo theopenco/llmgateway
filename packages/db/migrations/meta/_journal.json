@@ -309,6 +309,20 @@
       "when": 1757597432107,
       "tag": "1757597432_worthless_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1757775865855,
+      "tag": "1757775865_lonely_klaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1757781896380,
+      "tag": "1757781896_public_kat_farrell",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+CREATE INDEX "api_key_iam_rule_api_key_id_status_idx" ON "api_key_iam_rule" USING btree ("api_key_id","status");

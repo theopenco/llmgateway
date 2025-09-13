@@ -8,6 +8,8 @@
 		"index",
 		"quick-start",
 		"self-host",
+		"---Dashboard---",
+		"features/api-keys",
 		"---Features---",
 		"features/routing",
 		"features/source",

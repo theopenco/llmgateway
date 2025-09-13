@@ -114,6 +114,10 @@ export function CreateApiKeyDialog({
 								<span className="block mt-1">
 									Project: {selectedProject.name}
 								</span>
+								<span className="block mt-2 text-xs">
+									💡 After creation, you can configure IAM rules to control
+									access to specific models, providers, or pricing tiers.
+								</span>
 							</DialogDescription>
 						</DialogHeader>
 						<form onSubmit={handleSubmit} className="space-y-4 py-4">
@@ -180,6 +184,10 @@ export function CreateApiKeyDialog({
 							<DialogDescription>
 								Your API key has been created. Please copy it now as you won't
 								be able to see it again.
+								<span className="block mt-2 text-xs">
+									💡 You can now configure IAM rules for this key to control
+									model access from the API Keys page.
+								</span>
 							</DialogDescription>
 						</DialogHeader>
 						<div className="space-y-4 py-4">

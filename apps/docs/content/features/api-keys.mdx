@@ -1,0 +1,128 @@
+---
+title: API Keys & IAM Rules
+description: Comprehensive guide to API key management and Identity Access Management (IAM) rules for fine-grained access control
+icon: Key
+---
+
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+import { Callout } from "fumadocs-ui/components/callout";
+
+# API Keys & IAM Rules
+
+API keys are the primary method for authenticating with the LLM Gateway. This guide covers creating API keys, managing them, and configuring IAM rules for fine-grained access control.
+
+## Overview
+
+LLM Gateway provides comprehensive API key management with the following features:
+
+- **Basic API Key Management**: Create, list, update, and delete API keys
+- **Usage Limits**: Set spending limits on individual API keys
+- **IAM Rules**: Fine-grained access control for models, providers, and pricing
+- **Usage Tracking**: Monitor API key usage and costs
+- **Status Management**: Enable/disable keys without deletion
+
+## Creating API Keys
+
+### Via Dashboard
+
+At this time, API keys can only be created via the dashboard.
+
+1. Navigate to your project in the LLM Gateway dashboard
+2. Go to the **API Keys** section
+3. Click **Create API Key**
+4. Provide a description for your key
+5. Optionally set a usage limit
+6. Click **Create**
+
+<Callout type="warning">
+	API keys are shown in full only once during creation. Make sure to copy and
+	store them securely.
+</Callout>
+
+## Using API Keys
+
+Once you have an API key, use it in the `Authorization` header of your requests:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer llmgtwy_your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+## API Key Management
+
+## Disabling/Enabling API Keys
+
+You can disable an API key to stop it from being used, but the key is not deleted and can be re-enabled later.
+
+## Usage Limits
+
+Usage is tracked per API key which is shown on the API Keys page. Usage includes both costs from LLM Gateway credits and usage from your own provider keys when applicable, giving you complete visibility into total spending per key.
+
+You can set a maximum usage limit for each API key. When the limit is reached, requests using that key will return an error.
+
+## IAM Rules
+
+IAM (Identity Access Management) rules provide fine-grained access control over what models, providers, and pricing tiers an API key can access.
+
+### Rule Types
+
+#### Model Access Rules
+
+Control access to specific models:
+
+- **Allow Models**: Only allow access to specific models
+- **Deny Models**: Block access to specific models
+
+#### Provider Access Rules
+
+Control access to specific providers:
+
+- **Allow Providers**: Only allow access to specific providers
+- **Deny Providers**: Block access to specific providers
+
+#### Pricing Rules
+
+Control access based on model pricing:
+
+- **Allow Pricing**: Set constraints on what pricing tiers are allowed
+- **Deny Pricing**: Block specific pricing tiers
+- **Free vs Paid**: Allow or deny access to free vs paid models
+
+## Error Handling
+
+When API keys encounter IAM rule violations, the API returns specific error messages:
+
+```json
+{
+	"error": true,
+	"status": 403,
+	"message": "Access denied: Model gpt-4 is not in the allowed models list"
+}
+```
+
+Common error scenarios:
+
+- Model not allowed by IAM rules
+- Provider blocked by IAM rules
+- Pricing limits exceeded
+- API key disabled or deleted
+- Usage limit reached
+
+## Migration from Legacy Keys
+
+If you have existing API keys without IAM rules:
+
+1. **Backward Compatibility**: Existing keys continue to work without restrictions
+2. **Gradual Migration**: Add IAM rules incrementally
+3. **Testing**: Test IAM rules in development before applying to production
+4. **Monitoring**: Monitor for access denied errors after implementing rules
+
+<Callout type="info">
+	API keys without IAM rules have unrestricted access to all models and
+	providers.
+</Callout>
