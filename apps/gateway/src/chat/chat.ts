@@ -44,6 +44,7 @@ import {
 	setStreamingCache,
 } from "../lib/cache";
 import { calculateCosts } from "../lib/costs";
+import { throwIamException, validateModelAccess } from "../lib/iam";
 import { insertLog } from "../lib/logs";
 import {
 	getProviderEnvVar,
@@ -2291,6 +2292,16 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
+	}
+
+	// Validate IAM rules for model access
+	const iamValidation = await validateModelAccess(
+		apiKey.id,
+		requestedModel,
+		requestedProvider,
+	);
+	if (!iamValidation.allowed) {
+		throwIamException(iamValidation.reason!);
 	}
 
 	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode

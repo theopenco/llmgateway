@@ -9,6 +9,7 @@
 		"quick-start",
 		"self-host",
 		"---Features---",
+		"features/api-keys",
 		"features/routing",
 		"features/source",
 		"features/image-generation",

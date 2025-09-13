@@ -1,7 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { EditIcon, KeyIcon, MoreHorizontal, PlusIcon } from "lucide-react";
+import {
+	EditIcon,
+	KeyIcon,
+	MoreHorizontal,
+	PlusIcon,
+	Shield,
+} from "lucide-react";
 
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
+import { IamRulesDialog } from "./iam-rules-dialog";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -391,6 +398,13 @@ export function ApiKeysList({
 										</DropdownMenuTrigger>
 										<DropdownMenuContent align="end">
 											<DropdownMenuLabel>Actions</DropdownMenuLabel>
+											<IamRulesDialog apiKey={key}>
+												<DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+													<Shield className="mr-2 h-4 w-4" />
+													Manage IAM Rules
+												</DropdownMenuItem>
+											</IamRulesDialog>
+											<DropdownMenuSeparator />
 											<DropdownMenuItem
 												onClick={() => toggleStatus(key.id, key.status)}
 											>
@@ -470,6 +484,13 @@ export function ApiKeysList({
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
 									<DropdownMenuLabel>Actions</DropdownMenuLabel>
+									<IamRulesDialog apiKey={key}>
+										<DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+											<Shield className="mr-2 h-4 w-4" />
+											Manage IAM Rules
+										</DropdownMenuItem>
+									</IamRulesDialog>
+									<DropdownMenuSeparator />
 									<DropdownMenuItem
 										onClick={() => toggleStatus(key.id, key.status)}
 									>
