@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 
 import Footer from "@/components/landing/footer";
-
 import type { ChangelogFrontmatter } from "@/lib/utils/markdown";
 
 interface ChangelogComponentProps {

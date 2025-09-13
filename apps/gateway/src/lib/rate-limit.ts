@@ -1,6 +1,5 @@
 import { getOrganization, redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
-
 import type { ModelDefinition } from "@llmgateway/models";
 
 /**

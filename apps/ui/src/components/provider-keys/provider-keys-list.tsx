@@ -1,10 +1,8 @@
 "use client";
 
-import { providers } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyIcon, MoreHorizontal } from "lucide-react";
 
-import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
 import { ProviderIcons } from "@/components/ui/providers-icons";
 import {
 	AlertDialog,
@@ -29,8 +27,11 @@ import {
 } from "@/lib/components/dropdown-menu";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-
 import type { Organization } from "@/lib/types";
+
+import { providers } from "@llmgateway/models";
+
+import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
 
 interface ProviderKeysListProps {
 	selectedOrganization: Organization | null;

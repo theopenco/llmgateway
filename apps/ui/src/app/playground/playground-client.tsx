@@ -1,6 +1,5 @@
 "use client";
 
-import { getModelStreamingSupport } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -23,6 +22,8 @@ import { Alert, AlertDescription } from "@/lib/components/alert";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { getModelStreamingSupport } from "@llmgateway/models";
 
 export interface Message {
 	id: string;

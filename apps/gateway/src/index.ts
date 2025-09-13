@@ -1,11 +1,14 @@
+// eslint-disable-next-line import/order
+import "dotenv/config";
+
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { HTTPException } from "hono/http-exception";
+import { z } from "zod";
+
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import "dotenv/config";
-import { HTTPException } from "hono/http-exception";
-import { z } from "zod";
 
 import { chat } from "./chat/chat";
 import { tracingMiddleware } from "./middleware/tracing";

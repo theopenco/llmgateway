@@ -1,10 +1,8 @@
 "use client";
 
-import { models, providers } from "@llmgateway/models";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-import { LogCard } from "../dashboard/log-card";
 import {
 	type DateRange,
 	DateRangeSelect,
@@ -21,6 +19,9 @@ import {
 import { useApi } from "@/lib/fetch-client";
 
 import type { Log } from "@llmgateway/db";
+import { models, providers } from "@llmgateway/models";
+
+import { LogCard } from "../dashboard/log-card";
 
 const UnifiedFinishReason = {
 	COMPLETED: "completed",

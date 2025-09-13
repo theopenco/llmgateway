@@ -23,7 +23,6 @@ import {
 	TabsList,
 	TabsTrigger,
 } from "@/lib/components/tabs";
-
 import type { ActivitT } from "@/types/activity";
 
 interface UsageClientProps {

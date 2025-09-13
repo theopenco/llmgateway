@@ -11,10 +11,10 @@ vi.mock("@llmgateway/logger", () => ({
 
 vi.mock("@opentelemetry/sdk-node", () => ({
 	NodeSDK: class MockNodeSDK {
-		start() {
+		public start() {
 			return Promise.resolve();
 		}
-		shutdown() {
+		public shutdown() {
 			return Promise.resolve();
 		}
 	},
@@ -33,7 +33,7 @@ vi.mock("@opentelemetry/sdk-trace-base", async () => {
 	return {
 		...actual,
 		BatchSpanProcessor: class MockBatchSpanProcessor {
-			forceFlush() {
+			public forceFlush() {
 				return Promise.resolve();
 			}
 		},
@@ -41,7 +41,7 @@ vi.mock("@opentelemetry/sdk-trace-base", async () => {
 });
 
 // Import after mocking
-const { initializeInstrumentation } = await import("./index.js");
+const { initializeInstrumentation } = await import(".");
 
 describe("HeaderBasedForceSampler", () => {
 	beforeEach(() => {

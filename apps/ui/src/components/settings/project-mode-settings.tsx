@@ -20,7 +20,6 @@ import { Separator } from "@/lib/components/separator";
 import { useToast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
-
 import type { ProjectModeSettingsData } from "@/types/settings";
 
 const projectModeFormSchema = z.object({

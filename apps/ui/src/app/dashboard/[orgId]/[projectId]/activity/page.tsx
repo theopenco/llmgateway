@@ -1,7 +1,6 @@
 import { RecentLogs } from "@/components/activity/recent-logs";
 import { Card, CardContent } from "@/lib/components/card";
 import { fetchServerData } from "@/lib/server-api";
-
 import type { LogsData } from "@/types/activity";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies

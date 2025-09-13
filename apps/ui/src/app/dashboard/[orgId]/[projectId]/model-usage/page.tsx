@@ -3,7 +3,6 @@ import Link from "next/link";
 import { ActivityChart } from "@/components/dashboard/activity-chart";
 import { Button } from "@/lib/components/button";
 import { fetchServerData } from "@/lib/server-api";
-
 import type { ActivitT } from "@/types/activity";
 
 export const dynamic = "force-dynamic";

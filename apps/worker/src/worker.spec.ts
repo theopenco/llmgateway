@@ -1,5 +1,6 @@
-import { db, tables } from "@llmgateway/db";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
+
+import { db, tables } from "@llmgateway/db";
 
 import { acquireLock } from "./worker";
 

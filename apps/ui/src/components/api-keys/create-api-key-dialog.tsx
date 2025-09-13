@@ -18,8 +18,8 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-
 import type { Project } from "@/lib/types";
+
 import type React from "react";
 
 interface CreateApiKeyDialogProps {

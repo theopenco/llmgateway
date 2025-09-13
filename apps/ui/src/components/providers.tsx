@@ -8,8 +8,8 @@ import { useMemo, useEffect } from "react";
 
 import { Toaster } from "@/lib/components/toaster";
 import { AppConfigProvider } from "@/lib/config";
-
 import type { AppConfig } from "@/lib/config-server";
+
 import type { PostHogConfig } from "posthog-js";
 import type { ReactNode } from "react";
 

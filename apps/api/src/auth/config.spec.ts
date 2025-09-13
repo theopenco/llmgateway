@@ -1,5 +1,6 @@
-import { db, tables } from "@llmgateway/db";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+
+import { db, tables } from "@llmgateway/db";
 
 import { apiAuth, redisClient } from "./config";
 

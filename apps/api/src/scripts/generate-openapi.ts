@@ -1,5 +1,6 @@
-import { logger } from "@llmgateway/logger";
 import { writeFileSync } from "fs";
+
+import { logger } from "@llmgateway/logger";
 
 import { app, config } from "..";
 

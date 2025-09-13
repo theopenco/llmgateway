@@ -32,7 +32,6 @@ import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect } from "react";
 
-import { OrganizationSwitcher } from "./organization-switcher";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -72,9 +71,11 @@ import {
 } from "@/lib/components/sidebar";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
+import type { Organization, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import type { Organization, User } from "@/lib/types";
+import { OrganizationSwitcher } from "./organization-switcher";
+
 import type { LucideIcon } from "lucide-react";
 
 // Configuration

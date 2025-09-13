@@ -1,7 +1,6 @@
 import { ChevronsUpDown, Check, PlusCircle } from "lucide-react";
 import { useState } from "react";
 
-import { NewProjectDialog } from "./new-project-dialog";
 import { Button } from "@/lib/components/button";
 import {
 	DropdownMenu,
@@ -12,8 +11,9 @@ import {
 	DropdownMenuTrigger,
 	DropdownMenuGroup,
 } from "@/lib/components/dropdown-menu";
-
 import type { Project, Organization } from "@/lib/types";
+
+import { NewProjectDialog } from "./new-project-dialog";
 
 interface ProjectSwitcherProps {
 	projects: Project[];

@@ -5,7 +5,6 @@ import { useMemo, useCallback } from "react";
 
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
-
 import type { Organization, Project } from "@/lib/types";
 
 interface UseDashboardStateProps {

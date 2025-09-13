@@ -1,6 +1,5 @@
 import { UsageClient } from "@/components/usage/usage-client";
 import { fetchServerData } from "@/lib/server-api";
-
 import type { ActivitT } from "@/types/activity";
 
 // Force dynamic rendering since this page uses server-side data fetching with cookies

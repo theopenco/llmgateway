@@ -1,10 +1,4 @@
 import {
-	models as modelDefinitions,
-	providers as providerDefinitions,
-	type StabilityLevel,
-	type ModelDefinition,
-} from "@llmgateway/models";
-import {
 	AlertTriangle,
 	Play,
 	Zap,
@@ -22,6 +16,13 @@ import { CopyModelName } from "@/components/models/copy-model-name";
 import { ProviderCard } from "@/components/models/provider-card";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
+
+import {
+	models as modelDefinitions,
+	providers as providerDefinitions,
+	type StabilityLevel,
+	type ModelDefinition,
+} from "@llmgateway/models";
 
 interface PageProps {
 	params: Promise<{ name: string }>;

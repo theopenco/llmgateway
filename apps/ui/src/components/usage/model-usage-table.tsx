@@ -15,7 +15,6 @@ import {
 } from "@/lib/components/table";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
-
 import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
 type SortColumn = "id" | "provider" | "requestCount" | "totalTokens";

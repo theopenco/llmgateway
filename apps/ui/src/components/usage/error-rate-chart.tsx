@@ -13,7 +13,6 @@ import {
 
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
-
 import type { ActivitT } from "@/types/activity";
 
 interface ErrorRateChartProps {

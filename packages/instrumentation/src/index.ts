@@ -1,6 +1,5 @@
 import { TraceExporter } from "@google-cloud/opentelemetry-cloud-trace-exporter";
 import { CloudPropagator } from "@google-cloud/opentelemetry-cloud-trace-propagator";
-import { createLogger } from "@llmgateway/logger";
 import { trace } from "@opentelemetry/api";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { CompositePropagator } from "@opentelemetry/core";
@@ -15,6 +14,8 @@ import {
 	TraceIdRatioBasedSampler,
 	SamplingDecision,
 } from "@opentelemetry/sdk-trace-base";
+
+import { createLogger } from "@llmgateway/logger";
 
 import type { Attributes, Context, SpanKind, Link } from "@opentelemetry/api";
 import type { Sampler, SamplingResult } from "@opentelemetry/sdk-trace-base";

@@ -1,6 +1,5 @@
 "use client";
 
-import { models, providers } from "@llmgateway/models";
 import {
 	Check,
 	Copy,
@@ -63,6 +62,7 @@ import {
 } from "@/lib/components/tooltip";
 import { cn, formatContextSize } from "@/lib/utils";
 
+import { models, providers } from "@llmgateway/models";
 import type {
 	ModelDefinition,
 	ProviderModelMapping,

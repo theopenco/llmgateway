@@ -1,6 +1,5 @@
 "use client";
 
-import { providers as defaultProviders } from "@llmgateway/models";
 // import { Edit, MoreHorizontal, Trash } from "lucide-react";
 import { useState } from "react";
 // import { toast } from "sonner";
@@ -35,6 +34,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/lib/components/table";
+
+import { providers as defaultProviders } from "@llmgateway/models";
 
 export function ProvidersList() {
 	const [providersList, _setProvidersList] = useState(() =>

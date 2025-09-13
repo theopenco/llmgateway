@@ -1,4 +1,3 @@
-import { logger } from "@llmgateway/logger";
 import {
 	trace,
 	SpanKind,
@@ -7,6 +6,8 @@ import {
 	propagation,
 } from "@opentelemetry/api";
 import { createMiddleware } from "hono/factory";
+
+import { logger } from "@llmgateway/logger";
 
 import type { Attributes } from "@opentelemetry/api";
 import type { Context } from "hono";

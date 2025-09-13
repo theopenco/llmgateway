@@ -1,7 +1,6 @@
 import { ChevronsUpDown, Check, PlusCircle } from "lucide-react";
 import { useState } from "react";
 
-import { NewOrganizationDialog } from "./new-organization-dialog";
 import { Button } from "@/lib/components/button";
 import {
 	DropdownMenu,
@@ -11,8 +10,9 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
-
 import type { Organization } from "@/lib/types";
+
+import { NewOrganizationDialog } from "./new-organization-dialog";
 
 interface OrganizationSwitcherProps {
 	organizations: Organization[];
