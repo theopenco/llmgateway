@@ -138,6 +138,18 @@ chat.openapi(completionRoute, async (c) => {
 			// Handle non-streaming response
 			const responseData = await response.json();
 
+			// Check if the response contains an error
+			if (responseData.error) {
+				logger.error("Gateway returned error", {
+					requestedModel: model,
+					usedModel: responseData.model || "unknown",
+					usedProvider: responseData.provider || "unknown",
+					error: responseData.error,
+					responseData,
+				});
+				throw new Error(responseData.error);
+			}
+
 			// Validate response structure
 			if (
 				!responseData.choices ||
