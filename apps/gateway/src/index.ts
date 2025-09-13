@@ -199,7 +199,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
 v1.route("/models", models);
-v1.route("/anthropic", anthropic);
+v1.route("/messages", anthropic);
 
 app.route("/v1", v1);
 
