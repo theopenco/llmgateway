@@ -94,6 +94,15 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
 
 # Copy package files and install dependencies
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/ui/package.json ./apps/ui/
+COPY apps/docs/package.json ./apps/docs/
+COPY packages/db/package.json ./packages/db/
+COPY packages/models/package.json ./packages/models/
+COPY packages/logger/package.json ./packages/logger/
+COPY packages/cache/package.json ./packages/cache/
+COPY packages/instrumentation/package.json ./packages/instrumentation/
 
 RUN pnpm install --frozen-lockfile
 
