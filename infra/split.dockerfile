@@ -116,7 +116,7 @@ EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 ENV TELEMETRY_ACTIVE=true
-CMD ["pnpm", "start"]
+CMD ["node", "--enable-source-maps", "dist/serve.js"]
 
 FROM runtime AS gateway
 WORKDIR /app/temp
@@ -129,7 +129,7 @@ WORKDIR /app/dist/gateway
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["node", "--enable-source-maps", "dist/serve.js"]
 
 FROM runtime AS ui
 WORKDIR /app/temp
@@ -142,7 +142,7 @@ WORKDIR /app/dist/ui
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["./node_modules/.bin/next", "start"]
 
 FROM runtime AS worker
 WORKDIR /app/temp
@@ -166,4 +166,4 @@ WORKDIR /app/dist/docs
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["./node_modules/.bin/next", "start", "-H", "0.0.0.0"]
