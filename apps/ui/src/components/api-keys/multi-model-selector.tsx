@@ -139,15 +139,26 @@ export function MultiModelSelector({
 		};
 	});
 
-	const filteredModels = useMemo(
-		() =>
-			uniqueModels.filter((model) =>
-				(model.name || model.id)
-					.toLowerCase()
-					.includes(searchTerm.toLowerCase()),
-			),
-		[searchTerm],
-	);
+	const normalizeString = (str: string) =>
+		str.toLowerCase().replace(/[\s-_]/g, "");
+
+	const filteredModels = useMemo(() => {
+		if (!searchTerm) {
+			return uniqueModels;
+		}
+
+		const normalizedSearch = normalizeString(searchTerm);
+
+		return uniqueModels.filter((model) => {
+			const modelId = normalizeString(model.id);
+			const modelName = normalizeString(model.name || "");
+
+			return (
+				modelId.includes(normalizedSearch) ||
+				modelName.includes(normalizedSearch)
+			);
+		});
+	}, [searchTerm]);
 
 	const handleModelToggle = useCallback(
 		(modelId: string) => {

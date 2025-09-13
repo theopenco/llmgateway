@@ -30,13 +30,26 @@ export function MultiProviderSelector({
 }: MultiProviderSelectorProps) {
 	const [searchTerm, setSearchTerm] = useState("");
 
-	const filteredProviders = useMemo(
-		() =>
-			providers.filter((provider) =>
-				provider.name.toLowerCase().includes(searchTerm.toLowerCase()),
-			),
-		[searchTerm],
-	);
+	const normalizeString = (str: string) =>
+		str.toLowerCase().replace(/[\s-_]/g, "");
+
+	const filteredProviders = useMemo(() => {
+		if (!searchTerm) {
+			return providers;
+		}
+
+		const normalizedSearch = normalizeString(searchTerm);
+
+		return providers.filter((provider) => {
+			const providerId = normalizeString(provider.id);
+			const providerName = normalizeString(provider.name);
+
+			return (
+				providerId.includes(normalizedSearch) ||
+				providerName.includes(normalizedSearch)
+			);
+		});
+	}, [searchTerm]);
 
 	const handleProviderToggle = useCallback(
 		(providerId: string) => {
