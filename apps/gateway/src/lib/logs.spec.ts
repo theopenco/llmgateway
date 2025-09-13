@@ -1,5 +1,6 @@
-import { UnifiedFinishReason } from "@llmgateway/db";
 import { describe, expect, it } from "vitest";
+
+import { UnifiedFinishReason } from "@llmgateway/db";
 
 import { getUnifiedFinishReason } from "./logs";
 

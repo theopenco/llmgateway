@@ -1,3 +1,6 @@
+import "dotenv/config";
+import { beforeEach, describe, expect, test } from "vitest";
+
 import { db, tables, eq } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -5,8 +8,6 @@ import {
 	type ProviderModelMapping,
 	providers,
 } from "@llmgateway/models";
-import "dotenv/config";
-import { beforeEach, describe, expect, test } from "vitest";
 
 import { app } from ".";
 import {

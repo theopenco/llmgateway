@@ -1,5 +1,4 @@
 "use client";
-import { providers } from "@llmgateway/models";
 import { useSearchParams } from "next/navigation";
 import {
 	Cell,
@@ -12,6 +11,8 @@ import {
 
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+
+import { providers } from "@llmgateway/models";
 
 import type { ActivitT } from "@/types/activity";
 

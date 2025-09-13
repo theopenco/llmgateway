@@ -1,4 +1,6 @@
+// eslint-disable-next-line import/order
 import "./globals.css";
+
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 

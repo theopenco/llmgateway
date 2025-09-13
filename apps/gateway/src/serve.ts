@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+
 import { redisClient } from "@llmgateway/cache";
 import { closeDatabase } from "@llmgateway/db";
 import {
@@ -7,8 +8,7 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
-import { app } from "./index";
-import { startWorker, stopWorker } from "./worker";
+import { app } from ".";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
@@ -30,8 +30,6 @@ async function startServer() {
 	}
 
 	logger.info("Server starting", { port });
-
-	void startWorker();
 
 	return serve({
 		port,
@@ -65,10 +63,6 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	});
 
 	try {
-		logger.info("Stopping worker");
-		await stopWorker();
-		logger.info("Worker stopped successfully");
-
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");

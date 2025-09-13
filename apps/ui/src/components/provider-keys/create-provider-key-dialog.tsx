@@ -1,10 +1,8 @@
 "use client";
-import { providers } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePostHog } from "posthog-js/react";
 import React, { useState } from "react";
 
-import { ProviderSelect } from "./provider-select";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Badge } from "@/lib/components/badge";
@@ -23,6 +21,10 @@ import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { providers } from "@llmgateway/models";
+
+import { ProviderSelect } from "./provider-select";
 
 import type { Organization } from "@/lib/types";
 

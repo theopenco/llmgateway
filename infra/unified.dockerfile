@@ -3,6 +3,7 @@ FROM debian:12-slim
 # Install base dependencies and runtime requirements
 # Add PostgreSQL 17 official repository
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
     wget \
     ca-certificates \
     gnupg \
@@ -94,14 +95,16 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
 # Copy package files and install dependencies
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
+COPY apps/docs/package.json ./apps/docs/
 COPY apps/gateway/package.json ./apps/gateway/
 COPY apps/ui/package.json ./apps/ui/
-COPY apps/docs/package.json ./apps/docs/
+COPY apps/worker/package.json ./apps/worker/
 COPY packages/db/package.json ./packages/db/
 COPY packages/models/package.json ./packages/models/
 COPY packages/logger/package.json ./packages/logger/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/instrumentation/package.json ./packages/instrumentation/
+COPY packages/shared/package.json ./packages/shared/
 
 RUN pnpm install --frozen-lockfile
 
@@ -124,6 +127,7 @@ RUN mkdir -p /app/services /var/log/supervisor /var/log/postgresql /run/postgres
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
     pnpm --filter=gateway --prod deploy /app/services/gateway && \
+    pnpm --filter=worker --prod deploy /app/services/worker && \
     pnpm --filter=ui --prod deploy /app/services/ui && \
     pnpm --filter=docs --prod deploy /app/services/docs
 

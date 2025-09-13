@@ -1,9 +1,3 @@
-import { db, tables } from "@llmgateway/db";
-import {
-	models,
-	type ProviderModelMapping,
-	providers,
-} from "@llmgateway/models";
 import "dotenv/config";
 import {
 	afterEach,
@@ -13,6 +7,13 @@ import {
 	test,
 	type TestOptions,
 } from "vitest";
+
+import { db, tables } from "@llmgateway/db";
+import {
+	models,
+	type ProviderModelMapping,
+	providers,
+} from "@llmgateway/models";
 
 import { app } from "..";
 import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";

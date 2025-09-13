@@ -1,7 +1,8 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { logger } from "@llmgateway/logger";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+
+import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "../vars";
 

@@ -1,0 +1,26 @@
+{
+	"name": "@llmgateway/shared",
+	"version": "1.0.0",
+	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist/"
+	],
+	"scripts": {
+		"build": "tsc && tsup"
+	},
+	"dependencies": {
+		"zod": "3.25.75"
+	}
+}

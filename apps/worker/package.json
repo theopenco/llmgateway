@@ -1,0 +1,25 @@
+{
+	"name": "worker",
+	"version": "1.0.0",
+	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"type": "module",
+	"files": [
+		"dist/"
+	],
+	"scripts": {
+		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup",
+		"dev": "nodemon -e ts,json --exec \"tsx src/index.ts\"",
+		"start": "node --enable-source-maps dist/index.js"
+	},
+	"dependencies": {
+		"@llmgateway/cache": "workspace:*",
+		"@llmgateway/db": "workspace:*",
+		"@llmgateway/logger": "workspace:*",
+		"@llmgateway/models": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
+		"stripe": "18.1.1",
+		"zod": "3.25.75"
+	},
+	"devDependencies": {}
+}

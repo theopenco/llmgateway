@@ -21,6 +21,7 @@
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.205.0",
 		"bcrypt-ts": "7.0.0",
