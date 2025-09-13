@@ -1,4 +1,4 @@
-import { trace, propagation, context } from "@opentelemetry/api";
+import { trace, propagation, context, SpanKind } from "@opentelemetry/api";
 
 export interface HttpClientOptions {
 	method?: string;
@@ -13,10 +13,21 @@ export async function httpClient(
 ): Promise<Response> {
 	const { method = "GET", headers = {}, body, timeout = 30000 } = options;
 
-	// Inject trace context into headers
-	const activeContext = context.active();
+	// Start the client span first
+	const tracer = trace.getTracer("llmgateway-api");
+	const span = tracer.startSpan(`HTTP ${method} ${new URL(url).pathname}`, {
+		kind: SpanKind.CLIENT,
+		attributes: {
+			"http.method": method,
+			"http.url": url,
+			"http.client": "api-http-client",
+		},
+	});
+
+	// Create context with the client span and inject trace context into headers
+	const spanContext = trace.setSpan(context.active(), span);
 	const traceHeaders: Record<string, string> = {};
-	propagation.inject(activeContext, traceHeaders);
+	propagation.inject(spanContext, traceHeaders);
 
 	const fetchHeaders = {
 		"Content-Type": "application/json",
@@ -34,17 +45,11 @@ export async function httpClient(
 		fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
 	}
 
-	const tracer = trace.getTracer("llmgateway-api");
-	const span = tracer.startSpan(`HTTP ${method} ${new URL(url).pathname}`, {
-		attributes: {
-			"http.method": method,
-			"http.url": url,
-			"http.client": "api-http-client",
-		},
-	});
-
 	try {
-		const response = await fetch(url, fetchOptions);
+		// Execute the fetch within the span context
+		const response = await context.with(spanContext, () =>
+			fetch(url, fetchOptions),
+		);
 
 		span.setAttributes({
 			"http.status_code": response.status,

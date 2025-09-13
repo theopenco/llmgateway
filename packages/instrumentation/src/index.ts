@@ -16,6 +16,7 @@ import {
 	SamplingDecision,
 } from "@opentelemetry/sdk-trace-base";
 
+import type { Attributes, Context, SpanKind, Link } from "@opentelemetry/api";
 import type { Sampler, SamplingResult } from "@opentelemetry/sdk-trace-base";
 
 const logger = createLogger({ name: "instrumentation" });
@@ -28,12 +29,12 @@ class HeaderBasedForceSampler implements Sampler {
 	}
 
 	public shouldSample(
-		context: any,
+		context: Context,
 		traceId: string,
 		spanName: string,
-		spanKind: any,
-		attributes: any,
-		links: any[],
+		spanKind: SpanKind,
+		attributes: Attributes,
+		links: Link[],
 	): SamplingResult {
 		// Check if force-trace header is present in the attributes
 		// The header should be set as an attribute by the middleware
@@ -110,9 +111,9 @@ export interface InstrumentationConfig {
 	projectId?: string;
 }
 
-export function initializeInstrumentation(
+export async function initializeInstrumentation(
 	config: InstrumentationConfig,
-): NodeSDK {
+): Promise<NodeSDK> {
 	const projectId = config.projectId || process.env.GOOGLE_CLOUD_PROJECT;
 
 	// Use Google Cloud Trace exporter for direct integration
@@ -149,7 +150,7 @@ export function initializeInstrumentation(
 	});
 
 	try {
-		sdk.start();
+		await sdk.start();
 		logger.info(
 			`OpenTelemetry started successfully for project: ${projectId || "(not set)"}, service: ${config.serviceName}`,
 		);
@@ -173,23 +174,21 @@ export function initializeInstrumentation(
 		logger.error("2. Ensure Cloud Trace API is enabled");
 		logger.error("3. Verify service account has Trace Agent role");
 		logger.error("4. Check GOOGLE_APPLICATION_CREDENTIALS is set");
+		throw error;
 	}
 
-	process.on("SIGTERM", () => {
-		// Ensure spans are flushed before shutdown
-		spanProcessor
-			.forceFlush()
-			.then(() => sdk.shutdown())
-			.then(() => {
-				logger.info("Tracing terminated and spans flushed");
-			})
-			.catch((error) => {
-				logger.error("Error terminating tracing", error as Error);
-			})
-			.finally(() => process.exit(0));
-	});
-
 	return sdk;
+}
+
+export async function shutdownInstrumentation(sdk: NodeSDK): Promise<void> {
+	try {
+		logger.info("Shutting down OpenTelemetry SDK");
+		await sdk.shutdown();
+		logger.info("OpenTelemetry SDK shut down successfully");
+	} catch (error) {
+		logger.error("Error shutting down OpenTelemetry SDK", error as Error);
+		throw error;
+	}
 }
 
 // Re-export trace API for convenience
