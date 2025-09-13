@@ -52,7 +52,6 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
-import { CreateApiKeyDialog } from "./create-api-key-dialog";
 import { IamRulesDialog } from "./iam-rules-dialog";
 
 import type { Project, ApiKey } from "@/lib/types";
