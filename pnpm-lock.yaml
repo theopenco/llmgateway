@@ -96,9 +96,6 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.7.0
         version: 0.7.0(hono@4.7.11)(zod@3.25.75)
-      '@llmgateway/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -483,12 +480,6 @@ importers:
       zod:
         specifier: 3.25.75
         version: 3.25.75
-
-  packages/auth:
-    dependencies:
-      better-auth:
-        specifier: 1.2.7
-        version: 1.2.7
 
   packages/db:
     dependencies:

@@ -1,14 +1,17 @@
-import { authConfig } from "@llmgateway/auth";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
+import { passkey } from "better-auth/plugins/passkey";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
+const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
 const uiUrl = process.env.UI_URL || "http://localhost:3002";
+const originUrls =
+	process.env.ORIGIN_URL || "http://localhost:3002,http://localhost:4002";
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
 const smtpUser = process.env.SMTP_USER;
@@ -171,8 +174,42 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 	}
 }
 
+// Base auth configuration (previously from @llmgateway/auth)
+const authConfig = {
+	advanced: {
+		crossSubDomainCookies: {
+			enabled: true,
+			domain: cookieDomain,
+		},
+		defaultCookieAttributes: {
+			domain: cookieDomain,
+		},
+	},
+	session: {
+		cookieCache: {
+			enabled: true,
+			maxAge: 5 * 60,
+		},
+		expiresIn: 60 * 60 * 24 * 30, // 30 days
+		updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
+	},
+	basePath: "/auth",
+	trustedOrigins: originUrls.split(","),
+	plugins: [
+		passkey({
+			rpID: process.env.PASSKEY_RP_ID || "localhost",
+			rpName: process.env.PASSKEY_RP_NAME || "LLMGateway",
+			origin: uiUrl,
+		}),
+	],
+	emailAndPassword: {
+		enabled: true,
+	},
+	baseURL: apiUrl || "http://localhost:4002",
+};
+
 export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
-	// Inherit all config from shared auth
+	// Inherit all config from base auth
 	...authConfig,
 
 	// Add API-specific configurations
