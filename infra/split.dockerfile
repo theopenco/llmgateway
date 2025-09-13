@@ -66,6 +66,7 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/worker/package.json ./apps/worker/
 COPY apps/ui/package.json ./apps/ui/
 COPY apps/docs/package.json ./apps/docs/
 COPY packages/db/package.json ./packages/db/
@@ -139,6 +140,17 @@ RUN rm -rf /app/temp
 WORKDIR /app/dist/ui
 EXPOSE 80
 ENV PORT=80
+ENV NODE_ENV=production
+CMD ["pnpm", "start"]
+
+FROM runtime AS worker
+WORKDIR /app/temp
+COPY --from=builder /app/apps ./apps
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+RUN pnpm --filter=worker --prod deploy ../dist/worker
+RUN rm -rf /app/temp
+WORKDIR /app/dist/worker
 ENV NODE_ENV=production
 CMD ["pnpm", "start"]
 

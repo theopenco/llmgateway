@@ -95,6 +95,7 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/worker/package.json ./apps/worker/
 COPY apps/ui/package.json ./apps/ui/
 COPY apps/docs/package.json ./apps/docs/
 COPY packages/db/package.json ./packages/db/
@@ -124,6 +125,7 @@ RUN mkdir -p /app/services /var/log/supervisor /var/log/postgresql /run/postgres
 # Deploy all services with a single command
 RUN pnpm --filter=api --prod deploy /app/services/api && \
     pnpm --filter=gateway --prod deploy /app/services/gateway && \
+    pnpm --filter=worker --prod deploy /app/services/worker && \
     pnpm --filter=ui --prod deploy /app/services/ui && \
     pnpm --filter=docs --prod deploy /app/services/docs
 

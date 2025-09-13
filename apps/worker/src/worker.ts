@@ -19,10 +19,11 @@ import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import z from "zod";
 
+// Import fee calculator from API package
 import { calculateFees } from "../../api/src/lib/fee-calculator";
 import { stripe } from "../../api/src/routes/payments";
 
-import type { LogInsertData } from "./lib/logs";
+import type { LogInsertData } from "../../gateway/src/lib/logs";
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";

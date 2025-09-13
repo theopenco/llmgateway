@@ -484,6 +484,27 @@ importers:
         specifier: 3.25.75
         version: 3.25.75
 
+  apps/worker:
+    dependencies:
+      '@llmgateway/cache':
+        specifier: workspace:*
+        version: link:../../packages/cache
+      '@llmgateway/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@llmgateway/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@llmgateway/models':
+        specifier: workspace:*
+        version: link:../../packages/models
+      stripe:
+        specifier: 18.1.1
+        version: 18.1.1(@types/node@24.3.3)
+      zod:
+        specifier: 3.25.75
+        version: 3.25.75
+
   packages/cache:
     dependencies:
       '@llmgateway/db':
