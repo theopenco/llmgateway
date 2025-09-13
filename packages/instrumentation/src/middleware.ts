@@ -35,17 +35,27 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 
 		const parentContext = propagation.extract(context.active(), headers);
 
+		// Check for force-trace header
+		const forceTrace = c.req.header("x-force-trace");
+
+		const attributes: Record<string, string> = {
+			"http.method": method,
+			"http.url": c.req.url,
+			"http.route": path,
+			"http.user_agent": c.req.header("user-agent") || "",
+			"http.remote_addr": getClientIp(c),
+		};
+
+		// Add force-trace header as attribute for the sampler
+		if (forceTrace) {
+			attributes["http.header.x-force-trace"] = forceTrace;
+		}
+
 		return await tracer.startActiveSpan(
 			spanName,
 			{
 				kind: SpanKind.SERVER,
-				attributes: {
-					"http.method": method,
-					"http.url": c.req.url,
-					"http.route": path,
-					"http.user_agent": c.req.header("user-agent") || "",
-					"http.remote_addr": getClientIp(c),
-				},
+				attributes,
 			},
 			parentContext,
 			async (span) => {

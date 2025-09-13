@@ -13,48 +13,95 @@ import {
 	AlwaysOnSampler,
 	BatchSpanProcessor,
 	TraceIdRatioBasedSampler,
+	SamplingDecision,
 } from "@opentelemetry/sdk-trace-base";
 
+import type { Sampler, SamplingResult } from "@opentelemetry/sdk-trace-base";
+
 const logger = createLogger({ name: "instrumentation" });
+
+class HeaderBasedForceSampler implements Sampler {
+	private fallbackSampler: Sampler;
+
+	public constructor(fallbackSampler: Sampler) {
+		this.fallbackSampler = fallbackSampler;
+	}
+
+	public shouldSample(
+		context: any,
+		traceId: string,
+		spanName: string,
+		spanKind: any,
+		attributes: any,
+		links: any[],
+	): SamplingResult {
+		// Check if force-trace header is present in the attributes
+		// The header should be set as an attribute by the middleware
+		if (attributes && attributes["http.header.x-force-trace"]) {
+			const forceTrace = attributes["http.header.x-force-trace"];
+			if (forceTrace === "true" || forceTrace === "1") {
+				return {
+					decision: SamplingDecision.RECORD_AND_SAMPLED,
+					attributes: {
+						...attributes,
+						"sampling.forced": true,
+					},
+				};
+			}
+		}
+
+		// Fall back to the configured sampler
+		return this.fallbackSampler.shouldSample(
+			context,
+			traceId,
+			spanName,
+			spanKind,
+			attributes,
+			links,
+		);
+	}
+
+	public toString(): string {
+		return `HeaderBasedForceSampler{fallback=${this.fallbackSampler.toString()}}`;
+	}
+}
 
 function getSamplerConfig() {
 	const sampleRate = process.env.OTEL_SAMPLE_RATE;
 
+	let baseSampler: Sampler;
+	let baseDescription: string;
+
 	if (sampleRate === undefined) {
-		return {
-			sampler: new AlwaysOnSampler(),
-			description: "100% (always on)",
-		};
+		baseSampler = new AlwaysOnSampler();
+		baseDescription = "100% (always on)";
+	} else {
+		const rate = parseFloat(sampleRate);
+		if (isNaN(rate) || rate < 0 || rate > 1) {
+			logger.warn(
+				`Invalid OTEL_SAMPLE_RATE value "${sampleRate}", using 100% sampling`,
+			);
+			baseSampler = new AlwaysOnSampler();
+			baseDescription = "100% (always on, invalid rate specified)";
+		} else if (rate === 1) {
+			baseSampler = new AlwaysOnSampler();
+			baseDescription = "100% (always on)";
+		} else if (rate === 0) {
+			baseSampler = new TraceIdRatioBasedSampler(rate);
+			baseDescription = "0% (never sample)";
+		} else {
+			baseSampler = new TraceIdRatioBasedSampler(rate);
+			baseDescription = `${Math.round(rate * 100)}% (ratio-based)`;
+		}
 	}
 
-	const rate = parseFloat(sampleRate);
-	if (isNaN(rate) || rate < 0 || rate > 1) {
-		logger.warn(
-			`Invalid OTEL_SAMPLE_RATE value "${sampleRate}", using 100% sampling`,
-		);
-		return {
-			sampler: new AlwaysOnSampler(),
-			description: "100% (always on, invalid rate specified)",
-		};
-	}
-
-	if (rate === 1) {
-		return {
-			sampler: new AlwaysOnSampler(),
-			description: "100% (always on)",
-		};
-	}
-
-	if (rate === 0) {
-		return {
-			sampler: new TraceIdRatioBasedSampler(rate),
-			description: "0% (never sample)",
-		};
-	}
+	// Wrap with header-based force sampler
+	const sampler = new HeaderBasedForceSampler(baseSampler);
+	const description = `${baseDescription} + header-based force sampling`;
 
 	return {
-		sampler: new TraceIdRatioBasedSampler(rate),
-		description: `${Math.round(rate * 100)}% (ratio-based)`,
+		sampler,
+		description,
 	};
 }
 
