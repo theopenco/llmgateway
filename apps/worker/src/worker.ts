@@ -45,6 +45,12 @@ const schema = z.object({
 	api_key_id: z.string(),
 	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
 	used_mode: z.enum(["api-keys", "credits"]),
+	duration: z.number(),
+	requested_model: z.string(),
+	requested_provider: z.string().nullable(),
+	used_model: z.string(),
+	used_provider: z.string(),
+	response_size: z.number(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -297,6 +303,12 @@ async function batchProcessLogs(): Promise<void> {
 					api_key_id: log.apiKeyId,
 					project_mode: tables.project.mode,
 					used_mode: log.usedMode,
+					duration: log.duration,
+					requested_model: log.requestedModel,
+					requested_provider: log.requestedProvider,
+					used_model: log.usedModel,
+					used_provider: log.usedProvider,
+					response_size: log.responseSize,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -333,6 +345,12 @@ async function batchProcessLogs(): Promise<void> {
 					apiKeyId: row.api_key_id,
 					projectMode: row.project_mode,
 					usedMode: row.used_mode,
+					duration: row.duration,
+					requestedModel: row.requested_model,
+					requestedProvider: row.requested_provider,
+					usedModel: row.used_model,
+					usedProvider: row.used_provider,
+					responseSize: row.response_size,
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
