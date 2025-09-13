@@ -139,21 +139,60 @@ chat.openapi(completionRoute, async (c) => {
 			// Handle non-streaming response
 			const responseData = await response.json();
 
+			// Check if the response contains an error
+			if (responseData.error) {
+				logger.error("Gateway returned error", {
+					requestedModel: model,
+					usedModel: responseData.model || "unknown",
+					usedProvider: responseData.provider || "unknown",
+					error: responseData.error,
+					responseData,
+				});
+				throw new Error(responseData.error);
+			}
+
+			// Validate response structure
+			if (
+				!responseData.choices ||
+				!Array.isArray(responseData.choices) ||
+				responseData.choices.length === 0
+			) {
+				logger.error("Invalid response structure from gateway", {
+					requestedModel: model,
+					usedModel: responseData.model || "unknown",
+					usedProvider: responseData.provider || "unknown",
+					responseData,
+				});
+				throw new Error("Invalid response from gateway - no choices array");
+			}
+
+			const firstChoice = responseData.choices[0];
+			if (!firstChoice.message) {
+				logger.error("No message in first choice", {
+					requestedModel: model,
+					usedModel: responseData.model || "unknown",
+					usedProvider: responseData.provider || "unknown",
+					firstChoice,
+				});
+				throw new Error("Invalid response structure from gateway - no message");
+			}
+
 			const responseObject: {
 				content: string;
 				role: string;
 				images?: Array<{ type: string; image_url: { url: string } }>;
 			} = {
-				content: responseData.choices[0].message.content,
-				role: responseData.choices[0].message.role,
+				content: firstChoice.message.content,
+				role: firstChoice.message.role,
 			};
 
 			// Include images if present
 			if (
-				responseData.choices[0].message.images &&
-				responseData.choices[0].message.images.length > 0
+				firstChoice.message.images &&
+				Array.isArray(firstChoice.message.images) &&
+				firstChoice.message.images.length > 0
 			) {
-				responseObject.images = responseData.choices[0].message.images;
+				responseObject.images = firstChoice.message.images;
 			}
 
 			return c.json(responseObject);

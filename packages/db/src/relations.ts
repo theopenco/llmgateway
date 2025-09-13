@@ -43,6 +43,13 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.project.id,
 		}),
 		logs: r.many.log(),
+		iamRules: r.many.apiKeyIamRule(),
+	},
+	apiKeyIamRule: {
+		apiKey: r.one.apiKey({
+			from: r.apiKeyIamRule.apiKeyId,
+			to: r.apiKey.id,
+		}),
 	},
 	providerKey: {
 		organization: r.one.organization({

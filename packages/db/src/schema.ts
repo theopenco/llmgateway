@@ -248,6 +248,53 @@ export const apiKey = pgTable(
 	(table) => [index("api_key_project_id_idx").on(table.projectId)],
 );
 
+export const apiKeyIamRule = pgTable(
+	"api_key_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+			}>()
+			.notNull(),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("api_key_iam_rule_api_key_id_idx").on(table.apiKeyId),
+		index("api_key_iam_rule_rule_type_idx").on(table.ruleType),
+		index("api_key_iam_rule_api_key_id_status_idx").on(
+			table.apiKeyId,
+			table.status,
+		),
+	],
+);
+
 export const providerKey = pgTable(
 	"provider_key",
 	{
