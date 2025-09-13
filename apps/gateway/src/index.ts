@@ -2,7 +2,6 @@ import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { SpanStatusCode, trace } from "@opentelemetry/api";
 import "dotenv/config";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -198,40 +197,6 @@ v1.route("/chat", chat);
 v1.route("/models", models);
 
 app.route("/v1", v1);
-
-app.get("/test-trace", async (c) => {
-	logger.info("Test trace endpoint called!");
-
-	// Create tracer for custom spans
-	const tracer = trace.getTracer("gateway-test-trace");
-
-	const traceId = c.get("traceId");
-
-	// Create a custom span for simulated work
-	await tracer.startActiveSpan("simulate-work", async (span) => {
-		span.setAttributes({
-			"work.type": "simulation",
-			"work.duration": 100,
-		});
-
-		// Simulate some work
-		await new Promise<void>((resolve) => {
-			setTimeout(() => resolve(), 100);
-		});
-
-		span.setStatus({ code: SpanStatusCode.OK });
-		span.end();
-	});
-
-	const response = {
-		message: "Test trace created successfully",
-		traceId: traceId || "not-available",
-		service: "gateway",
-	};
-
-	logger.info("Test trace completed", response);
-	return c.json(response);
-});
 
 app.doc("/json", config);
 
