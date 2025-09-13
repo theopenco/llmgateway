@@ -1,4 +1,4 @@
-import { auth } from "@llmgateway/auth";
+import { authConfig } from "@llmgateway/auth";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { betterAuth } from "better-auth";
@@ -173,7 +173,7 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 
 export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 	// Inherit all config from shared auth
-	...auth.options,
+	...authConfig,
 
 	// Add API-specific configurations
 	secret: process.env.AUTH_SECRET || "your-secret-key",

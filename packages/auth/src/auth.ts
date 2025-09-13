@@ -7,7 +7,7 @@ const uiUrl = process.env.UI_URL || "http://localhost:3002";
 const originUrls =
 	process.env.ORIGIN_URL || "http://localhost:3002,http://localhost:4002";
 
-export const auth: ReturnType<typeof betterAuth> = betterAuth({
+export const authConfig = {
 	advanced: {
 		crossSubDomainCookies: {
 			enabled: true,
@@ -38,7 +38,9 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 		enabled: true,
 	},
 	baseURL: apiUrl || "http://localhost:4002",
-});
+};
+
+export const auth = betterAuth(authConfig);
 
 export interface Variables {
 	user: typeof auth.$Infer.Session.user | null;
