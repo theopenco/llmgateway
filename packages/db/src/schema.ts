@@ -288,6 +288,10 @@ export const apiKeyIamRule = pgTable(
 	(table) => [
 		index("api_key_iam_rule_api_key_id_idx").on(table.apiKeyId),
 		index("api_key_iam_rule_rule_type_idx").on(table.ruleType),
+		index("api_key_iam_rule_api_key_id_status_idx").on(
+			table.apiKeyId,
+			table.status,
+		),
 	],
 );
 

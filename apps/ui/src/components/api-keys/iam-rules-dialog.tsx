@@ -65,7 +65,7 @@ interface IamRulesDialogProps {
 export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [newRule, setNewRule] = useState<{
-		ruleType: string;
+		ruleType: IamRule["ruleType"];
 		models: string;
 		providers: string;
 		pricingType: string;
@@ -105,7 +105,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 	);
 
 	const handleCreateRule = () => {
-		const ruleValue: any = {};
+		const ruleValue: IamRule["ruleValue"] = {};
 
 		// Parse rule value based on rule type
 		if (newRule.ruleType.includes("models") && newRule.models) {
@@ -122,7 +122,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 		}
 		if (newRule.ruleType.includes("pricing")) {
 			if (newRule.pricingType && newRule.pricingType !== "any") {
-				ruleValue.pricingType = newRule.pricingType;
+				ruleValue.pricingType = newRule.pricingType as "free" | "paid";
 			}
 			if (newRule.maxInputPrice) {
 				ruleValue.maxInputPrice = parseFloat(newRule.maxInputPrice);
@@ -136,7 +136,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 			{
 				params: { path: { id: apiKey.id } },
 				body: {
-					ruleType: newRule.ruleType as any,
+					ruleType: newRule.ruleType,
 					ruleValue,
 					status: "active",
 				},
