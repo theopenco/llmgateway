@@ -3,6 +3,7 @@ FROM debian:12-slim
 # Install base dependencies and runtime requirements
 # Add PostgreSQL 17 official repository
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
     wget \
     ca-certificates \
     gnupg \

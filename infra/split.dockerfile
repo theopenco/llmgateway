@@ -3,6 +3,7 @@ FROM debian:12-slim AS builder
 
 # Install base dependencies including tini for better caching
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
     curl \
     bash \
     tar \
