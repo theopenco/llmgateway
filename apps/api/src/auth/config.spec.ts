@@ -348,7 +348,7 @@ describe("Auth rate limiting", () => {
 		const password = "Password123!";
 		const ipAddress = "192.168.1.105";
 
-		// Test with X-Real-IP header when X-Forwarded-For is not present
+		// Test with X-Real-IP header when CF-Connecting-IP is not present
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
@@ -361,6 +361,56 @@ describe("Auth rate limiting", () => {
 		);
 
 		expect(response.status).toBe(200);
+	});
+
+	test("should fallback to X-Forwarded-For when CF-Connecting-IP not present", async () => {
+		const email = `test-${Date.now()}@example.com`;
+		const password = "Password123!";
+		const forwardedFor = "192.168.1.107, 10.0.0.1, 172.16.0.1";
+
+		// Test fallback to X-Forwarded-For (should use first IP: 192.168.1.107)
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": forwardedFor,
+				},
+				body: JSON.stringify({ email, password }),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+
+		// Second request with same forwarded chain should work
+		const email2 = `test2-${Date.now()}@example.com`;
+		const response2 = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": forwardedFor,
+				},
+				body: JSON.stringify({ email: email2, password }),
+			}),
+		);
+
+		expect(response2.status).toBe(200);
+
+		// Third request should be rate limited
+		const email3 = `test3-${Date.now()}@example.com`;
+		const response3 = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": forwardedFor,
+				},
+				body: JSON.stringify({ email: email3, password }),
+			}),
+		);
+
+		expect(response3.status).toBe(429);
 	});
 
 	test("should only rate limit signup endpoints", async () => {
