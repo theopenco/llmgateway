@@ -259,7 +259,10 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 								<Select
 									value={newRule.ruleType}
 									onValueChange={(value) =>
-										setNewRule((prev) => ({ ...prev, ruleType: value }))
+										setNewRule((prev) => ({
+											...prev,
+											ruleType: value as IamRule["ruleType"],
+										}))
 									}
 								>
 									<SelectTrigger>
