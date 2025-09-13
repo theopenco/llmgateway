@@ -1,4 +1,5 @@
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
+import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { fetchServerData } from "@/lib/server-api";
@@ -51,6 +52,7 @@ export default async function ProjectLayout({
 	return (
 		<UserProvider initialUserData={initialUserData}>
 			<SidebarProvider>
+				<LastUsedProjectTracker orgId={orgId} projectId={projectId} />
 				<DashboardLayoutClient
 					initialOrganizationsData={initialOrganizationsData}
 					initialProjectsData={initialProjectsData}

@@ -1,6 +1,5 @@
+import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import { UnifiedFinishReason } from "@llmgateway/db";
-
-import { publishToQueue, LOG_QUEUE } from "./redis";
 
 import type { InferInsertModel } from "@llmgateway/db";
 import type { log } from "@llmgateway/db";

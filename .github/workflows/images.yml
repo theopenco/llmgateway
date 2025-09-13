@@ -9,6 +9,10 @@ on:
       - hotfix
   pull_request:
     paths:
+      - "**/package.json"
+      - "**/tsconfig.json"
+      - "**/tsup.ts"
+      - "pnpm-lock.yaml"
       - "infra/**.dockerfile"
       - ".github/workflows/images.yml"
 

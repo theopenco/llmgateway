@@ -1,0 +1,28 @@
+{
+	"name": "@llmgateway/cache",
+	"version": "1.0.0",
+	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"scripts": {
+		"build": "tsc && tsup"
+	},
+	"dependencies": {
+		"@llmgateway/db": "workspace:*",
+		"@llmgateway/logger": "workspace:*",
+		"ioredis": "^5.4.1"
+	},
+	"devDependencies": {
+		"@types/node": "^20.12.7"
+	}
+}

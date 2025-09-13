@@ -27,7 +27,7 @@
 		"better-auth": "1.2.7",
 		"drizzle-zod": "0.7.1",
 		"gateway": "workspace:*",
-		"hono": "^4.7.6",
+		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.7.0",
 		"nodemailer": "^7.0.5",

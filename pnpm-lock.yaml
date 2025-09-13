@@ -86,16 +86,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.0
-        version: 1.19.0(hono@4.7.11)
+        version: 1.19.0(hono@4.9.7)
       '@hono/swagger-ui':
         specifier: ^0.5.1
-        version: 0.5.1(hono@4.7.11)
+        version: 0.5.1(hono@4.9.7)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.7.11)(zod@3.25.75)
+        version: 0.19.8(hono@4.9.7)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.0
-        version: 0.7.0(hono@4.7.11)(zod@3.25.75)
+        version: 0.7.0(hono@4.9.7)(zod@3.25.75)
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -124,11 +124,11 @@ importers:
         specifier: workspace:*
         version: link:../gateway
       hono:
-        specifier: ^4.7.6
-        version: 4.7.11
+        specifier: ^4.9.7
+        version: 4.9.7
       hono-openapi:
         specifier: ^0.4.6
-        version: 0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
+        version: 0.4.8(@hono/zod-validator@0.7.0(hono@4.9.7)(zod@3.25.75))(hono@4.9.7)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -174,7 +174,7 @@ importers:
         version: 15.6.10(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(tailwindcss@4.1.12)
       gateway:
         specifier: workspace:*
-        version: file:apps/gateway(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)(openapi-types@12.1.3)
+        version: link:../gateway
       lucide-react:
         specifier: ^0.539.0
         version: 0.539.0(react@19.1.1)
@@ -238,16 +238,19 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.0
-        version: 1.19.0(hono@4.7.11)
+        version: 1.19.0(hono@4.9.7)
       '@hono/swagger-ui':
         specifier: ^0.5.1
-        version: 0.5.1(hono@4.7.11)
+        version: 0.5.1(hono@4.9.7)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.7.11)(zod@3.25.75)
+        version: 0.19.8(hono@4.9.7)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.0
-        version: 0.7.0(hono@4.7.11)(zod@3.25.75)
+        version: 0.7.0(hono@4.9.7)(zod@3.25.75)
+      '@llmgateway/cache':
+        specifier: workspace:*
+        version: link:../../packages/cache
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -270,11 +273,11 @@ importers:
         specifier: 3.0.1
         version: 3.0.1
       hono:
-        specifier: ^4.7.6
-        version: 4.7.11
+        specifier: ^4.9.7
+        version: 4.9.7
       hono-openapi:
         specifier: ^0.4.6
-        version: 0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
+        version: 0.4.8(@hono/zod-validator@0.7.0(hono@4.9.7)(zod@3.25.75))(hono@4.9.7)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
       ioredis:
         specifier: 5.6.1
         version: 5.6.1
@@ -481,6 +484,22 @@ importers:
         specifier: 3.25.75
         version: 3.25.75
 
+  packages/cache:
+    dependencies:
+      '@llmgateway/db':
+        specifier: workspace:*
+        version: link:../db
+      '@llmgateway/logger':
+        specifier: workspace:*
+        version: link:../logger
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.7.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.7
+        version: 20.19.14
+
   packages/db:
     dependencies:
       '@llmgateway/logger':
@@ -536,8 +555,8 @@ importers:
         specifier: 2.1.0
         version: 2.1.0(@opentelemetry/api@1.9.0)
       hono:
-        specifier: ^4.6.15
-        version: 4.7.11
+        specifier: ^4.9.7
+        version: 4.9.7
 
   packages/logger:
     dependencies:
@@ -2085,6 +2104,9 @@ packages:
   '@jridgewell/trace-mapping@0.3.30':
     resolution: {integrity: sha512-GQ7Nw5G2lTu/BtHTKfXhKHok2WGetd4XYcVKGx00SjAk8GMwgJM3zr6zORiPGuOE+/vkc90KtTosSSvaCjKb2Q==}
 
+  '@jridgewell/trace-mapping@0.3.31':
+    resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
   '@js-sdsl/ordered-map@4.4.2':
     resolution: {integrity: sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==}
 
@@ -2093,18 +2115,6 @@ packages:
 
   '@levischuck/tiny-cbor@0.2.11':
     resolution: {integrity: sha512-llBRm4dT4Z89aRsm6u2oEZ8tfwL/2l6BwpZ7JcyieouniDECM5AqNgr/y08zalEIvW3RSK4upYyybDcmjXqAow==}
-
-  '@llmgateway/db@file:packages/db':
-    resolution: {directory: packages/db, type: directory}
-
-  '@llmgateway/instrumentation@file:packages/instrumentation':
-    resolution: {directory: packages/instrumentation, type: directory}
-
-  '@llmgateway/logger@file:packages/logger':
-    resolution: {directory: packages/logger, type: directory}
-
-  '@llmgateway/models@file:packages/models':
-    resolution: {directory: packages/models, type: directory}
 
   '@mdx-js/mdx@3.1.0':
     resolution: {integrity: sha512-/QxEhPAvGwbQmy1Px8F899L5Uc2KZ6JtXwlCgJmjSTBedwOZkByYcBG4GceIGPXRDsmfxhHazuS+hlOShRLeDw==}
@@ -4220,8 +4230,8 @@ packages:
   '@types/mysql@2.15.27':
     resolution: {integrity: sha512-YfWiV16IY0OeBfBCk8+hXKmdTKrKlwKN1MNKAPBu5JYxLwBEZl7QzeEpGnlZb3VMGJrrGmB84gXiH+ofs/TezA==}
 
-  '@types/node@24.3.1':
-    resolution: {integrity: sha512-3vXmQDXy+woz+gnrTvuvNrPzekOi+Ds0ReMxw0LzBiK3a+1k0kQn9f2NWk+lgD4rJehFUmYy2gMhJ2ZI+7YP9g==}
+  '@types/node@20.19.14':
+    resolution: {integrity: sha512-gqiKWld3YIkmtrrg9zDvg9jfksZCcPywXVN7IauUGhilwGV/yOyeUsvpR796m/Jye0zUzMXPKe8Ct1B79A7N5Q==}
 
   '@types/node@24.3.3':
     resolution: {integrity: sha512-GKBNHjoNw3Kra1Qg5UXttsY5kiWMEfoHq2TmXb+b1rcm6N7B3wTrFYIf/oSZ1xNQ+hVVijgLkiDZh7jRRsh+Gw==}
@@ -5930,9 +5940,6 @@ packages:
   functions-have-names@1.2.3:
     resolution: {integrity: sha512-xckBUXyTIqT97tq2x2AMb+g163b5JFysYk0x4qxNFwbfQkmNZoiRHb6sPzI9/QV33WeuvVYBUIiD4NzNIyqaRQ==}
 
-  gateway@file:apps/gateway:
-    resolution: {directory: apps/gateway, type: directory}
-
   gaxios@6.7.1:
     resolution: {integrity: sha512-LDODD4TMYx7XXdpwxAVRAIAuB0bzv0s+ywFonY46k126qzQHT9ygyoa9tncmOiQmmDrik65UYsEkv3lbfqQ3yQ==}
     engines: {node: '>=14'}
@@ -6162,8 +6169,8 @@ packages:
       zod-openapi:
         optional: true
 
-  hono@4.7.11:
-    resolution: {integrity: sha512-rv0JMwC0KALbbmwJDEnxvQCeJh+xbS3KEWW5PC9cMJ08Ur9xgatI0HmtgYZfOdOSOeYsp5LO2cOhdI8cLEbDEQ==}
+  hono@4.9.7:
+    resolution: {integrity: sha512-t4Te6ERzIaC48W3x4hJmBwgNlLhmiEdEE5ViYb02ffw4ignHNHa5IBtPjmbKstmtKa8X6C35iWwK4HaqvrzG9w==}
     engines: {node: '>=16.9.0'}
 
   html-void-elements@3.0.0:
@@ -8300,6 +8307,9 @@ packages:
   undefsafe@2.0.5:
     resolution: {integrity: sha512-WxONCrssBM8TSPRqN5EmsjVrsv4A8X12J4ArBiiayv3DyyG3ZlIg6yysuuSYdZsVz3TKcTg2fd//Ujd4CHV1iA==}
 
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
   undici-types@7.10.0:
     resolution: {integrity: sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag==}
 
@@ -9759,7 +9769,7 @@ snapshots:
   '@eslint/config-array@0.20.0':
     dependencies:
       '@eslint/object-schema': 2.1.6
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -9767,7 +9777,7 @@ snapshots:
   '@eslint/config-array@0.21.0':
     dependencies:
       '@eslint/object-schema': 2.1.6
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -9787,7 +9797,7 @@ snapshots:
   '@eslint/eslintrc@3.3.1':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       espree: 10.4.0
       globals: 14.0.0
       ignore: 5.3.2
@@ -9913,24 +9923,24 @@ snapshots:
     transitivePeerDependencies:
       - magicast
 
-  '@hono/node-server@1.19.0(hono@4.7.11)':
+  '@hono/node-server@1.19.0(hono@4.9.7)':
     dependencies:
-      hono: 4.7.11
+      hono: 4.9.7
 
-  '@hono/swagger-ui@0.5.1(hono@4.7.11)':
+  '@hono/swagger-ui@0.5.1(hono@4.9.7)':
     dependencies:
-      hono: 4.7.11
+      hono: 4.9.7
 
-  '@hono/zod-openapi@0.19.8(hono@4.7.11)(zod@3.25.75)':
+  '@hono/zod-openapi@0.19.8(hono@4.9.7)(zod@3.25.75)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 7.3.0(zod@3.25.75)
-      '@hono/zod-validator': 0.7.0(hono@4.7.11)(zod@3.25.75)
-      hono: 4.7.11
+      '@hono/zod-validator': 0.7.0(hono@4.9.7)(zod@3.25.75)
+      hono: 4.9.7
       zod: 3.25.75
 
-  '@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75)':
+  '@hono/zod-validator@0.7.0(hono@4.9.7)(zod@3.25.75)':
     dependencies:
-      hono: 4.7.11
+      hono: 4.9.7
       zod: 3.25.75
 
   '@hookform/resolvers@5.1.1(react-hook-form@7.60.0(react@19.1.1))':
@@ -10064,7 +10074,7 @@ snapshots:
   '@jridgewell/source-map@0.3.11':
     dependencies:
       '@jridgewell/gen-mapping': 0.3.13
-      '@jridgewell/trace-mapping': 0.3.30
+      '@jridgewell/trace-mapping': 0.3.31
     optional: true
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
@@ -10074,74 +10084,17 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@jridgewell/trace-mapping@0.3.31':
+    dependencies:
+      '@jridgewell/resolve-uri': 3.1.2
+      '@jridgewell/sourcemap-codec': 1.5.5
+    optional: true
+
   '@js-sdsl/ordered-map@4.4.2': {}
 
   '@jsdevtools/ono@7.1.3': {}
 
   '@levischuck/tiny-cbor@0.2.11': {}
-
-  '@llmgateway/db@file:packages/db(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)':
-    dependencies:
-      '@llmgateway/logger': file:packages/logger
-      drizzle-orm: 1.0.0-beta.1-7946562(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.3)
-      nanoid: 5.1.5
-      pg: 8.16.3
-      zod: 3.25.75
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@llmgateway/instrumentation@file:packages/instrumentation':
-    dependencies:
-      '@google-cloud/opentelemetry-cloud-trace-exporter': 3.0.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))(@opentelemetry/resources@2.1.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.1.0(@opentelemetry/api@1.9.0))
-      '@google-cloud/opentelemetry-cloud-trace-propagator': 0.21.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))
-      '@llmgateway/logger': file:packages/logger
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/auto-instrumentations-node': 0.64.1(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))
-      '@opentelemetry/core': 2.1.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.1.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-node': 0.205.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-trace-base': 2.1.0(@opentelemetry/api@1.9.0)
-      hono: 4.7.11
-    transitivePeerDependencies:
-      - encoding
-      - supports-color
-
-  '@llmgateway/logger@file:packages/logger':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      pino: 9.9.0
-      pino-pretty: 13.1.1
-
-  '@llmgateway/models@file:packages/models':
-    dependencies:
-      '@llmgateway/logger': file:packages/logger
 
   '@mdx-js/mdx@3.1.0(acorn@8.15.0)':
     dependencies:
@@ -12651,9 +12604,9 @@ snapshots:
     dependencies:
       '@types/node': 24.3.3
 
-  '@types/node@24.3.1':
+  '@types/node@20.19.14':
     dependencies:
-      undici-types: 7.10.0
+      undici-types: 6.21.0
 
   '@types/node@24.3.3':
     dependencies:
@@ -12676,7 +12629,7 @@ snapshots:
 
   '@types/pg@8.15.5':
     dependencies:
-      '@types/node': 24.3.1
+      '@types/node': 24.3.3
       pg-protocol: 1.10.3
       pg-types: 2.2.0
 
@@ -12740,7 +12693,7 @@ snapshots:
       '@typescript-eslint/types': 8.39.1
       '@typescript-eslint/typescript-estree': 8.39.1(typescript@5.8.3)
       '@typescript-eslint/visitor-keys': 8.39.1
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       eslint: 9.28.0(jiti@2.5.1)
       typescript: 5.8.3
     transitivePeerDependencies:
@@ -12752,7 +12705,7 @@ snapshots:
       '@typescript-eslint/types': 8.39.1
       '@typescript-eslint/typescript-estree': 8.39.1(typescript@5.8.3)
       '@typescript-eslint/visitor-keys': 8.39.1
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       eslint: 9.34.0(jiti@2.5.1)
       typescript: 5.8.3
     transitivePeerDependencies:
@@ -12762,7 +12715,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/tsconfig-utils': 8.39.1(typescript@5.8.3)
       '@typescript-eslint/types': 8.39.1
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       typescript: 5.8.3
     transitivePeerDependencies:
       - supports-color
@@ -12781,7 +12734,7 @@ snapshots:
       '@typescript-eslint/types': 8.39.1
       '@typescript-eslint/typescript-estree': 8.39.1(typescript@5.8.3)
       '@typescript-eslint/utils': 8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3)
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       eslint: 9.28.0(jiti@2.5.1)
       ts-api-utils: 2.1.0(typescript@5.8.3)
       typescript: 5.8.3
@@ -12793,7 +12746,7 @@ snapshots:
       '@typescript-eslint/types': 8.39.1
       '@typescript-eslint/typescript-estree': 8.39.1(typescript@5.8.3)
       '@typescript-eslint/utils': 8.39.1(eslint@9.34.0(jiti@2.5.1))(typescript@5.8.3)
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       eslint: 9.34.0(jiti@2.5.1)
       ts-api-utils: 2.1.0(typescript@5.8.3)
       typescript: 5.8.3
@@ -12808,7 +12761,7 @@ snapshots:
       '@typescript-eslint/tsconfig-utils': 8.39.1(typescript@5.8.3)
       '@typescript-eslint/types': 8.39.1
       '@typescript-eslint/visitor-keys': 8.39.1
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       fast-glob: 3.3.3
       is-glob: 4.0.3
       minimatch: 9.0.5
@@ -13510,6 +13463,10 @@ snapshots:
     dependencies:
       ms: 2.1.3
 
+  debug@4.4.1:
+    dependencies:
+      ms: 2.1.3
+
   debug@4.4.1(supports-color@10.0.0):
     dependencies:
       ms: 2.1.3
@@ -13770,7 +13727,7 @@ snapshots:
 
   esbuild-register@3.6.0(esbuild@0.19.12):
     dependencies:
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       esbuild: 0.19.12
     transitivePeerDependencies:
       - supports-color
@@ -13964,7 +13921,7 @@ snapshots:
       eslint: 9.28.0(jiti@2.5.1)
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.28.0(jiti@2.5.1))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.28.0(jiti@2.5.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.28.0(jiti@2.5.1))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.28.0(jiti@2.5.1))
       eslint-plugin-react: 7.37.5(eslint@9.28.0(jiti@2.5.1))
       eslint-plugin-react-hooks: 5.2.0(eslint@9.28.0(jiti@2.5.1))
@@ -13986,7 +13943,7 @@ snapshots:
   eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@9.28.0(jiti@2.5.1)):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       eslint: 9.28.0(jiti@2.5.1)
       get-tsconfig: 4.10.1
       is-bun-module: 2.0.0
@@ -13994,7 +13951,7 @@ snapshots:
       tinyglobby: 0.2.14
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.28.0(jiti@2.5.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.28.0(jiti@2.5.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -14019,7 +13976,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.28.0(jiti@2.5.1)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.39.1(eslint@9.28.0(jiti@2.5.1))(typescript@5.8.3))(eslint@9.28.0(jiti@2.5.1)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -14187,7 +14144,7 @@ snapshots:
       ajv: 6.12.6
       chalk: 4.1.2
       cross-spawn: 7.0.6
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       escape-string-regexp: 4.0.0
       eslint-scope: 8.4.0
       eslint-visitor-keys: 4.2.1
@@ -14229,7 +14186,7 @@ snapshots:
       ajv: 6.12.6
       chalk: 4.1.2
       cross-spawn: 7.0.6
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       escape-string-regexp: 4.0.0
       eslint-scope: 8.4.0
       eslint-visitor-keys: 4.2.1
@@ -14665,66 +14622,6 @@ snapshots:
 
   functions-have-names@1.2.3: {}
 
-  gateway@file:apps/gateway(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)(openapi-types@12.1.3):
-    dependencies:
-      '@hono/node-server': 1.19.0(hono@4.7.11)
-      '@hono/swagger-ui': 0.5.1(hono@4.7.11)
-      '@hono/zod-openapi': 0.19.8(hono@4.7.11)(zod@3.25.75)
-      '@hono/zod-validator': 0.7.0(hono@4.7.11)(zod@3.25.75)
-      '@llmgateway/db': file:packages/db(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)
-      '@llmgateway/instrumentation': file:packages/instrumentation
-      '@llmgateway/logger': file:packages/logger
-      '@llmgateway/models': file:packages/models
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/sdk-node': 0.205.0(@opentelemetry/api@1.9.0)
-      gpt-tokenizer: 3.0.1
-      hono: 4.7.11
-      hono-openapi: 0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
-      ioredis: 5.6.1
-      redis: 5.8.2
-      zod: 3.25.75
-      zod-openapi: 4.2.4(zod@3.25.75)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@hono/arktype-validator'
-      - '@hono/effect-validator'
-      - '@hono/typebox-validator'
-      - '@hono/valibot-validator'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@sinclair/typebox'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@valibot/to-json-schema'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - arktype
-      - better-sqlite3
-      - bun-types
-      - effect
-      - encoding
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - openapi-types
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-      - valibot
-
   gaxios@6.7.1:
     dependencies:
       extend: 3.0.2
@@ -14748,7 +14645,7 @@ snapshots:
   gel@2.1.0:
     dependencies:
       '@petamoriken/float16': 3.9.2
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       env-paths: 3.0.0
       semver: 7.7.2
       shell-quote: 1.8.3
@@ -14994,24 +14891,24 @@ snapshots:
 
   hex2dec@1.1.2: {}
 
-  hono-openapi@0.4.8(@hono/zod-validator@0.7.0(hono@4.7.11)(zod@3.25.75))(hono@4.7.11)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75):
+  hono-openapi@0.4.8(@hono/zod-validator@0.7.0(hono@4.9.7)(zod@3.25.75))(hono@4.9.7)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75):
     dependencies:
       json-schema-walker: 2.0.0
       openapi-types: 12.1.3
     optionalDependencies:
-      '@hono/zod-validator': 0.7.0(hono@4.7.11)(zod@3.25.75)
-      hono: 4.7.11
+      '@hono/zod-validator': 0.7.0(hono@4.9.7)(zod@3.25.75)
+      hono: 4.9.7
       zod: 3.25.75
       zod-openapi: 4.2.4(zod@3.25.75)
 
-  hono@4.7.11: {}
+  hono@4.9.7: {}
 
   html-void-elements@3.0.0: {}
 
   https-proxy-agent@7.0.6:
     dependencies:
       agent-base: 7.1.3
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
     transitivePeerDependencies:
       - supports-color
 
@@ -15066,7 +14963,7 @@ snapshots:
     dependencies:
       '@ioredis/commands': 1.2.0
       cluster-key-slot: 1.1.2
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       denque: 2.1.0
       lodash.defaults: 4.2.0
       lodash.isarguments: 3.1.0
@@ -15080,7 +14977,7 @@ snapshots:
     dependencies:
       '@ioredis/commands': 1.3.1
       cluster-key-slot: 1.1.2
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       denque: 2.1.0
       lodash.defaults: 4.2.0
       lodash.isarguments: 3.1.0
@@ -15412,7 +15309,7 @@ snapshots:
     dependencies:
       chalk: 5.4.1
       commander: 13.1.0
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       lilconfig: 3.1.3
       listr2: 8.3.3
       micromatch: 4.0.8
@@ -15933,7 +15830,7 @@ snapshots:
   micromark@4.0.2:
     dependencies:
       '@types/debug': 4.1.12
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       decode-named-character-reference: 1.2.0
       devlop: 1.1.0
       micromark-core-commonmark: 2.0.3
@@ -16763,7 +16660,7 @@ snapshots:
 
   require-in-the-middle@7.5.2:
     dependencies:
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       module-details-from-path: 1.0.4
       resolve: 1.22.10
     transitivePeerDependencies:
@@ -17369,7 +17266,7 @@ snapshots:
       cac: 6.7.14
       chokidar: 4.0.3
       consola: 3.4.2
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       esbuild: 0.25.9
       joycon: 3.1.1
       picocolors: 1.1.1
@@ -17480,6 +17377,8 @@ snapshots:
   uncrypto@0.1.3: {}
 
   undefsafe@2.0.5: {}
+
+  undici-types@6.21.0: {}
 
   undici-types@7.10.0: {}
 
@@ -17611,7 +17510,7 @@ snapshots:
   vite-node@3.2.3(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(terser@5.40.0)(tsx@4.19.4)(yaml@2.8.1):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       es-module-lexer: 1.7.0
       pathe: 2.0.3
       vite: 6.3.6(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(terser@5.40.0)(tsx@4.19.4)(yaml@2.8.1)
@@ -17685,7 +17584,7 @@ snapshots:
       '@vitest/spy': 3.2.3
       '@vitest/utils': 3.2.3
       chai: 5.2.0
-      debug: 4.4.1(supports-color@5.5.0)
+      debug: 4.4.1
       expect-type: 1.2.1
       magic-string: 0.30.17
       pathe: 2.0.3
