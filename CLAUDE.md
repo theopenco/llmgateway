@@ -103,6 +103,7 @@ When running curl commands against the local API, you can use `test-token` as au
 
 ### Code Standards
 
+- Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always use pnpm for package management

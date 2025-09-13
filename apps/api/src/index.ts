@@ -2,12 +2,14 @@ import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { trace } from "@opentelemetry/api";
 import "dotenv/config";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { authHandler } from "./auth/handler";
+import { tracingMiddleware } from "./middleware/tracing";
 import { routes } from "./routes";
 import { beacon } from "./routes/beacon";
 import { stripeRoutes } from "./stripe";
@@ -28,6 +30,9 @@ export const config = {
 };
 
 export const app = new OpenAPIHono<ServerTypes>();
+
+// Add tracing middleware first
+app.use("*", tracingMiddleware);
 
 app.use(
 	"*",
@@ -134,6 +139,40 @@ app.route("/stripe", stripeRoutes);
 app.route("/", beacon);
 
 app.doc("/json", config);
+
+app.get("/test-trace", async (c) => {
+	logger.info("Test trace endpoint called");
+
+	// Create tracer for custom spans
+	const tracer = trace.getTracer("api-test-trace");
+
+	const traceId = c.get("traceId");
+
+	// Create a custom span for simulated work
+	await tracer.startActiveSpan("simulate-work", async (span) => {
+		span.setAttributes({
+			"work.type": "simulation",
+			"work.duration": 100,
+		});
+
+		// Simulate some work
+		await new Promise<void>((resolve) => {
+			setTimeout(() => resolve(), 100);
+		});
+
+		span.setStatus({ code: 1 }); // OK
+		span.end();
+	});
+
+	const response = {
+		message: "Test trace created successfully",
+		traceId: traceId || "not-available",
+		service: "api",
+	};
+
+	logger.info("Test trace completed", response);
+	return c.json(response);
+});
 
 app.get("/docs", swaggerUI({ url: "./json" }));
 

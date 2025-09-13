@@ -206,7 +206,7 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 				await handleTrialWillEnd(event);
 				break;
 			default:
-				logger.info(`Unhandled event type: ${event.type}`);
+				logger.warn(`Unhandled event type: ${event.type}`);
 		}
 
 		return c.json({ received: true });

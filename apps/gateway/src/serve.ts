@@ -1,3 +1,6 @@
+// eslint-disable-next-line import/order
+import "./instrumentation";
+
 import { serve } from "@hono/node-server";
 import { closeDatabase } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
