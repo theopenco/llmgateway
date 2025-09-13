@@ -97,13 +97,21 @@ export function MultiProviderSelector({
 						<ChevronDown className="h-4 w-4 opacity-50" />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent className="w-80 max-h-96 p-0">
-					<div className="sticky top-0 bg-background border-b p-2">
+				<DropdownMenuContent
+					className="w-80 max-h-96 p-0"
+					onCloseAutoFocus={(e) => e.preventDefault()}
+				>
+					<div
+						className="sticky top-0 bg-background border-b p-2"
+						onClick={(e) => e.stopPropagation()}
+					>
 						<Input
 							placeholder="Search providers..."
 							value={searchTerm}
 							onChange={(e) => setSearchTerm(e.target.value)}
 							className="h-8"
+							onKeyDown={(e) => e.stopPropagation()}
+							onFocus={(e) => e.stopPropagation()}
 						/>
 					</div>
 					<div className="max-h-80 overflow-y-auto p-2">
