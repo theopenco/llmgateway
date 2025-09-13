@@ -1,10 +1,8 @@
 "use client";
 
-import { models, providers } from "@llmgateway/models";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-import { LogCard } from "../dashboard/log-card";
 import {
 	type DateRange,
 	DateRangeSelect,
@@ -19,6 +17,10 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+
+import { models, providers } from "@llmgateway/models";
+
+import { LogCard } from "../dashboard/log-card";
 
 import type { Log } from "@llmgateway/db";
 

@@ -1,10 +1,11 @@
 import { Key } from "lucide-react";
 import Link from "next/link";
 
-import { ModelSelector } from "./model-selector";
 import { Button } from "@/lib/components/button";
 import { SidebarTrigger } from "@/lib/components/sidebar";
 import { cn } from "@/lib/utils";
+
+import { ModelSelector } from "./model-selector";
 
 interface ChatHeaderProps {
 	selectedModel: string;

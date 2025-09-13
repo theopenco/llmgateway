@@ -1,4 +1,5 @@
 import { serve, type ServerType } from "@hono/node-server";
+
 import { closeDatabase, runMigrations } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
@@ -6,8 +7,8 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { app } from ".";
 import { redisClient } from "./auth/config";
-import { app } from "./index";
 import { sendInstallationBeacon } from "./lib/beacon";
 
 import type { NodeSDK } from "@opentelemetry/sdk-node";

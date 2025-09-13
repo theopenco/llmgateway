@@ -1,5 +1,5 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
-import { UnifiedFinishReason } from "@llmgateway/db";
+import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
 
 import type { InferInsertModel } from "@llmgateway/db";
 import type { log } from "@llmgateway/db";
@@ -77,10 +77,6 @@ export function getUnifiedFinishReason(
  * Insert a log entry into the database.
  * This function is extracted to prepare for future implementation using a message queue.
  */
-export type LogInsertData = Omit<
-	InferInsertModel<typeof log>,
-	"id" | "createdAt" | "updatedAt"
->;
 
 export type LogData = InferInsertModel<typeof log>;
 

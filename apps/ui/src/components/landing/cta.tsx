@@ -1,7 +1,8 @@
 "use client";
-import { AuthLink } from "../shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
+
+import { AuthLink } from "../shared/auth-link";
 
 export default function CallToAction() {
 	const config = useAppConfig();

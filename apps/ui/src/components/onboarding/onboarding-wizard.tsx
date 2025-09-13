@@ -6,16 +6,17 @@ import { usePostHog } from "posthog-js/react";
 import * as React from "react";
 import { useState } from "react";
 
+import { Card, CardContent } from "@/lib/components/card";
+import { Stepper } from "@/lib/components/stepper";
+import { useApi } from "@/lib/fetch-client";
+import { useStripe } from "@/lib/stripe";
+
 import { ApiKeyStep } from "./api-key-step";
 import { CreditsStep } from "./credits-step";
 import { PlanChoiceStep } from "./plan-choice-step";
 import { ProviderKeyStep } from "./provider-key-step";
 import { ReferralStep } from "./referral-step";
 import { WelcomeStep } from "./welcome-step";
-import { Card, CardContent } from "@/lib/components/card";
-import { Stepper } from "@/lib/components/stepper";
-import { useApi } from "@/lib/fetch-client";
-import { useStripe } from "@/lib/stripe";
 
 type FlowType = "credits" | "byok" | null;
 

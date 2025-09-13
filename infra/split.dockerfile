@@ -3,6 +3,7 @@ FROM debian:12-slim AS builder
 
 # Install base dependencies including tini for better caching
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
     curl \
     bash \
     tar \
@@ -65,14 +66,16 @@ RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
 # Copy package files and install dependencies
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
+COPY apps/docs/package.json ./apps/docs/
 COPY apps/gateway/package.json ./apps/gateway/
 COPY apps/ui/package.json ./apps/ui/
-COPY apps/docs/package.json ./apps/docs/
+COPY apps/worker/package.json ./apps/worker/
 COPY packages/db/package.json ./packages/db/
 COPY packages/models/package.json ./packages/models/
 COPY packages/logger/package.json ./packages/logger/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/instrumentation/package.json ./packages/instrumentation/
+COPY packages/shared/package.json ./packages/shared/
 
 RUN pnpm install --frozen-lockfile
 
@@ -114,7 +117,7 @@ EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 ENV TELEMETRY_ACTIVE=true
-CMD ["pnpm", "start"]
+CMD ["node", "--enable-source-maps", "dist/serve.js"]
 
 FROM runtime AS gateway
 WORKDIR /app/temp
@@ -127,7 +130,7 @@ WORKDIR /app/dist/gateway
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["node", "--enable-source-maps", "dist/serve.js"]
 
 FROM runtime AS ui
 WORKDIR /app/temp
@@ -140,7 +143,18 @@ WORKDIR /app/dist/ui
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["./node_modules/.bin/next", "start"]
+
+FROM runtime AS worker
+WORKDIR /app/temp
+COPY --from=builder /app/apps ./apps
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+RUN pnpm --filter=worker --prod deploy ../dist/worker
+RUN rm -rf /app/temp
+WORKDIR /app/dist/worker
+ENV NODE_ENV=production
+CMD ["node", "--enable-source-maps", "dist/index.js"]
 
 FROM runtime AS docs
 WORKDIR /app/temp
@@ -153,4 +167,4 @@ WORKDIR /app/dist/docs
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["./node_modules/.bin/next", "start", "-H", "0.0.0.0"]

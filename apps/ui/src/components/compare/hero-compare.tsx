@@ -2,10 +2,11 @@
 import Link from "next/link";
 import React from "react";
 
-import { AuthLink } from "../shared/auth-link";
 import { AnimatedGroup } from "@/components/landing/animated-group";
 import { Navbar } from "@/components/landing/navbar";
 import { Button } from "@/lib/components/button";
+
+import { AuthLink } from "../shared/auth-link";
 
 const transitionVariants = {
 	item: {

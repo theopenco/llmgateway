@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { app } from "../index";
+import { app } from "..";
 import { posthog } from "../posthog";
 
 // Mock PostHog

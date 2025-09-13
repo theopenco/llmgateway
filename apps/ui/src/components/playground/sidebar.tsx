@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
-import { ModeToggle } from "../mode-toggle";
 import {
 	useChats,
 	useDeleteChat,
@@ -45,6 +44,8 @@ import {
 } from "@/lib/components/sidebar";
 import { toast } from "@/lib/components/use-toast";
 import Logo from "@/lib/icons/Logo";
+
+import { ModeToggle } from "../mode-toggle";
 
 interface ChatSidebarProps {
 	currentChatId?: string;

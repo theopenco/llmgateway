@@ -1,10 +1,5 @@
 "use client";
 import {
-	models as modelDefinitions,
-	providers as providerDefinitions,
-	type ProviderId,
-} from "@llmgateway/models";
-import {
 	ExternalLink,
 	Copy,
 	Check,
@@ -15,7 +10,6 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 
-import { providerLogoUrls } from "./provider-keys/provider-logo";
 import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
@@ -35,6 +29,14 @@ import {
 } from "@/lib/components/select";
 import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
+
+import {
+	models as modelDefinitions,
+	providers as providerDefinitions,
+	type ProviderId,
+} from "@llmgateway/models";
+
+import { providerLogoUrls } from "./provider-keys/provider-logo";
 
 interface ProviderModel {
 	id: string;

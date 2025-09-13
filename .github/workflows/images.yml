@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, gateway, ui, docs]
+        app: [api, gateway, ui, docs, worker]
         platform:
           - linux/amd64
           - linux/arm64
@@ -122,7 +122,7 @@ jobs:
     if: needs.setup.result == 'success' && github.event_name != 'pull_request'
     strategy:
       matrix:
-        app: [api, gateway, ui, docs]
+        app: [api, gateway, ui, docs, worker]
     permissions:
       contents: read
       packages: write
@@ -283,7 +283,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, gateway, ui, docs]
+        app: [api, gateway, ui, docs, worker]
     permissions:
       contents: read
     steps:

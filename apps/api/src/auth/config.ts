@@ -1,11 +1,12 @@
-import { db, tables } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
+
+import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";

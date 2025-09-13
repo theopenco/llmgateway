@@ -1,6 +1,7 @@
-import { OnboardingClient } from "./onboarding-client";
 import { UserProvider } from "@/components/providers/user-provider";
 import { fetchServerData } from "@/lib/server-api";
+
+import { OnboardingClient } from "./onboarding-client";
 
 import type { User } from "@/lib/types";
 

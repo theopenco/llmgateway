@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { db, tables, desc, eq, count, and } from "@llmgateway/db";
 import { HTTPException } from "hono/http-exception";
+
+import { db, tables, desc, eq, count, and } from "@llmgateway/db";
 
 import { hasActiveApiKey } from "../lib/hasActiveApiKey";
 

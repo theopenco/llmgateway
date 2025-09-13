@@ -1,6 +1,7 @@
+import { encode, encodeChat } from "gpt-tokenizer";
+
 import { logger } from "@llmgateway/logger";
 import { type Model, type ModelDefinition, models } from "@llmgateway/models";
-import { encode, encodeChat } from "gpt-tokenizer";
 
 // Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {

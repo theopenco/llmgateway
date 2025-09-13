@@ -3,7 +3,6 @@ import { Menu, X, Github } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { ThemeToggle } from "./theme-toggle";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import {
@@ -17,6 +16,8 @@ import {
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
+
+import { ThemeToggle } from "./theme-toggle";
 
 import type { ReactNode } from "react";
 
