@@ -153,7 +153,7 @@ RUN pnpm --filter=worker --prod deploy ../dist/worker
 RUN rm -rf /app/temp
 WORKDIR /app/dist/worker
 ENV NODE_ENV=production
-CMD ["pnpm", "start"]
+CMD ["node", "--enable-source-maps", "dist/index.js"]
 
 FROM runtime AS docs
 WORKDIR /app/temp
