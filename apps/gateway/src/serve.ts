@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { redisClient } from "@llmgateway/cache";
 import { closeDatabase } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
@@ -7,7 +8,6 @@ import {
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./index";
-import redisClient from "./lib/redis";
 import { startWorker, stopWorker } from "./worker";
 
 import type { ServerType } from "@hono/node-server";

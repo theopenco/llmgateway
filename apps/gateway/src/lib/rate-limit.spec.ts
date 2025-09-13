@@ -3,12 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkFreeModelRateLimit, isFreeModel } from "./rate-limit";
 
 // Mock dependencies
-vi.mock("./cache", () => ({
+vi.mock("@llmgateway/cache", () => ({
 	getOrganization: vi.fn(),
-}));
-
-vi.mock("./redis", () => ({
-	default: {
+	redisClient: {
 		zremrangebyscore: vi.fn(),
 		zcard: vi.fn(),
 		zrange: vi.fn(),
@@ -25,9 +22,8 @@ vi.mock("@llmgateway/logger", () => ({
 	},
 }));
 
-const mockRedis = await import("./redis");
-const mockCache = await import("./cache");
-const redis = mockRedis.default;
+const mockCache = await import("@llmgateway/cache");
+const redis = mockCache.redisClient;
 
 describe("Rate Limiting", () => {
 	beforeEach(() => {

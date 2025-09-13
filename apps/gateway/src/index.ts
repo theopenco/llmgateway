@@ -1,5 +1,6 @@
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import "dotenv/config";
@@ -7,7 +8,6 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { chat } from "./chat/chat";
-import redisClient from "./lib/redis";
 import { tracingMiddleware } from "./middleware/tracing";
 import { models } from "./models";
 
