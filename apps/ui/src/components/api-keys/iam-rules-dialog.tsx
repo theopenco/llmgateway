@@ -161,10 +161,10 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 
 					toast({ title: "IAM rule created successfully" });
 				},
-				onError: (error) => {
+				onError: (error: any) => {
 					toast({
 						title: "Failed to create IAM rule",
-						description: error.message,
+						description: error?.message || "An unknown error occurred",
 						variant: "destructive",
 					});
 				},

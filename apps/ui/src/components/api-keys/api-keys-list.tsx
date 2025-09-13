@@ -86,14 +86,6 @@ export function ApiKeysList({
 				apiKeys: initialData.map((key) => ({
 					...key,
 					maskedToken: key.maskedToken,
-					createdAt:
-						key.createdAt instanceof Date
-							? key.createdAt.toISOString()
-							: key.createdAt,
-					updatedAt:
-						key.updatedAt instanceof Date
-							? key.updatedAt.toISOString()
-							: key.updatedAt,
 				})),
 			},
 		},
