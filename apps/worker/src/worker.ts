@@ -320,6 +320,20 @@ async function batchProcessLogs(): Promise<void> {
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
+
+				// Log each processed log with JSON format
+				logger.info("Processing log", {
+					kind: "log-process",
+					logId: row.id,
+					organizationId: row.organization_id,
+					projectId: row.project_id,
+					cost: row.cost,
+					cached: row.cached,
+					apiKeyId: row.api_key_id,
+					projectMode: row.project_mode,
+					usedMode: row.used_mode,
+				});
+
 				if (row.cost && row.cost > 0 && !row.cached) {
 					// Always update API key usage for non-cached logs with cost
 					const currentApiKeyCost = apiKeyCosts.get(row.api_key_id) || 0;
