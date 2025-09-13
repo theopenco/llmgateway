@@ -1,9 +1,3 @@
-import { defineConfig } from "tsup";
+import { tsup } from "../../tsup.config";
 
-export default defineConfig({
-	entry: ["src/index.ts"],
-	format: ["esm", "cjs"],
-	dts: true,
-	clean: true,
-	external: ["@google-cloud/opentelemetry-cloud-trace-exporter"],
-});
+export { tsup };
