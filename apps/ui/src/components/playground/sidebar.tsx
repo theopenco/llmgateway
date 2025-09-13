@@ -22,6 +22,7 @@ import {
 	type Chat,
 } from "@/hooks/useChats";
 import { useUser } from "@/hooks/useUser";
+import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
 import { useAuth } from "@/lib/auth-client";
 import { Avatar, AvatarFallback } from "@/lib/components/avatar";
 import { Button } from "@/lib/components/button";
@@ -80,6 +81,14 @@ export function ChatSidebar({
 
 	const logout = async () => {
 		posthog.reset();
+
+		// Clear last used project cookies before signing out
+		try {
+			await clearLastUsedProjectCookiesAction();
+		} catch (error) {
+			console.error("Failed to clear last used project cookies:", error);
+		}
+
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {

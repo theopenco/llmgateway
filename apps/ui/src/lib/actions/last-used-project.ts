@@ -20,3 +20,19 @@ export async function setLastUsedProjectAction(
 		path: "/",
 	});
 }
+
+/**
+ * Server Action to clear all last used project cookies on logout
+ */
+export async function clearLastUsedProjectCookiesAction(): Promise<void> {
+	const cookieStore = await cookies();
+
+	// Get all cookies to find and delete the last-used-project ones
+	const allCookies = cookieStore.getAll();
+
+	for (const cookie of allCookies) {
+		if (cookie.name.startsWith(COOKIE_NAME)) {
+			cookieStore.delete(cookie.name);
+		}
+	}
+}
