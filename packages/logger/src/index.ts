@@ -29,11 +29,15 @@ class LLMGatewayLogger {
 	private logger: Logger;
 
 	public constructor(options: LoggerOptions = {}) {
-		const { name = "llmgateway", prettyPrint = this.shouldPrettyPrint() } =
-			options;
+		const {
+			name = "llmgateway",
+			level = this.getDefaultLevel(),
+			prettyPrint = this.shouldPrettyPrint(),
+		} = options;
 
 		this.logger = pino({
 			name,
+			level,
 			// Always ignore pid and hostname
 			base: undefined,
 			// Add Google Cloud Logging compatibility
@@ -100,8 +104,7 @@ class LLMGatewayLogger {
 			return {};
 		}
 
-		const projectId =
-			process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT;
+		const projectId = process.env.GOOGLE_CLOUD_PROJECT;
 		const traceId = spanContext.traceId;
 
 		return {
