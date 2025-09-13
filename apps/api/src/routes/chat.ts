@@ -138,21 +138,41 @@ chat.openapi(completionRoute, async (c) => {
 			// Handle non-streaming response
 			const responseData = await response.json();
 
+			// Validate response structure
+			if (
+				!responseData.choices ||
+				!Array.isArray(responseData.choices) ||
+				responseData.choices.length === 0
+			) {
+				logger.error("Invalid response structure from gateway", responseData);
+				return c.json({ error: "Invalid response from gateway" }, 500);
+			}
+
+			const firstChoice = responseData.choices[0];
+			if (!firstChoice.message) {
+				logger.error("No message in first choice", firstChoice);
+				return c.json(
+					{ error: "Invalid response structure from gateway" },
+					500,
+				);
+			}
+
 			const responseObject: {
 				content: string;
 				role: string;
 				images?: Array<{ type: string; image_url: { url: string } }>;
 			} = {
-				content: responseData.choices[0].message.content,
-				role: responseData.choices[0].message.role,
+				content: firstChoice.message.content,
+				role: firstChoice.message.role,
 			};
 
 			// Include images if present
 			if (
-				responseData.choices[0].message.images &&
-				responseData.choices[0].message.images.length > 0
+				firstChoice.message.images &&
+				Array.isArray(firstChoice.message.images) &&
+				firstChoice.message.images.length > 0
 			) {
-				responseObject.images = responseData.choices[0].message.images;
+				responseObject.images = firstChoice.message.images;
 			}
 
 			return c.json(responseObject);
