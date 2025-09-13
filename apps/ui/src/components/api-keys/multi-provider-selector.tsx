@@ -2,7 +2,7 @@
 
 import { providers } from "@llmgateway/models";
 import { Check, ChevronDown, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 
 import { providerLogoUrls } from "@/components/provider-keys/provider-logo";
 import { Badge } from "@/lib/components/badge";
@@ -30,22 +30,32 @@ export function MultiProviderSelector({
 }: MultiProviderSelectorProps) {
 	const [searchTerm, setSearchTerm] = useState("");
 
-	const filteredProviders = providers.filter((provider) =>
-		provider.name.toLowerCase().includes(searchTerm.toLowerCase()),
+	const filteredProviders = useMemo(
+		() =>
+			providers.filter((provider) =>
+				provider.name.toLowerCase().includes(searchTerm.toLowerCase()),
+			),
+		[searchTerm],
 	);
 
-	const handleProviderToggle = (providerId: string) => {
-		const isSelected = selectedProviders.includes(providerId);
-		if (isSelected) {
-			onProvidersChange(selectedProviders.filter((id) => id !== providerId));
-		} else {
-			onProvidersChange([...selectedProviders, providerId]);
-		}
-	};
+	const handleProviderToggle = useCallback(
+		(providerId: string) => {
+			const isSelected = selectedProviders.includes(providerId);
+			if (isSelected) {
+				onProvidersChange(selectedProviders.filter((id) => id !== providerId));
+			} else {
+				onProvidersChange([...selectedProviders, providerId]);
+			}
+		},
+		[selectedProviders, onProvidersChange],
+	);
 
-	const removeProvider = (providerId: string) => {
-		onProvidersChange(selectedProviders.filter((id) => id !== providerId));
-	};
+	const removeProvider = useCallback(
+		(providerId: string) => {
+			onProvidersChange(selectedProviders.filter((id) => id !== providerId));
+		},
+		[selectedProviders, onProvidersChange],
+	);
 
 	return (
 		<div className="space-y-2">
@@ -87,8 +97,8 @@ export function MultiProviderSelector({
 						<ChevronDown className="h-4 w-4 opacity-50" />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent className="w-80 max-h-96 overflow-y-auto p-2">
-					<div className="mb-2">
+				<DropdownMenuContent className="w-80 max-h-96 p-0">
+					<div className="sticky top-0 bg-background border-b p-2">
 						<Input
 							placeholder="Search providers..."
 							value={searchTerm}
@@ -96,31 +106,33 @@ export function MultiProviderSelector({
 							className="h-8"
 						/>
 					</div>
-					{filteredProviders.map((provider) => {
-						const LogoComponent = providerLogoUrls[provider.id as ProviderId];
-						return (
-							<DropdownMenuItem
-								key={provider.id}
-								onClick={() => handleProviderToggle(provider.id)}
-								className="flex items-center justify-between py-3 cursor-pointer"
-							>
-								<div className="flex items-center gap-2">
-									{LogoComponent && <LogoComponent className="h-4 w-4" />}
-									<span className="font-medium">{provider.name}</span>
-									{selectedProviders.includes(provider.id) && (
-										<Check className="h-4 w-4 text-green-600" />
-									)}
-								</div>
+					<div className="max-h-80 overflow-y-auto p-2">
+						{filteredProviders.map((provider) => {
+							const LogoComponent = providerLogoUrls[provider.id as ProviderId];
+							return (
+								<DropdownMenuItem
+									key={provider.id}
+									onClick={() => handleProviderToggle(provider.id)}
+									className="flex items-center justify-between py-3 cursor-pointer"
+								>
+									<div className="flex items-center gap-2">
+										{LogoComponent && <LogoComponent className="h-4 w-4" />}
+										<span className="font-medium">{provider.name}</span>
+										{selectedProviders.includes(provider.id) && (
+											<Check className="h-4 w-4 text-green-600" />
+										)}
+									</div>
 
-								<div className="flex items-center gap-1">
-									<div
-										className="w-3 h-3 rounded-full"
-										style={{ backgroundColor: provider.color }}
-									/>
-								</div>
-							</DropdownMenuItem>
-						);
-					})}
+									<div className="flex items-center gap-1">
+										<div
+											className="w-3 h-3 rounded-full"
+											style={{ backgroundColor: provider.color }}
+										/>
+									</div>
+								</DropdownMenuItem>
+							);
+						})}
+					</div>
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>

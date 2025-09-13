@@ -7,7 +7,7 @@ import {
 	type StabilityLevel,
 } from "@llmgateway/models";
 import { Check, ChevronDown, AlertTriangle, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -139,22 +139,34 @@ export function MultiModelSelector({
 		};
 	});
 
-	const filteredModels = uniqueModels.filter((model) =>
-		(model.name || model.id).toLowerCase().includes(searchTerm.toLowerCase()),
+	const filteredModels = useMemo(
+		() =>
+			uniqueModels.filter((model) =>
+				(model.name || model.id)
+					.toLowerCase()
+					.includes(searchTerm.toLowerCase()),
+			),
+		[searchTerm],
 	);
 
-	const handleModelToggle = (modelId: string) => {
-		const isSelected = selectedModels.includes(modelId);
-		if (isSelected) {
-			onModelsChange(selectedModels.filter((id) => id !== modelId));
-		} else {
-			onModelsChange([...selectedModels, modelId]);
-		}
-	};
+	const handleModelToggle = useCallback(
+		(modelId: string) => {
+			const isSelected = selectedModels.includes(modelId);
+			if (isSelected) {
+				onModelsChange(selectedModels.filter((id) => id !== modelId));
+			} else {
+				onModelsChange([...selectedModels, modelId]);
+			}
+		},
+		[selectedModels, onModelsChange],
+	);
 
-	const removeModel = (modelId: string) => {
-		onModelsChange(selectedModels.filter((id) => id !== modelId));
-	};
+	const removeModel = useCallback(
+		(modelId: string) => {
+			onModelsChange(selectedModels.filter((id) => id !== modelId));
+		},
+		[selectedModels, onModelsChange],
+	);
 
 	return (
 		<div className="space-y-2">
@@ -202,8 +214,8 @@ export function MultiModelSelector({
 						<ChevronDown className="h-4 w-4 opacity-50" />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent className="w-80 max-h-96 overflow-y-auto p-2">
-					<div className="mb-2">
+				<DropdownMenuContent className="w-80 max-h-96 p-0">
+					<div className="sticky top-0 bg-background border-b p-2">
 						<Input
 							placeholder="Search models..."
 							value={searchTerm}
@@ -211,77 +223,81 @@ export function MultiModelSelector({
 							className="h-8"
 						/>
 					</div>
-					{filteredModels.map((model) => (
-						<DropdownMenuItem
-							key={model.id}
-							onClick={() => handleModelToggle(model.id)}
-							className="flex items-center justify-between py-3 cursor-pointer"
-						>
-							<div className="flex items-center gap-2">
+					<div className="max-h-80 overflow-y-auto p-2">
+						{filteredModels.map((model) => (
+							<DropdownMenuItem
+								key={model.id}
+								onClick={() => handleModelToggle(model.id)}
+								className="flex items-center justify-between py-3 cursor-pointer"
+							>
 								<div className="flex items-center gap-2">
-									{model.providers.map((provider) => (
-										<div
-											key={provider.providerId}
-											className="w-3 h-3 rounded-full"
-											style={{ backgroundColor: provider.providerInfo?.color }}
-											title={provider.providerInfo?.name}
-										/>
-									))}
+									<div className="flex items-center gap-2">
+										{model.providers.map((provider) => (
+											<div
+												key={provider.providerId}
+												className="w-3 h-3 rounded-full"
+												style={{
+													backgroundColor: provider.providerInfo?.color,
+												}}
+												title={provider.providerInfo?.name}
+											/>
+										))}
+									</div>
+									<span className="font-medium">{model.name || model.id}</span>
+									{shouldShowStabilityWarning(
+										getMostUnstableStability(model),
+									) && <AlertTriangle className="h-4 w-4 text-orange-500" />}
+									{selectedModels.includes(model.id) && (
+										<Check className="h-4 w-4 text-green-600" />
+									)}
 								</div>
-								<span className="font-medium">{model.name || model.id}</span>
-								{shouldShowStabilityWarning(
-									getMostUnstableStability(model),
-								) && <AlertTriangle className="h-4 w-4 text-orange-500" />}
-								{selectedModels.includes(model.id) && (
-									<Check className="h-4 w-4 text-green-600" />
-								)}
-							</div>
 
-							<div className="flex flex-col items-end text-xs text-muted-foreground">
-								{model.providers[0]?.inputPrice !== null &&
-									model.providers[0]?.inputPrice !== undefined && (
-										<div>
-											${(model.providers[0].inputPrice * 1e6).toFixed(2)}/1M
-											tokens
-										</div>
-									)}
-								{model.providers[0]?.requestPrice !== null &&
-									model.providers[0]?.requestPrice !== undefined && (
-										<div>
-											${(model.providers[0].requestPrice * 1000).toFixed(2)}/1K
-											requests
-										</div>
-									)}
-								<div className="flex gap-1 mt-1">
-									{model.jsonOutput && (
-										<Badge variant="secondary" className="text-xs px-1 py-0">
-											JSON
-										</Badge>
-									)}
-									{model.providers.some((p) => p.providerInfo?.streaming) && (
-										<Badge variant="secondary" className="text-xs px-1 py-0">
-											Stream
-										</Badge>
-									)}
-									{(() => {
-										const mostUnstableStability =
-											getMostUnstableStability(model);
-										const stabilityProps = getStabilityBadgeProps(
-											mostUnstableStability,
-										);
-										return stabilityProps ? (
-											<Badge
-												variant={stabilityProps.variant}
-												className="text-xs px-1 py-0"
-											>
-												{stabilityProps.label}
+								<div className="flex flex-col items-end text-xs text-muted-foreground">
+									{model.providers[0]?.inputPrice !== null &&
+										model.providers[0]?.inputPrice !== undefined && (
+											<div>
+												${(model.providers[0].inputPrice * 1e6).toFixed(2)}/1M
+												tokens
+											</div>
+										)}
+									{model.providers[0]?.requestPrice !== null &&
+										model.providers[0]?.requestPrice !== undefined && (
+											<div>
+												${(model.providers[0].requestPrice * 1000).toFixed(2)}
+												/1K requests
+											</div>
+										)}
+									<div className="flex gap-1 mt-1">
+										{model.jsonOutput && (
+											<Badge variant="secondary" className="text-xs px-1 py-0">
+												JSON
 											</Badge>
-										) : null;
-									})()}
+										)}
+										{model.providers.some((p) => p.providerInfo?.streaming) && (
+											<Badge variant="secondary" className="text-xs px-1 py-0">
+												Stream
+											</Badge>
+										)}
+										{(() => {
+											const mostUnstableStability =
+												getMostUnstableStability(model);
+											const stabilityProps = getStabilityBadgeProps(
+												mostUnstableStability,
+											);
+											return stabilityProps ? (
+												<Badge
+													variant={stabilityProps.variant}
+													className="text-xs px-1 py-0"
+												>
+													{stabilityProps.label}
+												</Badge>
+											) : null;
+										})()}
+									</div>
 								</div>
-							</div>
-						</DropdownMenuItem>
-					))}
+							</DropdownMenuItem>
+						))}
+					</div>
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
