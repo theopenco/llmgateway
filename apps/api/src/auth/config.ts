@@ -46,23 +46,224 @@ export interface RateLimitResult {
 }
 
 /**
- * Check if an IP address is rate limited for signup attempts
- * Uses a sliding window approach with Redis
+ * Check and record signup attempt with exponential backoff
+ * This applies to ALL signup attempts regardless of success/failure
  */
-export async function checkSignupRateLimit(
+export async function checkAndRecordSignupAttempt(
 	ipAddress: string,
 ): Promise<RateLimitResult> {
-	const config: RateLimitConfig = {
-		keyPrefix: "signup_rate_limit",
-		windowSizeMs: 10 * 60 * 1000, // 10 minutes
-		maxRequests: 2,
-	};
+	const key = `signup_rate_limit:${ipAddress}`;
+	const attemptsKey = `signup_rate_limit_attempts:${ipAddress}`;
+	const now = Date.now();
 
-	return await checkRateLimit(ipAddress, config);
+	try {
+		const pipeline = redisClient.pipeline();
+		pipeline.get(key);
+		pipeline.get(attemptsKey);
+		const results = await pipeline.exec();
+
+		if (!results) {
+			throw new Error("Redis pipeline execution failed");
+		}
+
+		const lastAttemptTime = results[0][1] as string | null;
+		const attemptCount = parseInt((results[1][1] as string) || "0", 10);
+
+		// Check if we're currently in a rate limit period
+		if (lastAttemptTime && attemptCount > 0) {
+			const lastTime = parseInt(lastAttemptTime, 10);
+			const delayMs = Math.min(
+				60 * 1000 * Math.pow(2, attemptCount - 1), // Start at 1 minute, double each time
+				24 * 60 * 60 * 1000, // Cap at 24 hours
+			);
+			const resetTime = lastTime + delayMs;
+
+			if (now < resetTime) {
+				return {
+					allowed: false,
+					resetTime,
+					remaining: 0,
+				};
+			}
+		}
+
+		// Allow the request and record the attempt
+		const newAttemptCount = attemptCount + 1;
+		const nextDelayMs = Math.min(
+			60 * 1000 * Math.pow(2, newAttemptCount - 1), // Next delay
+			24 * 60 * 60 * 1000, // Cap at 24 hours
+		);
+		const nextResetTime = now + nextDelayMs;
+
+		// Update Redis with new attempt
+		const updatePipeline = redisClient.pipeline();
+		updatePipeline.set(key, now.toString());
+		updatePipeline.set(attemptsKey, newAttemptCount.toString());
+		updatePipeline.expire(key, Math.ceil((24 * 60 * 60 * 1000) / 1000)); // 24 hours
+		updatePipeline.expire(attemptsKey, Math.ceil((24 * 60 * 60 * 1000) / 1000));
+		await updatePipeline.exec();
+
+		logger.debug("Signup attempt recorded", {
+			ipAddress,
+			attemptCount: newAttemptCount,
+			nextDelayMs,
+			nextResetTime,
+		});
+
+		return {
+			allowed: true,
+			resetTime: nextResetTime,
+			remaining: 0,
+		};
+	} catch (error) {
+		logger.error(
+			"Signup attempt check failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+
+		// Fail open - allow the request if Redis is down
+		return {
+			allowed: true,
+			resetTime: now,
+			remaining: 0,
+		};
+	}
+}
+
+export interface ExponentialRateLimitConfig {
+	keyPrefix: string;
+	baseDelayMs: number;
+	maxDelayMs: number;
+}
+
+/**
+ * Exponential backoff rate limiting function using Redis
+ * Each failed attempt increases the delay exponentially
+ */
+export async function checkExponentialRateLimit(
+	identifier: string,
+	config: ExponentialRateLimitConfig,
+): Promise<RateLimitResult> {
+	const key = `${config.keyPrefix}:${identifier}`;
+	const attemptsKey = `${config.keyPrefix}_attempts:${identifier}`;
+	const now = Date.now();
+
+	try {
+		// Get the last attempt time and attempt count
+		const pipeline = redisClient.pipeline();
+		pipeline.get(key);
+		pipeline.get(attemptsKey);
+		const results = await pipeline.exec();
+
+		if (!results) {
+			throw new Error("Redis pipeline execution failed");
+		}
+
+		const lastAttemptTime = results[0][1] as string | null;
+		const attemptCount = parseInt((results[1][1] as string) || "0", 10);
+
+		if (lastAttemptTime) {
+			const lastTime = parseInt(lastAttemptTime, 10);
+			const delayMs = Math.min(
+				config.baseDelayMs * Math.pow(2, attemptCount - 1),
+				config.maxDelayMs,
+			);
+			const resetTime = lastTime + delayMs;
+
+			if (now < resetTime) {
+				// Still rate limited
+				logger.debug("Exponential rate limit check", {
+					identifier,
+					attemptCount,
+					delayMs,
+					allowed: false,
+					resetTime,
+					remaining: 0,
+				});
+
+				return {
+					allowed: false,
+					resetTime,
+					remaining: 0,
+				};
+			}
+		}
+
+		// Allow the request and record the attempt
+		const newAttemptCount = attemptCount + 1;
+		const nextDelayMs = Math.min(
+			config.baseDelayMs * Math.pow(2, newAttemptCount - 1),
+			config.maxDelayMs,
+		);
+		const nextResetTime = now + nextDelayMs;
+
+		// Update Redis with new attempt
+		const updatePipeline = redisClient.pipeline();
+		updatePipeline.set(key, now.toString());
+		updatePipeline.set(attemptsKey, newAttemptCount.toString());
+		updatePipeline.expire(key, Math.ceil(config.maxDelayMs / 1000));
+		updatePipeline.expire(attemptsKey, Math.ceil(config.maxDelayMs / 1000));
+		await updatePipeline.exec();
+
+		logger.debug("Exponential rate limit check", {
+			identifier,
+			attemptCount: newAttemptCount,
+			nextDelayMs,
+			allowed: true,
+			nextResetTime,
+			remaining: 0,
+		});
+
+		return {
+			allowed: true,
+			resetTime: nextResetTime,
+			remaining: 0,
+		};
+	} catch (error) {
+		logger.error(
+			"Exponential rate limit check failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+
+		// Fail open - allow the request if Redis is down
+		return {
+			allowed: true,
+			resetTime: now + config.baseDelayMs,
+			remaining: 0,
+		};
+	}
+}
+
+/**
+ * Reset exponential backoff for successful operations
+ */
+export async function resetExponentialRateLimit(
+	identifier: string,
+	config: ExponentialRateLimitConfig,
+): Promise<void> {
+	const key = `${config.keyPrefix}:${identifier}`;
+	const attemptsKey = `${config.keyPrefix}_attempts:${identifier}`;
+
+	try {
+		const pipeline = redisClient.pipeline();
+		pipeline.del(key);
+		pipeline.del(attemptsKey);
+		await pipeline.exec();
+
+		logger.debug("Exponential rate limit reset", {
+			identifier,
+		});
+	} catch (error) {
+		logger.error(
+			"Failed to reset exponential rate limit",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
 }
 
 /**
  * Generic rate limiting function using sliding window with Redis
+ * (kept for backward compatibility if needed elsewhere)
  */
 export async function checkRateLimit(
 	identifier: string,
@@ -292,7 +493,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 	},
 	hooks: {
 		before: createAuthMiddleware(async (ctx) => {
-			// Check rate limit for signup attempts
+			// Check and record rate limit for ALL signup attempts
 			if (ctx.path.startsWith("/sign-up")) {
 				// Get IP address from various possible headers, prioritizing CF-Connecting-IP
 				let ipAddress = ctx.headers?.get("cf-connecting-ip");
@@ -309,7 +510,8 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 					}
 				}
 
-				const rateLimitResult = await checkSignupRateLimit(ipAddress);
+				// Check and record signup attempt with exponential backoff
+				const rateLimitResult = await checkAndRecordSignupAttempt(ipAddress);
 
 				if (!rateLimitResult.allowed) {
 					logger.warn("Signup rate limit exceeded", {
@@ -321,15 +523,21 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 						(rateLimitResult.resetTime - Date.now()) / 1000,
 					);
 
-					logger.debug("Signup rate limit check passed", {
-						ip: ipAddress,
-						remaining: rateLimitResult.remaining,
-					});
+					const minutes = Math.ceil(retryAfterSeconds / 60);
+					const hours = Math.floor(minutes / 60);
+					const displayMinutes = minutes % 60;
+
+					let timeMessage = "";
+					if (hours > 0) {
+						timeMessage = `${hours}h ${displayMinutes}m`;
+					} else {
+						timeMessage = `${minutes}m`;
+					}
 
 					return new Response(
 						JSON.stringify({
 							error: "too_many_requests",
-							message: `Too many signup attempts. Please try again later (${retryAfterSeconds / 60} minutes)`,
+							message: `Too many signup attempts. Please try again in ${timeMessage}.`,
 							retryAfter: retryAfterSeconds,
 						}),
 						{
