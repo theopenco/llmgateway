@@ -10,6 +10,7 @@
 		"self-host",
 		"---Features---",
 		"features/routing",
+		"features/anthropic-endpoint",
 		"features/source",
 		"features/image-generation",
 		"features/vision",
