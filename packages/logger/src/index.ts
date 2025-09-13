@@ -1,4 +1,4 @@
-import { trace } from "@opentelemetry/api";
+import { isSpanContextValid, trace, TraceFlags } from "@opentelemetry/api";
 import pino, { type Logger } from "pino";
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
@@ -100,7 +100,7 @@ class LLMGatewayLogger {
 		}
 
 		const spanContext = span.spanContext();
-		if (!spanContext || !trace.isSpanContextValid(spanContext)) {
+		if (!spanContext || !isSpanContextValid(spanContext)) {
 			return {};
 		}
 
@@ -114,7 +114,7 @@ class LLMGatewayLogger {
 				: traceId,
 			"logging.googleapis.com/spanId": spanContext.spanId,
 			"logging.googleapis.com/trace_sampled": Boolean(
-				spanContext.traceFlags & 1,
+				spanContext.traceFlags & TraceFlags.SAMPLED,
 			),
 			// Additional context for manual correlation
 			traceId,
