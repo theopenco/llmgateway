@@ -2,6 +2,7 @@ import { auth } from "@llmgateway/auth";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
@@ -175,6 +176,17 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 	...auth.options,
 
 	// Add API-specific configurations
+	secret: process.env.AUTH_SECRET || "your-secret-key",
+	database: drizzleAdapter(db, {
+		provider: "pg",
+		schema: {
+			user: tables.user,
+			session: tables.session,
+			account: tables.account,
+			verification: tables.verification,
+			passkey: tables.passkey,
+		},
+	}),
 	emailVerification: {
 		sendOnSignUp: true,
 		autoSignInAfterVerification: true,

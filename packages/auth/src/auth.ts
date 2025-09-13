@@ -1,6 +1,4 @@
-import { db, tables } from "@llmgateway/db";
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { passkey } from "better-auth/plugins/passkey";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
@@ -36,20 +34,9 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
 			origin: uiUrl,
 		}),
 	],
-	database: drizzleAdapter(db, {
-		provider: "pg",
-		schema: {
-			user: tables.user,
-			session: tables.session,
-			account: tables.account,
-			verification: tables.verification,
-			passkey: tables.passkey,
-		},
-	}),
 	emailAndPassword: {
 		enabled: true,
 	},
-	secret: process.env.AUTH_SECRET || "your-secret-key",
 	baseURL: apiUrl || "http://localhost:4002",
 });
 
