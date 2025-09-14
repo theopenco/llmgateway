@@ -443,8 +443,9 @@ export async function prepareRequestBody(
 				(p) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
+				process.env.USE_RESPONSES_API === "true" &&
 				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-				false;
+					false;
 
 			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
 				// Transform to responses API format (only when no existing tool calls)
@@ -871,7 +872,12 @@ export function getProviderEndpoint(
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation
-			if (supportsReasoning && model && !hasExistingToolCalls) {
+			if (
+				supportsReasoning &&
+				model &&
+				!hasExistingToolCalls &&
+				process.env.USE_RESPONSES_API === "true"
+			) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
