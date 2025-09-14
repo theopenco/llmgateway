@@ -39,6 +39,16 @@ When running curl commands against the local API, you can use `test-token` as au
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
 
+#### E2E Test Structure
+
+E2E tests are organized for optimal performance:
+
+- **Parallel execution**: Tests run up to 10 in parallel using Vitest's thread pool
+- **Split structure**:
+  - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
+  - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
+- **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
+
 ### Database Operations
 
 - `pnpm push-dev` - Push schema changes to development database

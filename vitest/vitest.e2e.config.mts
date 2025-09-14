@@ -15,5 +15,15 @@ export default defineConfig({
 			reporter: ["text", "json", "html"],
 			exclude: ["**/node_modules/**", "**/dist/**"],
 		},
+		// Configure parallel execution with pool of 10
+		pool: "threads",
+		poolOptions: {
+			threads: {
+				maxThreads: 10,
+				minThreads: 1,
+			},
+		},
+		// Enable concurrent mode for parallel .each tests
+		concurrent: true,
 	},
 });
