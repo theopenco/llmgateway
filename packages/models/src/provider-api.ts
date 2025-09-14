@@ -443,8 +443,9 @@ export async function prepareRequestBody(
 				(p) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
+				process.env.USE_RESPONSES_API === "true" &&
 				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-				false;
+					false;
 
 			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
 				// Transform to responses API format (only when no existing tool calls)
@@ -523,6 +524,40 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "zai": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			// ZAI/GLM models use 'thinking' parameter for reasoning instead of 'reasoning_effort'
+			if (supportsReasoning) {
+				requestBody.thinking = {
+					type: "enabled",
+				};
+			}
+			break;
+		}
 		case "xai":
 		case "groq":
 		case "deepseek":
@@ -531,7 +566,6 @@ export async function prepareRequestBody(
 		case "moonshot":
 		case "alibaba":
 		case "nebius":
-		case "zai":
 		case "routeway":
 		case "custom": {
 			if (stream) {
@@ -871,7 +905,12 @@ export function getProviderEndpoint(
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation
-			if (supportsReasoning && model && !hasExistingToolCalls) {
+			if (
+				supportsReasoning &&
+				model &&
+				!hasExistingToolCalls &&
+				process.env.USE_RESPONSES_API === "true"
+			) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",

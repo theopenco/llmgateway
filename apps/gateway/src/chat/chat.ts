@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { trace } from "@opentelemetry/api";
 import { encode, encodeChat } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
@@ -252,6 +253,9 @@ function createLogEntry(
 	upstreamRequest?: unknown,
 	upstreamResponse?: unknown,
 ) {
+	const activeSpan = trace.getActiveSpan();
+	const traceId = activeSpan?.spanContext().traceId || null;
+
 	return {
 		requestId,
 		organizationId: project.organizationId,
@@ -275,6 +279,7 @@ function createLogEntry(
 		mode: project.mode,
 		source: source || null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
+		traceId,
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: debugMode ? rawRequest || null : null,
 		rawResponse: debugMode ? rawResponse || null : null,
@@ -2053,7 +2058,8 @@ chat.openapi(completions, async (c) => {
 	const source = validateAndNormalizeSource(c.req.header("x-source"));
 
 	// Check if debug mode is enabled via x-debug header
-	const debugMode = c.req.header("x-debug") === "true";
+	const debugMode =
+		c.req.header("x-debug") === "true" || process.env.NODE_ENV !== "production";
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data

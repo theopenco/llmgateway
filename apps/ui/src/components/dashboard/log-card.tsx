@@ -54,7 +54,10 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 		StatusIcon = AlertCircle;
 		color = "text-red-500";
 		bgColor = "bg-red-100";
-	} else if (log.unifiedFinishReason !== "completed") {
+	} else if (
+		log.unifiedFinishReason !== "completed" &&
+		log.unifiedFinishReason !== "tool_calls"
+	) {
 		StatusIcon = AlertCircle;
 		color = "text-yellow-500";
 		bgColor = "bg-yellow-100";
@@ -71,7 +74,16 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 				<div className="flex-1 space-y-1 min-w-0">
 					<div className="flex items-start justify-between gap-4">
 						<p className="font-medium break-words max-w-none line-clamp-2">
-							{log.content || <i className="italic">–</i>}
+							{log.content ||
+								(log.unifiedFinishReason === "tool_calls" && log.toolResults ? (
+									Array.isArray(log.toolResults) ? (
+										`Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
+									) : (
+										"Tool calls executed"
+									)
+								) : (
+									<i className="italic">–</i>
+								))}
 						</p>
 						<Badge
 							variant={log.hasError ? "destructive" : "default"}
@@ -431,7 +443,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 																	<div className="text-muted-foreground">
 																		Arguments:
 																	</div>
-																	<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32">
+																	<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32 text-wrap">
 																		{typeof toolCall.function.arguments ===
 																		"string"
 																			? toolCall.function.arguments
