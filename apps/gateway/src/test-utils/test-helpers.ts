@@ -1,6 +1,7 @@
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 
+// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
 import { processLogQueue } from "../../../worker/src/worker";
 
 export { getProviderEnvVar } from "../lib/provider";
