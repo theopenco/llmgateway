@@ -431,7 +431,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 																	<div className="text-muted-foreground">
 																		Arguments:
 																	</div>
-																	<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32">
+																	<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32 text-wrap">
 																		{typeof toolCall.function.arguments ===
 																		"string"
 																			? toolCall.function.arguments
