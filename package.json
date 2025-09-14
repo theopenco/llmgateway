@@ -52,7 +52,7 @@
 		"sort-package-json": "3.4.0",
 		"tsup": "8.4.0",
 		"tsx": "^4.19.4",
-		"turbo": "^2.5.3",
+		"turbo": "^2.5.6",
 		"typescript": "5.8.3",
 		"vite": "^6.3.6",
 		"vite-tsconfig-paths": "^5.1.4",
