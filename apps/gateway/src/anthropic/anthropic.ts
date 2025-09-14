@@ -318,18 +318,34 @@ anthropic.openapi(messages, async (c) => {
 			Array.isArray(message.content) &&
 			message.content.some((block) => block.type === "tool_result")
 		) {
-			// Convert each tool_result block to a separate tool message
+			// Group tool_result blocks by tool_use_id to avoid duplicates
+			const toolResults = new Map<string, any[]>();
 			for (const block of message.content) {
 				if (block.type === "tool_result") {
-					openaiMessages.push({
-						role: "tool",
-						content:
-							typeof block.content === "string"
-								? block.content
-								: JSON.stringify(block.content),
-						tool_call_id: block.tool_use_id,
-					});
+					const toolUseId = block.tool_use_id;
+					if (!toolResults.has(toolUseId)) {
+						toolResults.set(toolUseId, []);
+					}
+					toolResults.get(toolUseId)!.push(block);
 				}
+			}
+
+			// Convert each unique tool_use_id to a single tool message
+			for (const [toolUseId, blocks] of toolResults) {
+				// Combine content from all blocks with the same tool_use_id
+				const combinedContent = blocks
+					.map((block) =>
+						typeof block.content === "string"
+							? block.content
+							: JSON.stringify(block.content),
+					)
+					.join("\n");
+
+				openaiMessages.push({
+					role: "tool",
+					content: combinedContent,
+					tool_call_id: toolUseId,
+				});
 			}
 
 			// Handle any remaining text content as a user message
