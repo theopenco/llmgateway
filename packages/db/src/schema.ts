@@ -382,6 +382,7 @@ export const log = pgTable("log", {
 	rawResponse: jsonb(),
 	upstreamRequest: jsonb(),
 	upstreamResponse: jsonb(),
+	traceId: text(),
 });
 
 export const passkey = pgTable(
