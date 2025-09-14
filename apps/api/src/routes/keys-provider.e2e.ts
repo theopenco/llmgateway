@@ -8,6 +8,8 @@ import {
 	type TestOptions,
 } from "vitest";
 
+import { createTestUser, deleteAll } from "@/testing";
+
 import { db, tables } from "@llmgateway/db";
 import {
 	models,
@@ -17,7 +19,6 @@ import {
 
 import { app } from "..";
 import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
-import { createTestUser, deleteAll } from "../testing";
 
 function getTestOptions(): TestOptions {
 	const hasTestOnly = models.some((model) =>
