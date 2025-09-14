@@ -1,4 +1,23 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { trace } from "@opentelemetry/api";
+import { encode, encodeChat } from "gpt-tokenizer";
+import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
+
+import {
+	checkCustomProviderExists,
+	generateCacheKey,
+	generateStreamingCacheKey,
+	getCache,
+	getCustomProviderKey,
+	getOrganization,
+	getProject,
+	getProviderKey,
+	getStreamingCache,
+	isCachingEnabled,
+	setCache,
+	setStreamingCache,
+} from "@llmgateway/cache";
 import {
 	type ApiKey,
 	db,
@@ -25,32 +44,65 @@ import {
 	hasMaxTokens,
 	providers,
 } from "@llmgateway/models";
-import { encode, encodeChat } from "gpt-tokenizer";
-import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
-import {
-	checkCustomProviderExists,
-	generateCacheKey,
-	generateStreamingCacheKey,
-	getCache,
-	getCustomProviderKey,
-	getOrganization,
-	getProject,
-	getProviderKey,
-	getStreamingCache,
-	isCachingEnabled,
-	setCache,
-	setStreamingCache,
-} from "../lib/cache";
 import { calculateCosts } from "../lib/costs";
+import { throwIamException, validateModelAccess } from "../lib/iam";
 import { insertLog } from "../lib/logs";
 import {
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
 } from "../lib/provider";
+import { checkFreeModelRateLimit } from "../lib/rate-limit";
 
 import type { ServerTypes } from "../vars";
+import type { Context } from "hono";
+
+// Helper function to validate free model usage
+async function validateFreeModelUsage(
+	c: Context<ServerTypes>,
+	organizationId: string,
+	requestedModel: string,
+	modelInfo: ModelDefinition,
+) {
+	const user = await getUserFromOrganization(organizationId);
+	if (!user) {
+		logger.error("User not found", { organizationId });
+		throw new HTTPException(500, {
+			message: "User not found",
+		});
+	}
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message:
+				"Email verification required to use free models. Please verify your email address.",
+		});
+	}
+
+	// Check rate limits for free models
+	const rateLimitResult = await checkFreeModelRateLimit(
+		organizationId,
+		requestedModel,
+		modelInfo,
+	);
+
+	// Always set limit and remaining headers
+	c.header("X-RateLimit-Limit", rateLimitResult.limit.toString());
+	c.header("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
+
+	if (!rateLimitResult.allowed) {
+		// Only set retry and reset headers when rate limited
+		const retryAfter = rateLimitResult.retryAfter?.toString();
+		if (retryAfter) {
+			c.header("Retry-After", retryAfter);
+			const resetTime = (Math.floor(Date.now() / 1000) + retryAfter).toString();
+			c.header("X-RateLimit-Reset", resetTime);
+		}
+
+		throw new HTTPException(429, {
+			message: "Rate limit exceeded for free models. Please try again later.",
+		});
+	}
+}
 
 // Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {
@@ -157,6 +209,24 @@ function extractCustomHeaders(c: any): Record<string, string> {
 }
 
 /**
+ * Get the user associated with an organization (first user found)
+ */
+async function getUserFromOrganization(organizationId: string) {
+	const userOrg = await db.query.userOrganization.findFirst({
+		where: {
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			user: true,
+		},
+	});
+
+	return userOrg?.user || null;
+}
+
+/**
  * Creates a partial log entry with common fields to reduce duplication
  */
 function createLogEntry(
@@ -165,6 +235,7 @@ function createLogEntry(
 	apiKey: ApiKey,
 	providerKeyId: string | undefined,
 	usedModel: string,
+	usedModelMapping: string | undefined,
 	usedProvider: string,
 	requestedModel: string,
 	requestedProvider: string | undefined,
@@ -185,6 +256,9 @@ function createLogEntry(
 	upstreamRequest?: unknown,
 	upstreamResponse?: unknown,
 ) {
+	const activeSpan = trace.getActiveSpan();
+	const traceId = activeSpan?.spanContext().traceId || null;
+
 	return {
 		requestId,
 		organizationId: project.organizationId,
@@ -192,6 +266,7 @@ function createLogEntry(
 		apiKeyId: apiKey.id,
 		usedMode: providerKeyId ? "api-keys" : "credits",
 		usedModel,
+		usedModelMapping,
 		usedProvider,
 		requestedModel,
 		requestedProvider,
@@ -207,6 +282,7 @@ function createLogEntry(
 		mode: project.mode,
 		source: source || null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
+		traceId,
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: debugMode ? rawRequest || null : null,
 		rawResponse: debugMode ? rawResponse || null : null,
@@ -296,7 +372,6 @@ function parseProviderResponse(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			// Extract content and reasoning content from Google response parts
 			const parts = json.candidates?.[0]?.content?.parts || [];
@@ -598,7 +673,6 @@ export function estimateTokensFromContent(content: string): number {
  */
 function extractContentFromProvider(data: any, provider: Provider): string {
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const contentParts = parts.filter((part: any) => !part.thought);
@@ -636,7 +710,6 @@ function extractReasoningContentFromProvider(
 			}
 			return "";
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const reasoningParts = parts.filter((part: any) => part.thought);
@@ -659,7 +732,6 @@ function extractImagesFromProvider(
 	provider: Provider,
 ): ImageObject[] {
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
@@ -719,9 +791,8 @@ function extractToolCallsFromProvider(
 				];
 			}
 			return null;
-		case "google-vertex":
 		case "google-ai-studio": {
-			// Google Vertex AI tool calls in streaming
+			// Google AI Studio tool calls in streaming
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			return (
 				parts
@@ -756,7 +827,6 @@ function extractTokenUsage(
 	let cachedTokens = null;
 
 	switch (provider) {
-		case "google-vertex":
 		case "google-ai-studio":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount || null;
@@ -835,7 +905,6 @@ function transformToOpenAIFormat(
 	let transformedResponse = json;
 
 	switch (usedProvider) {
-		case "google-vertex":
 		case "google-ai-studio": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
@@ -1375,7 +1444,6 @@ function transformStreamingChunkToOpenAIFormat(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const hasText = parts.some((part: any) => part.text);
@@ -1993,7 +2061,8 @@ chat.openapi(completions, async (c) => {
 	const source = validateAndNormalizeSource(c.req.header("x-source"));
 
 	// Check if debug mode is enabled via x-debug header
-	const debugMode = c.req.header("x-debug") === "true";
+	const debugMode =
+		c.req.header("x-debug") === "true" || process.env.NODE_ENV !== "production";
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
@@ -2146,7 +2215,12 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if reasoning_effort is specified but model doesn't support reasoning
-	if (reasoning_effort !== undefined) {
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		reasoning_effort !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
 		// Check if any provider for this model supports reasoning
 		const supportsReasoning = modelInfo.providers.some(
 			(provider) => (provider as ProviderModelMapping).reasoning === true,
@@ -2225,6 +2299,16 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
+	}
+
+	// Validate IAM rules for model access
+	const iamValidation = await validateModelAccess(
+		apiKey.id,
+		requestedModel,
+		requestedProvider,
+	);
+	if (!iamValidation.allowed) {
+		throwIamException(iamValidation.reason!);
 	}
 
 	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode
@@ -2382,11 +2466,21 @@ chat.openapi(completions, async (c) => {
 				availableProviders.includes(provider.providerId),
 			);
 
-			// Filter by context size requirement
+			// Filter by context size requirement and reasoning capability if needed
 			const suitableProviders = availableModelProviders.filter((provider) => {
 				// Use the provider's context size, defaulting to a reasonable value if not specified
 				const modelContextSize = provider.contextSize ?? 8192;
-				return modelContextSize >= requiredContextSize;
+				const contextSizeMet = modelContextSize >= requiredContextSize;
+
+				// If reasoning_effort is specified, only include providers that support reasoning
+				if (reasoning_effort !== undefined) {
+					return (
+						contextSizeMet &&
+						(provider as ProviderModelMapping).reasoning === true
+					);
+				}
+
+				return contextSizeMet;
 			});
 
 			if (suitableProviders.length > 0) {
@@ -2558,6 +2652,10 @@ chat.openapi(completions, async (c) => {
 
 	const baseModelName = finalModelInfo?.id || usedModel;
 
+	// Create the model mapping values according to new schema
+	const usedModelMapping = usedModel; // Store the original provider model name
+	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
+
 	let url: string | undefined;
 
 	// Get the provider key for the selected provider based on project mode
@@ -2689,6 +2787,19 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
 		});
+	}
+
+	// Check email verification and rate limits for free models (only when using credits/environment tokens)
+	if (
+		(modelInfo as ModelDefinition).free &&
+		(!providerKey || !providerKey.token)
+	) {
+		await validateFreeModelUsage(
+			c,
+			project.organizationId,
+			usedModel,
+			modelInfo as ModelDefinition,
+		);
 	}
 
 	if (!usedToken) {
@@ -2837,7 +2948,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -2924,7 +3036,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3135,7 +3248,8 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						providerKey?.id,
-						usedModel,
+						usedModelFormatted,
+						usedModelMapping,
 						usedProvider,
 						requestedModel,
 						requestedProvider,
@@ -3257,7 +3371,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -3654,10 +3769,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// For Google providers, add usage information when available
-							if (
-								usedProvider === "google-vertex" ||
-								usedProvider === "google-ai-studio"
-							) {
+							if (usedProvider === "google-ai-studio") {
 								const usage = extractTokenUsage(
 									data,
 									usedProvider,
@@ -3780,7 +3892,6 @@ chat.openapi(completions, async (c) => {
 
 							// Handle provider-specific finish reason extraction
 							switch (usedProvider) {
-								case "google-vertex":
 								case "google-ai-studio":
 									if (data.candidates?.[0]?.finishReason) {
 										finishReason = data.candidates[0].finishReason;
@@ -4056,7 +4167,8 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					providerKey?.id,
-					usedModel,
+					usedModelFormatted,
+					usedModelMapping,
 					usedProvider,
 					requestedModel,
 					requestedProvider,
@@ -4200,7 +4312,8 @@ chat.openapi(completions, async (c) => {
 			project,
 			apiKey,
 			providerKey?.id,
-			usedModel,
+			usedModelFormatted,
+			usedModelMapping,
 			usedProvider,
 			requestedModel,
 			requestedProvider,
@@ -4276,7 +4389,8 @@ chat.openapi(completions, async (c) => {
 			project,
 			apiKey,
 			providerKey?.id,
-			usedModel,
+			usedModelFormatted,
+			usedModelMapping,
 			usedProvider,
 			requestedModel,
 			requestedProvider,
@@ -4449,7 +4563,8 @@ chat.openapi(completions, async (c) => {
 		project,
 		apiKey,
 		providerKey?.id,
-		usedModel,
+		usedModelFormatted,
+		usedModelMapping,
 		usedProvider,
 		requestedModel,
 		requestedProvider,

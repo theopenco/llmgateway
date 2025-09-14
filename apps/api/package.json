@@ -2,6 +2,7 @@
 	"name": "api",
 	"version": "1.0.0",
 	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
 	"files": [
 		"dist/"
@@ -10,29 +11,34 @@
 		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup && pnpm run generate",
 		"dev": "nodemon -e ts,json --exec 'tsx src/serve.ts'",
 		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
-		"start": "node dist/serve.js"
+		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",
 		"@hono/swagger-ui": "^0.5.1",
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.0",
-		"@llmgateway/auth": "workspace:*",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
+		"@opentelemetry/api": "1.9.0",
+		"@opentelemetry/sdk-node": "0.205.0",
 		"bcrypt-ts": "7.0.0",
 		"better-auth": "1.2.7",
 		"drizzle-zod": "0.7.1",
 		"gateway": "workspace:*",
-		"hono": "^4.7.6",
+		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
-		"openai": "^4.104.0",
-		"posthog-node": "4.18.0",
+		"ioredis": "5.7.0",
+		"nodemailer": "^7.0.5",
+		"openai": "^5.19.1",
+		"posthog-node": "5.8.2",
 		"stripe": "18.1.1",
 		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
 	},
 	"devDependencies": {
-		"@types/node": "^24.0.3"
+		"@types/nodemailer": "7.0.1"
 	}
 }

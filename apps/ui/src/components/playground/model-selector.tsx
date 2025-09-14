@@ -1,9 +1,3 @@
-import {
-	models,
-	providers,
-	type ModelDefinition,
-	type StabilityLevel,
-} from "@llmgateway/models";
 import { Check, ChevronDown, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/lib/components/badge";
@@ -14,6 +8,13 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
+
+import {
+	models,
+	providers,
+	type ModelDefinition,
+	type StabilityLevel,
+} from "@llmgateway/models";
 
 interface ModelSelectorProps {
 	selectedModel: string;
@@ -165,7 +166,8 @@ export function ModelSelector({
 				{uniqueModels.map((model) => (
 					<div key={model.id}>
 						<DropdownMenuItem
-							onSelect={() => onModelSelect(model.id)}
+							// onSelect={() => onModelSelect(model.id)}
+							onClick={() => onModelSelect(model.id)}
 							className="flex items-center justify-between py-3"
 						>
 							<div className="flex items-center gap-2">

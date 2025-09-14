@@ -21,6 +21,29 @@ const changelog = defineCollection({
 	}),
 });
 
+const blog = defineCollection({
+	name: "blog",
+	directory: "src/content/blog",
+	include: "**/*.md",
+	schema: z.object({
+		id: z.string(),
+		slug: z.string(),
+		date: z.string(),
+		title: z.string(),
+		summary: z.string(),
+		draft: z.boolean().optional(),
+		categories: z.array(z.string()).default([]),
+		image: z
+			.object({
+				src: z.string(),
+				alt: z.string(),
+				width: z.number(),
+				height: z.number(),
+			})
+			.optional(),
+	}),
+});
+
 export default defineConfig({
-	collections: [changelog],
+	collections: [changelog, blog],
 });

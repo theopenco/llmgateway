@@ -1,13 +1,14 @@
-import {
-	models as modelDefinitions,
-	providers as providerDefinitions,
-} from "@llmgateway/models";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
 import { ModelCard } from "@/components/shared/model-card";
+
+import {
+	models as modelDefinitions,
+	providers as providerDefinitions,
+} from "@llmgateway/models";
 
 interface ProviderPageProps {
 	params: Promise<{ id: string }>;

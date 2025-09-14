@@ -1,4 +1,3 @@
-import { db, tables, eq } from "@llmgateway/db";
 import {
 	afterAll,
 	beforeEach,
@@ -7,6 +6,8 @@ import {
 	expect,
 	test,
 } from "vitest";
+
+import { db, tables, eq } from "@llmgateway/db";
 
 import { app } from ".";
 import {

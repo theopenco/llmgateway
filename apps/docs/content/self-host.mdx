@@ -27,7 +27,6 @@ docker run -d \
   -p 4001:4001 \
   -p 4002:4002 \
   -v ~/llmgateway_data:/var/lib/postgresql/data \
-  -e OPENAI_API_KEY=sk-your_openai_key_here \
   -e AUTH_SECRET=your-secret-key-here \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
@@ -134,7 +133,6 @@ You can set any of the following API keys:
 ```text
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
-VERTEX_API_KEY=
 GOOGLE_AI_STUDIO_API_KEY=
 INFERENCE_NET_API_KEY=
 TOGETHER_AI_API_KEY=

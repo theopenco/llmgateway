@@ -1,6 +1,7 @@
-import { logger } from "@llmgateway/logger";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
+
+import { logger } from "@llmgateway/logger";
 
 import { relations } from "./relations";
 

@@ -360,7 +360,6 @@ export function getProviderHeaders(
 			};
 		case "google-ai-studio":
 			return {};
-		case "google-vertex":
 		case "openai":
 		case "inference.net":
 		case "xai":
@@ -444,8 +443,9 @@ export async function prepareRequestBody(
 				(p) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
+				process.env.USE_RESPONSES_API === "true" &&
 				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-				false;
+					false;
 
 			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
 				// Transform to responses API format (only when no existing tool calls)
@@ -502,7 +502,12 @@ export async function prepareRequestBody(
 					requestBody.temperature = effectiveTemperature;
 				}
 				if (max_tokens !== undefined) {
-					requestBody.max_tokens = max_tokens;
+					// GPT-5 models use max_completion_tokens instead of max_tokens
+					if (usedModel.startsWith("gpt-5")) {
+						requestBody.max_completion_tokens = max_tokens;
+					} else {
+						requestBody.max_tokens = max_tokens;
+					}
 				}
 				if (top_p !== undefined) {
 					requestBody.top_p = top_p;
@@ -656,7 +661,6 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
-		case "google-vertex":
 		case "google-ai-studio": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
@@ -784,7 +788,6 @@ export function getProviderEndpoint(
 			case "anthropic":
 				url = "https://api.anthropic.com";
 				break;
-			case "google-vertex":
 			case "google-ai-studio":
 				url = "https://generativelanguage.googleapis.com";
 				break;
@@ -844,16 +847,6 @@ export function getProviderEndpoint(
 	switch (provider) {
 		case "anthropic":
 			return `${url}/v1/messages`;
-		case "google-vertex": {
-			if (modelName) {
-				const endpoint = stream ? "streamGenerateContent" : "generateContent";
-				const baseEndpoint = `${url}/v1beta/models/${modelName}:${endpoint}`;
-				return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
-			}
-			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
-			return stream ? `${baseEndpoint}?alt=sse` : baseEndpoint;
-		}
 		case "google-ai-studio": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
@@ -879,7 +872,12 @@ export function getProviderEndpoint(
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation
-			if (supportsReasoning && model && !hasExistingToolCalls) {
+			if (
+				supportsReasoning &&
+				model &&
+				!hasExistingToolCalls &&
+				process.env.USE_RESPONSES_API === "true"
+			) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",

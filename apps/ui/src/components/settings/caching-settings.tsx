@@ -5,6 +5,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Checkbox } from "@/lib/components/checkbox";
 import {
@@ -66,6 +67,20 @@ export function CachingSettings({
 	const cachingEnabled = form.watch("cachingEnabled");
 
 	const api = useApi();
+
+	// Fetch organization to check retention level
+	const { data: organizationsData } = api.useQuery("get", "/orgs");
+	const organization = organizationsData?.organizations?.find(
+		(org) => org.id === orgId,
+	);
+	const isMetadataOnlyRetention = organization?.retentionLevel === "none";
+
+	// Override form value if organization uses metadata-only retention
+	React.useEffect(() => {
+		if (isMetadataOnlyRetention) {
+			form.setValue("cachingEnabled", false);
+		}
+	}, [isMetadataOnlyRetention, form]);
 	const updateProject = api.useMutation("patch", "/projects/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
@@ -114,6 +129,16 @@ export function CachingSettings({
 
 			<Form {...form}>
 				<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+					{isMetadataOnlyRetention && (
+						<Alert>
+							<AlertDescription>
+								🔒 Caching is disabled because your organization is using
+								metadata-only data retention. To enable caching, switch to
+								"Retain All Data" in the organization policies settings.
+							</AlertDescription>
+						</Alert>
+					)}
+
 					<FormField
 						control={form.control}
 						name="cachingEnabled"
@@ -123,10 +148,17 @@ export function CachingSettings({
 									<Checkbox
 										checked={field.value}
 										onCheckedChange={field.onChange}
+										disabled={isMetadataOnlyRetention}
 									/>
 								</FormControl>
 								<div className="space-y-1 leading-none">
-									<FormLabel>Enable request caching</FormLabel>
+									<FormLabel
+										className={
+											isMetadataOnlyRetention ? "text-muted-foreground" : ""
+										}
+									>
+										Enable request caching
+									</FormLabel>
 								</div>
 							</FormItem>
 						)}
@@ -144,7 +176,7 @@ export function CachingSettings({
 										min={10}
 										max={31536000}
 										className="w-32"
-										disabled={!cachingEnabled}
+										disabled={!cachingEnabled || isMetadataOnlyRetention}
 										{...field}
 										onChange={(e) => field.onChange(Number(e.target.value))}
 									/>
@@ -163,7 +195,11 @@ export function CachingSettings({
 					<div className="flex justify-end">
 						<Button
 							type="submit"
-							disabled={form.formState.isSubmitting || updateProject.isPending}
+							disabled={
+								form.formState.isSubmitting ||
+								updateProject.isPending ||
+								isMetadataOnlyRetention
+							}
 						>
 							{form.formState.isSubmitting || updateProject.isPending
 								? "Saving..."

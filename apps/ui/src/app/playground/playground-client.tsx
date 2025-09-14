@@ -1,6 +1,5 @@
 "use client";
 
-import { getModelStreamingSupport } from "@llmgateway/models";
 import { useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -23,6 +22,8 @@ import { Alert, AlertDescription } from "@/lib/components/alert";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { getModelStreamingSupport } from "@llmgateway/models";
 
 export interface Message {
 	id: string;
@@ -64,12 +65,6 @@ export function PlaygroundClient() {
 	const addMessage = useAddMessage();
 	const { data: currentChatData } = useChat(currentChatId ?? "");
 	useChats();
-	const { data: subscriptionStatus, isLoading: isSubscriptionLoading } =
-		api.useQuery("get", "/subscriptions/status", {});
-	const { data: orgsData, isLoading: isOrgsLoading } = api.useQuery(
-		"get",
-		"/orgs",
-	);
 
 	const [showApiKeyManager, setShowApiKeyManager] = useState(false);
 
@@ -133,30 +128,31 @@ export function PlaygroundClient() {
 		}
 	}, [currentChatData]);
 
-	// Update URL when model changes
 	useEffect(() => {
-		const currentParams = new URLSearchParams(searchParams.toString());
+		const currentParams = new URLSearchParams(window.location.search);
+
 		if (selectedModel !== "gpt-4o-mini") {
 			currentParams.set("model", selectedModel);
 		} else {
 			currentParams.delete("model");
 		}
 
-		const newUrl = currentParams.toString()
-			? `${window.location.pathname}?${currentParams.toString()}`
+		const newQuery = currentParams.toString();
+		const newUrl = newQuery
+			? `${window.location.pathname}?${newQuery}`
 			: window.location.pathname;
 
-		router.replace(newUrl);
-	}, [selectedModel, router, searchParams]);
-
-	// Sync with URL changes (back/forward navigation)
-	useEffect(() => {
-		const modelFromUrl = searchParams.get("model");
-		const targetModel = modelFromUrl || "gpt-4o-mini";
-		if (targetModel !== selectedModel) {
-			setSelectedModel(targetModel);
+		// Only replace if it actually changed to avoid redundant navigations
+		const currentUrl = window.location.pathname + window.location.search;
+		if (currentUrl !== newUrl) {
+			router.replace(newUrl);
 		}
-	}, [searchParams, selectedModel]);
+	}, [selectedModel, router]);
+
+	useEffect(() => {
+		const targetModel = searchParams.get("model") || "gpt-4o-mini";
+		setSelectedModel((prev) => (prev === targetModel ? prev : targetModel));
+	}, [searchParams]);
 
 	const handleModelSelect = (model: string) => {
 		setSelectedModel(model);
@@ -203,38 +199,12 @@ export function PlaygroundClient() {
 			return;
 		}
 
-		if (!isApiKeyLoaded || isSubscriptionLoading || isOrgsLoading) {
+		if (!isApiKeyLoaded) {
 			return;
 		}
 
 		if (!userApiKey) {
 			setShowApiKeyManager(true);
-			return;
-		}
-
-		// Check if user has pro plan or enough credits
-		if (subscriptionStatus?.plan === "pro") {
-			// For pro users, check if subscription is expired or cancelled
-			if (
-				subscriptionStatus.subscriptionCancelled ||
-				(subscriptionStatus.planExpiresAt &&
-					new Date(subscriptionStatus.planExpiresAt) < new Date())
-			) {
-				setError(
-					"Your pro subscription has expired or been cancelled. Please renew your subscription or purchase credits.",
-				);
-				return;
-			}
-		} else if (subscriptionStatus) {
-			// only evaluate when the call succeeded
-			const org = orgsData?.organizations?.[0];
-			const credits = parseFloat(org?.credits ?? "0");
-			if (!org || Number.isNaN(credits) || credits <= 0) {
-				setError("You don't have enough credits to send this message.");
-				return;
-			}
-		} else {
-			setError("Unable to verify subscription status. Please retry.");
 			return;
 		}
 

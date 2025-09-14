@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { logger } from "@llmgateway/logger";
 import { z } from "zod";
+
+import { logger } from "@llmgateway/logger";
 
 import { posthog } from "../posthog";
 

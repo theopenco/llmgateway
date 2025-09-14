@@ -1,0 +1,120 @@
+---
+title: Image Generation
+description: Generate images using AI models through the chat completions API
+icon: Image
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Image Generation
+
+LLMGateway supports image generation models through the standard chat completions API. These models can create images based on text prompts and return them as base64-encoded data URLs.
+
+## Available Models
+
+You can find all available image generation models on our [models page](https://llmgateway.io/models?filters=1&imageGeneration=true).
+
+## Making Requests
+
+Image generation works through the same `/v1/chat/completions` endpoint as text models. Simply use an image generation model and provide a text prompt describing the image you want to create.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash-image-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a cute golden retriever puppy playing in a sunny meadow"
+      }
+    ]
+  }'
+```
+
+## Response Format
+
+Image generation models return responses in the standard chat completions format, with generated images included in the `images` array within the assistant message:
+
+```json
+{
+	"id": "chatcmpl-1756234109285",
+	"object": "chat.completion",
+	"created": 1756234109,
+	"model": "gemini-2.5-flash-image-preview",
+	"choices": [
+		{
+			"index": 0,
+			"message": {
+				"role": "assistant",
+				"content": "Here's an image of a cute dog for you: ",
+				"images": [
+					{
+						"type": "image_url",
+						"image_url": {
+							"url": "data:image/png;base64,<base64_encoded_image_data>"
+						}
+					}
+				]
+			},
+			"finish_reason": "stop"
+		}
+	],
+	"usage": {
+		"prompt_tokens": 8,
+		"completion_tokens": 1303,
+		"total_tokens": 1311
+	}
+}
+```
+
+## Vision support
+
+You can edit or modify images by combining image generation with [vision models](https://docs.llmgateway.io/features/vision) by including the image in the `messages` array.
+
+## Response Structure
+
+### Images Array
+
+The `images` array contains one or more generated images with the following structure:
+
+- `type`: Always `"image_url"` for generated images
+- `image_url.url`: A data URL containing the base64-encoded image data (format: `data:image/png;base64,<data>`)
+
+### Content Field
+
+The `content` field may contain descriptive text about the generated image, depending on the model's behavior.
+
+## Usage Notes
+
+<Callout type="info">
+	Image generation models typically have higher token costs compared to
+	text-only models due to the computational requirements of image synthesis.
+</Callout>
+
+<Callout type="warning">
+	Generated images are returned as base64-encoded data URLs, which can be large.
+	Consider the payload size when integrating image generation into your
+	applications.
+</Callout>
+
+## Best Practices
+
+### Prompt Engineering
+
+- Be specific and descriptive in your prompts for better results
+- Include details about style, composition, lighting, and mood
+- Experiment with different models to find the best fit for your use case
+
+### Handling Responses
+
+- Parse the `images` array to extract generated images
+- The base64 data can be directly used in HTML `<img>` tags or saved to files
+- Consider implementing proper error handling for failed generation requests
+
+### Cost Optimization
+
+- Monitor token usage as image generation can be more expensive than text generation
+- Use auto routing to automatically select cost-effective image generation models
+- Cache generated images when appropriate to avoid repeated generation costs

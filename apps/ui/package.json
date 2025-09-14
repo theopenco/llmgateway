@@ -2,6 +2,7 @@
 	"name": "ui",
 	"version": "1.0.0",
 	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
 	"files": [
 		"public",
 		".next"
@@ -13,7 +14,7 @@
 		"start": "next start"
 	},
 	"dependencies": {
-		"@content-collections/core": "0.9.1",
+		"@content-collections/core": "0.11.1",
 		"@content-collections/next": "0.2.1",
 		"@hey-api/client-fetch": "0.13.1",
 		"@hookform/resolvers": "5.1.1",
@@ -51,35 +52,33 @@
 		"date-fns": "4.1.0",
 		"framer-motion": "12.15.0",
 		"lucide-react": "^0.488.0",
-		"markdown-to-jsx": "7.7.7",
-		"motion": "12.15.0",
-		"next": "15.5.0",
+		"markdown-to-jsx": "7.7.13",
+		"motion": "12.23.12",
+		"next": "15.5.2",
 		"next-themes": "^0.4.6",
 		"openapi-fetch": "0.14.0",
 		"openapi-react-query": "0.5.0",
 		"posthog-js": "1.255.1",
-		"posthog-node": "4.18.0",
+		"posthog-node": "5.8.2",
 		"pretty-bytes": "7.0.0",
 		"prism-react-renderer": "2.4.1",
 		"react": "^19.1.1",
 		"react-dom": "^19.1.1",
 		"react-hook-form": "7.60.0",
 		"recharts": "^2.15.2",
-		"sonner": "^2.0.3",
+		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.2.0",
-		"tailwindcss": "^4.1.11",
+		"tailwindcss": "^4.1.12",
 		"tailwindcss-animate": "1.0.7"
 	},
 	"devDependencies": {
 		"@tanstack/react-query-devtools": "5.84.1",
-		"@types/node": "^20",
 		"@types/react": "^19.1.12",
 		"@types/react-dom": "^19.1.9",
 		"autoprefixer": "^10.4.20",
 		"openapi-typescript": "7.8.0",
 		"postcss": "^8.5.6",
-		"tailwindcss": "^3.4.1",
-		"typescript": "^5",
+		"tailwindcss": "^4.1.12",
 		"zod": "3.25.75"
 	}
 }

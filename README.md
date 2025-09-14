@@ -66,4 +66,18 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+LLMGateway is available under a dual license:
+
+- **Open Source**: Core functionality is licensed under AGPLv3 - see the [LICENSE](LICENSE) file for details.
+- **Enterprise**: Commercial features in the `ee/` directory require an Enterprise license - see [ee/LICENSE](ee/LICENSE) for details.
+
+### Enterprise features include:
+
+- Advanced billing and subscription management
+- Extended data retention (90 days vs 3 days)
+- Provider API key management (Pro plan)
+- Team and organization management
+- Priority support
+- And more to be defined
+
+For enterprise licensing, please contact us at contact@llmgateway.io

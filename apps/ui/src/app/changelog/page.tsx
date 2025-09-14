@@ -1,6 +1,9 @@
-import { allChangelogs, type Changelog } from "content-collections";
-
+// eslint-disable-next-line import/order
+import { allChangelogs } from "content-collections";
 import { ChangelogComponent } from "@/components/changelog";
+import { HeroRSC } from "@/components/landing/hero-rsc";
+
+import type { Changelog } from "content-collections";
 
 export default async function ChangelogPage() {
 	const sortedEntries = allChangelogs
@@ -13,6 +16,7 @@ export default async function ChangelogPage() {
 
 	return (
 		<div>
+			<HeroRSC navbarOnly />
 			<ChangelogComponent entries={sortedEntries} />
 		</div>
 	);

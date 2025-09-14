@@ -16,7 +16,7 @@
 		"noImplicitThis": true,
 		"alwaysStrict": true,
 		"esModuleInterop": true,
-		"sourceMap": false,
+		"sourceMap": true,
 		"noFallthroughCasesInSwitch": true,
 		"forceConsistentCasingInFileNames": true,
 		"noImplicitReturns": true

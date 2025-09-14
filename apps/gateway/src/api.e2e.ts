@@ -1,3 +1,6 @@
+import "dotenv/config";
+import { beforeEach, describe, expect, test } from "vitest";
+
 import { db, tables, eq } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -5,8 +8,6 @@ import {
 	type ProviderModelMapping,
 	providers,
 } from "@llmgateway/models";
-import "dotenv/config";
-import { beforeEach, describe, expect, test } from "vitest";
 
 import { app } from ".";
 import {
@@ -17,7 +18,7 @@ import {
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions() {
-	return process.env.CI ? { retry: 3 } : {};
+	return process.env.CI ? { retry: 3, testTimeout: 120000 } : {};
 }
 
 console.log("running with test options:", getTestOptions());
@@ -59,6 +60,47 @@ const filteredModels = models
 	.filter((model) => !["custom", "auto"].includes(model.id))
 	// Filter out deactivated models
 	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt)
+	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
+	.filter((model) => {
+		// Check if model or any of its providers are marked as unstable
+		const modelStability = (model as ModelDefinition).stability;
+		const hasUnstableProviders = model.providers.some(
+			(provider: ProviderModelMapping) => provider.stability === "unstable",
+		);
+		const isUnstable = modelStability === "unstable" || hasUnstableProviders;
+
+		if (!isUnstable) {
+			return true;
+		} // Non-unstable models are always included
+		if (fullMode) {
+			return true;
+		} // In full mode, all models are included
+
+		// For unstable models in non-full mode, include if:
+		// 1. Any provider has test: "only"
+		if (
+			model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			)
+		) {
+			return true;
+		}
+
+		// 2. Model is specified in TEST_MODELS
+		if (specifiedModels) {
+			const modelInTestModels = model.providers.some(
+				(provider: ProviderModelMapping) => {
+					const providerModelId = `${provider.providerId}/${model.id}`;
+					return specifiedModels.includes(providerModelId);
+				},
+			);
+			if (modelInTestModels) {
+				return true;
+			}
+		}
+
+		return false; // Otherwise, exclude unstable models in non-full mode
+	})
 	// Filter out free models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	.filter((model) => {
 		const isFreeModel = (model as ModelDefinition).free;
@@ -136,6 +178,21 @@ const testModels = filteredModels
 				continue;
 			}
 
+			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS
+			if (provider.stability === "unstable" && !fullMode) {
+				// Allow if provider has test: "only"
+				if (provider.test !== "only") {
+					// Allow if model is specified in TEST_MODELS
+					if (!specifiedModels) {
+						continue;
+					}
+					const providerModelId = `${provider.providerId}/${model.id}`;
+					if (!specifiedModels.includes(providerModelId)) {
+						continue;
+					}
+				}
+			}
+
 			// If we have any "only" providers, skip those not marked as "only"
 			if (hasOnlyModels && provider.test !== "only") {
 				continue;
@@ -168,6 +225,21 @@ const providerModels = filteredModels
 			// Skip providers marked with test: "skip"
 			if (provider.test === "skip") {
 				continue;
+			}
+
+			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS
+			if (provider.stability === "unstable" && !fullMode) {
+				// Allow if provider has test: "only"
+				if (provider.test !== "only") {
+					// Allow if model is specified in TEST_MODELS
+					if (!specifiedModels) {
+						continue;
+					}
+					const providerModelId = `${provider.providerId}/${model.id}`;
+					if (!specifiedModels.includes(providerModelId)) {
+						continue;
+					}
+				}
 			}
 
 			// If we have any "only" providers, skip those not marked as "only"
@@ -1272,7 +1344,7 @@ describe("e2e", () => {
 									},
 									{
 										type: "text",
-										text: "",
+										text: "", // empty text – note this may need special handling
 									},
 									// provide image url if vision is supported
 									...(provider.vision
@@ -1746,7 +1818,8 @@ describe("e2e", () => {
 
 		const log = await validateLogs();
 		expect(log.streamed).toBe(false);
-		expect(log.usedModel).toBe("gpt-5-nano");
+		expect(log.usedModel).toBe("openai/gpt-5-nano");
+		expect(log.usedModelMapping).toBe("gpt-5-nano");
 		expect(log.usedProvider).toBe("openai");
 
 		// Verify it's a reasoning model response

@@ -2,6 +2,7 @@
 	"name": "docs",
 	"version": "0.0.0",
 	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
 	"files": [
 		".source",
 		".next",
@@ -24,27 +25,25 @@
 		"fumadocs-ui": "15.6.10",
 		"gateway": "workspace:*",
 		"lucide-react": "^0.539.0",
-		"next": "15.5.0",
+		"next": "15.5.2",
 		"posthog-js": "1.255.1",
 		"react": "^19.1.1",
 		"react-dom": "^19.1.1",
 		"remark": "15.0.1",
 		"remark-gfm": "4.0.1",
-		"remark-mdx": "3.1.0",
+		"remark-mdx": "3.1.1",
 		"shiki": "3.12.0",
 		"tailwind-merge": "^3.3.1"
 	},
 	"devDependencies": {
 		"@tailwindcss/postcss": "^4.1.5",
 		"@types/mdx": "^2.0.13",
-		"@types/node": "24.0.3",
 		"@types/react": "^19.1.12",
 		"@types/react-dom": "^19.1.9",
 		"eslint": "^9",
 		"eslint-config-next": "15.4.6",
 		"postcss": "^8.5.6",
 		"rimraf": "6.0.1",
-		"tailwindcss": "^4.1.5",
-		"typescript": "^5.8.3"
+		"tailwindcss": "^4.1.12"
 	}
 }

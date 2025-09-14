@@ -13,4 +13,4 @@ jobs:
         uses: steebchen/actions/autofix@v0.14.1
         with:
           token: ${{ secrets.GH_TOKEN }}
-          format-command: pnpm generate
+          format-command: pnpm generate && pnpm format

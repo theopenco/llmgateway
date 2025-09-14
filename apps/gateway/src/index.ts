@@ -1,13 +1,17 @@
+// eslint-disable-next-line import/order
+import "dotenv/config";
+
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { db } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
-import "dotenv/config";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { redisClient } from "@llmgateway/cache";
+import { db } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+
 import { chat } from "./chat/chat";
-import redisClient from "./lib/redis";
+import { tracingMiddleware } from "./middleware/tracing";
 import { models } from "./models";
 
 import type { ServerTypes } from "./vars";
@@ -42,6 +46,9 @@ export const config = {
 };
 
 export const app = new OpenAPIHono<ServerTypes>();
+
+// Add tracing middleware first
+app.use("*", tracingMiddleware);
 
 // Middleware to check for application/json content type on POST requests
 app.use("*", async (c, next) => {
