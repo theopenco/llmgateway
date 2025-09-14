@@ -233,8 +233,10 @@ async function transformAnthropicMessages(
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
-	// Map original IDs to unique IDs
-	const idMapping = new Map<string, string>();
+	// Map original IDs to unique IDs - using arrays to handle multiple mappings for duplicate IDs
+	const idMapping = new Map<string, string[]>();
+	// Keep track of how many tool results we've seen for each original ID
+	const toolResultCount = new Map<string, number>();
 
 	// Group consecutive tool messages with the same tool_call_id to combine their content
 	const groupedMessages: BaseMessage[] = [];
@@ -253,19 +255,10 @@ async function transformAnthropicMessages(
 			// Process any accumulated tool message groups first
 			for (const [_toolCallId, toolMessages] of toolMessageGroups) {
 				if (toolMessages.length > 0) {
-					// Combine content from all tool messages with the same tool_call_id
-					const combinedContent = toolMessages
-						.map((tm) =>
-							typeof tm.content === "string"
-								? tm.content
-								: JSON.stringify(tm.content),
-						)
-						.join("\n");
-
-					// Create a single combined tool message
-					groupedMessages.push({
-						...toolMessages[0],
-						content: combinedContent,
+					// Process each tool message individually (don't combine them)
+					// This allows the individual tool_result handling to assign the correct unique IDs
+					toolMessages.forEach((toolMessage) => {
+						groupedMessages.push(toolMessage);
 					});
 				}
 			}
@@ -279,17 +272,10 @@ async function transformAnthropicMessages(
 	// Process any remaining tool message groups at the end
 	for (const [_toolCallId, toolMessages] of toolMessageGroups) {
 		if (toolMessages.length > 0) {
-			const combinedContent = toolMessages
-				.map((tm) =>
-					typeof tm.content === "string"
-						? tm.content
-						: JSON.stringify(tm.content),
-				)
-				.join("\n");
-
-			groupedMessages.push({
-				...toolMessages[0],
-				content: combinedContent,
+			// Process each tool message individually (don't combine them)
+			// This allows the individual tool_result handling to assign the correct unique IDs
+			toolMessages.forEach((toolMessage) => {
+				groupedMessages.push(toolMessage);
 			});
 		}
 	}
@@ -337,31 +323,44 @@ async function transformAnthropicMessages(
 
 		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
 		if (m.tool_calls && Array.isArray(m.tool_calls)) {
-			const toolUseBlocks: ToolUseContent[] = m.tool_calls.map((toolCall) => {
-				let uniqueId = toolCall.id;
+			const toolUseBlocks: ToolUseContent[] = m.tool_calls.map(
+				(toolCall, index) => {
+					let uniqueId = toolCall.id;
 
-				// Ensure tool_use ID is unique
-				if (seenToolUseIds.has(uniqueId)) {
-					let counter = 1;
-					let newId = `${uniqueId}_${counter}`;
-					while (seenToolUseIds.has(newId)) {
-						counter++;
-						newId = `${uniqueId}_${counter}`;
+					// Handle duplicates within the same message first
+					const duplicatesInSameMessage = m
+						.tool_calls!.slice(0, index)
+						.filter((tc) => tc.id === toolCall.id);
+					if (duplicatesInSameMessage.length > 0) {
+						uniqueId = `${toolCall.id}_${duplicatesInSameMessage.length + 1}`;
 					}
-					uniqueId = newId;
-				}
 
-				// Track the mapping and mark as seen
-				idMapping.set(toolCall.id, uniqueId);
-				seenToolUseIds.add(uniqueId);
+					// Ensure global uniqueness
+					if (seenToolUseIds.has(uniqueId)) {
+						let counter = 1;
+						let newId = `${uniqueId}_${counter}`;
+						while (seenToolUseIds.has(newId)) {
+							counter++;
+							newId = `${uniqueId}_${counter}`;
+						}
+						uniqueId = newId;
+					}
 
-				return {
-					type: "tool_use",
-					id: uniqueId,
-					name: toolCall.function.name,
-					input: JSON.parse(toolCall.function.arguments),
-				};
-			});
+					// Track the mapping and mark as seen
+					if (!idMapping.has(toolCall.id)) {
+						idMapping.set(toolCall.id, []);
+					}
+					idMapping.get(toolCall.id)!.push(uniqueId);
+					seenToolUseIds.add(uniqueId);
+
+					return {
+						type: "tool_use",
+						id: uniqueId,
+						name: toolCall.function.name,
+						input: JSON.parse(toolCall.function.arguments),
+					};
+				},
+			);
 			content = content.concat(toolUseBlocks);
 		}
 
@@ -387,16 +386,38 @@ async function transformAnthropicMessages(
 				toolResultContent = contentStr;
 			}
 
-			// Use the mapped ID if it exists, otherwise use the original ID
-			const mappedToolUseId = idMapping.get(m.tool_call_id) || m.tool_call_id;
-
-			content = [
-				{
-					type: "tool_result",
-					tool_use_id: mappedToolUseId,
-					content: toolResultContent,
-				} as ToolResultContent,
+			// Use the mapped IDs if they exist, otherwise use the original ID
+			const mappedToolUseIds = idMapping.get(m.tool_call_id) || [
+				m.tool_call_id,
 			];
+
+			// Get the current count for this original ID and increment it
+			const currentCount = toolResultCount.get(m.tool_call_id) || 0;
+			toolResultCount.set(m.tool_call_id, currentCount + 1);
+
+			// If there are multiple mapped IDs, create tool_result blocks for each one
+			// This handles the case where we have duplicate tool_use but only one tool_result
+			if (mappedToolUseIds.length > 1 && currentCount === 0) {
+				// Create tool_result blocks for all mapped IDs
+				content = mappedToolUseIds.map(
+					(mappedId) =>
+						({
+							type: "tool_result",
+							tool_use_id: mappedId,
+							content: toolResultContent,
+						}) as ToolResultContent,
+				);
+			} else {
+				// Use the appropriate mapped ID based on the count
+				const toolUseId = mappedToolUseIds[currentCount] || mappedToolUseIds[0];
+				content = [
+					{
+						type: "tool_result",
+						tool_use_id: toolUseId,
+						content: toolResultContent,
+					} as ToolResultContent,
+				];
+			}
 		}
 
 		// Filter out empty text content blocks as Anthropic requires non-empty text
