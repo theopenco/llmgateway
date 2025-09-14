@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import {
 	db,
 	provider,
@@ -11,7 +13,6 @@ import {
 	eq,
 	and,
 } from "@llmgateway/db";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
 	calculateMinutelyHistory,
