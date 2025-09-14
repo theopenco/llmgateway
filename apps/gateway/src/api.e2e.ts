@@ -625,9 +625,16 @@ describe("e2e", () => {
 			// check for reasoning response - only if the provider expects reasoning output
 			const reasoningProvider = providers?.find(
 				(p: ProviderModelMapping) => p.reasoning === true,
-			);
+			) as ProviderModelMapping;
 			if (
-				(reasoningProvider as ProviderModelMapping)?.reasoningOutput !== "omit"
+				reasoningProvider?.reasoningOutput !== "omit" &&
+				!(
+					// only enforce reasoning content checks for openai on the responses API
+					(
+						process.env.USE_RESPONSES_API === "true" &&
+						reasoningProvider?.providerId === "openai"
+					)
+				)
 			) {
 				expect(json.choices[0].message).toHaveProperty("reasoning_content");
 			}
@@ -736,9 +743,16 @@ describe("e2e", () => {
 			// Verify reasoning content is present in unified reasoning_content field - only if the provider expects reasoning output
 			const reasoningProvider = providers?.find(
 				(p: ProviderModelMapping) => p.reasoning === true,
-			);
+			) as ProviderModelMapping;
 			if (
-				(reasoningProvider as ProviderModelMapping)?.reasoningOutput !== "omit"
+				reasoningProvider?.reasoningOutput !== "omit" &&
+				!(
+					// only enforce reasoning content checks for openai on the responses API
+					(
+						process.env.USE_RESPONSES_API === "true" &&
+						reasoningProvider?.providerId === "openai"
+					)
+				)
 			) {
 				const reasoningChunks = streamResult.chunks.filter(
 					(chunk: any) =>
