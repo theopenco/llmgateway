@@ -1,6 +1,6 @@
 {
-  "id": "d73db741-4739-40d5-931b-7c3657f518a0",
-  "prevId": "8b6bf449-fbdd-4da7-96eb-ce8d4b28789c",
+  "id": "02331b6f-43a2-47aa-8924-9b95f2bb8cff",
+  "prevId": "bde28695-2866-4208-ad60-077f5e2a5587",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -89,7 +89,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "account_user_id_idx": {
+          "name": "account_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "account_user_id_user_id_fk": {
           "name": "account_user_id_user_id_fk",
@@ -174,7 +190,23 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "api_key_project_id_idx": {
+          "name": "api_key_project_id_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "api_key_project_id_project_id_fk": {
           "name": "api_key_project_id_project_id_fk",
@@ -200,6 +232,130 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.api_key_iam_rule": {
+      "name": "api_key_iam_rule",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "api_key_id": {
+          "name": "api_key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rule_type": {
+          "name": "rule_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rule_value": {
+          "name": "rule_value",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        }
+      },
+      "indexes": {
+        "api_key_iam_rule_api_key_id_idx": {
+          "name": "api_key_iam_rule_api_key_id_idx",
+          "columns": [
+            {
+              "expression": "api_key_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "api_key_iam_rule_rule_type_idx": {
+          "name": "api_key_iam_rule_rule_type_idx",
+          "columns": [
+            {
+              "expression": "rule_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "api_key_iam_rule_api_key_id_status_idx": {
+          "name": "api_key_iam_rule_api_key_id_status_idx",
+          "columns": [
+            {
+              "expression": "api_key_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "api_key_iam_rule_api_key_id_api_key_id_fk": {
+          "name": "api_key_iam_rule_api_key_id_api_key_id_fk",
+          "tableFrom": "api_key_iam_rule",
+          "tableTo": "api_key",
+          "columnsFrom": [
+            "api_key_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -254,7 +410,23 @@
           "default": "'active'"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "chat_user_id_idx": {
+          "name": "chat_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "chat_user_id_user_id_fk": {
           "name": "chat_user_id_user_id_fk",
@@ -447,6 +619,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "used_model_mapping": {
+          "name": "used_model_mapping",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "used_provider": {
           "name": "used_provider",
@@ -674,50 +852,40 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
+        },
+        "raw_request": {
+          "name": "raw_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_response": {
+          "name": "raw_response",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upstream_request": {
+          "name": "upstream_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upstream_response": {
+          "name": "upstream_response",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "log_organization_id_organization_id_fk": {
-          "name": "log_organization_id_organization_id_fk",
-          "tableFrom": "log",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "log_project_id_project_id_fk": {
-          "name": "log_project_id_project_id_fk",
-          "tableFrom": "log",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "log_api_key_id_api_key_id_fk": {
-          "name": "log_api_key_id_api_key_id_fk",
-          "tableFrom": "log",
-          "tableTo": "api_key",
-          "columnsFrom": [
-            "api_key_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -779,7 +947,23 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "message_chat_id_idx": {
+          "name": "message_chat_id_idx",
+          "columns": [
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "message_chat_id_chat_id_fk": {
           "name": "message_chat_id_chat_id_fk",
@@ -1130,6 +1314,136 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.model_provider_mapping_history": {
+      "name": "model_provider_mapping_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "minute_timestamp": {
+          "name": "minute_timestamp",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "logs_count": {
+          "name": "logs_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "errors_count": {
+          "name": "errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "error_rate": {
+          "name": "error_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "throughput": {
+          "name": "throughput",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_output_tokens": {
+          "name": "total_output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_duration": {
+          "name": "total_duration",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "model_provider_mapping_history_model_id_model_id_fk": {
+          "name": "model_provider_mapping_history_model_id_model_id_fk",
+          "tableFrom": "model_provider_mapping_history",
+          "tableTo": "model",
+          "columnsFrom": [
+            "model_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "model_provider_mapping_history_provider_id_provider_id_fk": {
+          "name": "model_provider_mapping_history_provider_id_provider_id_fk",
+          "tableFrom": "model_provider_mapping_history",
+          "tableTo": "provider",
+          "columnsFrom": [
+            "provider_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "model_provider_mapping_history_modelId_providerId_minuteTimestamp_unique": {
+          "name": "model_provider_mapping_history_modelId_providerId_minuteTimestamp_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "model_id",
+            "provider_id",
+            "minute_timestamp"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.organization": {
       "name": "organization",
       "schema": "",
@@ -1326,7 +1640,23 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "organization_action_organization_id_idx": {
+          "name": "organization_action_organization_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "organization_action_organization_id_organization_id_fk": {
           "name": "organization_action_organization_id_organization_id_fk",
@@ -1421,7 +1751,23 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "passkey_user_id_idx": {
+          "name": "passkey_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "passkey_user_id_user_id_fk": {
           "name": "passkey_user_id_user_id_fk",
@@ -1493,7 +1839,23 @@
           "default": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "payment_method_organization_id_idx": {
+          "name": "payment_method_organization_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "payment_method_organization_id_organization_id_fk": {
           "name": "payment_method_organization_id_organization_id_fk",
@@ -1580,7 +1942,23 @@
           "default": "'active'"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "project_organization_id_idx": {
+          "name": "project_organization_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "project_organization_id_organization_id_fk": {
           "name": "project_organization_id_organization_id_fk",
@@ -1786,7 +2164,23 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "provider_key_organization_id_idx": {
+          "name": "provider_key_organization_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "provider_key_organization_id_organization_id_fk": {
           "name": "provider_key_organization_id_organization_id_fk",
@@ -1873,7 +2267,23 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "session_user_id_idx": {
+          "name": "session_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "session_user_id_user_id_fk": {
           "name": "session_user_id_user_id_fk",
@@ -1984,7 +2394,23 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "transaction_organization_id_idx": {
+          "name": "transaction_organization_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "transaction_organization_id_organization_id_fk": {
           "name": "transaction_organization_id_organization_id_fk",
@@ -2116,7 +2542,38 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "user_organization_user_id_idx": {
+          "name": "user_organization_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "user_organization_organization_id_idx": {
+          "name": "user_organization_organization_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "user_organization_user_id_user_id_fk": {
           "name": "user_organization_user_id_user_id_fk",
