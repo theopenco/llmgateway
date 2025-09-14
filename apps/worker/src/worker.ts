@@ -23,6 +23,12 @@ import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { calculateFees } from "@llmgateway/shared";
 
+import {
+	calculateMinutelyHistory,
+	calculateAggregatedStatistics,
+} from "./services/stats-calculator";
+import { syncProvidersAndModels } from "./services/sync-models";
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_123", {
 	apiVersion: "2025-04-30.basil",
 });
@@ -464,6 +470,8 @@ export async function processLogQueue(): Promise<void> {
 
 let isWorkerRunning = false;
 let shouldStop = false;
+let minutelyIntervalId: NodeJS.Timeout | null = null;
+let aggregatedIntervalId: NodeJS.Timeout | null = null;
 
 export async function startWorker() {
 	if (isWorkerRunning) {
@@ -473,7 +481,43 @@ export async function startWorker() {
 
 	isWorkerRunning = true;
 	shouldStop = false;
-	logger.info("Starting log queue worker...");
+	logger.info("Starting worker application...");
+
+	// Initialize providers and models sync
+	try {
+		await syncProvidersAndModels();
+		logger.info("Initial providers and models sync completed");
+	} catch (error) {
+		logger.error(
+			"Error during initial sync",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+
+	// Start statistics calculator
+	logger.info("Starting statistics calculator...");
+	logger.info("- Minutely history: runs every minute");
+	logger.info("- Aggregated stats: runs every 5 minutes");
+
+	// Start minutely history calculation (runs every minute)
+	void calculateMinutelyHistory();
+	minutelyIntervalId = setInterval(
+		() => {
+			void calculateMinutelyHistory();
+		},
+		60 * 1000, // 1 minute
+	);
+
+	// Start aggregated statistics calculation (runs every 5 minutes)
+	void calculateAggregatedStatistics();
+	aggregatedIntervalId = setInterval(
+		() => {
+			void calculateAggregatedStatistics();
+		},
+		5 * 60 * 1000, // 5 minutes
+	);
+
+	logger.info("Starting log queue processing...");
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 	let creditProcessingCounter = 0;
@@ -525,6 +569,19 @@ export async function stopWorker(): Promise<void> {
 
 	logger.info("Stopping worker...");
 	shouldStop = true;
+
+	// Stop statistics calculator intervals
+	if (minutelyIntervalId) {
+		clearInterval(minutelyIntervalId);
+		minutelyIntervalId = null;
+		logger.info("Minutely history calculator stopped");
+	}
+
+	if (aggregatedIntervalId) {
+		clearInterval(aggregatedIntervalId);
+		aggregatedIntervalId = null;
+		logger.info("Aggregated statistics calculator stopped");
+	}
 
 	const pollInterval = 100;
 	const maxWaitTime = 15000; // 15 seconds timeout

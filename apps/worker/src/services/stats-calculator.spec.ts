@@ -1,0 +1,484 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+import {
+	db,
+	provider,
+	model,
+	modelProviderMapping,
+	modelProviderMappingHistory,
+	log,
+	organization,
+	project,
+	apiKey,
+	eq,
+	and,
+} from "@llmgateway/db";
+
+import {
+	calculateMinutelyHistory,
+	calculateAggregatedStatistics,
+	calculateUsageStatistics,
+} from "./stats-calculator";
+
+// Mock current time for consistent testing
+const mockDate = new Date("2024-01-01T12:30:00.000Z");
+
+describe("stats-calculator", () => {
+	beforeEach(async () => {
+		// Mock Date to have consistent time-based tests
+		vi.setSystemTime(mockDate);
+
+		// Clean up test data before each test
+		await db.delete(log);
+		await db.delete(modelProviderMappingHistory);
+		await db.delete(modelProviderMapping);
+		await db.delete(model);
+		await db.delete(provider);
+		await db.delete(apiKey);
+		await db.delete(project);
+		await db.delete(organization);
+
+		// Set up basic test data - organization, project, api key first
+		await db.insert(organization).values([
+			{
+				id: "org-1",
+				name: "Test Organization",
+			},
+		]);
+
+		await db.insert(project).values([
+			{
+				id: "proj-1",
+				name: "Test Project",
+				organizationId: "org-1",
+			},
+		]);
+
+		await db.insert(apiKey).values([
+			{
+				id: "key-1",
+				description: "Test API Key",
+				token: "test-key",
+				projectId: "proj-1",
+			},
+		]);
+
+		// Set up test providers
+		await db.insert(provider).values([
+			{
+				id: "openai",
+				name: "OpenAI",
+				description: "OpenAI provider",
+				streaming: true,
+				cancellation: false,
+				color: "#ffffff",
+				website: "https://openai.com",
+				status: "active",
+			},
+			{
+				id: "anthropic",
+				name: "Anthropic",
+				description: "Anthropic provider",
+				streaming: true,
+				cancellation: false,
+				color: "#000000",
+				website: "https://anthropic.com",
+				status: "active",
+			},
+		]);
+
+		// Set up test models
+		await db.insert(model).values([
+			{
+				id: "gpt-4",
+				name: "GPT-4",
+				family: "gpt",
+				status: "active",
+			},
+			{
+				id: "claude-3-5-sonnet",
+				name: "Claude 3.5 Sonnet",
+				family: "claude",
+				status: "active",
+			},
+		]);
+
+		// Set up model-provider mappings
+		await db.insert(modelProviderMapping).values([
+			{
+				id: "mapping-1",
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelName: "gpt-4",
+				status: "active",
+			},
+			{
+				id: "mapping-2",
+				modelId: "claude-3-5-sonnet",
+				providerId: "anthropic",
+				modelName: "claude-3-5-sonnet-20241022",
+				status: "active",
+			},
+		]);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	describe("calculateMinutelyHistory", () => {
+		it("should calculate minutely statistics for model-provider mappings", async () => {
+			// Insert test logs for the previous minute (12:29-12:30)
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(log).values([
+				{
+					id: "log-1",
+					requestId: "req-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 100,
+					hasError: false,
+					completionTokens: "100",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
+				},
+				{
+					id: "log-2",
+					requestId: "req-2",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 2000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 50,
+					hasError: true,
+					completionTokens: "50",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 45000), // 45 seconds in
+				},
+				{
+					id: "log-3",
+					requestId: "req-3",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1500,
+					requestedModel: "claude-3-5-sonnet",
+					requestedProvider: "anthropic",
+					usedModel: "claude-3-5-sonnet",
+					usedProvider: "anthropic",
+					responseSize: 200,
+					hasError: false,
+					completionTokens: "200",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Check that history records were created
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
+
+			expect(historyRecords).toHaveLength(2);
+
+			// Check OpenAI GPT-4 record
+			const gptRecord = historyRecords.find(
+				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+			);
+			expect(gptRecord).toBeTruthy();
+			expect(gptRecord?.logsCount).toBe(2);
+			expect(gptRecord?.errorsCount).toBe(1);
+			expect(gptRecord?.errorRate).toBe(50); // 1/2 * 100
+			expect(gptRecord?.totalOutputTokens).toBe(150); // 100 + 50
+			expect(gptRecord?.totalDuration).toBe(3000); // 1000 + 2000
+			expect(gptRecord?.throughput).toBe(50); // (150 / 3000) * 1000
+			expect(gptRecord?.minuteTimestamp).toEqual(previousMinuteStart);
+
+			// Check Anthropic Claude record
+			const claudeRecord = historyRecords.find(
+				(r) =>
+					r.modelId === "claude-3-5-sonnet" && r.providerId === "anthropic",
+			);
+			expect(claudeRecord).toBeTruthy();
+			expect(claudeRecord?.logsCount).toBe(1);
+			expect(claudeRecord?.errorsCount).toBe(0);
+			expect(claudeRecord?.errorRate).toBe(0);
+			expect(claudeRecord?.totalOutputTokens).toBe(200);
+			expect(claudeRecord?.totalDuration).toBe(1500);
+			expect(claudeRecord?.throughput).toBeCloseTo(133.33, 2); // (200 / 1500) * 1000
+		});
+
+		it("should skip logs with non-existent models or providers", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			// Insert log with non-existent model/provider
+			await db.insert(log).values([
+				{
+					id: "log-1",
+					requestId: "req-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "non-existent-model",
+					requestedProvider: "non-existent-provider",
+					usedModel: "non-existent-model",
+					usedProvider: "non-existent-provider",
+					responseSize: 100,
+					hasError: false,
+					completionTokens: "100",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 30000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Should not create any history records
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
+			expect(historyRecords).toHaveLength(0);
+		});
+
+		it("should handle empty logs gracefully", async () => {
+			await calculateMinutelyHistory();
+
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
+			expect(historyRecords).toHaveLength(0);
+		});
+
+		it("should update existing history records on conflict", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			// Create initial history record
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				minuteTimestamp: previousMinuteStart,
+				logsCount: 1,
+				errorsCount: 0,
+				errorRate: 0,
+				throughput: 50,
+				totalOutputTokens: 50,
+				totalDuration: 1000,
+			});
+
+			// Insert new log for the same minute
+			await db.insert(log).values([
+				{
+					id: "log-1",
+					requestId: "req-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 100,
+					hasError: false,
+					completionTokens: "100",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 30000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Should update the existing record
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelId, "gpt-4"),
+						eq(modelProviderMappingHistory.providerId, "openai"),
+					),
+				);
+
+			expect(historyRecords).toHaveLength(1);
+			expect(historyRecords[0]?.logsCount).toBe(1); // Updated value
+			expect(historyRecords[0]?.totalOutputTokens).toBe(100); // Updated value
+		});
+	});
+
+	describe("calculateAggregatedStatistics", () => {
+		it("should calculate and update provider statistics", async () => {
+			// Create test history data from the last 5 minutes
+			const now = new Date("2024-01-01T12:30:00.000Z");
+			const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000), // 4 minutes ago
+					logsCount: 10,
+					errorsCount: 1,
+					errorRate: 10,
+					throughput: 100,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 120000), // 3 minutes ago
+					logsCount: 15,
+					errorsCount: 2,
+					errorRate: 13.33,
+					throughput: 150,
+				},
+			]);
+
+			await calculateAggregatedStatistics();
+
+			// Check provider statistics were updated
+			const providers = await db
+				.select()
+				.from(provider)
+				.where(eq(provider.id, "openai"));
+
+			expect(providers).toHaveLength(1);
+			const openaiProvider = providers[0]!;
+			expect(openaiProvider.logsCount).toBe(25); // 10 + 15
+			expect(openaiProvider.errorsCount).toBe(3); // 1 + 2
+			expect(openaiProvider.errorRate).toBeCloseTo(11.67, 1); // average of 10 and 13.33
+			expect(openaiProvider.throughput).toBe(125); // average of 100 and 150
+			expect(openaiProvider.statsUpdatedAt).not.toBeNull();
+		});
+
+		it("should calculate and update model statistics", async () => {
+			const now = new Date("2024-01-01T12:30:00.000Z");
+			const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
+					logsCount: 20,
+					errorsCount: 2,
+					errorRate: 10,
+					throughput: 200,
+				},
+			]);
+
+			await calculateAggregatedStatistics();
+
+			// Check model statistics were updated
+			const models = await db.select().from(model).where(eq(model.id, "gpt-4"));
+
+			expect(models).toHaveLength(1);
+			const gptModel = models[0]!;
+			expect(gptModel.logsCount).toBe(20);
+			expect(gptModel.errorsCount).toBe(2);
+			expect(gptModel.errorRate).toBe(10);
+			expect(gptModel.throughput).toBe(200);
+			expect(gptModel.statsUpdatedAt).not.toBeNull();
+		});
+
+		it("should calculate and update model-provider mapping statistics", async () => {
+			const now = new Date("2024-01-01T12:30:00.000Z");
+			const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
+					logsCount: 30,
+					errorsCount: 3,
+					errorRate: 10,
+					throughput: 300,
+				},
+			]);
+
+			await calculateAggregatedStatistics();
+
+			// Check mapping statistics were updated
+			const mappings = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(
+					and(
+						eq(modelProviderMapping.modelId, "gpt-4"),
+						eq(modelProviderMapping.providerId, "openai"),
+					),
+				);
+
+			expect(mappings).toHaveLength(1);
+			const mapping = mappings[0]!;
+			expect(mapping.logsCount).toBe(30);
+			expect(mapping.errorsCount).toBe(3);
+			expect(mapping.errorRate).toBe(10);
+			expect(mapping.throughput).toBe(300);
+			expect(mapping.statsUpdatedAt).not.toBeNull();
+		});
+
+		it("should handle empty history data gracefully", async () => {
+			await calculateAggregatedStatistics();
+
+			// Should complete without errors
+			const providers = await db.select().from(provider);
+			expect(providers).toHaveLength(2); // Our test providers
+		});
+
+		it("should only process history from the last 5 minutes", async () => {
+			const now = new Date("2024-01-01T12:30:00.000Z");
+			const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+			// Insert old history data (should be ignored)
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					minuteTimestamp: tenMinutesAgo, // Too old
+					logsCount: 100,
+					errorsCount: 10,
+					errorRate: 10,
+					throughput: 1000,
+				},
+			]);
+
+			await calculateAggregatedStatistics();
+
+			// Provider statistics should not be updated with old data
+			const providers = await db
+				.select()
+				.from(provider)
+				.where(eq(provider.id, "openai"));
+
+			expect(providers).toHaveLength(1);
+			const openaiProvider = providers[0]!;
+			expect(openaiProvider.logsCount).toBe(0); // Should remain 0
+			expect(openaiProvider.statsUpdatedAt).toBeNull(); // Should not be updated
+		});
+	});
+
+	describe("calculateUsageStatistics (backward compatibility)", () => {
+		it("should run without throwing", async () => {
+			await expect(calculateUsageStatistics()).resolves.not.toThrow();
+		});
+	});
+});

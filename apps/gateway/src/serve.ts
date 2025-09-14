@@ -9,11 +9,6 @@ import {
 import { logger } from "@llmgateway/logger";
 
 import { app } from ".";
-import {
-	startStatsCalculator,
-	stopStatsCalculator,
-} from "./services/stats-calculator";
-import { syncProvidersAndModels } from "./services/sync-models";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
@@ -21,9 +16,6 @@ import type { NodeSDK } from "@opentelemetry/sdk-node";
 const port = Number(process.env.PORT) || 4001;
 
 let sdk: NodeSDK | null = null;
-
-void syncProvidersAndModels();
-startStatsCalculator();
 
 async function startServer() {
 	// Initialize tracing for gateway service
@@ -71,10 +63,6 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	});
 
 	try {
-		logger.info("Stopping statistics calculator...");
-		stopStatsCalculator();
-		logger.info("Statistics calculator stopped");
-
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");
