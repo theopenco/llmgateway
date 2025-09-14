@@ -40,109 +40,190 @@ function getPreviousMinuteStart(): Date {
 }
 
 /**
- * Calculate and store 1-minute historical data for model-provider mappings
+ * Calculate and store 1-minute historical data for model-provider mappings for a specific minute
+ * @param targetMinute The specific minute to calculate history for
  */
-export async function calculateMinutelyHistory() {
-	logger.info("Starting minutely history calculation...");
+async function calculateHistoryForMinute(targetMinute: Date) {
+	const minuteEnd = new Date(targetMinute.getTime() + 60 * 1000);
+	const database = db;
+
+	// Get logs from the specified minute
+	const mappingStats = await database
+		.select({
+			modelId: log.usedModel,
+			providerId: log.usedProvider,
+			logsCount: sql<number>`count(*)::int`.as("logsCount"),
+			errorsCount:
+				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
+					"errorsCount",
+				),
+			totalOutputTokens:
+				sql<number>`coalesce(sum(${log.completionTokens}), 0)::int`.as(
+					"totalOutputTokens",
+				),
+			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
+				"totalDuration",
+			),
+		})
+		.from(log)
+		.where(
+			and(
+				gte(log.createdAt, targetMinute),
+				lte(log.createdAt, minuteEnd),
+			),
+		)
+		.groupBy(log.usedModel, log.usedProvider);
+
+	// Get all active model-provider mappings to ensure we create entries for inactive ones too
+	const allMappings = await database
+		.select({
+			modelId: modelProviderMapping.modelId,
+			providerId: modelProviderMapping.providerId,
+		})
+		.from(modelProviderMapping)
+		.where(eq(modelProviderMapping.status, "active"));
+
+	// Create a map of active mappings that had logs
+	const activeMappingsMap = new Map<string, typeof mappingStats[0]>();
+	for (const stat of mappingStats) {
+		if (stat.modelId && stat.providerId) {
+			const key = `${stat.modelId}-${stat.providerId}`;
+			activeMappingsMap.set(key, stat);
+		}
+	}
+
+	// Process all model-provider mappings
+	const processedMappings = new Set<string>();
+
+	for (const mapping of allMappings) {
+		const key = `${mapping.modelId}-${mapping.providerId}`;
+		if (processedMappings.has(key)) {
+			continue;
+		}
+		processedMappings.add(key);
+
+		const stat = activeMappingsMap.get(key);
+
+		// Use actual stats if available, otherwise create zero stats
+		const logsCount = stat?.logsCount || 0;
+		const errorsCount = stat?.errorsCount || 0;
+		const totalOutputTokens = stat?.totalOutputTokens || 0;
+		const totalDuration = stat?.totalDuration || 0;
+
+		const errorRate = logsCount > 0 ? (errorsCount / logsCount) * 100 : 0;
+		const throughput = totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : 0;
+
+		// Insert or update a history record for this minute
+		await database
+			.insert(modelProviderMappingHistory)
+			.values({
+				modelId: mapping.modelId,
+				providerId: mapping.providerId,
+				minuteTimestamp: targetMinute,
+				logsCount,
+				errorsCount,
+				errorRate,
+				throughput,
+				totalOutputTokens,
+				totalDuration,
+			})
+			.onConflictDoUpdate({
+				target: [
+					modelProviderMappingHistory.modelId,
+					modelProviderMappingHistory.providerId,
+					modelProviderMappingHistory.minuteTimestamp,
+				],
+				set: {
+					logsCount,
+					errorsCount,
+					errorRate,
+					throughput,
+					totalOutputTokens,
+					totalDuration,
+					updatedAt: new Date(),
+				},
+			});
+	}
+
+	return {
+		totalMappings: allMappings.length,
+		activeMappings: mappingStats.length,
+		inactiveMappings: allMappings.length - mappingStats.length,
+	};
+}
+
+/**
+ * Backfill missing history entries for periods when the worker was down
+ */
+export async function backfillHistoryIfNeeded() {
+	logger.info("Checking for missing history periods to backfill...");
 
 	try {
 		const database = db;
-		const previousMinuteStart = getPreviousMinuteStart();
-		const currentMinuteStart = getCurrentMinuteStart();
 
-		// Get logs from the previous complete minute
-		const mappingStats = await database
-			.select({
-				modelId: log.usedModel,
-				providerId: log.usedProvider,
-				logsCount: sql<number>`count(*)::int`.as("logsCount"),
-				errorsCount:
-					sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
-						"errorsCount",
-					),
-				totalOutputTokens:
-					sql<number>`coalesce(sum(${log.completionTokens}), 0)::int`.as(
-						"totalOutputTokens",
-					),
-				totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
-					"totalDuration",
-				),
-			})
-			.from(log)
-			.where(
-				and(
-					gte(log.createdAt, previousMinuteStart),
-					lte(log.createdAt, currentMinuteStart),
-				),
-			)
-			.groupBy(log.usedModel, log.usedProvider);
+		// Get the most recent history entry to see if we need to backfill
+		const latestHistory = await database
+			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
+			.from(modelProviderMappingHistory)
+			.orderBy(sql`${modelProviderMappingHistory.minuteTimestamp} DESC`)
+			.limit(1);
 
-		for (const stat of mappingStats) {
-			if (!stat.modelId || !stat.providerId) {
-				continue;
+		if (latestHistory.length === 0) {
+			// No history exists, start from 1 hour ago to avoid processing too much data on first run
+			const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+			const currentMinute = getCurrentMinuteStart();
+
+			logger.info(`No existing history found. Starting backfill from ${oneHourAgo.toISOString()}`);
+
+			let minute = new Date(oneHourAgo);
+			while (minute < currentMinute) {
+				const result = await calculateHistoryForMinute(minute);
+				logger.info(`Backfilled ${result.totalMappings} mappings for ${minute.toISOString()}`);
+				minute = new Date(minute.getTime() + 60 * 1000);
 			}
-
-			// Check if model and provider exist before inserting history
-			const [modelExists] = await database
-				.select()
-				.from(model)
-				.where(eq(model.id, stat.modelId))
-				.limit(1);
-
-			const [providerExists] = await database
-				.select()
-				.from(provider)
-				.where(eq(provider.id, stat.providerId))
-				.limit(1);
-
-			if (!modelExists || !providerExists) {
-				logger.warn(
-					`Skipping history for non-existent model ${stat.modelId} or provider ${stat.providerId}`,
-				);
-				continue;
-			}
-
-			const errorRate =
-				stat.logsCount > 0 ? (stat.errorsCount / stat.logsCount) * 100 : 0;
-			const throughput =
-				stat.totalDuration > 0
-					? (Number(stat.totalOutputTokens || 0) / stat.totalDuration) * 1000
-					: 0;
-
-			// Insert or update a history record for this minute
-			await database
-				.insert(modelProviderMappingHistory)
-				.values({
-					modelId: stat.modelId,
-					providerId: stat.providerId,
-					minuteTimestamp: previousMinuteStart,
-					logsCount: stat.logsCount,
-					errorsCount: stat.errorsCount,
-					errorRate,
-					throughput,
-					totalOutputTokens: stat.totalOutputTokens,
-					totalDuration: stat.totalDuration,
-				})
-				.onConflictDoUpdate({
-					target: [
-						modelProviderMappingHistory.modelId,
-						modelProviderMappingHistory.providerId,
-						modelProviderMappingHistory.minuteTimestamp,
-					],
-					set: {
-						logsCount: stat.logsCount,
-						errorsCount: stat.errorsCount,
-						errorRate,
-						throughput,
-						totalOutputTokens: stat.totalOutputTokens,
-						totalDuration: stat.totalDuration,
-						updatedAt: new Date(),
-					},
-				});
+			return;
 		}
 
+		const lastMinute = latestHistory[0]!.minuteTimestamp;
+		const currentMinute = getCurrentMinuteStart();
+		const previousMinute = getPreviousMinuteStart();
+
+		// Check if we're missing recent minutes (more than 2 minutes behind indicates downtime)
+		const minutesBehind = Math.floor((previousMinute.getTime() - lastMinute.getTime()) / (60 * 1000));
+
+		if (minutesBehind > 2) {
+			logger.info(`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`);
+
+			let minute = new Date(lastMinute.getTime() + 60 * 1000); // Start from the minute after the last recorded
+
+			while (minute < currentMinute) {
+				const result = await calculateHistoryForMinute(minute);
+				logger.info(`Backfilled ${result.totalMappings} mappings (${result.activeMappings} active) for ${minute.toISOString()}`);
+				minute = new Date(minute.getTime() + 60 * 1000);
+			}
+		} else {
+			logger.info(`History is up to date. Last entry: ${lastMinute.toISOString()}`);
+		}
+	} catch (error) {
+		logger.error("Error during history backfill:", error as Error);
+		throw error;
+	}
+}
+
+/**
+ * Calculate and store 1-minute historical data for model-provider mappings
+ * Now includes entries for inactive mappings and supports backfilling
+ */
+export async function calculateMinutelyHistory() {
+	const previousMinuteStart = getPreviousMinuteStart();
+
+	logger.info(`Starting minutely history calculation for ${previousMinuteStart.toISOString()}...`);
+
+	try {
+		const result = await calculateHistoryForMinute(previousMinuteStart);
+
 		logger.info(
-			`Recorded history for ${mappingStats.length} model-provider mappings`,
+			`Recorded history for ${result.totalMappings} model-provider mappings (${result.activeMappings} active, ${result.inactiveMappings} inactive)`,
 		);
 	} catch (error) {
 		logger.error("Error calculating minutely history:", error as Error);

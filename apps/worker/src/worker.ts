@@ -26,6 +26,7 @@ import { calculateFees } from "@llmgateway/shared";
 import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,
+	backfillHistoryIfNeeded,
 } from "./services/stats-calculator";
 import { syncProvidersAndModels } from "./services/sync-models";
 
@@ -490,6 +491,17 @@ export async function startWorker() {
 	} catch (error) {
 		logger.error(
 			"Error during initial sync",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+
+	// Backfill any missing history if the worker was down
+	try {
+		await backfillHistoryIfNeeded();
+		logger.info("History backfill check completed");
+	} catch (error) {
+		logger.error(
+			"Error during history backfill",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}
