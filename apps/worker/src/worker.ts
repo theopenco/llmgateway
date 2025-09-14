@@ -38,6 +38,7 @@ const BATCH_PROCESSING_INTERVAL_SECONDS =
 
 const schema = z.object({
 	id: z.string(),
+	request_id: z.string(),
 	organization_id: z.string(),
 	project_id: z.string(),
 	cost: z.number().nullable(),
@@ -296,6 +297,7 @@ async function batchProcessLogs(): Promise<void> {
 			const rows = await tx
 				.select({
 					id: log.id,
+					request_id: log.requestId,
 					organization_id: log.organizationId,
 					project_id: log.projectId,
 					cost: log.cost,
@@ -338,6 +340,7 @@ async function batchProcessLogs(): Promise<void> {
 				logger.info("Processing log", {
 					kind: "log-process",
 					logId: row.id,
+					requestId: row.request_id,
 					organizationId: row.organization_id,
 					projectId: row.project_id,
 					cost: row.cost,

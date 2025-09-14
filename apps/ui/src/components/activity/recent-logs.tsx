@@ -28,6 +28,7 @@ const UnifiedFinishReason = {
 	COMPLETED: "completed",
 	LENGTH_LIMIT: "length_limit",
 	CONTENT_FILTER: "content_filter",
+	TOOL_CALLS: "tool_calls",
 	GATEWAY_ERROR: "gateway_error",
 	UPSTREAM_ERROR: "upstream_error",
 	CANCELED: "canceled",
