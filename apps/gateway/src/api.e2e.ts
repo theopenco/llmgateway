@@ -13,8 +13,14 @@ import { app } from ".";
 import {
 	clearCache,
 	waitForLogs,
+	waitForLogByRequestId,
 	getProviderEnvVar,
 } from "./test-utils/test-helpers";
+
+// Helper function to generate unique request IDs for tests
+function generateTestRequestId(): string {
+	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions() {
@@ -395,22 +401,18 @@ describe("e2e", () => {
 		expect(json).toHaveProperty("usage.total_tokens");
 	}
 
-	async function validateLogs() {
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBeGreaterThan(0);
+	async function validateLogByRequestId(requestId: string) {
+		const log = await waitForLogByRequestId(requestId);
 
 		if (logMode) {
-			console.log("logs", JSON.stringify(logs, null, 2));
+			console.log("log", JSON.stringify(log, null, 2));
 		}
 
-		const log = logs[0];
 		expect(log.usedProvider).toBeTruthy();
-
 		expect(log.errorDetails).toBeNull();
 		expect(log.finishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).not.toBeNull();
 		expect(log.unifiedFinishReason).toBeTruthy();
-
 		expect(log.usedModel).toBeTruthy();
 		expect(log.requestedModel).toBeTruthy();
 
@@ -421,10 +423,12 @@ describe("e2e", () => {
 		"completions $model",
 		getTestOptions(),
 		async ({ model }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -450,7 +454,7 @@ describe("e2e", () => {
 			expect(res.status).toBe(200);
 			validateResponse(json);
 
-			const log = await validateLogs();
+			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(false);
 
 			expect(json).toHaveProperty("usage");
@@ -474,10 +478,12 @@ describe("e2e", () => {
 		"/v1/chat/completions streaming with $model",
 		getTestOptions(),
 		async ({ model }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -560,7 +566,7 @@ describe("e2e", () => {
 			expect(usageChunk.usage.completion_tokens).toBeGreaterThan(0);
 			expect(usageChunk.usage.total_tokens).toBeGreaterThan(0);
 
-			const log = await validateLogs();
+			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(true);
 
 			// expect(log.cost).not.toBeNull();
@@ -572,10 +578,12 @@ describe("e2e", () => {
 		"reasoning $model",
 		getTestOptions(),
 		async ({ model, providers }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -602,7 +610,7 @@ describe("e2e", () => {
 			expect(res.status).toBe(200);
 			validateResponse(json);
 
-			const log = await validateLogs();
+			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(false);
 
 			expect(json).toHaveProperty("usage");
@@ -638,10 +646,12 @@ describe("e2e", () => {
 		"reasoning + streaming $model",
 		getTestOptions(),
 		async ({ model, providers }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -748,7 +758,7 @@ describe("e2e", () => {
 				expect(reasoningChunks.length).toBeGreaterThan(0);
 			}
 
-			const log = await validateLogs();
+			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(true);
 		},
 	);
@@ -764,10 +774,12 @@ describe("e2e", () => {
 			"reasoning + tool calls $model",
 			getTestOptions(),
 			async ({ model, providers }) => {
+				const requestId = generateTestRequestId();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
+						"x-request-id": requestId,
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -870,7 +882,7 @@ describe("e2e", () => {
 				}
 
 				// Validate logs
-				const log = await validateLogs();
+				const log = await validateLogByRequestId(requestId);
 				expect(log.streamed).toBe(false);
 
 				// Validate usage
@@ -898,10 +910,12 @@ describe("e2e", () => {
 		"tool calls $model",
 		getTestOptions(),
 		async ({ model }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -982,7 +996,7 @@ describe("e2e", () => {
 			expect(json.choices[0]).toHaveProperty("finish_reason", "tool_calls");
 
 			// Validate logs
-			const log = await validateLogs();
+			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(false);
 
 			// Validate usage
@@ -1003,10 +1017,12 @@ describe("e2e", () => {
 		"tool calls with result $model",
 		getTestOptions(),
 		async ({ model }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -1099,7 +1115,7 @@ describe("e2e", () => {
 			// expect(json.choices[0]).toHaveProperty("finish_reason", "stop");
 
 			// Validate logs
-			const log = await validateLogs();
+			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(false);
 
 			// Validate usage
@@ -1164,10 +1180,12 @@ describe("e2e", () => {
 			"image output $model",
 			getTestOptions(),
 			async ({ model }) => {
+				const requestId = generateTestRequestId();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
+						"x-request-id": requestId,
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -1216,7 +1234,7 @@ describe("e2e", () => {
 				}
 
 				// Validate logs
-				const log = await validateLogs();
+				const log = await validateLogByRequestId(requestId);
 				expect(log.streamed).toBe(false);
 
 				// Validate usage
@@ -1231,10 +1249,12 @@ describe("e2e", () => {
 			"streaming image output $model",
 			getTestOptions(),
 			async ({ model }) => {
+				const requestId = generateTestRequestId();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
+						"x-request-id": requestId,
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -1315,7 +1335,7 @@ describe("e2e", () => {
 				);
 				expect(usageChunks.length).toBeGreaterThan(0);
 
-				const log = await validateLogs();
+				const log = await validateLogByRequestId(requestId);
 				expect(log.streamed).toBe(true);
 			},
 		);
@@ -1326,10 +1346,12 @@ describe("e2e", () => {
 			"complex $model",
 			getTestOptions(),
 			async ({ model, provider }) => {
+				const requestId = generateTestRequestId();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
+						"x-request-id": requestId,
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -1371,7 +1393,7 @@ describe("e2e", () => {
 				expect(res.status).toBe(200);
 				validateResponse(json);
 
-				const log = await validateLogs();
+				const log = await validateLogByRequestId(requestId);
 				expect(log.streamed).toBe(false);
 
 				expect(json).toHaveProperty("usage");
@@ -1399,10 +1421,12 @@ describe("e2e", () => {
 			"parameters $model",
 			getTestOptions(),
 			async ({ model }) => {
+				const requestId = generateTestRequestId();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
+						"x-request-id": requestId,
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -1430,7 +1454,7 @@ describe("e2e", () => {
 				expect(res.status).toBe(200);
 				validateResponse(json);
 
-				const log = await validateLogs();
+				const log = await validateLogByRequestId(requestId);
 				expect(log.streamed).toBe(false);
 
 				expect(json).toHaveProperty("usage");
@@ -1788,10 +1812,12 @@ describe("e2e", () => {
 			return;
 		}
 
+		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-request-id": requestId,
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
@@ -1816,7 +1842,7 @@ describe("e2e", () => {
 		expect(res.status).toBe(200);
 		validateResponse(json);
 
-		const log = await validateLogs();
+		const log = await validateLogByRequestId(requestId);
 		expect(log.streamed).toBe(false);
 		expect(log.usedModel).toBe("openai/gpt-5-nano");
 		expect(log.usedModelMapping).toBe("gpt-5-nano");
@@ -1842,10 +1868,12 @@ describe("e2e", () => {
 			return;
 		}
 
+		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-request-id": requestId,
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
@@ -1863,7 +1891,7 @@ describe("e2e", () => {
 		const json = await res.json();
 		validateResponse(json);
 
-		const log = await validateLogs();
+		const log = await validateLogByRequestId(requestId);
 		expect(log.streamed).toBe(false);
 	});
 });
