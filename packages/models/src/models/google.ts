@@ -27,7 +27,7 @@ export const googleModels = [
 		name: "Gemini 2.5 Pro Preview (05-06)",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-07-15"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -48,7 +48,7 @@ export const googleModels = [
 		name: "Gemini 2.5 Pro Preview (06-05)",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-07-15"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -69,7 +69,7 @@ export const googleModels = [
 		name: "Gemini 2.5 Flash Preview (04-17)",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: new Date("2025-07-22"),
+		deactivatedAt: new Date("2025-07-15"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -90,7 +90,7 @@ export const googleModels = [
 		name: "Gemini 2.5 Flash Preview (05-20)",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-07-15"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
