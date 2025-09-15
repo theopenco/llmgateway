@@ -10,6 +10,7 @@ import {
 	waitForLogs,
 	waitForLogByRequestId,
 	getProviderEnvVar,
+	readAll,
 } from "./test-utils/test-helpers";
 
 // Helper function to generate unique request IDs for tests
@@ -556,101 +557,3 @@ describe("e2e individual tests", () => {
 		expect(log.streamed).toBe(false);
 	});
 });
-
-async function readAll(stream: ReadableStream<Uint8Array> | null): Promise<{
-	fullContent?: string;
-	hasContent: boolean;
-	eventCount: number;
-	hasValidSSE: boolean;
-	hasOpenAIFormat: boolean;
-	chunks: any[];
-	hasUsage: boolean;
-}> {
-	if (!stream) {
-		return {
-			hasContent: false,
-			eventCount: 0,
-			hasValidSSE: false,
-			hasOpenAIFormat: false,
-			chunks: [],
-			hasUsage: false,
-		};
-	}
-
-	const reader = stream.getReader();
-	let fullContent = "";
-	let eventCount = 0;
-	let hasValidSSE = false;
-	let hasContent = false;
-	let hasOpenAIFormat = true; // Assume true until proven otherwise
-	let hasUsage = false;
-	const chunks: any[] = [];
-
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) {
-				break;
-			}
-
-			const chunk = new TextDecoder().decode(value);
-			fullContent += chunk;
-
-			const lines = chunk.split("\n");
-			for (const line of lines) {
-				if (line.startsWith("data: ")) {
-					eventCount++;
-					hasValidSSE = true;
-
-					if (line === "data: [DONE]") {
-						continue;
-					}
-
-					try {
-						const data = JSON.parse(line.substring(6));
-						chunks.push(data);
-
-						// Check if this chunk has OpenAI format
-						if (
-							!data.id ||
-							!data.object ||
-							data.object !== "chat.completion.chunk"
-						) {
-							hasOpenAIFormat = false;
-						}
-
-						// Check for content in OpenAI format (should be the primary format after transformation)
-						if (
-							data.choices?.[0]?.delta?.content ||
-							data.choices?.[0]?.finish_reason
-						) {
-							hasContent = true;
-						}
-
-						// Check for usage information
-						if (
-							data.usage &&
-							(data.usage.prompt_tokens !== null ||
-								data.usage.completion_tokens !== null ||
-								data.usage.total_tokens !== null)
-						) {
-							hasUsage = true;
-						}
-					} catch {}
-				}
-			}
-		}
-	} finally {
-		reader.releaseLock();
-	}
-
-	return {
-		fullContent,
-		hasContent,
-		eventCount,
-		hasValidSSE,
-		hasOpenAIFormat,
-		chunks,
-		hasUsage,
-	};
-}
