@@ -47,7 +47,9 @@ jobs:
 
   build-split:
     needs: setup
-    if: needs.setup.result == 'success' && github.event_name != 'pull_request'
+    if: |
+      (github.event_name != 'pull_request' && needs.setup.result == 'success') ||
+      (github.event_name == 'pull_request')
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -71,7 +73,8 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry
+      - name: Login to GitHub Container Registry (main branch only)
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -84,7 +87,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-${{ matrix.app }}
 
-      - name: Build and push by digest
+      - name: Build and conditionally push by digest
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -94,19 +97,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: ghcr.io/${{ github.repository }}-${{ matrix.app }}
           target: ${{ matrix.app }}
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
           cache-from: type=gha,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
           build-args: |
-            APP_VERSION=${{ needs.setup.outputs.image_tag }}
+            APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 
-      - name: Export digest
+      - name: Export digest (main branch only)
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p ${{ runner.temp }}/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
-      - name: Upload digest
+      - name: Upload digest (main branch only)
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: digests-${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
@@ -168,12 +173,12 @@ jobs:
     needs:
       - setup
       - merge-split
-      - test-build-split
+      - build-split
     if: |
       always() && 
       (
         (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-split.result == 'success') ||
-        (github.event_name == 'pull_request' && needs.test-build-split.result == 'success')
+        (github.event_name == 'pull_request' && needs.build-split.result == 'success')
       )
     permissions:
       contents: read
@@ -213,7 +218,9 @@ jobs:
 
   build-unified:
     needs: setup
-    if: needs.setup.result == 'success' && github.event_name != 'pull_request'
+    if: |
+      (github.event_name != 'pull_request' && needs.setup.result == 'success') ||
+      (github.event_name == 'pull_request')
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -236,7 +243,8 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry
+      - name: Login to GitHub Container Registry (main branch only)
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -249,7 +257,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-unified
 
-      - name: Build and push by digest
+      - name: Build and conditionally push by digest
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -258,19 +266,21 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ghcr.io/${{ github.repository }}-unified
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: ${{ github.event_name == 'pull_request' && 'type=image,push=false,load=true' || 'type=image,push-by-digest=true,name-canonical=true,push=true' }}
           cache-from: type=gha,scope=unified-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=unified-${{ env.PLATFORM_PAIR }}
           build-args: |
-            APP_VERSION=${{ needs.setup.outputs.image_tag }}
+            APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 
-      - name: Export digest
+      - name: Export digest (main branch only)
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p ${{ runner.temp }}/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
-      - name: Upload digest
+      - name: Upload digest (main branch only)
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: digests-unified-${{ env.PLATFORM_PAIR }}
@@ -329,12 +339,12 @@ jobs:
     needs:
       - setup
       - merge-unified
-      - test-build-unified
+      - build-unified
     if: |
       always() && 
       (
         (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-unified.result == 'success') ||
-        (github.event_name == 'pull_request' && needs.test-build-unified.result == 'success')
+        (github.event_name == 'pull_request' && needs.build-unified.result == 'success')
       )
     permissions:
       contents: read
@@ -371,57 +381,3 @@ jobs:
         run: |
           chmod +x .github/test-unified-docker.sh
           .github/test-unified-docker.sh test-unified-image:latest
-
-  # PR-specific jobs that only build without pushing
-  test-build-split:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [api, gateway, ui, docs, worker]
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Test build split dockerfile
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/split.dockerfile
-          platforms: linux/amd64
-          target: ${{ matrix.app }}
-          push: false
-          cache-from: type=gha,scope=${{ matrix.app }}-linux-amd64
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-linux-amd64
-          build-args: |
-            APP_VERSION=pr-test
-
-  test-build-unified:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Test build unified dockerfile
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/unified.dockerfile
-          platforms: linux/amd64
-          push: false
-          cache-from: type=gha,scope=unified-linux-amd64
-          cache-to: type=gha,mode=max,scope=unified-linux-amd64
-          build-args: |
-            APP_VERSION=pr-test
