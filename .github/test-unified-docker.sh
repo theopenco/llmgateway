@@ -8,8 +8,12 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-IMAGE_PREFIX="${1:-ghcr.io/terragonlabs/llmgateway}"
-IMAGE_TAG="${2:-latest}"
+IMAGE_NAME="${1:-ghcr.io/terragonlabs/llmgateway:latest}"
+# If IMAGE_NAME doesn't contain a tag, append the default or provided tag
+if [[ "$IMAGE_NAME" != *":"* ]]; then
+  IMAGE_TAG="${2:-latest}"
+  IMAGE_NAME="$IMAGE_NAME:$IMAGE_TAG"
+fi
 STARTUP_TIMEOUT=120
 
 # Array of endpoints for testing
@@ -83,7 +87,7 @@ test_service() {
 }
 
 echo -e "${YELLOW}Starting Unified Docker Image Tests${NC}"
-echo "Using image: $IMAGE_PREFIX:$IMAGE_TAG"
+echo "Using image: $IMAGE_NAME"
 echo
 
 # Create temporary override file to use pre-built image instead of building
@@ -92,7 +96,7 @@ TEMP_OVERRIDE_FILE=$(mktemp docker-compose-override-XXXX.yml)
 cat > "$TEMP_OVERRIDE_FILE" << EOF
 services:
   llmgateway:
-    image: $IMAGE_PREFIX:$IMAGE_TAG
+    image: $IMAGE_NAME
     build: null
 EOF
 
