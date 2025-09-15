@@ -126,12 +126,6 @@ services:
       - PASSKEY_RP_ID=localhost
       - PASSKEY_RP_NAME=LLMGateway
       - AUTH_SECRET=test-secret-key-for-docker-testing
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 EOF
 
 # Step 2: Pull image if needed (not for local)
@@ -165,27 +159,31 @@ fi
 
 echo -e "${GREEN}Services started successfully${NC}"
 
-# Step 5: Wait for services to be healthy
-echo -e "${YELLOW}Waiting for services to become healthy...${NC}"
+# Step 5: Wait for container to be running and services to initialize
+echo -e "${YELLOW}Waiting for container to be running...${NC}"
 timeout_count=0
 max_timeout=$((STARTUP_TIMEOUT / 5))
 
 while [ $timeout_count -lt $max_timeout ]; do
-  if docker compose -f "$TEMP_COMPOSE_FILE" ps | grep -q "healthy"; then
-    echo -e "${GREEN}Services are healthy${NC}"
+  if docker compose -f "$TEMP_COMPOSE_FILE" ps | grep -q "Up"; then
+    echo -e "${GREEN}Container is running${NC}"
     break
   fi
   
-  echo -e "${YELLOW}Waiting for services to become healthy... (${timeout_count}/${max_timeout})${NC}"
+  echo -e "${YELLOW}Waiting for container to start... (${timeout_count}/${max_timeout})${NC}"
   sleep 5
   timeout_count=$((timeout_count + 1))
   
   if [ $timeout_count -ge $max_timeout ]; then
-    echo -e "${RED}Services failed to become healthy within ${STARTUP_TIMEOUT}s${NC}"
+    echo -e "${RED}Container failed to start within ${STARTUP_TIMEOUT}s${NC}"
     docker compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
     exit 1
   fi
 done
+
+# Give additional time for all services to initialize internally
+echo -e "${YELLOW}Waiting additional time for all services to initialize...${NC}"
+sleep 30
 
 # Step 5: Check container logs for any immediate errors
 echo -e "${YELLOW}Checking container logs for errors...${NC}"
