@@ -508,26 +508,81 @@ export async function startWorker() {
 
 	// Start statistics calculator
 	logger.info("Starting statistics calculator...");
-	logger.info("- Minutely history: runs every minute");
-	logger.info("- Aggregated stats: runs every 5 minutes");
+	logger.info("- Minutely history: runs at the first second of every minute");
+	logger.info(
+		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
+	);
 
-	// Start minutely history calculation (runs every minute)
+	// Start minutely history calculation (runs at the beginning of every minute)
 	void calculateMinutelyHistory();
-	minutelyIntervalId = setInterval(
-		() => {
-			void calculateMinutelyHistory();
-		},
-		60 * 1000, // 1 minute
-	);
 
-	// Start aggregated statistics calculation (runs every 5 minutes)
+	// Calculate delay to next minute's first second
+	const scheduleMinutelyHistory = () => {
+		const now = new Date();
+		const nextMinute = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			now.getHours(),
+			now.getMinutes() + 1,
+			0, // 0 seconds
+			50, // 50ms buffer to ensure we're past the second boundary
+		);
+		const delayToNextMinute = nextMinute.getTime() - now.getTime();
+
+		setTimeout(() => {
+			void calculateMinutelyHistory();
+			// After the first run, schedule it to repeat every minute at the first second
+			minutelyIntervalId = setInterval(
+				() => {
+					void calculateMinutelyHistory();
+				},
+				60 * 1000, // 1 minute
+			);
+		}, delayToNextMinute);
+	};
+
+	scheduleMinutelyHistory();
+
+	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
 	void calculateAggregatedStatistics();
-	aggregatedIntervalId = setInterval(
-		() => {
+
+	// Calculate delay to next 5-minute boundary (0, 5, 10, 15, etc.)
+	const scheduleAggregatedStats = () => {
+		const now = new Date();
+		const currentMinute = now.getMinutes();
+		const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
+		const nextRun = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			now.getHours(),
+			nextFiveMinuteMark,
+			0, // 0 seconds
+			100, // 100ms buffer
+		);
+
+		// Handle hour rollover
+		if (nextFiveMinuteMark >= 60) {
+			nextRun.setHours(nextRun.getHours() + 1);
+			nextRun.setMinutes(0);
+		}
+
+		const delayToNext = nextRun.getTime() - now.getTime();
+
+		setTimeout(() => {
 			void calculateAggregatedStatistics();
-		},
-		5 * 60 * 1000, // 5 minutes
-	);
+			// After the first run, schedule it to repeat every 5 minutes
+			aggregatedIntervalId = setInterval(
+				() => {
+					void calculateAggregatedStatistics();
+				},
+				5 * 60 * 1000, // 5 minutes
+			);
+		}, delayToNext);
+	};
+
+	scheduleAggregatedStats();
 
 	logger.info("Starting log queue processing...");
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;

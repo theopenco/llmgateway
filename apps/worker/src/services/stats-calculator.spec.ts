@@ -6,6 +6,7 @@ import {
 	model,
 	modelProviderMapping,
 	modelProviderMappingHistory,
+	modelHistory,
 	log,
 	organization,
 	project,
@@ -17,7 +18,6 @@ import {
 import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,
-	calculateUsageStatistics,
 	backfillHistoryIfNeeded,
 } from "./stats-calculator";
 
@@ -32,6 +32,7 @@ describe("stats-calculator", () => {
 		// Clean up test data before each test
 		await db.delete(log);
 		await db.delete(modelProviderMappingHistory);
+		await db.delete(modelHistory);
 		await db.delete(modelProviderMapping);
 		await db.delete(model);
 		await db.delete(provider);
@@ -326,7 +327,9 @@ describe("stats-calculator", () => {
 			await calculateMinutelyHistory();
 
 			// Should have records for both mappings (including inactive one)
-			const historyRecords = await db.select().from(modelProviderMappingHistory);
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
 			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // At least the 2 test mappings
 
 			// Check the active mapping was updated
@@ -339,11 +342,30 @@ describe("stats-calculator", () => {
 
 			// Check inactive mapping has zero stats
 			const claudeRecord = historyRecords.find(
-				(r) => r.modelId === "claude-3-5-sonnet" && r.providerId === "anthropic",
+				(r) =>
+					r.modelId === "claude-3-5-sonnet" && r.providerId === "anthropic",
 			);
 			expect(claudeRecord).toBeTruthy();
 			expect(claudeRecord?.logsCount).toBe(0);
 			expect(claudeRecord?.totalOutputTokens).toBe(0);
+
+			// Check that model history was also created
+			const modelHistoryRecords = await db.select().from(modelHistory);
+			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least 2 models
+
+			const gptModelRecord = modelHistoryRecords.find(
+				(r) => r.modelId === "gpt-4",
+			);
+			expect(gptModelRecord).toBeTruthy();
+			expect(gptModelRecord?.logsCount).toBe(1); // Only one log in this test
+			expect(gptModelRecord?.totalOutputTokens).toBe(100); // Only 100 tokens
+
+			const claudeModelRecord = modelHistoryRecords.find(
+				(r) => r.modelId === "claude-3-5-sonnet",
+			);
+			expect(claudeModelRecord).toBeTruthy();
+			expect(claudeModelRecord?.logsCount).toBe(0); // No logs for claude in this test
+			expect(claudeModelRecord?.totalOutputTokens).toBe(0);
 		});
 
 		it("should create entries for inactive model-provider mappings", async () => {
@@ -352,7 +374,9 @@ describe("stats-calculator", () => {
 			await calculateMinutelyHistory();
 
 			// Should create history records for all model-provider mappings
-			const historyRecords = await db.select().from(modelProviderMappingHistory);
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
 			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test mappings
 
 			// All should have zero stats since no logs were inserted
@@ -364,6 +388,172 @@ describe("stats-calculator", () => {
 				expect(record.errorRate).toBe(0);
 				expect(record.throughput).toBe(0);
 			}
+
+			// Check model history was also created with zero stats
+			const modelHistoryRecords = await db.select().from(modelHistory);
+			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test models
+
+			for (const record of modelHistoryRecords) {
+				expect(record.logsCount).toBe(0);
+				expect(record.errorsCount).toBe(0);
+				expect(record.totalOutputTokens).toBe(0);
+				expect(record.totalDuration).toBe(0);
+				expect(record.errorRate).toBe(0);
+				expect(record.throughput).toBe(0);
+			}
+		});
+	});
+
+	describe("model history tracking", () => {
+		it("should create model history records aggregated across all providers", async () => {
+			// Insert test logs using both providers for the same model
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			// Add a second mapping for the same model with different provider
+			await db.insert(modelProviderMapping).values([
+				{
+					id: "mapping-3",
+					modelId: "gpt-4", // Same model, different provider
+					providerId: "anthropic", // Using anthropic as second provider for gpt-4
+					modelName: "gpt-4-on-anthropic",
+					status: "active",
+				},
+			]);
+
+			await db.insert(log).values([
+				{
+					id: "log-1",
+					requestId: "req-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 100,
+					hasError: false,
+					completionTokens: "100",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 30000),
+				},
+				{
+					id: "log-2",
+					requestId: "req-2",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 2000,
+					requestedModel: "gpt-4",
+					requestedProvider: "anthropic",
+					usedModel: "gpt-4",
+					usedProvider: "anthropic",
+					responseSize: 150,
+					hasError: true,
+					completionTokens: "200",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 45000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Check model history aggregates across providers
+			const modelHistoryRecords = await db.select().from(modelHistory);
+			const gptModelRecord = modelHistoryRecords.find(
+				(r) => r.modelId === "gpt-4",
+			);
+
+			expect(gptModelRecord).toBeTruthy();
+			expect(gptModelRecord?.logsCount).toBe(2); // Both logs combined
+			expect(gptModelRecord?.errorsCount).toBe(1); // One error
+			expect(gptModelRecord?.errorRate).toBe(50); // 1/2 * 100
+			expect(gptModelRecord?.totalOutputTokens).toBe(300); // 100 + 200
+			expect(gptModelRecord?.totalDuration).toBe(3000); // 1000 + 2000
+			expect(gptModelRecord?.throughput).toBe(100); // (300 / 3000) * 1000
+
+			// Also check model-provider mappings are separate
+			const mappingRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
+			const openaiMapping = mappingRecords.find(
+				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+			);
+			const anthropicMapping = mappingRecords.find(
+				(r) => r.modelId === "gpt-4" && r.providerId === "anthropic",
+			);
+
+			expect(openaiMapping?.logsCount).toBe(1);
+			expect(anthropicMapping?.logsCount).toBe(1);
+		});
+
+		it("should create model history entries for inactive models", async () => {
+			// Don't insert any logs, so all models should have zero stats
+
+			await calculateMinutelyHistory();
+
+			const modelHistoryRecords = await db.select().from(modelHistory);
+			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test models
+
+			// All should have zero stats since no logs were inserted
+			for (const record of modelHistoryRecords) {
+				expect(record.logsCount).toBe(0);
+				expect(record.errorsCount).toBe(0);
+				expect(record.totalOutputTokens).toBe(0);
+				expect(record.totalDuration).toBe(0);
+				expect(record.errorRate).toBe(0);
+				expect(record.throughput).toBe(0);
+			}
+		});
+
+		it("should handle model history conflicts with upsert", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			// Create initial model history record
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: previousMinuteStart,
+				logsCount: 1,
+				errorsCount: 0,
+				errorRate: 0,
+				throughput: 50,
+				totalOutputTokens: 50,
+				totalDuration: 1000,
+			});
+
+			// Insert new log for the same minute
+			await db.insert(log).values([
+				{
+					id: "log-1",
+					requestId: "req-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 100,
+					hasError: false,
+					completionTokens: "100",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 30000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const modelHistoryRecords = await db.select().from(modelHistory);
+			const gptRecord = modelHistoryRecords.find((r) => r.modelId === "gpt-4");
+
+			expect(gptRecord).toBeTruthy();
+			expect(gptRecord?.logsCount).toBe(1); // Should be updated, not added to existing
+			expect(gptRecord?.totalOutputTokens).toBe(100);
 		});
 	});
 
@@ -526,15 +716,28 @@ describe("stats-calculator", () => {
 
 			await backfillHistoryIfNeeded();
 
-			const historyRecords = await db.select().from(modelProviderMappingHistory);
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
 
 			// Should have created history for 60 minutes (11:30-12:29) for 2 mappings = 120 records
 			expect(historyRecords.length).toBeGreaterThanOrEqual(120);
 
 			// Check that we have entries for each minute
-			const timestamps = historyRecords.map(r => r.minuteTimestamp.getTime());
+			const timestamps = historyRecords.map((r) => r.minuteTimestamp.getTime());
 			const uniqueTimestamps = new Set(timestamps);
 			expect(uniqueTimestamps.size).toBe(60); // 60 different minutes
+
+			// Check that model history was also backfilled
+			const modelHistoryRecords = await db.select().from(modelHistory);
+			// Should have created history for 60 minutes for 2 models = 120 records
+			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(120);
+
+			const modelTimestamps = modelHistoryRecords.map((r) =>
+				r.minuteTimestamp.getTime(),
+			);
+			const uniqueModelTimestamps = new Set(modelTimestamps);
+			expect(uniqueModelTimestamps.size).toBe(60); // 60 different minutes
 		});
 
 		it("should not backfill when history is up to date", async () => {
@@ -554,7 +757,9 @@ describe("stats-calculator", () => {
 
 			await backfillHistoryIfNeeded();
 
-			const historyRecords = await db.select().from(modelProviderMappingHistory);
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
 			// Should only have the one we inserted, no backfill needed
 			expect(historyRecords).toHaveLength(1);
 		});
@@ -576,23 +781,23 @@ describe("stats-calculator", () => {
 
 			await backfillHistoryIfNeeded();
 
-			const historyRecords = await db.select().from(modelProviderMappingHistory);
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
 
 			// Should have backfilled 4 minutes (12:26-12:29) for 2 mappings = 8 new records + 1 existing = 9
 			expect(historyRecords.length).toBeGreaterThanOrEqual(9);
 
 			// Check we have entries for the missing minutes
-			const timestamps = historyRecords.map(r => r.minuteTimestamp);
-			const sortedTimestamps = timestamps.sort((a, b) => a.getTime() - b.getTime());
+			const timestamps = historyRecords.map((r) => r.minuteTimestamp);
+			const sortedTimestamps = timestamps.sort(
+				(a, b) => a.getTime() - b.getTime(),
+			);
 
 			expect(sortedTimestamps[0]?.getTime()).toBe(oldMinute.getTime());
-			expect(sortedTimestamps[sortedTimestamps.length - 1]?.getTime()).toBe(new Date("2024-01-01T12:29:00.000Z").getTime());
-		});
-	});
-
-	describe("calculateUsageStatistics (backward compatibility)", () => {
-		it("should run without throwing", async () => {
-			await expect(calculateUsageStatistics()).resolves.not.toThrow();
+			expect(sortedTimestamps[sortedTimestamps.length - 1]?.getTime()).toBe(
+				new Date("2024-01-01T12:29:00.000Z").getTime(),
+			);
 		});
 	});
 });
