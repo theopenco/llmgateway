@@ -1,6 +1,10 @@
 import lint from "@steebchen/lint-next";
 import importPlugin from "eslint-plugin-import";
 import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** @type {import("eslint").Linter.Config[]} */
 export default [
@@ -87,6 +91,7 @@ export default [
 				{
 					allowSameFolder: true,
 					prefix: "@",
+					rootDir: __dirname,
 				},
 			],
 		},

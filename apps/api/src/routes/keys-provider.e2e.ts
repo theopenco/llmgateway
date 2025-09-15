@@ -18,7 +18,6 @@ import {
 } from "@llmgateway/models";
 
 import { app } from "..";
-// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
 import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
 
 function getTestOptions(): TestOptions {
