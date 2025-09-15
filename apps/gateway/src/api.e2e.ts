@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 import {
@@ -313,9 +313,11 @@ const streamingImageModels = imageModels.filter((m) =>
 );
 
 describe("e2e", { concurrent: true }, () => {
-	beforeEach(async () => {
+	// Set up database once before all tests
+	beforeAll(async () => {
 		await clearCache();
 
+		// Clean up any existing data
 		await Promise.all([
 			db.delete(tables.log),
 			db.delete(tables.apiKey),
@@ -335,6 +337,7 @@ describe("e2e", { concurrent: true }, () => {
 			db.delete(tables.verification),
 		]);
 
+		// Set up shared test data that all tests can use
 		await db.insert(tables.user).values({
 			id: "user-id",
 			name: "user",
@@ -367,6 +370,7 @@ describe("e2e", { concurrent: true }, () => {
 			description: "Test API Key",
 		});
 
+		// Set up provider keys for all providers
 		for (const provider of providers) {
 			const envVarName = getProviderEnvVar(provider.id);
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
@@ -375,6 +379,13 @@ describe("e2e", { concurrent: true }, () => {
 				await createProviderKey(provider.id, envVarValue, "credits");
 			}
 		}
+	});
+
+	// Only clear logs and cache before each test to avoid conflicts
+	beforeEach(async () => {
+		await clearCache();
+		// Only clear logs, not the shared test data
+		await db.delete(tables.log);
 	});
 
 	async function createProviderKey(

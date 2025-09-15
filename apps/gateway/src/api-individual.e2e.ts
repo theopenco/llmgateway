@@ -20,82 +20,76 @@ function generateTestRequestId(): string {
 const logMode = process.env.LOG_MODE;
 
 describe("e2e individual tests", () => {
-	beforeEach(async () => {
-		await clearCache();
-
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-			db.delete(tables.session),
-			db.delete(tables.verification),
-		]);
+	// Helper to create unique test data for each test to avoid conflicts
+	async function createTestData(testId: string) {
+		const userId = `user-${testId}`;
+		const orgId = `org-${testId}`;
+		const projectId = `project-${testId}`;
+		const userOrgId = `user-org-${testId}`;
 
 		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
+			id: userId,
+			name: `user-${testId}`,
+			email: `user-${testId}@test.com`,
 		});
 
 		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
+			id: orgId,
+			name: `Test Organization ${testId}`,
 			plan: "pro",
 		});
 
 		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
+			id: userOrgId,
+			userId: userId,
+			organizationId: orgId,
 		});
 
 		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
+			id: projectId,
+			name: `Test Project ${testId}`,
+			organizationId: orgId,
 			mode: "api-keys",
 		});
 
+		const token = `real-token-${testId}`;
 		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
+			id: `token-${testId}`,
+			token,
+			projectId: projectId,
+			description: `Test API Key ${testId}`,
 		});
 
+		// Set up provider keys for this test
 		for (const provider of providers) {
 			const envVarName = getProviderEnvVar(provider.id);
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
 			if (envVarValue) {
-				await createProviderKey(provider.id, envVarValue, "api-keys");
-				await createProviderKey(provider.id, envVarValue, "credits");
+				await createProviderKey(provider.id, envVarValue, orgId, testId);
 			}
 		}
+
+		return { userId, orgId, projectId, userOrgId, token };
+	}
+
+	// Only clear cache and logs before each test
+	beforeEach(async () => {
+		await clearCache();
+		await db.delete(tables.log);
 	});
 
 	async function createProviderKey(
 		provider: string,
 		token: string,
-		keyType: "api-keys" | "credits" = "api-keys",
+		organizationId: string,
+		testId: string,
 	) {
-		const keyId =
-			keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
+		const keyId = `provider-key-${provider}-${testId}`;
 		await db.insert(tables.providerKey).values({
 			id: keyId,
 			token,
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
-			organizationId: "org-id",
+			organizationId,
 		});
 	}
 
@@ -135,11 +129,13 @@ describe("e2e individual tests", () => {
 			return;
 		}
 
+		const { token } = await createTestData("json-error");
+
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: "anthropic/claude-3-5-sonnet-20241022",
@@ -157,10 +153,6 @@ describe("e2e individual tests", () => {
 
 		const text = await res.text();
 		expect(text).toContain("does not support JSON output mode");
-
-		await clearCache(); // Process logs BEFORE deleting data
-		await db.delete(tables.apiKey);
-		await db.delete(tables.providerKey);
 	});
 
 	test("JSON output mode error when 'json' not mentioned in messages", async () => {
@@ -173,11 +165,13 @@ describe("e2e individual tests", () => {
 			return;
 		}
 
+		const { token } = await createTestData("json-missing");
+
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: "gpt-4o-mini",
@@ -229,20 +223,23 @@ describe("e2e individual tests", () => {
 			}
 		}
 
+		const { orgId, projectId } = await createTestData("credits-auto");
+
 		await db
 			.update(tables.organization)
 			.set({ credits: "1000" })
-			.where(eq(tables.organization.id, "org-id"));
+			.where(eq(tables.organization.id, orgId));
 
 		await db
 			.update(tables.project)
 			.set({ mode: "credits" })
-			.where(eq(tables.project.id, "project-id"));
+			.where(eq(tables.project.id, projectId));
 
+		const creditsToken = "credits-token-auto";
 		await db.insert(tables.apiKey).values({
-			id: "token-credits",
-			token: "credits-token",
-			projectId: "project-id",
+			id: "token-credits-auto",
+			token: creditsToken,
+			projectId: projectId,
 			description: "Test API Key for Credits",
 		});
 
@@ -250,7 +247,7 @@ describe("e2e individual tests", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer credits-token`,
+				Authorization: `Bearer ${creditsToken}`,
 			},
 			body: JSON.stringify({
 				model: "llmgateway/auto",
@@ -276,21 +273,23 @@ describe("e2e individual tests", () => {
 	});
 
 	test("completions with bare 'auto' model and credits", async () => {
+		const { orgId, projectId, token } = await createTestData("bare-auto");
+
 		await db
 			.update(tables.organization)
 			.set({ credits: "1000" })
-			.where(eq(tables.organization.id, "org-id"));
+			.where(eq(tables.organization.id, orgId));
 
 		await db
 			.update(tables.project)
 			.set({ mode: "credits" })
-			.where(eq(tables.project.id, "project-id"));
+			.where(eq(tables.project.id, projectId));
 
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: "auto",
@@ -322,29 +321,32 @@ describe("e2e individual tests", () => {
 			return;
 		}
 
+		const { orgId, projectId } = await createTestData("custom-model");
+
 		await db
 			.update(tables.organization)
 			.set({ credits: "1000" })
-			.where(eq(tables.organization.id, "org-id"));
+			.where(eq(tables.organization.id, orgId));
 
 		await db
 			.update(tables.project)
 			.set({ mode: "credits" })
-			.where(eq(tables.project.id, "project-id"));
+			.where(eq(tables.project.id, projectId));
 
 		await db.insert(tables.providerKey).values({
-			id: "provider-key-custom",
+			id: "provider-key-custom-model",
 			provider: "llmgateway",
 			token: envVarValue,
 			baseUrl: "https://api.openai.com", // Use real OpenAI endpoint for testing
 			status: "active",
-			organizationId: "org-id",
+			organizationId: orgId,
 		});
 
+		const customToken = "real-token-custom";
 		await db.insert(tables.apiKey).values({
-			id: "token-id-2",
-			token: "real-token-2",
-			projectId: "project-id",
+			id: "token-custom-model",
+			token: customToken,
+			projectId: projectId,
 			description: "Test API Key",
 		});
 
@@ -352,7 +354,7 @@ describe("e2e individual tests", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer real-token-2`,
+				Authorization: `Bearer ${customToken}`,
 			},
 			body: JSON.stringify({
 				model: "custom",
@@ -378,11 +380,13 @@ describe("e2e individual tests", () => {
 	});
 
 	test("Prompt tokens are never zero even when provider returns 0", async () => {
+		const { token } = await createTestData("zero-tokens");
+
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: "openai/gpt-4o-mini",
@@ -423,11 +427,13 @@ describe("e2e individual tests", () => {
 	});
 
 	test("Prompt tokens are calculated for streaming when provider returns 0", async () => {
+		const { token } = await createTestData("zero-tokens-streaming");
+
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: "openai/gpt-4o-mini",
@@ -466,13 +472,14 @@ describe("e2e individual tests", () => {
 			return;
 		}
 
+		const { token } = await createTestData("gpt5-nano");
 		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				"x-request-id": requestId,
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: "openai/gpt-5-nano",
@@ -522,13 +529,14 @@ describe("e2e individual tests", () => {
 			return;
 		}
 
+		const { token } = await createTestData("multi-provider");
 		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				"x-request-id": requestId,
-				Authorization: `Bearer real-token`,
+				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
 				model: multiProviderModel.id,
