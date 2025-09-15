@@ -170,8 +170,11 @@ jobs:
       - merge-split
       - test-build-split
     if: |
-      (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-split.result == 'success') ||
-      (github.event_name == 'pull_request' && needs.test-build-split.result == 'success')
+      always() && 
+      (
+        (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-split.result == 'success') ||
+        (github.event_name == 'pull_request' && needs.test-build-split.result == 'success')
+      )
     permissions:
       contents: read
       packages: read
@@ -328,8 +331,11 @@ jobs:
       - merge-unified
       - test-build-unified
     if: |
-      (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-unified.result == 'success') ||
-      (github.event_name == 'pull_request' && needs.test-build-unified.result == 'success')
+      always() && 
+      (
+        (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-unified.result == 'success') ||
+        (github.event_name == 'pull_request' && needs.test-build-unified.result == 'success')
+      )
     permissions:
       contents: read
       packages: read
