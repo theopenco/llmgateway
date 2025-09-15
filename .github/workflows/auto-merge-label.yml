@@ -3,24 +3,146 @@ name: Auto Merge on Label
 on:
   pull_request:
     types: [labeled]
+  check_suite:
+    types: [completed]
+  check_run:
+    types: [completed]
 
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    if: contains(github.event.label.name, 'auto-merge')
+    if: |
+      (github.event_name == 'pull_request' && contains(github.event.label.name, 'auto-merge')) ||
+      (github.event_name == 'check_suite' && github.event.check_suite.conclusion == 'success') ||
+      (github.event_name == 'check_run' && github.event.check_run.conclusion == 'success')
     permissions:
       contents: write
       pull-requests: write
       checks: read
     steps:
-      - name: Auto merge with e2e check requirement
-        uses: pascalgn/automerge-action@v0.16.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MERGE_LABELS: "auto-merge"
-          MERGE_METHOD: "squash"
-          MERGE_COMMIT_MESSAGE: "pull-request-title-and-description"
-          MERGE_REQUIRED_APPROVALS: "0"
-          MERGE_DELETE_BRANCH: "true"
-          MERGE_READY_STATE: "ready_for_review,clean"
-          LOG: "TRACE" # or "DEBUG"
+      - name: Wait for e2e check and auto merge
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+
+            // Get PR number - either from event or find PRs for this commit
+            let prNumber;
+            if (context.eventName === 'pull_request') {
+              prNumber = context.payload.pull_request.number;
+            } else {
+              // For check events, find the PR
+              const commit = context.payload.check_suite?.head_sha || context.payload.check_run?.head_sha;
+              if (commit) {
+                const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner,
+                  repo,
+                  commit_sha: commit
+                });
+                if (prs.data.length > 0) {
+                  prNumber = prs.data[0].number;
+                }
+              }
+            }
+
+            if (!prNumber) {
+              console.log('No PR found, skipping');
+              return;
+            }
+
+            console.log(`Checking PR #${prNumber}`);
+
+            // Get PR details
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber
+            });
+
+            // Check if PR has auto-merge label
+            const hasAutoMergeLabel = pr.data.labels.some(label => label.name === 'auto-merge');
+            if (!hasAutoMergeLabel) {
+              console.log('PR does not have auto-merge label, skipping');
+              return;
+            }
+
+            // Check if PR is in ready state
+            if (pr.data.draft) {
+              console.log('PR is draft, skipping');
+              return;
+            }
+
+            if (pr.data.state !== 'open') {
+              console.log('PR is not open, skipping');
+              return;
+            }
+
+            // Get latest commit
+            const headSha = pr.data.head.sha;
+
+            // Check for required e2e check
+            const checkRuns = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: headSha
+            });
+
+            console.log(`Found ${checkRuns.data.check_runs.length} check runs`);
+
+            // Look for e2e check
+            const e2eCheck = checkRuns.data.check_runs.find(check => check.name === 'e2e');
+
+            if (!e2eCheck) {
+              console.log('No e2e check found, skipping auto-merge');
+              return;
+            }
+
+            if (e2eCheck.status !== 'completed') {
+              console.log(`e2e check status: ${e2eCheck.status}, waiting...`);
+              return;
+            }
+
+            if (e2eCheck.conclusion !== 'success') {
+              console.log(`e2e check conclusion: ${e2eCheck.conclusion}, not merging`);
+              return;
+            }
+
+            console.log('e2e check passed, proceeding with auto-merge');
+
+            // Merge the PR
+            try {
+              await github.rest.pulls.merge({
+                owner,
+                repo,
+                pull_number: prNumber,
+                merge_method: 'squash',
+                commit_title: pr.data.title,
+                commit_message: pr.data.body || ''
+              });
+              
+              console.log(`Successfully merged PR #${prNumber}`);
+              
+              // Delete the branch
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${pr.data.head.ref}`
+                });
+                console.log(`Deleted branch: ${pr.data.head.ref}`);
+              } catch (error) {
+                console.log(`Could not delete branch: ${error.message}`);
+              }
+              
+            } catch (error) {
+              console.log(`Failed to merge PR: ${error.message}`);
+              
+              // Add comment explaining the failure
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: `❌ Auto-merge failed: ${error.message}`
+              });
+            }
