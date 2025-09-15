@@ -281,7 +281,7 @@ jobs:
     needs:
       - setup
       - merge-unified
-    if: needs.setup.result == 'success' && needs.merge-unified.result == 'success' && github.event_name != 'pull_request'
+    if: needs.setup.result == 'success' && needs.merge-unified.result == 'success'
     permissions:
       contents: read
       packages: read
