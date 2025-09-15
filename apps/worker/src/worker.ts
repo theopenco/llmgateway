@@ -514,7 +514,12 @@ export async function startWorker() {
 	);
 
 	// Start minutely history calculation (runs at the beginning of every minute)
-	void calculateMinutelyHistory();
+	calculateMinutelyHistory().catch((error) => {
+		logger.error(
+			"Error in initial minutely history calculation",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
 
 	// Calculate delay to next minute's first second
 	const scheduleMinutelyHistory = () => {
@@ -531,11 +536,21 @@ export async function startWorker() {
 		const delayToNextMinute = nextMinute.getTime() - now.getTime();
 
 		setTimeout(() => {
-			void calculateMinutelyHistory();
+			calculateMinutelyHistory().catch((error) => {
+				logger.error(
+					"Error in scheduled minutely history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			});
 			// After the first run, schedule it to repeat every minute at the first second
 			minutelyIntervalId = setInterval(
 				() => {
-					void calculateMinutelyHistory();
+					calculateMinutelyHistory().catch((error) => {
+						logger.error(
+							"Error in interval minutely history calculation",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+					});
 				},
 				60 * 1000, // 1 minute
 			);
@@ -545,7 +560,12 @@ export async function startWorker() {
 	scheduleMinutelyHistory();
 
 	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
-	void calculateAggregatedStatistics();
+	calculateAggregatedStatistics().catch((error) => {
+		logger.error(
+			"Error in initial aggregated statistics calculation",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
 
 	// Calculate delay to next 5-minute boundary (0, 5, 10, 15, etc.)
 	const scheduleAggregatedStats = () => {
@@ -571,11 +591,21 @@ export async function startWorker() {
 		const delayToNext = nextRun.getTime() - now.getTime();
 
 		setTimeout(() => {
-			void calculateAggregatedStatistics();
+			calculateAggregatedStatistics().catch((error) => {
+				logger.error(
+					"Error in scheduled aggregated statistics calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			});
 			// After the first run, schedule it to repeat every 5 minutes
 			aggregatedIntervalId = setInterval(
 				() => {
-					void calculateAggregatedStatistics();
+					calculateAggregatedStatistics().catch((error) => {
+						logger.error(
+							"Error in interval aggregated statistics calculation",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+					});
 				},
 				5 * 60 * 1000, // 5 minutes
 			);
