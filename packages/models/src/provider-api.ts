@@ -223,7 +223,7 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
- * Transforms Anthropic messages to handle image URLs by converting them to base64
+ * Transforms Anthropic messages
  */
 async function transformAnthropicMessages(
 	messages: BaseMessage[],
