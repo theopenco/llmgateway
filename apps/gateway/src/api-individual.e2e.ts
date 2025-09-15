@@ -7,7 +7,6 @@ import { models, providers } from "@llmgateway/models";
 import { app } from ".";
 import {
 	clearCache,
-	waitForLogs,
 	waitForLogByRequestId,
 	getProviderEnvVar,
 	readAll,
@@ -166,11 +165,13 @@ describe("e2e individual tests", () => {
 		}
 
 		const { token } = await createTestData("json-missing");
+		const requestId = generateTestRequestId();
 
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-request-id": requestId,
 				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
@@ -194,11 +195,7 @@ describe("e2e individual tests", () => {
 		expect(json.error.message).toContain("the word 'json'");
 		expect(json.error).toHaveProperty("type", "invalid_request_error");
 
-		// Wait for logs to be processed
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
-
-		const log = logs[0];
+		const log = await waitForLogByRequestId(requestId);
 		expect(log.unifiedFinishReason).toBe("client_error");
 		expect(log.errorDetails).not.toBeNull();
 		expect(log.errorDetails).toHaveProperty("message");
@@ -243,10 +240,12 @@ describe("e2e individual tests", () => {
 			description: "Test API Key for Credits",
 		});
 
+		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-request-id": requestId,
 				Authorization: `Bearer ${creditsToken}`,
 			},
 			body: JSON.stringify({
@@ -265,11 +264,10 @@ describe("e2e individual tests", () => {
 		expect(res.status).toBe(200);
 		expect(json).toHaveProperty("choices.[0].message.content");
 
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
-		expect(logs[0].requestedModel).toBe("auto");
-		expect(logs[0].usedProvider).toBeTruthy();
-		expect(logs[0].usedModel).toBeTruthy();
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.requestedModel).toBe("auto");
+		expect(log.usedProvider).toBeTruthy();
+		expect(log.usedModel).toBeTruthy();
 	});
 
 	test("completions with bare 'auto' model and credits", async () => {
@@ -285,10 +283,12 @@ describe("e2e individual tests", () => {
 			.set({ mode: "credits" })
 			.where(eq(tables.project.id, projectId));
 
+		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-request-id": requestId,
 				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
@@ -306,11 +306,10 @@ describe("e2e individual tests", () => {
 		const json = await res.json();
 		expect(json).toHaveProperty("choices.[0].message.content");
 
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
-		expect(logs[0].requestedModel).toBe("auto");
-		expect(logs[0].usedProvider).toBeTruthy();
-		expect(logs[0].usedModel).toBeTruthy();
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.requestedModel).toBe("auto");
+		expect(log.usedProvider).toBeTruthy();
+		expect(log.usedModel).toBeTruthy();
 	});
 
 	test.skip("/v1/chat/completions with bare 'custom' model", async () => {
@@ -350,10 +349,12 @@ describe("e2e individual tests", () => {
 			description: "Test API Key",
 		});
 
+		const requestId = generateTestRequestId();
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-request-id": requestId,
 				Authorization: `Bearer ${customToken}`,
 			},
 			body: JSON.stringify({
@@ -372,11 +373,10 @@ describe("e2e individual tests", () => {
 		const json = await res.json();
 		expect(json).toHaveProperty("choices.[0].message.content");
 
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
-		expect(logs[0].requestedModel).toBe("custom");
-		expect(logs[0].usedProvider).toBe("llmgateway");
-		expect(logs[0].usedModel).toBe("custom");
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.requestedModel).toBe("custom");
+		expect(log.usedProvider).toBe("llmgateway");
+		expect(log.usedModel).toBe("custom");
 	});
 
 	test("Prompt tokens are never zero even when provider returns 0", async () => {
