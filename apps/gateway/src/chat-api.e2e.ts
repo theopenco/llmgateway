@@ -327,12 +327,15 @@ export async function createProviderKey(
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
-	await db.insert(tables.providerKey).values({
-		id: keyId,
-		token,
-		provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
-		organizationId: "org-id",
-	});
+	await db
+		.insert(tables.providerKey)
+		.values({
+			id: keyId,
+			token,
+			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
+			organizationId: "org-id",
+		})
+		.onConflictDoNothing();
 }
 
 export function validateResponse(json: any) {
@@ -361,14 +364,7 @@ export async function validateLogByRequestId(requestId: string) {
 	return log;
 }
 
-let setupComplete = false;
-
 export async function beforeAllHook() {
-	if (setupComplete) {
-		await clearCache();
-		return;
-	}
-
 	await clearCache();
 
 	// Clean up any existing data
@@ -391,38 +387,53 @@ export async function beforeAllHook() {
 		db.delete(tables.verification),
 	]);
 
-	// Set up shared test data that all tests can use
-	await db.insert(tables.user).values({
-		id: "user-id",
-		name: "user",
-		email: "user",
-	});
+	// Set up shared test data that all tests can use - use ON CONFLICT DO NOTHING to avoid duplicate key errors
+	await db
+		.insert(tables.user)
+		.values({
+			id: "user-id",
+			name: "user",
+			email: "user",
+		})
+		.onConflictDoNothing();
 
-	await db.insert(tables.organization).values({
-		id: "org-id",
-		name: "Test Organization",
-		plan: "pro",
-	});
+	await db
+		.insert(tables.organization)
+		.values({
+			id: "org-id",
+			name: "Test Organization",
+			plan: "pro",
+		})
+		.onConflictDoNothing();
 
-	await db.insert(tables.userOrganization).values({
-		id: "user-org-id",
-		userId: "user-id",
-		organizationId: "org-id",
-	});
+	await db
+		.insert(tables.userOrganization)
+		.values({
+			id: "user-org-id",
+			userId: "user-id",
+			organizationId: "org-id",
+		})
+		.onConflictDoNothing();
 
-	await db.insert(tables.project).values({
-		id: "project-id",
-		name: "Test Project",
-		organizationId: "org-id",
-		mode: "api-keys",
-	});
+	await db
+		.insert(tables.project)
+		.values({
+			id: "project-id",
+			name: "Test Project",
+			organizationId: "org-id",
+			mode: "api-keys",
+		})
+		.onConflictDoNothing();
 
-	await db.insert(tables.apiKey).values({
-		id: "token-id",
-		token: "real-token",
-		projectId: "project-id",
-		description: "Test API Key",
-	});
+	await db
+		.insert(tables.apiKey)
+		.values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+		})
+		.onConflictDoNothing();
 
 	// Set up provider keys for all providers
 	for (const provider of providers) {
@@ -433,8 +444,6 @@ export async function beforeAllHook() {
 			await createProviderKey(provider.id, envVarValue, "credits");
 		}
 	}
-
-	setupComplete = true;
 }
 
 export async function beforeEachHook() {
