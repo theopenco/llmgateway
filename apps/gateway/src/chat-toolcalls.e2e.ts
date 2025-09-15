@@ -9,7 +9,7 @@ import {
 	logMode,
 	toolCallModels,
 	validateLogByRequestId,
-} from "@/chat-api.e2e";
+} from "@/chat-helpers.e2e";
 import { app } from "@/index";
 
 describe("e2e", { concurrent: true }, () => {

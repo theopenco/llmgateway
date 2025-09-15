@@ -367,26 +367,6 @@ export async function validateLogByRequestId(requestId: string) {
 export async function beforeAllHook() {
 	await clearCache();
 
-	// Clean up any existing data
-	await Promise.all([
-		db.delete(tables.log),
-		db.delete(tables.apiKey),
-		db.delete(tables.providerKey),
-	]);
-
-	await Promise.all([
-		db.delete(tables.userOrganization),
-		db.delete(tables.project),
-	]);
-
-	await Promise.all([
-		db.delete(tables.organization),
-		db.delete(tables.user),
-		db.delete(tables.account),
-		db.delete(tables.session),
-		db.delete(tables.verification),
-	]);
-
 	// Set up shared test data that all tests can use - use ON CONFLICT DO NOTHING to avoid duplicate key errors
 	await db
 		.insert(tables.user)

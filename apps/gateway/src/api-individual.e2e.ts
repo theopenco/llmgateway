@@ -5,7 +5,7 @@ import {
 	generateTestRequestId,
 	logMode,
 	validateLogByRequestId,
-} from "@/chat-api.e2e";
+} from "@/chat-helpers.e2e";
 
 import { db, tables, eq } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";

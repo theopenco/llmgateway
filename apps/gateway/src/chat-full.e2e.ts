@@ -10,7 +10,7 @@ import {
 	logMode,
 	testModels,
 	validateLogByRequestId,
-} from "@/chat-api.e2e";
+} from "@/chat-helpers.e2e";
 import { app } from "@/index";
 
 import type { ProviderModelMapping } from "@llmgateway/models";

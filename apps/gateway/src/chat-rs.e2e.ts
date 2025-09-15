@@ -9,7 +9,7 @@ import {
 	logMode,
 	streamingReasoningModels,
 	validateLogByRequestId,
-} from "@/chat-api.e2e";
+} from "@/chat-helpers.e2e";
 import { app } from "@/index";
 import { readAll } from "@/test-utils/test-helpers";
 
