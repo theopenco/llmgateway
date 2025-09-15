@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { expect, type TestOptions } from "vitest";
+import { describe, expect, it, type TestOptions } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 import {
@@ -420,3 +420,9 @@ export async function beforeAllHook() {
 export async function beforeEachHook() {
 	await clearCache();
 }
+
+describe("e2e", { concurrent: true }, () => {
+	it("empty", () => {
+		expect(true).toBe(true);
+	});
+});
