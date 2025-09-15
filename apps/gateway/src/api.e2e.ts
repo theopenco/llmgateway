@@ -31,7 +31,7 @@ function generateTestRequestId(): string {
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions(): TestOptions {
-	return process.env.CI ? { retry: 3, timeout: 120000 } : {};
+	return process.env.CI ? { retry: 3 } : {};
 }
 
 console.log("running with test options:", getTestOptions());
