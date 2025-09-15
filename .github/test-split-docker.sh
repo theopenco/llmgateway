@@ -105,7 +105,7 @@ echo "=== LLMGateway Split Docker Images Test ==="
 echo "Testing split Docker images with prefix: $IMAGE_PREFIX"
 
 # Step 1: Create temporary docker compose file
-TEMP_COMPOSE_FILE=$(mktemp -t docker compose-split-test-XXXX.yml)
+TEMP_COMPOSE_FILE=$(mktemp -t docker-compose-split-test-XXXX.yml)
 echo -e "${YELLOW}Creating temporary docker compose file: $TEMP_COMPOSE_FILE${NC}"
 
 cat > "$TEMP_COMPOSE_FILE" << EOF

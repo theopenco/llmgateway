@@ -99,7 +99,7 @@ echo "=== LLMGateway Unified Docker Image Test ==="
 echo "Testing unified Docker image: $IMAGE_NAME"
 
 # Step 1: Create temporary docker compose file
-TEMP_COMPOSE_FILE=$(mktemp -t docker compose-test-XXXX.yml)
+TEMP_COMPOSE_FILE=$(mktemp -t docker-compose-test-XXXX.yml)
 echo -e "${YELLOW}Creating temporary docker compose file: $TEMP_COMPOSE_FILE${NC}"
 
 cat > "$TEMP_COMPOSE_FILE" << EOF
