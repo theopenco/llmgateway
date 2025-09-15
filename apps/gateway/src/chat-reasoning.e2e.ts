@@ -5,6 +5,7 @@ import {
 	beforeAllHook,
 	beforeEachHook,
 	generateTestRequestId,
+	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
 	reasoningModels,
@@ -15,7 +16,7 @@ import { app } from "@/index";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
-describe("e2e", { concurrent: true }, () => {
+describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
 	beforeEach(beforeEachHook);

@@ -31,6 +31,10 @@ export function getTestOptions(): TestOptions {
 	return process.env.CI ? { retry: 3 } : {};
 }
 
+export function getConcurrentTestOptions(): TestOptions {
+	return { concurrent: true, ...getTestOptions() };
+}
+
 console.log("running with test options:", getTestOptions());
 
 export const fullMode = process.env.FULL_MODE;
@@ -361,7 +365,7 @@ export async function validateLogByRequestId(requestId: string) {
 	return log;
 }
 
-describe("e2e", { concurrent: true }, () => {
+describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
 	beforeEach(beforeEachHook);

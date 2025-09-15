@@ -1,13 +1,29 @@
+import { processLogQueue } from "@/apps/worker/src/worker";
+
 import { redisClient } from "@llmgateway/cache";
 import { db, tables, eq } from "@llmgateway/db";
 
-// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { processLogQueue } from "../../../worker/src/worker";
+import type { TestOptions } from "vitest";
 
 export { getProviderEnvVar } from "../lib/provider";
 
 export async function clearCache() {
 	await redisClient.flushdb();
+}
+
+/**
+ * Helper function to get test options with retry for CI environment
+ */
+export function getTestOptions(): TestOptions {
+	return process.env.CI ? { retry: 3 } : {};
+}
+
+/**
+ * Helper function to get concurrent test options with retry for CI environment
+ * @returns TestOptions with concurrent: true and CI retry configuration
+ */
+export function getConcurrentTestOptions(): TestOptions {
+	return { concurrent: true, ...getTestOptions() };
 }
 
 /**
