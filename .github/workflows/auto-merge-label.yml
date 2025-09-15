@@ -23,4 +23,4 @@ jobs:
           MERGE_REQUIRED_APPROVALS: "0"
           MERGE_DELETE_BRANCH: "true"
           MERGE_READY_STATE: "ready_for_review,clean"
-          LOG: "TRACE"  # or "DEBUG"
+          LOG: "TRACE" # or "DEBUG"
