@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
+import { imageModels, streamingImageModels } from "@/chat-helpers.e2e";
 import {
 	beforeAllHook,
 	beforeEachHook,
@@ -12,6 +13,7 @@ import {
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e";
 import { app } from "@/index";
+import { readAll } from "@/test-utils/test-helpers";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
@@ -23,6 +25,172 @@ describe("e2e", { concurrent: true }, () => {
 	test("empty", () => {
 		expect(true).toBe(true);
 	});
+
+	if (fullMode) {
+		test.each(imageModels)(
+			"image output $model",
+			getTestOptions(),
+			async ({ model }) => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: model,
+						messages: [
+							{
+								role: "user",
+								content: "Generate an image of a cute dog",
+							},
+						],
+					}),
+				});
+
+				const json = await res.json();
+				if (logMode) {
+					console.log("image output response:", JSON.stringify(json, null, 2));
+				}
+
+				expect(res.status).toBe(200);
+				expect(json).toHaveProperty("choices");
+				expect(json.choices).toHaveLength(1);
+				expect(json.choices[0]).toHaveProperty("message");
+
+				const message = json.choices[0].message;
+				expect(message).toHaveProperty("role", "assistant");
+
+				// Check that the response contains text content
+				expect(message.content).toBeTruthy();
+				expect(typeof message.content).toBe("string");
+
+				// Check for images array in OpenAI format
+				expect(message).toHaveProperty("images");
+				expect(Array.isArray(message.images)).toBe(true);
+				expect(message.images.length).toBeGreaterThan(0);
+
+				// Validate each image object
+				for (const image of message.images) {
+					expect(image).toHaveProperty("type", "image_url");
+					expect(image).toHaveProperty("image_url");
+					expect(image.image_url).toHaveProperty("url");
+					expect(typeof image.image_url.url).toBe("string");
+					// Check if it's a base64 data URL
+					expect(image.image_url.url).toMatch(
+						/^data:image\/(png|jpeg|jpg|webp);base64,/,
+					);
+				}
+
+				// Validate logs
+				const log = await validateLogByRequestId(requestId);
+				expect(log.streamed).toBe(false);
+
+				// Validate usage
+				expect(json).toHaveProperty("usage");
+				expect(json.usage).toHaveProperty("prompt_tokens");
+				expect(json.usage).toHaveProperty("completion_tokens");
+				expect(json.usage).toHaveProperty("total_tokens");
+			},
+		);
+
+		test.each(streamingImageModels)(
+			"streaming image output $model",
+			getTestOptions(),
+			async ({ model }) => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: model,
+						messages: [
+							{
+								role: "user",
+								content: "Generate an image of a cute dog",
+							},
+						],
+						stream: true,
+					}),
+				});
+
+				if (res.status !== 200) {
+					console.log("response:", await res.text());
+					throw new Error(`Request failed with status ${res.status}`);
+				}
+
+				expect(res.status).toBe(200);
+				expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+				const streamResult = await readAll(res.body);
+				if (logMode) {
+					console.log(
+						"streaming image result:",
+						JSON.stringify(streamResult, null, 2),
+					);
+				}
+
+				expect(streamResult.hasValidSSE).toBe(true);
+				expect(streamResult.eventCount).toBeGreaterThan(0);
+				expect(streamResult.hasContent).toBe(true);
+
+				// Verify that all streaming responses are transformed to OpenAI format
+				expect(streamResult.hasOpenAIFormat).toBe(true);
+
+				// Look for chunks containing images
+				const imageChunks = streamResult.chunks.filter(
+					(chunk) => chunk.choices?.[0]?.delta?.images,
+				);
+				expect(imageChunks.length).toBeGreaterThan(0);
+
+				// Validate image chunks
+				for (const chunk of imageChunks) {
+					expect(chunk).toHaveProperty("id");
+					expect(chunk).toHaveProperty("object", "chat.completion.chunk");
+					expect(chunk).toHaveProperty("created");
+					expect(chunk).toHaveProperty("model");
+					expect(chunk).toHaveProperty("choices");
+					expect(chunk.choices).toHaveLength(1);
+					expect(chunk.choices[0]).toHaveProperty("index", 0);
+					expect(chunk.choices[0]).toHaveProperty("delta");
+
+					const delta = chunk.choices[0].delta;
+					if (delta.images) {
+						expect(Array.isArray(delta.images)).toBe(true);
+						for (const image of delta.images) {
+							expect(image).toHaveProperty("type", "image_url");
+							expect(image).toHaveProperty("image_url");
+							expect(image.image_url).toHaveProperty("url");
+							expect(typeof image.image_url.url).toBe("string");
+							// Check if it's a base64 data URL
+							expect(image.image_url.url).toMatch(
+								/^data:image\/(png|jpeg|jpg|webp);base64,/,
+							);
+						}
+					}
+				}
+
+				// Verify that usage object is returned in streaming mode
+				const usageChunks = streamResult.chunks.filter(
+					(chunk) =>
+						chunk.usage &&
+						(chunk.usage.prompt_tokens !== null ||
+							chunk.usage.completion_tokens !== null ||
+							chunk.usage.total_tokens !== null),
+				);
+				expect(usageChunks.length).toBeGreaterThan(0);
+
+				const log = await validateLogByRequestId(requestId);
+				expect(log.streamed).toBe(true);
+			},
+		);
+	}
 
 	if (fullMode) {
 		const reasoningToolCallModels = testModels.filter((m) =>
