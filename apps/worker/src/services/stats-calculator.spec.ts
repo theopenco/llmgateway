@@ -319,6 +319,7 @@ describe("stats-calculator", () => {
 			await db.insert(modelProviderMappingHistory).values({
 				modelId: "gpt-4",
 				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
 				minuteTimestamp: previousMinuteStart,
 				logsCount: 1,
 				errorsCount: 0,
@@ -587,6 +588,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000), // 4 minutes ago
 					logsCount: 10,
 					errorsCount: 1,
@@ -595,6 +597,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 120000), // 3 minutes ago
 					logsCount: 15,
 					errorsCount: 2,
@@ -626,6 +629,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
 					logsCount: 20,
 					errorsCount: 2,
@@ -654,6 +658,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
 					logsCount: 30,
 					errorsCount: 3,
@@ -699,6 +704,7 @@ describe("stats-calculator", () => {
 				{
 					modelId: "gpt-4",
 					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
 					minuteTimestamp: tenMinutesAgo, // Too old
 					logsCount: 100,
 					errorsCount: 10,
@@ -758,6 +764,7 @@ describe("stats-calculator", () => {
 			await db.insert(modelProviderMappingHistory).values({
 				modelId: "gpt-4",
 				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
 				minuteTimestamp: recentMinute,
 				logsCount: 0,
 				errorsCount: 0,
@@ -781,6 +788,7 @@ describe("stats-calculator", () => {
 			await db.insert(modelProviderMappingHistory).values({
 				modelId: "gpt-4",
 				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
 				minuteTimestamp: oldMinute,
 				logsCount: 5,
 				errorsCount: 1,

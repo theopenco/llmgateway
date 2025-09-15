@@ -621,8 +621,9 @@ export const modelProviderMappingHistory = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		modelId: text().notNull(),
-		providerId: text().notNull(),
+		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
+		providerId: text().notNull(), // Provider ID (e.g., "openai")
+		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -639,8 +640,8 @@ export const modelProviderMappingHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 	},
 	(table) => [
-		// Unique constraint ensures one record per model-provider-minute combination
-		unique().on(table.modelId, table.providerId, table.minuteTimestamp),
+		// Unique constraint ensures one record per mapping-minute combination
+		unique().on(table.modelProviderMappingId, table.minuteTimestamp),
 	],
 );
 

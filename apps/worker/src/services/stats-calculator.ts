@@ -268,7 +268,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 	// Get all active model-provider mappings to ensure we create entries for inactive ones too
 	const allMappings = await database
 		.select({
-			modelId: modelProviderMapping.modelId,
+			id: modelProviderMapping.id, // The mapping ID
+			modelId: modelProviderMapping.modelId, // LLMGateway model name
 			providerId: modelProviderMapping.providerId,
 		})
 		.from(modelProviderMapping)
@@ -287,12 +288,13 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 	const processedMappings = new Set<string>();
 
 	for (const mapping of allMappings) {
-		const key = `${mapping.modelId}-${mapping.providerId}`;
-		if (processedMappings.has(key)) {
+		// Use mapping ID to prevent duplicates
+		if (processedMappings.has(mapping.id)) {
 			continue;
 		}
-		processedMappings.add(key);
+		processedMappings.add(mapping.id);
 
+		const key = `${mapping.modelId}-${mapping.providerId}`;
 		const stat = activeMappingsMap.get(key);
 
 		// Use actual stats if available, otherwise create zero stats
@@ -315,8 +317,9 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		await database
 			.insert(modelProviderMappingHistory)
 			.values({
-				modelId: mapping.modelId,
+				modelId: mapping.modelId, // LLMGateway model name
 				providerId: mapping.providerId,
+				modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
 				minuteTimestamp: roundedTargetMinute,
 				logsCount,
 				errorsCount,
@@ -333,8 +336,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			})
 			.onConflictDoUpdate({
 				target: [
-					modelProviderMappingHistory.modelId,
-					modelProviderMappingHistory.providerId,
+					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
 				],
 				set: {

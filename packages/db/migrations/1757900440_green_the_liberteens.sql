@@ -74,6 +74,7 @@ CREATE TABLE "model_provider_mapping_history" (
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	"model_id" text NOT NULL,
 	"provider_id" text NOT NULL,
+	"model_provider_mapping_id" text NOT NULL,
 	"minute_timestamp" timestamp NOT NULL,
 	"logs_count" integer DEFAULT 0 NOT NULL,
 	"errors_count" integer DEFAULT 0 NOT NULL,
@@ -87,7 +88,7 @@ CREATE TABLE "model_provider_mapping_history" (
 	"total_reasoning_tokens" integer DEFAULT 0 NOT NULL,
 	"total_cached_tokens" integer DEFAULT 0 NOT NULL,
 	"total_duration" integer DEFAULT 0 NOT NULL,
-	CONSTRAINT "model_provider_mapping_history_modelId_providerId_minuteTimestamp_unique" UNIQUE("model_id","provider_id","minute_timestamp")
+	CONSTRAINT "model_provider_mapping_history_modelProviderMappingId_minuteTimestamp_unique" UNIQUE("model_provider_mapping_id","minute_timestamp")
 );
 --> statement-breakpoint
 CREATE TABLE "provider" (

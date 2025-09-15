@@ -1,5 +1,5 @@
 {
-  "id": "b5b89ec7-da0f-4d7f-b90f-aec676166133",
+  "id": "58dce2e4-088a-4a77-8516-ed7a95a5fff5",
   "prevId": "bde28695-2866-4208-ad60-077f5e2a5587",
   "version": "7",
   "dialect": "postgresql",
@@ -1488,6 +1488,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "model_provider_mapping_id": {
+          "name": "model_provider_mapping_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "minute_timestamp": {
           "name": "minute_timestamp",
           "type": "timestamp",
@@ -1583,12 +1589,11 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "model_provider_mapping_history_modelId_providerId_minuteTimestamp_unique": {
-          "name": "model_provider_mapping_history_modelId_providerId_minuteTimestamp_unique",
+        "model_provider_mapping_history_modelProviderMappingId_minuteTimestamp_unique": {
+          "name": "model_provider_mapping_history_modelProviderMappingId_minuteTimestamp_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "model_id",
-            "provider_id",
+            "model_provider_mapping_id",
             "minute_timestamp"
           ]
         }
