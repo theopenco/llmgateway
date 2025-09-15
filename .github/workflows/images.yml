@@ -241,10 +241,6 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [api, gateway, ui, docs, worker]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -252,22 +248,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build split Docker images for testing
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/split.dockerfile
-          platforms: linux/amd64
-          target: ${{ matrix.app }}
-          tags: ghcr.io/${{ github.repository }}-${{ matrix.app }}:pr-test
-          push: false
-          load: true
-          cache-from: type=gha,scope=${{ matrix.app }}-linux-amd64
-          build-args: |
-            APP_VERSION=pr-test
+      - name: Build all split Docker images for testing
+        run: |
+          # Build all split images sequentially
+          for app in api gateway ui docs worker; do
+            echo "Building $app image..."
+            docker build \
+              -f infra/split.dockerfile \
+              --target $app \
+              --build-arg APP_VERSION=pr-test \
+              -t ghcr.io/${{ github.repository }}-$app:pr-test \
+              .
+          done
 
       - name: Test split Docker images
-        if: matrix.app == 'worker' # Only run the test once after all apps are built
         run: |
           chmod +x .github/test-split-docker.sh
           .github/test-split-docker.sh ghcr.io/${{ github.repository }} pr-test --local
