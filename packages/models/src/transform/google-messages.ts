@@ -1,12 +1,8 @@
-import { isTextContent, isImageUrlContent } from "@/packages/models/src/types";
+import { isTextContent, isImageUrlContent } from "@/types";
 
 import { processImageUrl } from "./process-image-url";
 
-import type {
-	BaseMessage,
-	GoogleMessage,
-	MessageContent,
-} from "@/packages/models/src/types";
+import type { BaseMessage, GoogleMessage, MessageContent } from "@/types";
 
 export async function transformGoogleMessages(
 	messages: BaseMessage[],

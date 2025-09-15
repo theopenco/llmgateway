@@ -2,13 +2,13 @@ import {
 	models,
 	type ModelDefinition,
 	type ProviderModelMapping,
-} from "@/packages/models/src/models";
+} from "@/models";
 
 import { transformAnthropicMessages } from "./anthropic-messages";
 import { transformGoogleMessages } from "./google-messages";
 import { transformMessagesForNoSystemRole } from "./no-system-role";
 
-import type { ProviderId } from "@/packages/models/src/providers";
+import type { ProviderId } from "@/providers";
 import type {
 	BaseMessage,
 	FunctionParameter,
@@ -17,7 +17,7 @@ import type {
 	ProviderRequestBody,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
-} from "@/packages/models/src/types";
+} from "@/types";
 
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
@@ -37,7 +37,7 @@ export async function prepareRequestBody(
 	isProd = false,
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
-	const modelDef = models.find((m) => m.id === usedModel);
+	const modelDef = models.find((m: any) => m.id === usedModel);
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
@@ -77,7 +77,7 @@ export async function prepareRequestBody(
 
 			// Check if the model supports responses API (default to true if reasoning is enabled)
 			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === "openai",
+				(p: any) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
 				process.env.USE_RESPONSES_API === "true" &&

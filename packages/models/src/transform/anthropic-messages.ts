@@ -1,4 +1,4 @@
-import { isTextContent, isImageUrlContent } from "@/packages/models/src/types";
+import { isTextContent, isImageUrlContent } from "@/types";
 
 import { logger } from "@llmgateway/logger";
 
@@ -11,7 +11,7 @@ import type {
 	TextContent,
 	ToolUseContent,
 	ToolResultContent,
-} from "@/packages/models/src/types";
+} from "@/types";
 
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
@@ -61,12 +61,14 @@ export async function transformAnthropicMessages(
 
 		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
 		if (m.tool_calls && Array.isArray(m.tool_calls)) {
-			const toolUseBlocks: ToolUseContent[] = m.tool_calls.map((toolCall) => ({
-				type: "tool_use",
-				id: toolCall.id,
-				name: toolCall.function.name,
-				input: JSON.parse(toolCall.function.arguments),
-			}));
+			const toolUseBlocks: ToolUseContent[] = m.tool_calls.map(
+				(toolCall: any) => ({
+					type: "tool_use",
+					id: toolCall.id,
+					name: toolCall.function.name,
+					input: JSON.parse(toolCall.function.arguments),
+				}),
+			);
 			content = content.concat(toolUseBlocks);
 		}
 
