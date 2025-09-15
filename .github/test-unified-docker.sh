@@ -16,8 +16,8 @@ HEALTH_CHECK_TIMEOUT=60
 
 # Array of apps and their expected endpoints
 declare -A APP_ENDPOINTS
-APP_ENDPOINTS["api"]="http://localhost:4002/health"
-APP_ENDPOINTS["gateway"]="http://localhost:4001/health" 
+APP_ENDPOINTS["api"]="http://localhost:4002/"
+APP_ENDPOINTS["gateway"]="http://localhost:4001/" 
 APP_ENDPOINTS["ui"]="http://localhost:3002"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
 
@@ -126,8 +126,6 @@ if ! docker run -d \
   -p 4001:4001 \
   -p 4002:4002 \
   -e NODE_ENV=production \
-  -e DATABASE_URL="postgresql://postgres:password@host.docker.internal:5432/llmgateway" \
-  -e REDIS_URL="redis://host.docker.internal:6379" \
   -e NEXTAUTH_SECRET="test-secret-key-for-docker-testing" \
   -e NEXTAUTH_URL="http://localhost:3002" \
   "$IMAGE_NAME"; then
