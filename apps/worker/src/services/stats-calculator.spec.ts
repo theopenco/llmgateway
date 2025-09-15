@@ -147,7 +147,12 @@ describe("stats-calculator", () => {
 					usedProvider: "openai",
 					responseSize: 100,
 					hasError: false,
+					promptTokens: "80",
 					completionTokens: "100",
+					totalTokens: "180",
+					reasoningTokens: "10",
+					cachedTokens: "5",
+					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
@@ -165,7 +170,12 @@ describe("stats-calculator", () => {
 					usedProvider: "openai",
 					responseSize: 50,
 					hasError: true,
+					promptTokens: "60",
 					completionTokens: "50",
+					totalTokens: "110",
+					reasoningTokens: "8",
+					cachedTokens: "3",
+					unifiedFinishReason: "upstream_error",
 					mode: "api-keys",
 					usedMode: "api-keys",
 					createdAt: new Date(previousMinuteStart.getTime() + 45000), // 45 seconds in
@@ -183,7 +193,12 @@ describe("stats-calculator", () => {
 					usedProvider: "anthropic",
 					responseSize: 200,
 					hasError: false,
+					promptTokens: "120",
 					completionTokens: "200",
+					totalTokens: "320",
+					reasoningTokens: "15",
+					cachedTokens: "0",
+					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
@@ -206,8 +221,14 @@ describe("stats-calculator", () => {
 			expect(gptRecord).toBeTruthy();
 			expect(gptRecord?.logsCount).toBe(2);
 			expect(gptRecord?.errorsCount).toBe(1);
-			expect(gptRecord?.errorRate).toBe(50); // 1/2 * 100
+			expect(gptRecord?.clientErrorsCount).toBe(0);
+			expect(gptRecord?.gatewayErrorsCount).toBe(0);
+			expect(gptRecord?.upstreamErrorsCount).toBe(1); // One upstream error
+			expect(gptRecord?.totalInputTokens).toBe(140); // 80 + 60
 			expect(gptRecord?.totalOutputTokens).toBe(150); // 100 + 50
+			expect(gptRecord?.totalTokens).toBe(290); // 180 + 110
+			expect(gptRecord?.totalReasoningTokens).toBe(18); // 10 + 8
+			expect(gptRecord?.totalCachedTokens).toBe(8); // 5 + 3
 			expect(gptRecord?.totalDuration).toBe(3000); // 1000 + 2000
 			expect(gptRecord?.throughput).toBe(50); // (150 / 3000) * 1000
 			expect(gptRecord?.minuteTimestamp).toEqual(previousMinuteStart);
@@ -220,8 +241,14 @@ describe("stats-calculator", () => {
 			expect(claudeRecord).toBeTruthy();
 			expect(claudeRecord?.logsCount).toBe(1);
 			expect(claudeRecord?.errorsCount).toBe(0);
-			expect(claudeRecord?.errorRate).toBe(0);
+			expect(claudeRecord?.clientErrorsCount).toBe(0);
+			expect(claudeRecord?.gatewayErrorsCount).toBe(0);
+			expect(claudeRecord?.upstreamErrorsCount).toBe(0);
+			expect(claudeRecord?.totalInputTokens).toBe(120);
 			expect(claudeRecord?.totalOutputTokens).toBe(200);
+			expect(claudeRecord?.totalTokens).toBe(320);
+			expect(claudeRecord?.totalReasoningTokens).toBe(15);
+			expect(claudeRecord?.totalCachedTokens).toBe(0);
 			expect(claudeRecord?.totalDuration).toBe(1500);
 			expect(claudeRecord?.throughput).toBeCloseTo(133.33, 2); // (200 / 1500) * 1000
 		});
@@ -281,7 +308,6 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.errorRate).toBe(0);
 				expect(record.throughput).toBe(0);
 			}
 		});
@@ -296,7 +322,6 @@ describe("stats-calculator", () => {
 				minuteTimestamp: previousMinuteStart,
 				logsCount: 1,
 				errorsCount: 0,
-				errorRate: 0,
 				throughput: 50,
 				totalOutputTokens: 50,
 				totalDuration: 1000,
@@ -385,7 +410,6 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.errorRate).toBe(0);
 				expect(record.throughput).toBe(0);
 			}
 
@@ -398,7 +422,6 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.errorRate).toBe(0);
 				expect(record.throughput).toBe(0);
 			}
 		});
@@ -470,7 +493,6 @@ describe("stats-calculator", () => {
 			expect(gptModelRecord).toBeTruthy();
 			expect(gptModelRecord?.logsCount).toBe(2); // Both logs combined
 			expect(gptModelRecord?.errorsCount).toBe(1); // One error
-			expect(gptModelRecord?.errorRate).toBe(50); // 1/2 * 100
 			expect(gptModelRecord?.totalOutputTokens).toBe(300); // 100 + 200
 			expect(gptModelRecord?.totalDuration).toBe(3000); // 1000 + 2000
 			expect(gptModelRecord?.throughput).toBe(100); // (300 / 3000) * 1000
@@ -504,7 +526,6 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.errorRate).toBe(0);
 				expect(record.throughput).toBe(0);
 			}
 		});
@@ -518,7 +539,6 @@ describe("stats-calculator", () => {
 				minuteTimestamp: previousMinuteStart,
 				logsCount: 1,
 				errorsCount: 0,
-				errorRate: 0,
 				throughput: 50,
 				totalOutputTokens: 50,
 				totalDuration: 1000,
@@ -570,7 +590,6 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000), // 4 minutes ago
 					logsCount: 10,
 					errorsCount: 1,
-					errorRate: 10,
 					throughput: 100,
 				},
 				{
@@ -579,7 +598,6 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 120000), // 3 minutes ago
 					logsCount: 15,
 					errorsCount: 2,
-					errorRate: 13.33,
 					throughput: 150,
 				},
 			]);
@@ -596,7 +614,6 @@ describe("stats-calculator", () => {
 			const openaiProvider = providers[0]!;
 			expect(openaiProvider.logsCount).toBe(25); // 10 + 15
 			expect(openaiProvider.errorsCount).toBe(3); // 1 + 2
-			expect(openaiProvider.errorRate).toBeCloseTo(11.67, 1); // average of 10 and 13.33
 			expect(openaiProvider.throughput).toBe(125); // average of 100 and 150
 			expect(openaiProvider.statsUpdatedAt).not.toBeNull();
 		});
@@ -612,7 +629,6 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
 					logsCount: 20,
 					errorsCount: 2,
-					errorRate: 10,
 					throughput: 200,
 				},
 			]);
@@ -626,7 +642,6 @@ describe("stats-calculator", () => {
 			const gptModel = models[0]!;
 			expect(gptModel.logsCount).toBe(20);
 			expect(gptModel.errorsCount).toBe(2);
-			expect(gptModel.errorRate).toBe(10);
 			expect(gptModel.throughput).toBe(200);
 			expect(gptModel.statsUpdatedAt).not.toBeNull();
 		});
@@ -642,7 +657,6 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
 					logsCount: 30,
 					errorsCount: 3,
-					errorRate: 10,
 					throughput: 300,
 				},
 			]);
@@ -664,7 +678,6 @@ describe("stats-calculator", () => {
 			const mapping = mappings[0]!;
 			expect(mapping.logsCount).toBe(30);
 			expect(mapping.errorsCount).toBe(3);
-			expect(mapping.errorRate).toBe(10);
 			expect(mapping.throughput).toBe(300);
 			expect(mapping.statsUpdatedAt).not.toBeNull();
 		});
@@ -689,7 +702,6 @@ describe("stats-calculator", () => {
 					minuteTimestamp: tenMinutesAgo, // Too old
 					logsCount: 100,
 					errorsCount: 10,
-					errorRate: 10,
 					throughput: 1000,
 				},
 			]);
@@ -749,7 +761,6 @@ describe("stats-calculator", () => {
 				minuteTimestamp: recentMinute,
 				logsCount: 0,
 				errorsCount: 0,
-				errorRate: 0,
 				throughput: 0,
 				totalOutputTokens: 0,
 				totalDuration: 0,
@@ -773,7 +784,6 @@ describe("stats-calculator", () => {
 				minuteTimestamp: oldMinute,
 				logsCount: 5,
 				errorsCount: 1,
-				errorRate: 20,
 				throughput: 100,
 				totalOutputTokens: 500,
 				totalDuration: 2000,
