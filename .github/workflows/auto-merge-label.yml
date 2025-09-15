@@ -9,37 +9,18 @@ jobs:
     runs-on: ubuntu-latest
     if: contains(github.event.label.name, 'auto-merge')
     permissions:
-      pull-requests: write
       contents: write
+      pull-requests: write
       checks: read
     steps:
-      - name: Wait for checks to complete
-        uses: fountainhead/action-wait-for-check@v1.2.0
-        id: wait-for-checks
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: e2e
-          ref: ${{ github.event.pull_request.head.sha }}
-          timeoutSeconds: 1800 # 30 minutes
-          intervalSeconds: 30
-
-      - name: Auto merge if e2e check passes
-        if: steps.wait-for-checks.outputs.conclusion == 'success'
-        uses: pascalgn/merge-action@v0.15.6
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          merge_method: squash
-          merge_commit_title: ${{ github.event.pull_request.title }}
-          merge_commit_message: ${{ github.event.pull_request.body }}
-
-      - name: Comment on failure
-        if: steps.wait-for-checks.outputs.conclusion != 'success'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '❌ Auto-merge failed: e2e check did not pass (status: ${{ steps.wait-for-checks.outputs.conclusion }}). Please ensure e2e tests are passing before using the auto-merge label.'
-            })
+      - name: Auto merge with e2e check requirement
+        uses: pascalgn/automerge-action@v0.16.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_LABELS: "auto-merge"
+          MERGE_METHOD: "squash"
+          MERGE_COMMIT_MESSAGE: "pull-request-title-and-description"
+          MERGE_REQUIRED_APPROVALS: "0"
+          MERGE_DELETE_BRANCH: "true"
+          MERGE_READY_STATE: "ready_for_review,clean"
+          UPDATE_LABELS: ""
