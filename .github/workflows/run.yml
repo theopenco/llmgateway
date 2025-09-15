@@ -6,16 +6,6 @@ on:
       cmd:
         required: true
         type: string
-      upload_artifacts:
-        required: false
-        type: boolean
-        default: false
-      artifact_name:
-        required: false
-        type: string
-      artifact_path:
-        required: false
-        type: string
 
 jobs:
   run:
@@ -65,11 +55,3 @@ jobs:
           NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
           Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
           ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}
-
-      - name: Upload artifacts
-        if: ${{ inputs.upload_artifacts == true }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.artifact_name }}
-          path: ${{ inputs.artifact_path }}
-          retention-days: 1
