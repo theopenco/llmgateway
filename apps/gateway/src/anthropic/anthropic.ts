@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
-import type { ServerTypes } from "../vars";
+import type { ServerTypes } from "@/apps/gateway/src/vars";
 
 export const anthropic = new OpenAPIHono<ServerTypes>();
 
