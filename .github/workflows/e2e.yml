@@ -109,10 +109,11 @@ jobs:
 
       - name: Merge reports
         run: |
-          # Move all .blob files to root directory
-          find ./e2e-results -name "*.blob" -exec mv {} ./ \;
+          # Create .vitest-reports directory and move blob files there
+          mkdir -p .vitest-reports
+          find ./e2e-results -name "*.blob" -exec mv {} .vitest-reports/ \;
           # Merge reports
-          pnpm vitest run -c vitest/vitest.e2e.config.mts --merge-reports
+          cross-env-shell "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}" E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --merge-reports
 
   e2e:
     runs-on: ubuntu-latest
