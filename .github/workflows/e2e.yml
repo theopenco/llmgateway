@@ -46,7 +46,8 @@ jobs:
         run: |
           set -eux
           pnpm run setup
-          cross-env-shell "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}" E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism --shard=${{ matrix.shard }}/5 --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob
+          export DATABASE_URL=postgres://postgres:pw@localhost:5432/test
+          E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism --shard=${{ matrix.shard }}/5 --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -111,7 +112,7 @@ jobs:
           # Move all .blob files to root directory
           find ./e2e-results -name "*.blob" -exec mv {} ./ \;
           # Merge reports
-          cross-env-shell "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}" E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --merge-reports
+          vitest run -c vitest/vitest.e2e.config.mts --merge-reports
 
   e2e:
     runs-on: ubuntu-latest
