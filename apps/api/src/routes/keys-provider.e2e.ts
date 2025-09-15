@@ -8,6 +8,8 @@ import {
 	type TestOptions,
 } from "vitest";
 
+import { createTestUser, deleteAll } from "@/testing";
+
 import { db, tables } from "@llmgateway/db";
 import {
 	models,
@@ -16,8 +18,8 @@ import {
 } from "@llmgateway/models";
 
 import { app } from "..";
+// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
 import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
-import { createTestUser, deleteAll } from "../testing";
 
 function getTestOptions(): TestOptions {
 	const hasTestOnly = models.some((model) =>

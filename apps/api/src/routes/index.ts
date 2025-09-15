@@ -1,5 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
+import { apiAuth as auth } from "@/auth/config";
+
 import { activity } from "./activity";
 import { chat } from "./chat";
 import { chats } from "./chats";
@@ -11,9 +13,8 @@ import { payments } from "./payments";
 import projects from "./projects";
 import { subscriptions } from "./subscriptions";
 import { user } from "./user";
-import { apiAuth as auth } from "../auth/config";
 
-import type { ServerTypes } from "../vars";
+import type { ServerTypes } from "@/vars";
 
 export const routes = new OpenAPIHono<ServerTypes>();
 

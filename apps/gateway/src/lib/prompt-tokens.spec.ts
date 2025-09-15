@@ -4,7 +4,7 @@ import {
 	estimateTokens,
 	calculatePromptTokensFromMessages,
 	estimateTokensFromContent,
-} from "../chat/chat";
+} from "@/chat/chat";
 
 describe("Prompt token calculation", () => {
 	describe("estimateTokensFromContent", () => {

@@ -22,7 +22,7 @@ import {
 	tools,
 } from "@llmgateway/db";
 
-import type { ServerTypes } from "../vars";
+import type { ServerTypes } from "@/vars";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 

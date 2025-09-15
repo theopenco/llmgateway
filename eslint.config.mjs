@@ -1,12 +1,15 @@
 import lint from "@steebchen/lint-next";
 import importPlugin from "eslint-plugin-import";
+import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths";
 
 /** @type {import("eslint").Linter.Config[]} */
 export default [
 	...lint,
 	{
+		ignores: ["**/tsup.config.ts"],
 		plugins: {
 			import: importPlugin,
+			"no-relative-import-paths": noRelativeImportPathsPlugin,
 		},
 		settings: {
 			"import/resolver": {
@@ -79,6 +82,13 @@ export default [
 					pathGroupsExcludedImportTypes: ["builtin", "type"],
 				},
 			],
+			"no-relative-import-paths/no-relative-import-paths": [
+				"error",
+				{
+					allowSameFolder: true,
+					prefix: "@",
+				},
+			],
 		},
 	},
 	{
@@ -96,12 +106,6 @@ export default [
 			"no-console": "off",
 		},
 	},
-	// {
-	// 	files: ["**/*.{ts,tsx}"],
-	// 	rules: {
-	// 		"import/no-relative-parent-imports": "error",
-	// 	},
-	// },
 	{
 		ignores: [
 			"**/.tanstack/",
