@@ -43,7 +43,7 @@ When running curl commands against the local API, you can use `test-token` as au
 
 E2E tests are organized for optimal performance:
 
-- **Parallel execution**: Tests run up to 10 in parallel using Vitest's thread pool
+- **Parallel execution**: Tests run up to 16 in parallel using Vitest's thread pool (minimum 8 threads)
 - **Split structure**:
   - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
   - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
