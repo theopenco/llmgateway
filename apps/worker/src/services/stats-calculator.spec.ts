@@ -230,7 +230,7 @@ describe("stats-calculator", () => {
 			expect(gptRecord?.totalReasoningTokens).toBe(18); // 10 + 8
 			expect(gptRecord?.totalCachedTokens).toBe(8); // 5 + 3
 			expect(gptRecord?.totalDuration).toBe(3000); // 1000 + 2000
-			expect(gptRecord?.throughput).toBe(50); // (150 / 3000) * 1000
+			expect(gptRecord?.cachedCount).toBe(0); // No cached requests for gpt-4
 			expect(gptRecord?.minuteTimestamp).toEqual(previousMinuteStart);
 
 			// Check Anthropic Claude record
@@ -250,7 +250,90 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.totalReasoningTokens).toBe(15);
 			expect(claudeRecord?.totalCachedTokens).toBe(0);
 			expect(claudeRecord?.totalDuration).toBe(1500);
-			expect(claudeRecord?.throughput).toBeCloseTo(133.33, 2); // (200 / 1500) * 1000
+			expect(claudeRecord?.cachedCount).toBe(0); // No cached requests for claude
+		});
+
+		it("should handle cached requests correctly by ignoring tokens but counting requests", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			// Insert mix of cached and non-cached logs
+			await db.insert(log).values([
+				{
+					id: "log-1",
+					requestId: "req-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 100,
+					hasError: false,
+					unifiedFinishReason: "completed",
+					promptTokens: "80",
+					completionTokens: "100",
+					totalTokens: "180",
+					reasoningTokens: "10",
+					cachedTokens: "5",
+					cached: false, // Not cached
+					mode: "hybrid",
+					usedMode: "api-keys",
+					createdAt: previousMinuteStart,
+				},
+				{
+					id: "log-2",
+					requestId: "req-2",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 500,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 50,
+					hasError: false,
+					unifiedFinishReason: "completed",
+					promptTokens: "60",
+					completionTokens: "50",
+					totalTokens: "110",
+					reasoningTokens: "8",
+					cachedTokens: "3",
+					cached: true, // Cached - tokens should be ignored
+					mode: "hybrid",
+					usedMode: "api-keys",
+					createdAt: previousMinuteStart,
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const historyRecords = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
+				);
+
+			// Should have record for our openai/gpt-4 mapping only
+			const openaiRecord = historyRecords.find(
+				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+			);
+			expect(openaiRecord).toBeTruthy();
+			const record = openaiRecord!;
+
+			// Check that we count all logs
+			expect(record.logsCount).toBe(2); // Both cached and non-cached
+			expect(record.cachedCount).toBe(1); // Only one cached request
+
+			// Check that tokens only include non-cached requests
+			expect(record.totalInputTokens).toBe(80); // Only from log-1 (non-cached)
+			expect(record.totalOutputTokens).toBe(100); // Only from log-1 (non-cached)
+			expect(record.totalTokens).toBe(180); // Only from log-1 (non-cached)
+			expect(record.totalReasoningTokens).toBe(10); // Only from log-1 (non-cached)
+			expect(record.totalCachedTokens).toBe(5); // Only from log-1 (non-cached)
 		});
 
 		it("should skip logs with non-existent models or providers", async () => {
@@ -308,7 +391,7 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.throughput).toBe(0);
+				expect(record.cachedCount).toBe(0);
 			}
 		});
 
@@ -323,7 +406,7 @@ describe("stats-calculator", () => {
 				minuteTimestamp: previousMinuteStart,
 				logsCount: 1,
 				errorsCount: 0,
-				throughput: 50,
+				cachedCount: 0,
 				totalOutputTokens: 50,
 				totalDuration: 1000,
 			});
@@ -411,7 +494,7 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.throughput).toBe(0);
+				expect(record.cachedCount).toBe(0);
 			}
 
 			// Check model history was also created with zero stats
@@ -423,7 +506,7 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.throughput).toBe(0);
+				expect(record.cachedCount).toBe(0);
 			}
 		});
 	});
@@ -496,7 +579,7 @@ describe("stats-calculator", () => {
 			expect(gptModelRecord?.errorsCount).toBe(1); // One error
 			expect(gptModelRecord?.totalOutputTokens).toBe(300); // 100 + 200
 			expect(gptModelRecord?.totalDuration).toBe(3000); // 1000 + 2000
-			expect(gptModelRecord?.throughput).toBe(100); // (300 / 3000) * 1000
+			expect(gptModelRecord?.cachedCount).toBe(0); // No cached requests
 
 			// Also check model-provider mappings are separate
 			const mappingRecords = await db
@@ -527,7 +610,7 @@ describe("stats-calculator", () => {
 				expect(record.errorsCount).toBe(0);
 				expect(record.totalOutputTokens).toBe(0);
 				expect(record.totalDuration).toBe(0);
-				expect(record.throughput).toBe(0);
+				expect(record.cachedCount).toBe(0);
 			}
 		});
 
@@ -540,7 +623,7 @@ describe("stats-calculator", () => {
 				minuteTimestamp: previousMinuteStart,
 				logsCount: 1,
 				errorsCount: 0,
-				throughput: 50,
+				cachedCount: 0,
 				totalOutputTokens: 50,
 				totalDuration: 1000,
 			});
@@ -592,7 +675,7 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000), // 4 minutes ago
 					logsCount: 10,
 					errorsCount: 1,
-					throughput: 100,
+					cachedCount: 0,
 				},
 				{
 					modelId: "gpt-4",
@@ -601,7 +684,7 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 120000), // 3 minutes ago
 					logsCount: 15,
 					errorsCount: 2,
-					throughput: 150,
+					cachedCount: 0,
 				},
 			]);
 
@@ -617,7 +700,10 @@ describe("stats-calculator", () => {
 			const openaiProvider = providers[0]!;
 			expect(openaiProvider.logsCount).toBe(25); // 10 + 15
 			expect(openaiProvider.errorsCount).toBe(3); // 1 + 2
-			expect(openaiProvider.throughput).toBe(125); // average of 100 and 150
+			expect(openaiProvider.cachedCount).toBe(0); // No cached requests
+			expect(openaiProvider.clientErrorsCount).toBe(0);
+			expect(openaiProvider.gatewayErrorsCount).toBe(0);
+			expect(openaiProvider.upstreamErrorsCount).toBe(0);
 			expect(openaiProvider.statsUpdatedAt).not.toBeNull();
 		});
 
@@ -633,7 +719,7 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
 					logsCount: 20,
 					errorsCount: 2,
-					throughput: 200,
+					cachedCount: 0,
 				},
 			]);
 
@@ -646,7 +732,10 @@ describe("stats-calculator", () => {
 			const gptModel = models[0]!;
 			expect(gptModel.logsCount).toBe(20);
 			expect(gptModel.errorsCount).toBe(2);
-			expect(gptModel.throughput).toBe(200);
+			expect(gptModel.cachedCount).toBe(0);
+			expect(gptModel.clientErrorsCount).toBe(0);
+			expect(gptModel.gatewayErrorsCount).toBe(0);
+			expect(gptModel.upstreamErrorsCount).toBe(0);
 			expect(gptModel.statsUpdatedAt).not.toBeNull();
 		});
 
@@ -662,7 +751,7 @@ describe("stats-calculator", () => {
 					minuteTimestamp: new Date(fiveMinutesAgo.getTime() + 60000),
 					logsCount: 30,
 					errorsCount: 3,
-					throughput: 300,
+					cachedCount: 0,
 				},
 			]);
 
@@ -683,7 +772,10 @@ describe("stats-calculator", () => {
 			const mapping = mappings[0]!;
 			expect(mapping.logsCount).toBe(30);
 			expect(mapping.errorsCount).toBe(3);
-			expect(mapping.throughput).toBe(300);
+			expect(mapping.cachedCount).toBe(0);
+			expect(mapping.clientErrorsCount).toBe(0);
+			expect(mapping.gatewayErrorsCount).toBe(0);
+			expect(mapping.upstreamErrorsCount).toBe(0);
 			expect(mapping.statsUpdatedAt).not.toBeNull();
 		});
 
@@ -708,7 +800,7 @@ describe("stats-calculator", () => {
 					minuteTimestamp: tenMinutesAgo, // Too old
 					logsCount: 100,
 					errorsCount: 10,
-					throughput: 1000,
+					cachedCount: 0,
 				},
 			]);
 
@@ -768,7 +860,7 @@ describe("stats-calculator", () => {
 				minuteTimestamp: recentMinute,
 				logsCount: 0,
 				errorsCount: 0,
-				throughput: 0,
+				cachedCount: 0,
 				totalOutputTokens: 0,
 				totalDuration: 0,
 			});
@@ -792,8 +884,15 @@ describe("stats-calculator", () => {
 				minuteTimestamp: oldMinute,
 				logsCount: 5,
 				errorsCount: 1,
-				throughput: 100,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				totalInputTokens: 0,
 				totalOutputTokens: 500,
+				totalTokens: 0,
+				totalReasoningTokens: 0,
+				totalCachedTokens: 0,
 				totalDuration: 2000,
 			});
 

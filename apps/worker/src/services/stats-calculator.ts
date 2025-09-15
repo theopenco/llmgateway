@@ -82,24 +82,29 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
 				),
+			cachedCount:
+				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
+					"cachedCount",
+				),
+			// For token calculations, ignore cached requests
 			totalInputTokens:
-				sql<number>`coalesce(sum(cast(${log.promptTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.promptTokens} as integer) else 0 end), 0)::int`.as(
 					"totalInputTokens",
 				),
 			totalOutputTokens:
-				sql<number>`coalesce(sum(cast(${log.completionTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.completionTokens} as integer) else 0 end), 0)::int`.as(
 					"totalOutputTokens",
 				),
 			totalTokens:
-				sql<number>`coalesce(sum(cast(${log.totalTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.totalTokens} as integer) else 0 end), 0)::int`.as(
 					"totalTokens",
 				),
 			totalReasoningTokens:
-				sql<number>`coalesce(sum(cast(${log.reasoningTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.reasoningTokens} as integer) else 0 end), 0)::int`.as(
 					"totalReasoningTokens",
 				),
 			totalCachedTokens:
-				sql<number>`coalesce(sum(cast(${log.cachedTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.cachedTokens} as integer) else 0 end), 0)::int`.as(
 					"totalCachedTokens",
 				),
 			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
@@ -148,15 +153,13 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const clientErrorsCount = stat?.clientErrorsCount || 0;
 		const gatewayErrorsCount = stat?.gatewayErrorsCount || 0;
 		const upstreamErrorsCount = stat?.upstreamErrorsCount || 0;
+		const cachedCount = stat?.cachedCount || 0;
 		const totalInputTokens = stat?.totalInputTokens || 0;
 		const totalOutputTokens = stat?.totalOutputTokens || 0;
 		const totalTokens = stat?.totalTokens || 0;
 		const totalReasoningTokens = stat?.totalReasoningTokens || 0;
 		const totalCachedTokens = stat?.totalCachedTokens || 0;
 		const totalDuration = stat?.totalDuration || 0;
-
-		const throughput =
-			totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : 0;
 
 		// Insert or update a history record for this minute
 		await database
@@ -169,7 +172,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				clientErrorsCount,
 				gatewayErrorsCount,
 				upstreamErrorsCount,
-				throughput,
+				cachedCount,
 				totalInputTokens,
 				totalOutputTokens,
 				totalTokens,
@@ -185,7 +188,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					clientErrorsCount,
 					gatewayErrorsCount,
 					upstreamErrorsCount,
-					throughput,
+					cachedCount,
 					totalInputTokens,
 					totalOutputTokens,
 					totalTokens,
@@ -236,24 +239,29 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
 				),
+			cachedCount:
+				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
+					"cachedCount",
+				),
+			// For token calculations, ignore cached requests
 			totalInputTokens:
-				sql<number>`coalesce(sum(cast(${log.promptTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.promptTokens} as integer) else 0 end), 0)::int`.as(
 					"totalInputTokens",
 				),
 			totalOutputTokens:
-				sql<number>`coalesce(sum(cast(${log.completionTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.completionTokens} as integer) else 0 end), 0)::int`.as(
 					"totalOutputTokens",
 				),
 			totalTokens:
-				sql<number>`coalesce(sum(cast(${log.totalTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.totalTokens} as integer) else 0 end), 0)::int`.as(
 					"totalTokens",
 				),
 			totalReasoningTokens:
-				sql<number>`coalesce(sum(cast(${log.reasoningTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.reasoningTokens} as integer) else 0 end), 0)::int`.as(
 					"totalReasoningTokens",
 				),
 			totalCachedTokens:
-				sql<number>`coalesce(sum(cast(${log.cachedTokens} as integer)), 0)::int`.as(
+				sql<number>`coalesce(sum(case when ${log.cached} = false then cast(${log.cachedTokens} as integer) else 0 end), 0)::int`.as(
 					"totalCachedTokens",
 				),
 			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
@@ -307,15 +315,13 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const clientErrorsCount = stat?.clientErrorsCount || 0;
 		const gatewayErrorsCount = stat?.gatewayErrorsCount || 0;
 		const upstreamErrorsCount = stat?.upstreamErrorsCount || 0;
+		const cachedCount = stat?.cachedCount || 0;
 		const totalInputTokens = stat?.totalInputTokens || 0;
 		const totalOutputTokens = stat?.totalOutputTokens || 0;
 		const totalTokens = stat?.totalTokens || 0;
 		const totalReasoningTokens = stat?.totalReasoningTokens || 0;
 		const totalCachedTokens = stat?.totalCachedTokens || 0;
 		const totalDuration = stat?.totalDuration || 0;
-
-		const throughput =
-			totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : 0;
 
 		// Insert or update a history record for this minute
 		await database
@@ -330,7 +336,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				clientErrorsCount,
 				gatewayErrorsCount,
 				upstreamErrorsCount,
-				throughput,
+				cachedCount,
 				totalInputTokens,
 				totalOutputTokens,
 				totalTokens,
@@ -349,7 +355,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					clientErrorsCount,
 					gatewayErrorsCount,
 					upstreamErrorsCount,
-					throughput,
+					cachedCount,
 					totalInputTokens,
 					totalOutputTokens,
 					totalTokens,
@@ -548,9 +554,27 @@ export async function calculateAggregatedStatistics() {
 				providerId: modelProviderMappingHistory.providerId,
 				avgLogsCount: avg(modelProviderMappingHistory.logsCount),
 				avgErrorsCount: avg(modelProviderMappingHistory.errorsCount),
-				avgThroughput: avg(modelProviderMappingHistory.throughput),
+				avgClientErrorsCount: avg(
+					modelProviderMappingHistory.clientErrorsCount,
+				),
+				avgGatewayErrorsCount: avg(
+					modelProviderMappingHistory.gatewayErrorsCount,
+				),
+				avgUpstreamErrorsCount: avg(
+					modelProviderMappingHistory.upstreamErrorsCount,
+				),
 				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
 				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
+				totalClientErrorsCount: sum(
+					modelProviderMappingHistory.clientErrorsCount,
+				),
+				totalGatewayErrorsCount: sum(
+					modelProviderMappingHistory.gatewayErrorsCount,
+				),
+				totalUpstreamErrorsCount: sum(
+					modelProviderMappingHistory.upstreamErrorsCount,
+				),
+				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
 			})
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
@@ -566,7 +590,10 @@ export async function calculateAggregatedStatistics() {
 				.set({
 					logsCount: Number(aggregate.totalLogsCount || 0),
 					errorsCount: Number(aggregate.totalErrorsCount || 0),
-					throughput: Number(aggregate.avgThroughput || 0),
+					clientErrorsCount: Number(aggregate.totalClientErrorsCount || 0),
+					gatewayErrorsCount: Number(aggregate.totalGatewayErrorsCount || 0),
+					upstreamErrorsCount: Number(aggregate.totalUpstreamErrorsCount || 0),
+					cachedCount: Number(aggregate.totalCachedCount || 0),
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
 				})
@@ -583,9 +610,27 @@ export async function calculateAggregatedStatistics() {
 				modelId: modelProviderMappingHistory.modelId,
 				avgLogsCount: avg(modelProviderMappingHistory.logsCount),
 				avgErrorsCount: avg(modelProviderMappingHistory.errorsCount),
-				avgThroughput: avg(modelProviderMappingHistory.throughput),
+				avgClientErrorsCount: avg(
+					modelProviderMappingHistory.clientErrorsCount,
+				),
+				avgGatewayErrorsCount: avg(
+					modelProviderMappingHistory.gatewayErrorsCount,
+				),
+				avgUpstreamErrorsCount: avg(
+					modelProviderMappingHistory.upstreamErrorsCount,
+				),
 				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
 				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
+				totalClientErrorsCount: sum(
+					modelProviderMappingHistory.clientErrorsCount,
+				),
+				totalGatewayErrorsCount: sum(
+					modelProviderMappingHistory.gatewayErrorsCount,
+				),
+				totalUpstreamErrorsCount: sum(
+					modelProviderMappingHistory.upstreamErrorsCount,
+				),
+				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
 			})
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
@@ -601,7 +646,10 @@ export async function calculateAggregatedStatistics() {
 				.set({
 					logsCount: Number(aggregate.totalLogsCount || 0),
 					errorsCount: Number(aggregate.totalErrorsCount || 0),
-					throughput: Number(aggregate.avgThroughput || 0),
+					clientErrorsCount: Number(aggregate.totalClientErrorsCount || 0),
+					gatewayErrorsCount: Number(aggregate.totalGatewayErrorsCount || 0),
+					upstreamErrorsCount: Number(aggregate.totalUpstreamErrorsCount || 0),
+					cachedCount: Number(aggregate.totalCachedCount || 0),
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
 				})
@@ -617,9 +665,27 @@ export async function calculateAggregatedStatistics() {
 				providerId: modelProviderMappingHistory.providerId,
 				avgLogsCount: avg(modelProviderMappingHistory.logsCount),
 				avgErrorsCount: avg(modelProviderMappingHistory.errorsCount),
-				avgThroughput: avg(modelProviderMappingHistory.throughput),
+				avgClientErrorsCount: avg(
+					modelProviderMappingHistory.clientErrorsCount,
+				),
+				avgGatewayErrorsCount: avg(
+					modelProviderMappingHistory.gatewayErrorsCount,
+				),
+				avgUpstreamErrorsCount: avg(
+					modelProviderMappingHistory.upstreamErrorsCount,
+				),
 				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
 				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
+				totalClientErrorsCount: sum(
+					modelProviderMappingHistory.clientErrorsCount,
+				),
+				totalGatewayErrorsCount: sum(
+					modelProviderMappingHistory.gatewayErrorsCount,
+				),
+				totalUpstreamErrorsCount: sum(
+					modelProviderMappingHistory.upstreamErrorsCount,
+				),
+				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
 			})
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
@@ -651,7 +717,12 @@ export async function calculateAggregatedStatistics() {
 					.set({
 						logsCount: Number(aggregate.totalLogsCount || 0),
 						errorsCount: Number(aggregate.totalErrorsCount || 0),
-						throughput: Number(aggregate.avgThroughput || 0),
+						clientErrorsCount: Number(aggregate.totalClientErrorsCount || 0),
+						gatewayErrorsCount: Number(aggregate.totalGatewayErrorsCount || 0),
+						upstreamErrorsCount: Number(
+							aggregate.totalUpstreamErrorsCount || 0,
+						),
+						cachedCount: Number(aggregate.totalCachedCount || 0),
 						statsUpdatedAt: new Date(),
 						updatedAt: new Date(),
 					})
