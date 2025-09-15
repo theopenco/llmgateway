@@ -58,9 +58,7 @@ jobs:
       fail-fast: false
       matrix:
         app: [api, gateway, ui, docs, worker]
-        platform:
-          - linux/amd64
-          - linux/arm64
+        platform: ${{ github.event_name == 'pull_request' && fromJSON('["linux/amd64"]') || fromJSON('["linux/amd64", "linux/arm64"]') }}
     permissions:
       contents: read
       packages: write
@@ -228,9 +226,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - linux/amd64
-          - linux/arm64
+        platform: ${{ github.event_name == 'pull_request' && fromJSON('["linux/amd64"]') || fromJSON('["linux/amd64", "linux/arm64"]') }}
     permissions:
       contents: read
       packages: write
