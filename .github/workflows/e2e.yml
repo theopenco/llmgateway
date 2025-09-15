@@ -67,7 +67,7 @@ jobs:
           ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}
 
       - name: Upload shard results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: e2e-results-${{ matrix.shard }}
           path: e2e-results-${{ matrix.shard }}.blob
@@ -101,7 +101,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download all shard results
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           path: ./e2e-results
           pattern: e2e-results-*
