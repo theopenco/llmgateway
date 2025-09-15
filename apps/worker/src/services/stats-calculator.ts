@@ -9,7 +9,7 @@ import {
 	sql,
 	eq,
 	gte,
-	lte,
+	lt,
 	and,
 	avg,
 	sum,
@@ -106,7 +106,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		.where(
 			and(
 				gte(log.createdAt, roundedTargetMinute),
-				lte(log.createdAt, minuteEnd),
+				lt(log.createdAt, minuteEnd),
 			),
 		)
 		.groupBy(sql`split_part(${log.usedModel}, '/', 2)`);
@@ -260,7 +260,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		.where(
 			and(
 				gte(log.createdAt, roundedTargetMinute),
-				lte(log.createdAt, minuteEnd),
+				lt(log.createdAt, minuteEnd),
 			),
 		)
 		.groupBy(sql`split_part(${log.usedModel}, '/', 2)`, log.usedProvider);
