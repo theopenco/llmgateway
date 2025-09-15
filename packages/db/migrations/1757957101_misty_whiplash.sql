@@ -12,7 +12,6 @@ CREATE TABLE "model" (
 	"status" text DEFAULT 'active' NOT NULL,
 	"logs_count" integer DEFAULT 0 NOT NULL,
 	"errors_count" integer DEFAULT 0 NOT NULL,
-	"error_rate" real DEFAULT 0 NOT NULL,
 	"throughput" real DEFAULT 0 NOT NULL,
 	"stats_updated_at" timestamp
 );
@@ -62,7 +61,6 @@ CREATE TABLE "model_provider_mapping" (
 	"status" text DEFAULT 'active' NOT NULL,
 	"logs_count" integer DEFAULT 0 NOT NULL,
 	"errors_count" integer DEFAULT 0 NOT NULL,
-	"error_rate" real DEFAULT 0 NOT NULL,
 	"throughput" real DEFAULT 0 NOT NULL,
 	"stats_updated_at" timestamp,
 	CONSTRAINT "model_provider_mapping_modelId_providerId_unique" UNIQUE("model_id","provider_id")
@@ -106,7 +104,6 @@ CREATE TABLE "provider" (
 	"status" text DEFAULT 'active' NOT NULL,
 	"logs_count" integer DEFAULT 0 NOT NULL,
 	"errors_count" integer DEFAULT 0 NOT NULL,
-	"error_rate" real DEFAULT 0 NOT NULL,
 	"throughput" real DEFAULT 0 NOT NULL,
 	"stats_updated_at" timestamp
 );
