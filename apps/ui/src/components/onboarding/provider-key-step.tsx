@@ -5,8 +5,17 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { ProviderSelect } from "@/components/provider-keys/provider-select";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDefaultOrganization } from "@/hooks/useOrganization";
+import { Button } from "@/lib/components/button";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/lib/components/card";
 import {
 	Form,
 	FormControl,
@@ -16,22 +25,12 @@ import {
 	FormMessage,
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
+import { Step } from "@/lib/components/stepper";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers } from "@llmgateway/models";
-
-import { Button } from "../../lib/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "../../lib/components/card";
-import { Step } from "../../lib/components/stepper";
-import { ProviderSelect } from "../provider-keys/provider-select";
 
 const formSchema = z.object({
 	provider: z.string().min(1, "Provider is required"),

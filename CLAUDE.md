@@ -12,11 +12,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Development
 
+NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
+
 - `pnpm dev` - Start all development servers (UI on :3002, API on :4002, Gateway on :4001, Docs on :3005)
 - `pnpm build` - Build all applications for production
 - `pnpm clean` - Clean build artifacts and cache directories
 
 ### Code Quality
+
+NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 Always run `pnpm format` before committing code. Run `pnpm generate` if API routes were modified.
 
@@ -25,6 +29,8 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 - `pnpm generate` - Regenerate OpenAPI schemas from API routes
 
 ### Testing
+
+NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
@@ -39,13 +45,22 @@ When running curl commands against the local API, you can use `test-token` as au
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
 
+#### E2E Test Structure
+
+E2E tests are organized for optimal performance:
+
+- **Parallel execution**: Tests run up to 16 in parallel using Vitest's thread pool (minimum 8 threads)
+- **Split structure**:
+  - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
+  - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
+- **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
+
 ### Database Operations
 
-- `pnpm push-dev` - Push schema changes to development database
-- `pnpm push-test` - Push schema changes to test database
-- `pnpm migrate` - Run database migrations
+NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
+
+- `pnpm run setup` – Reset db, sync schema, seed data (use this for development)
 - `pnpm seed` - Seed database with initial data
-- `pnpm reset` - Reset database (destructive)
 - `pnpm sync` - Sync both dev and test databases
 
 ## Architecture Overview

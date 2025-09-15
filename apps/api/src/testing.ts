@@ -1,6 +1,7 @@
 import { db, tables } from "@llmgateway/db";
 
 import { app } from ".";
+// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
 import { clearCache } from "../../gateway/src/test-utils/test-helpers";
 
 import type { OpenAPIHono } from "@hono/zod-openapi";

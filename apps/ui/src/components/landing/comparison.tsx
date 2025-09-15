@@ -2,10 +2,9 @@
 import { Check, X } from "lucide-react";
 import Link from "next/link";
 
+import { AuthLink } from "@/components/shared/auth-link";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
-
-import { AuthLink } from "../shared/auth-link";
 
 const comparisonData = [
 	{
