@@ -51,8 +51,7 @@ describe("e2e", { concurrent: true }, () => {
 			console.log("json", JSON.stringify(json, null, 2));
 		}
 		expect(res.status).toBe(200);
-		expect(json).toHaveProperty("choices.[0].message.content");
-
+		expect(json).toHaveProperty("choices[0].message.content");
 		const content = json.choices[0].message.content;
 		expect(() => JSON.parse(content)).not.toThrow();
 
