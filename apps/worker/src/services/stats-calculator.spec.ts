@@ -711,7 +711,7 @@ describe("stats-calculator", () => {
 
 	describe("backfillHistoryIfNeeded", () => {
 		it("should backfill when no history exists", async () => {
-			// Set time to 12:30 so we backfill from 11:30 to 12:29
+			// Set time to 12:30 so we backfill from 12:25 to 12:29 (5 minutes)
 			vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
 
 			await backfillHistoryIfNeeded();
@@ -720,24 +720,24 @@ describe("stats-calculator", () => {
 				.select()
 				.from(modelProviderMappingHistory);
 
-			// Should have created history for 60 minutes (11:30-12:29) for 2 mappings = 120 records
-			expect(historyRecords.length).toBeGreaterThanOrEqual(120);
+			// Should have created history for 5 minutes (12:25-12:29) for 2 mappings = 10 records
+			expect(historyRecords.length).toBeGreaterThanOrEqual(10);
 
 			// Check that we have entries for each minute
 			const timestamps = historyRecords.map((r) => r.minuteTimestamp.getTime());
 			const uniqueTimestamps = new Set(timestamps);
-			expect(uniqueTimestamps.size).toBe(60); // 60 different minutes
+			expect(uniqueTimestamps.size).toBe(5); // 5 different minutes
 
 			// Check that model history was also backfilled
 			const modelHistoryRecords = await db.select().from(modelHistory);
-			// Should have created history for 60 minutes for 2 models = 120 records
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(120);
+			// Should have created history for 5 minutes for 2 models = 10 records
+			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(10);
 
 			const modelTimestamps = modelHistoryRecords.map((r) =>
 				r.minuteTimestamp.getTime(),
 			);
 			const uniqueModelTimestamps = new Set(modelTimestamps);
-			expect(uniqueModelTimestamps.size).toBe(60); // 60 different minutes
+			expect(uniqueModelTimestamps.size).toBe(5); // 5 different minutes
 		});
 
 		it("should not backfill when history is up to date", async () => {
