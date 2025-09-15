@@ -377,7 +377,7 @@ jobs:
       - name: Test unified Docker image
         run: |
           chmod +x .github/test-unified-docker.sh
-          .github/test-unified-docker.sh test-unified-image:latest
+          .github/test-unified-docker.sh test-unified-image:latest --local
 
   # PR-specific jobs that only build without pushing
   test-build-split:
