@@ -159,7 +159,7 @@ export function MultiModelSelector({
 				modelName.includes(normalizedSearch)
 			);
 		});
-	}, [searchTerm]);
+	}, [searchTerm, uniqueModels]);
 
 	const handleModelToggle = useCallback(
 		(modelId: string) => {
