@@ -117,7 +117,7 @@ describe("e2e individual tests", () => {
 				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify({
-				model: "anthropic/claude-3-5-sonnet-20241022",
+				model: "anthropic/claude-3-5-sonnet-20241022--undefined-wip-test",
 				messages: [
 					{
 						role: "user",
