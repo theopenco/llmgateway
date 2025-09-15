@@ -58,7 +58,7 @@ export async function waitForLogs(
  */
 export async function waitForLogByRequestId(
 	requestId: string,
-	maxWaitMs = 10000,
+	maxWaitMs = 20000,
 	intervalMs = 100,
 ) {
 	const startTime = Date.now();

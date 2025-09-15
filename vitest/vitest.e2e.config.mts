@@ -23,7 +23,5 @@ export default defineConfig({
 				minThreads: 8,
 			},
 		},
-		// Enable concurrent mode for parallel .each tests
-		concurrent: true,
 	},
 });
