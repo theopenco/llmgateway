@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { apiAuth as auth } from "@/auth/config";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, and, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars";
 
@@ -114,7 +114,9 @@ user.openapi(deletePasskey, async (c) => {
 
 	await db
 		.delete(tables.passkey)
-		.where(eq(tables.passkey.id, id) && eq(tables.passkey.userId, authUser.id));
+		.where(
+			and(eq(tables.passkey.id, id), eq(tables.passkey.userId, authUser.id)),
+		);
 
 	return c.json({
 		message: "Passkey deleted successfully",

@@ -219,9 +219,12 @@ modelsApi.openapi(listModels, async (c) => {
 					internal_reasoning: "0", // Not defined in model definitions yet
 				},
 				// Use context length from model definition (take the largest from all providers)
-				context_length:
-					Math.max(...model.providers.map((p) => p.contextSize || 0)) ||
-					undefined,
+				context_length: (() => {
+					const sizes = model.providers
+						.map((p) => p.contextSize)
+						.filter((n): n is number => typeof n === "number" && n > 0);
+					return sizes.length ? Math.max(...sizes) : undefined;
+				})(),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
 				// Add model-level capabilities

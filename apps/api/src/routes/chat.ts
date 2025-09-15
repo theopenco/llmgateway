@@ -50,6 +50,18 @@ chat.openapi(completionRoute, async (c) => {
 		}
 		const authToken = apiKey;
 
+		// Timeout/abort setup
+		const controller = new AbortController();
+		const timeoutMs = Number(process.env.CHAT_TIMEOUT_MS ?? 30000) || 30000;
+		const timeout = setTimeout(() => controller.abort("timeout"), timeoutMs);
+		let cleanedUp = false;
+		const cleanup = () => {
+			if (!cleanedUp) {
+				clearTimeout(timeout);
+				cleanedUp = true;
+			}
+		};
+
 		const response = await fetch(
 			process.env.NODE_ENV === "production"
 				? "https://api.llmgateway.io/v1/chat/completions"
@@ -60,6 +72,7 @@ chat.openapi(completionRoute, async (c) => {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${authToken}`,
 				},
+				signal: controller.signal,
 				body: JSON.stringify({
 					model,
 					messages,
@@ -73,32 +86,46 @@ chat.openapi(completionRoute, async (c) => {
 			try {
 				const errorJson = JSON.parse(errorText);
 				if (errorJson.message) {
-					return c.json(
+					const res = c.json(
 						{ error: "gateway returned: " + errorJson.message },
 						response.status as any,
 					);
+					cleanup();
+					return res;
 				}
-				return c.json(
+				const res = c.json(
 					{ error: `Failed to get chat completion: ${errorText}` },
 					response.status as any,
 				);
+				cleanup();
+				return res;
 			} catch (err) {
-				return c.json(
+				const res = c.json(
 					{ error: `Failed to get chat completion: ${err}` },
 					response.status as any,
 				);
+				cleanup();
+				return res;
 			}
 		}
 
 		if (stream) {
 			// Handle streaming response
 			return streamSSE(c, async (stream) => {
-				const reader = response.body?.getReader();
+				let reader = response.body?.getReader();
+				// Abort upstream if client disconnects
+				stream.onAbort(() => {
+					try {
+						controller.abort("client-abort");
+						reader?.cancel().catch(() => {});
+					} catch {}
+				});
 				if (!reader) {
 					await stream.writeSSE({
 						data: JSON.stringify({ error: "No response body" }),
 						event: "error",
 					});
+					cleanup();
 					return;
 				}
 
@@ -133,6 +160,8 @@ chat.openapi(completionRoute, async (c) => {
 						data: JSON.stringify({ error: "Streaming failed" }),
 						event: "error",
 					});
+				} finally {
+					cleanup();
 				}
 			});
 		} else {
@@ -148,6 +177,7 @@ chat.openapi(completionRoute, async (c) => {
 					error: responseData.error,
 					responseData,
 				});
+				cleanup();
 				throw new Error(responseData.error);
 			}
 
@@ -163,6 +193,7 @@ chat.openapi(completionRoute, async (c) => {
 					usedProvider: responseData.provider || "unknown",
 					responseData,
 				});
+				cleanup();
 				throw new Error("Invalid response from gateway - no choices array");
 			}
 
@@ -174,6 +205,7 @@ chat.openapi(completionRoute, async (c) => {
 					usedProvider: responseData.provider || "unknown",
 					firstChoice,
 				});
+				cleanup();
 				throw new Error("Invalid response structure from gateway - no message");
 			}
 
@@ -195,9 +227,13 @@ chat.openapi(completionRoute, async (c) => {
 				responseObject.images = firstChoice.message.images;
 			}
 
-			return c.json(responseObject);
+			const res = c.json(responseObject);
+			cleanup();
+			return res;
 		}
 	} catch (error) {
+		// Ensure timer cleared on error
+		// (safe even if already cleared)
 		logger.error(
 			"Chat completion error",
 			error instanceof Error ? error : new Error(String(error)),

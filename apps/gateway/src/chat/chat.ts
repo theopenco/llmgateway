@@ -88,10 +88,13 @@ async function validateFreeModelUsage(
 
 	if (!rateLimitResult.allowed) {
 		// Only set retry and reset headers when rate limited
-		const retryAfter = rateLimitResult.retryAfter?.toString();
-		if (retryAfter) {
-			c.header("Retry-After", retryAfter);
-			const resetTime = (Math.floor(Date.now() / 1000) + retryAfter).toString();
+		const retryAfter = rateLimitResult.retryAfter;
+		if (retryAfter !== null) {
+			const retryAfterSec = Number(retryAfter);
+			c.header("Retry-After", String(retryAfterSec));
+			const resetTime = (
+				Math.floor(Date.now() / 1000) + retryAfterSec
+			).toString();
 			c.header("X-RateLimit-Reset", resetTime);
 		}
 
@@ -609,9 +612,9 @@ export function estimateTokens(
 	let calculatedCompletionTokens = completionTokens;
 
 	// Always estimate missing tokens for any provider
-	if (!promptTokens || !completionTokens) {
+	if (promptTokens === null || completionTokens === null) {
 		// Estimate prompt tokens using encodeChat for better accuracy
-		if (!promptTokens && messages && messages.length > 0) {
+		if (promptTokens === null && messages && messages.length > 0) {
 			try {
 				// Convert messages to the format expected by gpt-tokenizer
 				const chatMessages: ChatMessage[] = messages.map((m) => ({
@@ -638,7 +641,7 @@ export function estimateTokens(
 		}
 
 		// Estimate completion tokens using encode for better accuracy
-		if (!completionTokens && content) {
+		if (completionTokens === null && content) {
 			try {
 				calculatedCompletionTokens = encode(content).length;
 			} catch (error) {
@@ -2254,14 +2257,14 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	const split = auth.split("Bearer ");
-	if (split.length !== 2) {
+	const match = auth.match(/^Bearer\s+(.+)$/i);
+	if (!match) {
 		throw new HTTPException(401, {
 			message:
 				"Unauthorized: Invalid Authorization header format. Expected 'Bearer your-api-token'",
 		});
 	}
-	const token = split[1];
+	const token = match[1];
 	if (!token) {
 		throw new HTTPException(401, {
 			message: "Unauthorized: No token provided",
@@ -3932,8 +3935,11 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Estimate tokens if not provided and we have a finish reason
-							if (finishReason && (!promptTokens || !completionTokens)) {
-								if (!promptTokens) {
+							if (
+								finishReason &&
+								(promptTokens === null || completionTokens === null)
+							) {
+								if (promptTokens === null) {
 									const estimation = estimateTokens(
 										usedProvider,
 										messages,
@@ -3944,7 +3950,7 @@ chat.openapi(completions, async (c) => {
 									promptTokens = estimation.calculatedPromptTokens;
 								}
 
-								if (!completionTokens) {
+								if (completionTokens === null) {
 									completionTokens = estimateTokensFromContent(fullContent);
 								}
 
@@ -4029,8 +4035,8 @@ chat.openapi(completions, async (c) => {
 				let calculatedTotalTokens = totalTokens;
 
 				// Estimate tokens for providers that don't provide them during streaming
-				if (!promptTokens || !completionTokens) {
-					if (!promptTokens && messages && messages.length > 0) {
+				if (promptTokens === null || completionTokens === null) {
+					if (promptTokens === null && messages && messages.length > 0) {
 						try {
 							// Convert messages to the format expected by gpt-tokenizer
 							const chatMessages: any[] = messages.map((m) => ({
@@ -4054,7 +4060,7 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
-					if (!completionTokens && fullContent) {
+					if (completionTokens === null && fullContent) {
 						try {
 							calculatedCompletionTokens = encode(fullContent).length;
 						} catch (error) {
