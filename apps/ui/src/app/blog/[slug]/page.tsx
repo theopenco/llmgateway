@@ -1,3 +1,4 @@
+// eslint-disable-next-line
 import { allBlogs } from "content-collections";
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
