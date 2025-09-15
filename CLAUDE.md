@@ -112,7 +112,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - Use Drizzle ORM with latest object syntax
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
 - For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
-- Always sync schema with `pnpm ru setup` after table/column changes
+- Always sync schema with `pnpm run setup` after table/column changes
 
 ### Code Standards
 

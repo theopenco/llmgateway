@@ -90,6 +90,7 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				stability: "unstable", // unstable due to high limits
 			},
 		],
 		jsonOutput: true,

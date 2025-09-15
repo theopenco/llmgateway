@@ -1,0 +1,26 @@
+name: Auto Merge on Label
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: contains(github.event.label.name, 'auto-merge')
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    steps:
+      - name: Auto merge with e2e check requirement
+        uses: pascalgn/automerge-action@v0.16.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_LABELS: "auto-merge"
+          MERGE_METHOD: "squash"
+          MERGE_COMMIT_MESSAGE: "pull-request-title-and-description"
+          MERGE_REQUIRED_APPROVALS: "0"
+          MERGE_DELETE_BRANCH: "true"
+          MERGE_READY_STATE: "ready_for_review,clean"
+          UPDATE_LABELS: ""
