@@ -72,10 +72,9 @@ describe("e2e individual tests", () => {
 		return { userId, orgId, projectId, userOrgId, token };
 	}
 
-	// Only clear cache and logs before each test
+	// Only clear cache before each test - avoid clearing logs as concurrent tests may be waiting for them
 	beforeEach(async () => {
 		await clearCache();
-		await db.delete(tables.log);
 	});
 
 	async function createProviderKey(

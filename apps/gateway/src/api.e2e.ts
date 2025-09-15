@@ -381,7 +381,7 @@ describe("e2e", { concurrent: true }, () => {
 		}
 	});
 
-	// Only clear cache before each test to avoid conflicts
+	// Only clear cache before each test - avoid clearing logs as concurrent tests may be waiting for them
 	beforeEach(async () => {
 		await clearCache();
 	});
