@@ -19,7 +19,7 @@ describe("e2e", { concurrent: true }, () => {
 
 	test.each(
 		testModels.filter((m) => {
-			const modelDef = models.find((def) => def.id === m.model);
+			const modelDef = models.find((mo) => m.originalModel === mo.id);
 			return (modelDef as ModelDefinition)?.jsonOutput === true;
 		}),
 	)("JSON output $model", getTestOptions(), async ({ model }) => {
