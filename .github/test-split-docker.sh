@@ -328,7 +328,7 @@ for app in "${!APP_ENDPOINTS[@]}"; do
 done
 
 # Step 7: Wait for all endpoints to be healthy (with retries)
-if ! wait_for_endpoints $HEALTH_CHECK_TIMEOUT; then
+if ! wait_for_endpoints 60; then
   echo -e "${YELLOW}Initial health check failed, showing container logs:${NC}"
   for app in "${!APP_PORTS[@]}"; do
     if [ "${RESULTS[$app]}" != "START_FAILED" ]; then

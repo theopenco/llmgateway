@@ -194,7 +194,7 @@ for app in "${!APP_ENDPOINTS[@]}"; do
 done
 
 # Step 7: Wait for all endpoints to be healthy (with retries)
-if ! wait_for_endpoints $HEALTH_CHECK_TIMEOUT; then
+if ! wait_for_endpoints 60; then
   echo -e "${YELLOW}Initial health check failed, showing container logs:${NC}"
   docker logs $CONTAINER_NAME --tail 50
   echo -e "${YELLOW}Retrying individual endpoint checks...${NC}"
