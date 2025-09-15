@@ -57,9 +57,10 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const database = db;
 
 	// Get logs from the specified minute, aggregated by model
+	// Note: usedModel field contains "provider/model" format, so we extract just the model part
 	const modelStats = await database
 		.select({
-			modelId: log.usedModel,
+			modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as("modelId"),
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -80,7 +81,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				lte(log.createdAt, minuteEnd),
 			),
 		)
-		.groupBy(log.usedModel);
+		.groupBy(sql`split_part(${log.usedModel}, '/', 2)`);
 
 	// Get all active models to ensure we create entries for inactive ones too
 	const allModels = await database
@@ -163,9 +164,10 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 	const database = db;
 
 	// Get logs from the specified minute
+	// Note: usedModel field contains "provider/model" format, so we extract just the model part
 	const mappingStats = await database
 		.select({
-			modelId: log.usedModel,
+			modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as("modelId"),
 			providerId: log.usedProvider,
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
@@ -187,7 +189,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				lte(log.createdAt, minuteEnd),
 			),
 		)
-		.groupBy(log.usedModel, log.usedProvider);
+		.groupBy(sql`split_part(${log.usedModel}, '/', 2)`, log.usedProvider);
 
 	// Get all active model-provider mappings to ensure we create entries for inactive ones too
 	const allMappings = await database
@@ -305,8 +307,8 @@ export async function backfillHistoryIfNeeded() {
 		const previousMinute = getPreviousMinuteStart();
 
 		if (!lastMinute) {
-			// No history exists, start from 1 hour ago to avoid processing too much data on first run
-			const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+			// No history exists, start from 5 minutes ago
+			const oneHourAgo = new Date(Date.now() - 5 * 60 * 1000);
 			const oneHourAgoRounded = roundToMinuteStart(oneHourAgo);
 
 			logger.info(
