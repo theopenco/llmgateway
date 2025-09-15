@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, type TestOptions } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -11,8 +11,8 @@ import {
 } from "./test-utils/test-helpers";
 
 // Helper function to get test options with retry for CI environment
-function getTestOptions() {
-	return process.env.CI ? { retry: 3, testTimeout: 120000 } : {};
+function getTestOptions(): TestOptions {
+	return process.env.CI ? { retry: 3, timeout: 120000 } : {};
 }
 
 describe("Log Queue Processing E2E", () => {
