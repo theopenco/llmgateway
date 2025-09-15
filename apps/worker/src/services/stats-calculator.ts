@@ -16,6 +16,10 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+// Environment variable for backfill duration in seconds (defaults to 300 seconds = 5 minutes)
+const BACKFILL_DURATION_SECONDS =
+	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
+
 /**
  * Helper function to round any date to the start of its minute (00 seconds, 00 milliseconds)
  */
@@ -401,17 +405,23 @@ export async function backfillHistoryIfNeeded() {
 		const previousMinute = getPreviousMinuteStart();
 
 		if (!lastMinute) {
-			// No history exists, start from 5 minutes ago
-			const oneHourAgo = new Date(Date.now() - 5 * 60 * 1000);
-			const oneHourAgoRounded = roundToMinuteStart(oneHourAgo);
+			// No history exists, start from configured backfill duration ago
+			const backfillStart = new Date(
+				Date.now() - BACKFILL_DURATION_SECONDS * 1000,
+			);
+			const backfillStartRounded = roundToMinuteStart(backfillStart);
 
 			logger.info(
-				`No existing history found. Starting backfill from ${oneHourAgoRounded.toISOString()} to ${previousMinute.toISOString()}`,
+				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
 			);
 
-			let minute = new Date(oneHourAgoRounded);
+			let minute = new Date(backfillStartRounded);
 			let iterationCount = 0;
-			const maxIterations = 60; // Safety limit for one hour of backfill
+			// Dynamic safety limit based on backfill duration (with max of 1440 for 24 hours)
+			const maxIterations = Math.min(
+				Math.ceil(BACKFILL_DURATION_SECONDS / 60),
+				1440,
+			);
 
 			while (minute <= previousMinute && iterationCount < maxIterations) {
 				const mappingResult = await calculateHistoryForMinute(minute);
