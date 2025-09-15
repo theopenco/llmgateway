@@ -33,9 +33,9 @@ export const anthropicModels = [
 			{
 				providerId: "anthropic",
 				modelName: "claude-3-5-haiku-20241022",
-				inputPrice: 3.0 / 1e6,
-				outputPrice: 15.0 / 1e6,
-				cachedInputPrice: 0.3 / 1e6,
+				inputPrice: 0.8 / 1e6,
+				outputPrice: 4.0 / 1e6,
+				cachedInputPrice: 0.08 / 1e6,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 8192,
