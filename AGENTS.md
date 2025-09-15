@@ -45,13 +45,21 @@ When running curl commands against the local API, you can use `test-token` as au
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
 
+#### E2E Test Structure
+
+E2E tests are organized for optimal performance:
+
+- **Parallel execution**: Tests run up to 16 in parallel using Vitest's thread pool (minimum 8 threads)
+- **Split structure**:
+  - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
+  - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
+- **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
+
 ### Database Operations
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 - `pnpm run setup` – Reset db, sync schema, seed data (use this for development)
-- `pnpm seed` - Seed database with initial data
-- `pnpm sync` - Sync both dev and test databases
 
 ## Architecture Overview
 
@@ -103,8 +111,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 - Use Drizzle ORM with latest object syntax
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- For schema changes: Use `pnpm push` instead of writing migrations which will generate .sql files
-- Always sync schema with `pnpm push` after table/column changes
+- For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
+- Always sync schema with `pnpm run setup` after table/column changes
 
 ### Code Standards
 
