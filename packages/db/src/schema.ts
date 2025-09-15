@@ -512,3 +512,163 @@ export const installation = pgTable("installation", {
 	uuid: text().notNull().unique(),
 	type: text().notNull(),
 });
+
+export const provider = pgTable("provider", {
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	name: text().notNull(),
+	description: text().notNull(),
+	streaming: boolean(),
+	cancellation: boolean(),
+	jsonOutput: boolean(),
+	color: text(),
+	website: text(),
+	announcement: text(),
+	status: text({
+		enum: ["active", "inactive"],
+	})
+		.notNull()
+		.default("active"),
+	logsCount: integer().notNull().default(0),
+	errorsCount: integer().notNull().default(0),
+	throughput: real().notNull().default(0),
+	statsUpdatedAt: timestamp(),
+});
+
+export const model = pgTable("model", {
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	name: text(),
+	family: text().notNull(),
+	jsonOutput: boolean(),
+	free: boolean(),
+	deprecatedAt: timestamp(),
+	deactivatedAt: timestamp(),
+	output: json().$type<string[]>(),
+	status: text({
+		enum: ["active", "inactive"],
+	})
+		.notNull()
+		.default("active"),
+	logsCount: integer().notNull().default(0),
+	errorsCount: integer().notNull().default(0),
+	throughput: real().notNull().default(0),
+	statsUpdatedAt: timestamp(),
+});
+
+export const modelProviderMapping = pgTable(
+	"model_provider_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text()
+			.notNull()
+			.references(() => model.id, { onDelete: "cascade" }),
+		providerId: text()
+			.notNull()
+			.references(() => provider.id, { onDelete: "cascade" }),
+		modelName: text().notNull(),
+		inputPrice: decimal(),
+		outputPrice: decimal(),
+		cachedInputPrice: decimal(),
+		imageInputPrice: decimal(),
+		requestPrice: decimal(),
+		contextSize: integer(),
+		maxOutput: integer(),
+		streaming: boolean().notNull().default(false),
+		vision: boolean(),
+		reasoning: boolean(),
+		reasoningOutput: text(),
+		tools: boolean(),
+		supportedParameters: json().$type<string[]>(),
+		test: text({
+			enum: ["skip", "only"],
+		}),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		throughput: real().notNull().default(0),
+		statsUpdatedAt: timestamp(),
+	},
+	(table) => [unique().on(table.modelId, table.providerId)],
+);
+
+export const modelProviderMappingHistory = pgTable(
+	"model_provider_mapping_history",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
+		providerId: text().notNull(), // Provider ID (e.g., "openai")
+		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		// Unique timestamp key for one-minute intervals (rounded down to the minute)
+		minuteTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		throughput: real().notNull().default(0),
+		totalInputTokens: integer().notNull().default(0),
+		totalOutputTokens: integer().notNull().default(0),
+		totalTokens: integer().notNull().default(0),
+		totalReasoningTokens: integer().notNull().default(0),
+		totalCachedTokens: integer().notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per mapping-minute combination
+		unique().on(table.modelProviderMappingId, table.minuteTimestamp),
+	],
+);
+
+export const modelHistory = pgTable(
+	"model_history",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		// Unique timestamp key for one-minute intervals (rounded down to the minute)
+		minuteTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		throughput: real().notNull().default(0),
+		totalInputTokens: integer().notNull().default(0),
+		totalOutputTokens: integer().notNull().default(0),
+		totalTokens: integer().notNull().default(0),
+		totalReasoningTokens: integer().notNull().default(0),
+		totalCachedTokens: integer().notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per model-minute combination
+		unique().on(table.modelId, table.minuteTimestamp),
+	],
+);

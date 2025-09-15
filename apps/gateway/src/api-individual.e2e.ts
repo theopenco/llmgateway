@@ -1,6 +1,12 @@
 import "dotenv/config";
 import { beforeEach, describe, expect, test } from "vitest";
 
+import {
+	generateTestRequestId,
+	logMode,
+	validateLogByRequestId,
+} from "@/chat-helpers.e2e";
+
 import { db, tables, eq } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
 
@@ -11,13 +17,6 @@ import {
 	getProviderEnvVar,
 	readAll,
 } from "./test-utils/test-helpers";
-
-// Helper function to generate unique request IDs for tests
-function generateTestRequestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
-
-const logMode = process.env.LOG_MODE;
 
 describe("e2e individual tests", () => {
 	// Helper to create unique test data for each test to avoid conflicts
@@ -72,7 +71,6 @@ describe("e2e individual tests", () => {
 		return { userId, orgId, projectId, userOrgId, token };
 	}
 
-	// Only clear cache before each test - avoid clearing logs as concurrent tests may be waiting for them
 	beforeEach(async () => {
 		await clearCache();
 	});
@@ -90,24 +88,6 @@ describe("e2e individual tests", () => {
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId,
 		});
-	}
-
-	async function validateLogByRequestId(requestId: string) {
-		const log = await waitForLogByRequestId(requestId);
-
-		if (logMode) {
-			console.log("log", JSON.stringify(log, null, 2));
-		}
-
-		expect(log.usedProvider).toBeTruthy();
-		expect(log.errorDetails).toBeNull();
-		expect(log.finishReason).not.toBeNull();
-		expect(log.unifiedFinishReason).not.toBeNull();
-		expect(log.unifiedFinishReason).toBeTruthy();
-		expect(log.usedModel).toBeTruthy();
-		expect(log.requestedModel).toBeTruthy();
-
-		return log;
 	}
 
 	function validateResponse(json: any) {

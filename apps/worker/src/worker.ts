@@ -23,6 +23,13 @@ import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { calculateFees } from "@llmgateway/shared";
 
+import {
+	calculateMinutelyHistory,
+	calculateAggregatedStatistics,
+	backfillHistoryIfNeeded,
+} from "./services/stats-calculator";
+import { syncProvidersAndModels } from "./services/sync-models";
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_123", {
 	apiVersion: "2025-04-30.basil",
 });
@@ -464,6 +471,8 @@ export async function processLogQueue(): Promise<void> {
 
 let isWorkerRunning = false;
 let shouldStop = false;
+let minutelyIntervalId: NodeJS.Timeout | null = null;
+let aggregatedIntervalId: NodeJS.Timeout | null = null;
 
 export async function startWorker() {
 	if (isWorkerRunning) {
@@ -473,7 +482,139 @@ export async function startWorker() {
 
 	isWorkerRunning = true;
 	shouldStop = false;
-	logger.info("Starting log queue worker...");
+	logger.info("Starting worker application...");
+
+	// Initialize providers and models sync
+	try {
+		await syncProvidersAndModels();
+		logger.info("Initial providers and models sync completed");
+	} catch (error) {
+		logger.error(
+			"Error during initial sync",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+
+	// Backfill any missing history if the worker was down
+	try {
+		await backfillHistoryIfNeeded();
+		logger.info("History backfill check completed");
+	} catch (error) {
+		logger.error(
+			"Error during history backfill",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+
+	// Start statistics calculator
+	logger.info("Starting statistics calculator...");
+	logger.info("- Minutely history: runs at the first second of every minute");
+	logger.info(
+		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
+	);
+
+	// Start minutely history calculation (runs at the beginning of every minute)
+	calculateMinutelyHistory().catch((error) => {
+		logger.error(
+			"Error in initial minutely history calculation",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
+
+	// Calculate delay to next minute's first second
+	const scheduleMinutelyHistory = () => {
+		const now = new Date();
+		const nextMinute = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			now.getHours(),
+			now.getMinutes() + 1,
+			0, // 0 seconds
+			50, // 50ms buffer to ensure we're past the second boundary
+		);
+		const delayToNextMinute = nextMinute.getTime() - now.getTime();
+
+		setTimeout(() => {
+			calculateMinutelyHistory().catch((error) => {
+				logger.error(
+					"Error in scheduled minutely history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			});
+			// After the first run, schedule it to repeat every minute at the first second
+			minutelyIntervalId = setInterval(
+				() => {
+					calculateMinutelyHistory().catch((error) => {
+						logger.error(
+							"Error in interval minutely history calculation",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+					});
+				},
+				60 * 1000, // 1 minute
+			);
+		}, delayToNextMinute);
+	};
+
+	scheduleMinutelyHistory();
+
+	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
+	calculateAggregatedStatistics().catch((error) => {
+		logger.error(
+			"Error in initial aggregated statistics calculation",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
+
+	// Calculate delay to next 5-minute boundary (0, 5, 10, 15, etc.)
+	const scheduleAggregatedStats = () => {
+		const now = new Date();
+		const currentMinute = now.getMinutes();
+		const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
+		const nextRun = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			now.getHours(),
+			nextFiveMinuteMark,
+			0, // 0 seconds
+			100, // 100ms buffer
+		);
+
+		// Handle hour rollover
+		if (nextFiveMinuteMark >= 60) {
+			nextRun.setHours(nextRun.getHours() + 1);
+			nextRun.setMinutes(0);
+		}
+
+		const delayToNext = nextRun.getTime() - now.getTime();
+
+		setTimeout(() => {
+			calculateAggregatedStatistics().catch((error) => {
+				logger.error(
+					"Error in scheduled aggregated statistics calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			});
+			// After the first run, schedule it to repeat every 5 minutes
+			aggregatedIntervalId = setInterval(
+				() => {
+					calculateAggregatedStatistics().catch((error) => {
+						logger.error(
+							"Error in interval aggregated statistics calculation",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+					});
+				},
+				5 * 60 * 1000, // 5 minutes
+			);
+		}, delayToNext);
+	};
+
+	scheduleAggregatedStats();
+
+	logger.info("Starting log queue processing...");
 	const count = process.env.NODE_ENV === "production" ? 120 : 5;
 	let autoTopUpCounter = 0;
 	let creditProcessingCounter = 0;
@@ -525,6 +666,19 @@ export async function stopWorker(): Promise<void> {
 
 	logger.info("Stopping worker...");
 	shouldStop = true;
+
+	// Stop statistics calculator intervals
+	if (minutelyIntervalId) {
+		clearInterval(minutelyIntervalId);
+		minutelyIntervalId = null;
+		logger.info("Minutely history calculator stopped");
+	}
+
+	if (aggregatedIntervalId) {
+		clearInterval(aggregatedIntervalId);
+		aggregatedIntervalId = null;
+		logger.info("Aggregated statistics calculator stopped");
+	}
 
 	const pollInterval = 100;
 	const maxWaitTime = 15000; // 15 seconds timeout
