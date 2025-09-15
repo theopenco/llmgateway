@@ -116,4 +116,4 @@ jobs:
           mkdir -p .vitest-reports
           find ./e2e-results -name "*.blob" -exec mv {} .vitest-reports/ \;
           # Merge reports - this will fail if tests failed, providing the final status
-          cross-env-shell "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}" E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --merge-reports
+          pnpm vitest run -c vitest/vitest.e2e.config.mts --merge-reports
