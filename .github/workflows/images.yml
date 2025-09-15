@@ -281,7 +281,10 @@ jobs:
     needs:
       - setup
       - merge-unified
-    if: needs.setup.result == 'success' && needs.merge-unified.result == 'success'
+      - test-build-unified
+    if: |
+      (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-unified.result == 'success') ||
+      (github.event_name == 'pull_request' && needs.test-build-unified.result == 'success')
     permissions:
       contents: read
       packages: read
@@ -322,7 +325,14 @@ jobs:
       - name: Test unified Docker image
         run: |
           chmod +x .github/test-unified-docker.sh
-          .github/test-unified-docker.sh ghcr.io/${{ github.repository }}-unified:${{ needs.setup.outputs.image_tag }}
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # For PRs, we need to build the image locally since it's not pushed
+            docker build -f infra/unified.dockerfile -t test-unified-image:latest --build-arg APP_VERSION=pr-test .
+            .github/test-unified-docker.sh test-unified-image:latest
+          else
+            # For non-PRs, use the pushed image
+            .github/test-unified-docker.sh ghcr.io/${{ github.repository }}-unified:${{ needs.setup.outputs.image_tag }}
+          fi
 
   # PR-specific jobs that only build without pushing
   test-build-split:
