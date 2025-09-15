@@ -20,6 +20,10 @@ describe("e2e", { concurrent: true }, () => {
 
 	beforeEach(beforeEachHook);
 
+	test("empty", () => {
+		expect(true).toBe(true);
+	});
+
 	if (fullMode) {
 		const reasoningToolCallModels = testModels.filter((m) =>
 			m.providers.some(
