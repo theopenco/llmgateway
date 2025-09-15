@@ -35,6 +35,12 @@ declare -A CONTAINER_IDS
 # Function to clean up containers on exit
 cleanup() {
   echo -e "${YELLOW}Cleaning up containers...${NC}"
+  if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
+    echo "Stopping docker-compose services"
+    docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+    rm -f "$TEMP_COMPOSE_FILE"
+  fi
+  # Fallback: direct container cleanup
   for app in "${!APP_PORTS[@]}"; do
     container_name="${CONTAINER_PREFIX}-${app}"
     if docker ps -q -f name=$container_name | grep -q .; then
@@ -98,99 +104,212 @@ wait_for_endpoints() {
 echo "=== LLMGateway Split Docker Images Test ==="
 echo "Testing split Docker images with prefix: $IMAGE_PREFIX"
 
-# Step 1: Pull or verify images
-for app in "${!APP_PORTS[@]}"; do
-  image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
-  
-  if [ "$LOCAL_IMAGE_FLAG" == "--local" ]; then
-    echo -e "${YELLOW}Using locally built image: $image_name${NC}"
-    # Verify the local image exists
+# Step 1: Create temporary docker-compose file
+TEMP_COMPOSE_FILE=$(mktemp -t docker-compose-split-test-XXXX.yml)
+echo -e "${YELLOW}Creating temporary docker-compose file: $TEMP_COMPOSE_FILE${NC}"
+
+cat > "$TEMP_COMPOSE_FILE" << EOF
+name: llmgateway-split-test
+
+services:
+  gateway:
+    image: ${IMAGE_PREFIX}-gateway:${IMAGE_TAG}
+    container_name: ${CONTAINER_PREFIX}-gateway
+    ports:
+      - "4001:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - test-network
+    environment:
+      - NODE_ENV=production
+      - PORT=80
+      - DATABASE_URL=postgres://postgres:test_password@postgres:5432/llmgateway
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=test_password
+
+  api:
+    image: ${IMAGE_PREFIX}-api:${IMAGE_TAG}
+    container_name: ${CONTAINER_PREFIX}-api
+    ports:
+      - "4002:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - test-network
+    environment:
+      - NODE_ENV=production
+      - RUN_MIGRATIONS=true
+      - PORT=80
+      - DATABASE_URL=postgres://postgres:test_password@postgres:5432/llmgateway
+      - UI_URL=http://localhost:3002
+      - API_URL=http://localhost:4002
+      - ORIGIN_URL=http://localhost:3002
+      - COOKIE_DOMAIN=localhost
+      - PASSKEY_RP_ID=localhost
+      - PASSKEY_RP_NAME=LLMGateway
+
+  ui:
+    image: ${IMAGE_PREFIX}-ui:${IMAGE_TAG}
+    container_name: ${CONTAINER_PREFIX}-ui
+    ports:
+      - "3002:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - test-network
+    environment:
+      - API_URL=http://localhost:4002
+      - DOCS_URL=http://localhost:3005
+
+  docs:
+    image: ${IMAGE_PREFIX}-docs:${IMAGE_TAG}
+    container_name: ${CONTAINER_PREFIX}-docs
+    ports:
+      - "3005:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - test-network
+    environment:
+      - DOCS_URL=http://localhost:3005
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: ${CONTAINER_PREFIX}-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: llmgateway
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test-network
+
+  redis:
+    image: redis:8-alpine
+    container_name: ${CONTAINER_PREFIX}-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "test_password"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge
+EOF
+
+# Step 2: Verify images exist (for local builds)
+if [ "$LOCAL_IMAGE_FLAG" == "--local" ]; then
+  echo -e "${YELLOW}Verifying locally built images...${NC}"
+  for app in "${!APP_PORTS[@]}"; do
+    image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
     if ! docker image inspect "$image_name" >/dev/null 2>&1; then
       echo -e "${RED}Local image not found: $image_name${NC}"
       exit 1
     fi
     echo -e "${GREEN}Local image verified: $app${NC}"
-  else
-    echo -e "${YELLOW}Pulling Docker image for $app...${NC}"
+  done
+else
+  echo -e "${YELLOW}Pulling Docker images...${NC}"
+  for app in "${!APP_PORTS[@]}"; do
+    image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
     if ! docker pull "$image_name"; then
       echo -e "${RED}Failed to pull image: $image_name${NC}"
       exit 1
     fi
     echo -e "${GREEN}Image pulled successfully: $app${NC}"
-  fi
-done
-
-# Step 2: Stop and remove any existing containers
-for app in "${!APP_PORTS[@]}"; do
-  container_name="${CONTAINER_PREFIX}-${app}"
-  if docker ps -a -q -f name=$container_name | grep -q .; then
-    echo -e "${YELLOW}Removing existing container: $container_name${NC}"
-    docker stop $container_name >/dev/null 2>&1 || true
-    docker rm $container_name >/dev/null 2>&1 || true
-  fi
-done
-
-# Step 3: Start all containers
-echo -e "${YELLOW}Starting split Docker containers...${NC}"
-for app in "${!APP_PORTS[@]}"; do
-  container_name="${CONTAINER_PREFIX}-${app}"
-  image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
-  port="${APP_PORTS[$app]}"
-  
-  echo -e "${YELLOW}Starting $app container on port $port...${NC}"
-  
-  if ! docker run -d \
-    --name $container_name \
-    -p ${port}:${port} \
-    -e NODE_ENV=production \
-    -e NEXTAUTH_SECRET="test-secret-key-for-docker-testing" \
-    -e NEXTAUTH_URL="http://localhost:3002" \
-    "$image_name"; then
-    echo -e "${RED}Failed to start $app container${NC}"
-    RESULTS[$app]="START_FAILED"
-    continue
-  fi
-  
-  CONTAINER_IDS[$app]=$(docker ps -q -f name=$container_name)
-  echo -e "${GREEN}$app container started successfully${NC}"
-done
-
-# Step 4: Wait for containers to be running
-echo -e "${YELLOW}Waiting for containers to be fully running...${NC}"
-sleep_count=0
-while [ $sleep_count -lt $STARTUP_TIMEOUT ]; do
-  all_running=true
-  
-  for app in "${!APP_PORTS[@]}"; do
-    container_name="${CONTAINER_PREFIX}-${app}"
-    if [ "${RESULTS[$app]}" != "START_FAILED" ] && ! docker ps -q -f name=$container_name | grep -q .; then
-      all_running=false
-      break
-    fi
   done
+fi
+
+# Step 3: Stop any existing compose services
+echo -e "${YELLOW}Stopping any existing services...${NC}"
+docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+
+# Step 4: Start the services using docker-compose
+echo -e "${YELLOW}Starting split Docker services...${NC}"
+if ! docker-compose -f "$TEMP_COMPOSE_FILE" up -d; then
+  echo -e "${RED}Failed to start services${NC}"
+  exit 1
+fi
+
+echo -e "${GREEN}Services started successfully${NC}"
+
+# Step 5: Wait for services to be healthy
+echo -e "${YELLOW}Waiting for services to become healthy...${NC}"
+timeout_count=0
+max_timeout=$((STARTUP_TIMEOUT / 5))
+
+while [ $timeout_count -lt $max_timeout ]; do
+  healthy_count=0
+  total_services=4  # api, gateway, ui, docs (postgres and redis are dependencies)
   
-  if $all_running; then
-    echo -e "${GREEN}All containers are running${NC}"
+  # Check health status of each service
+  if docker-compose -f "$TEMP_COMPOSE_FILE" ps api | grep -q "healthy"; then
+    healthy_count=$((healthy_count + 1))
+  fi
+  if docker-compose -f "$TEMP_COMPOSE_FILE" ps gateway | grep -q "healthy"; then
+    healthy_count=$((healthy_count + 1))
+  fi
+  if docker-compose -f "$TEMP_COMPOSE_FILE" ps ui | grep -q "healthy"; then
+    healthy_count=$((healthy_count + 1))
+  fi
+  if docker-compose -f "$TEMP_COMPOSE_FILE" ps docs | grep -q "healthy"; then
+    healthy_count=$((healthy_count + 1))
+  fi
+  
+  if [ $healthy_count -eq $total_services ]; then
+    echo -e "${GREEN}All services are healthy${NC}"
     break
   fi
   
-  if [ $sleep_count -ge $STARTUP_TIMEOUT ]; then
-    echo -e "${RED}Some containers failed to start within ${STARTUP_TIMEOUT}s${NC}"
-    for app in "${!APP_PORTS[@]}"; do
-      container_name="${CONTAINER_PREFIX}-${app}"
-      echo -e "${YELLOW}Logs for $app:${NC}"
-      docker logs $container_name --tail 20
-    done
+  echo -e "${YELLOW}Waiting for services to become healthy... ($healthy_count/$total_services healthy, ${timeout_count}/${max_timeout})${NC}"
+  sleep 5
+  timeout_count=$((timeout_count + 1))
+  
+  if [ $timeout_count -ge $max_timeout ]; then
+    echo -e "${RED}Services failed to become healthy within ${STARTUP_TIMEOUT}s${NC}"
+    docker-compose -f "$TEMP_COMPOSE_FILE" ps
+    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
     exit 1
   fi
-  
-  sleep 2
-  sleep_count=$((sleep_count + 2))
 done
-
-# Give additional time for services to initialize
-echo -e "${YELLOW}Waiting additional time for services to initialize...${NC}"
-sleep 30
 
 # Step 5: Check container logs for any immediate errors
 echo -e "${YELLOW}Checking container logs for errors...${NC}"
@@ -266,12 +385,17 @@ done
 
 # Show resource usage
 echo -e "\n=== Container Resource Usage ==="
-for app in "${!APP_PORTS[@]}"; do
-  container_name="${CONTAINER_PREFIX}-${app}"
-  if docker ps -q -f name=$container_name | grep -q .; then
-    docker stats $container_name --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
-  fi
-done
+if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
+  echo -e "${YELLOW}Container stats from docker-compose:${NC}"
+  docker-compose -f "$TEMP_COMPOSE_FILE" ps
+else
+  for app in "${!APP_PORTS[@]}"; do
+    container_name="${CONTAINER_PREFIX}-${app}"
+    if docker ps -q -f name=$container_name | grep -q .; then
+      docker stats $container_name --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
+    fi
+  done
+fi
 
 # Final result
 if $all_success; then
@@ -279,5 +403,9 @@ if $all_success; then
   exit 0
 else
   echo -e "\n${RED}❌ Some endpoints failed health checks. Test failed.${NC}"
+  if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
+    echo -e "${YELLOW}Container logs from docker-compose:${NC}"
+    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
+  fi
   exit 1
 fi

@@ -27,6 +27,12 @@ declare -A RESULTS
 # Function to clean up container on exit
 cleanup() {
   echo -e "${YELLOW}Cleaning up...${NC}"
+  if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
+    echo "Stopping docker-compose services"
+    docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+    rm -f "$TEMP_COMPOSE_FILE"
+  fi
+  # Fallback: direct container cleanup
   if docker ps -q -f name=$CONTAINER_NAME | grep -q .; then
     echo "Stopping and removing container $CONTAINER_NAME"
     docker stop $CONTAINER_NAME >/dev/null 2>&1 || true
@@ -92,7 +98,43 @@ wait_for_endpoints() {
 echo "=== LLMGateway Unified Docker Image Test ==="
 echo "Testing unified Docker image: $IMAGE_NAME"
 
-# Step 1: Pull the image (skip if local)
+# Step 1: Create temporary docker-compose file
+TEMP_COMPOSE_FILE=$(mktemp -t docker-compose-test-XXXX.yml)
+echo -e "${YELLOW}Creating temporary docker-compose file: $TEMP_COMPOSE_FILE${NC}"
+
+cat > "$TEMP_COMPOSE_FILE" << EOF
+name: llmgateway-unified-test
+
+services:
+  llmgateway:
+    image: $IMAGE_NAME
+    container_name: $CONTAINER_NAME
+    ports:
+      - "3002:3002" # UI
+      - "3005:3005" # Docs
+      - "4001:4001" # Gateway
+      - "4002:4002" # API
+      - "5432:5432" # PostgreSQL
+      - "6379:6379" # Redis
+    environment:
+      - NODE_ENV=production
+      - UI_URL=http://localhost:3002
+      - API_URL=http://localhost:4002
+      - ORIGIN_URL=http://localhost:3002
+      - DOCS_URL=http://localhost:3005
+      - COOKIE_DOMAIN=localhost
+      - PASSKEY_RP_ID=localhost
+      - PASSKEY_RP_NAME=LLMGateway
+      - AUTH_SECRET=test-secret-key-for-docker-testing
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+EOF
+
+# Step 2: Pull image if needed (not for local)
 if [ "$LOCAL_IMAGE_FLAG" == "--local" ]; then
   echo -e "${YELLOW}Using locally built image: $IMAGE_NAME${NC}"
   # Verify the local image exists
@@ -110,53 +152,40 @@ else
   echo -e "${GREEN}Image pulled successfully${NC}"
 fi
 
-# Step 2: Stop and remove any existing container
-if docker ps -a -q -f name=$CONTAINER_NAME | grep -q .; then
-  echo -e "${YELLOW}Removing existing container...${NC}"
-  docker stop $CONTAINER_NAME >/dev/null 2>&1 || true
-  docker rm $CONTAINER_NAME >/dev/null 2>&1 || true
-fi
+# Step 3: Stop any existing compose services
+echo -e "${YELLOW}Stopping any existing services...${NC}"
+docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
 
-# Step 3: Start the container
-echo -e "${YELLOW}Starting unified Docker container...${NC}"
-if ! docker run -d \
-  --name $CONTAINER_NAME \
-  -p 3002:3002 \
-  -p 3005:3005 \
-  -p 4001:4001 \
-  -p 4002:4002 \
-  -e NODE_ENV=production \
-  -e NEXTAUTH_SECRET="test-secret-key-for-docker-testing" \
-  -e NEXTAUTH_URL="http://localhost:3002" \
-  "$IMAGE_NAME"; then
-  echo -e "${RED}Failed to start container${NC}"
+# Step 4: Start the services using docker-compose
+echo -e "${YELLOW}Starting unified Docker services...${NC}"
+if ! docker-compose -f "$TEMP_COMPOSE_FILE" up -d; then
+  echo -e "${RED}Failed to start services${NC}"
   exit 1
 fi
 
-echo -e "${GREEN}Container started successfully${NC}"
+echo -e "${GREEN}Services started successfully${NC}"
 
-# Step 4: Wait for container to be running
-echo -e "${YELLOW}Waiting for container to be fully running...${NC}"
-sleep_count=0
-while [ $sleep_count -lt $STARTUP_TIMEOUT ]; do
-  if is_container_running; then
-    echo -e "${GREEN}Container is running${NC}"
+# Step 5: Wait for services to be healthy
+echo -e "${YELLOW}Waiting for services to become healthy...${NC}"
+timeout_count=0
+max_timeout=$((STARTUP_TIMEOUT / 5))
+
+while [ $timeout_count -lt $max_timeout ]; do
+  if docker-compose -f "$TEMP_COMPOSE_FILE" ps | grep -q "healthy"; then
+    echo -e "${GREEN}Services are healthy${NC}"
     break
   fi
   
-  if [ $sleep_count -ge $STARTUP_TIMEOUT ]; then
-    echo -e "${RED}Container failed to start within ${STARTUP_TIMEOUT}s${NC}"
-    docker logs $CONTAINER_NAME
+  echo -e "${YELLOW}Waiting for services to become healthy... (${timeout_count}/${max_timeout})${NC}"
+  sleep 5
+  timeout_count=$((timeout_count + 1))
+  
+  if [ $timeout_count -ge $max_timeout ]; then
+    echo -e "${RED}Services failed to become healthy within ${STARTUP_TIMEOUT}s${NC}"
+    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
     exit 1
   fi
-  
-  sleep 2
-  sleep_count=$((sleep_count + 2))
 done
-
-# Give additional time for services to initialize
-echo -e "${YELLOW}Waiting additional time for services to initialize...${NC}"
-sleep 30
 
 # Step 5: Check container logs for any immediate errors
 echo -e "${YELLOW}Checking container logs for errors...${NC}"
@@ -220,6 +249,10 @@ if $all_success; then
 else
   echo -e "\n${RED}❌ Some endpoints failed health checks. Test failed.${NC}"
   echo -e "${YELLOW}Container logs (last 100 lines):${NC}"
-  docker logs $CONTAINER_NAME --tail 100
+  if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
+    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 100
+  else
+    docker logs $CONTAINER_NAME --tail 100
+  fi
   exit 1
 fi
