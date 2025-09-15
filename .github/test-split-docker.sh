@@ -11,9 +11,7 @@ NC='\033[0m' # No Color
 CONTAINER_PREFIX="llmgateway-split-test"
 IMAGE_PREFIX="${1:-ghcr.io/terragonlabs/llmgateway}"
 IMAGE_TAG="${2:-latest}"
-LOCAL_IMAGE_FLAG="${3:-}"
 STARTUP_TIMEOUT=120
-HEALTH_CHECK_TIMEOUT=60
 
 # Array of apps and their configurations
 declare -A APP_PORTS
@@ -235,28 +233,17 @@ networks:
     driver: bridge
 EOF
 
-# Step 2: Verify images exist (for local builds)
-if [ "$LOCAL_IMAGE_FLAG" == "--local" ]; then
-  echo -e "${YELLOW}Verifying locally built images...${NC}"
-  for app in "${!APP_PORTS[@]}"; do
-    image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
-    if ! docker image inspect "$image_name" >/dev/null 2>&1; then
-      echo -e "${RED}Local image not found: $image_name${NC}"
-      exit 1
-    fi
-    echo -e "${GREEN}Local image verified: $app${NC}"
-  done
-else
-  echo -e "${YELLOW}Pulling Docker images...${NC}"
-  for app in "${!APP_PORTS[@]}"; do
-    image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
-    if ! docker pull "$image_name"; then
-      echo -e "${RED}Failed to pull image: $image_name${NC}"
-      exit 1
-    fi
-    echo -e "${GREEN}Image pulled successfully: $app${NC}"
-  done
-fi
+# Step 2: Verify all local images exist
+echo -e "${YELLOW}Verifying locally built images...${NC}"
+for app in "${!APP_PORTS[@]}"; do
+  image_name="${IMAGE_PREFIX}-${app}:${IMAGE_TAG}"
+  if ! docker image inspect "$image_name" >/dev/null 2>&1; then
+    echo -e "${RED}Local image not found: $image_name${NC}"
+    echo -e "${YELLOW}Make sure to build all images first before running this test${NC}"
+    exit 1
+  fi
+  echo -e "${GREEN}Local image verified: $app${NC}"
+done
 
 # Step 3: Stop any existing compose services
 echo -e "${YELLOW}Stopping any existing services...${NC}"

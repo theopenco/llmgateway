@@ -10,9 +10,7 @@ NC='\033[0m' # No Color
 # Configuration
 CONTAINER_NAME="llmgateway-unified-test"
 IMAGE_NAME="${1:-ghcr.io/terragonlabs/llmgateway-unified:latest}"
-LOCAL_IMAGE_FLAG="${2:-}"
 STARTUP_TIMEOUT=120
-HEALTH_CHECK_TIMEOUT=60
 
 # Array of apps and their expected endpoints
 declare -A APP_ENDPOINTS
@@ -128,23 +126,14 @@ services:
       - AUTH_SECRET=test-secret-key-for-docker-testing
 EOF
 
-# Step 2: Pull image if needed (not for local)
-if [ "$LOCAL_IMAGE_FLAG" == "--local" ]; then
-  echo -e "${YELLOW}Using locally built image: $IMAGE_NAME${NC}"
-  # Verify the local image exists
-  if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    echo -e "${RED}Local image not found: $IMAGE_NAME${NC}"
-    exit 1
-  fi
-  echo -e "${GREEN}Local image verified${NC}"
-else
-  echo -e "${YELLOW}Pulling Docker image...${NC}"
-  if ! docker pull "$IMAGE_NAME"; then
-    echo -e "${RED}Failed to pull image: $IMAGE_NAME${NC}"
-    exit 1
-  fi
-  echo -e "${GREEN}Image pulled successfully${NC}"
+# Step 2: Verify local image exists
+echo -e "${YELLOW}Using locally built image: $IMAGE_NAME${NC}"
+if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+  echo -e "${RED}Local image not found: $IMAGE_NAME${NC}"
+  echo -e "${YELLOW}Make sure to build the image first before running this test${NC}"
+  exit 1
 fi
+echo -e "${GREEN}Local image verified${NC}"
 
 # Step 3: Stop any existing compose services
 echo -e "${YELLOW}Stopping any existing services...${NC}"
