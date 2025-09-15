@@ -281,10 +281,7 @@ jobs:
     needs:
       - setup
       - merge-unified
-      - test-build-unified
-    if: |
-      (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-unified.result == 'success') ||
-      (github.event_name == 'pull_request' && needs.test-build-unified.result == 'success')
+    if: needs.setup.result == 'success' && needs.merge-unified.result == 'success' && github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: read
@@ -325,14 +322,62 @@ jobs:
       - name: Test unified Docker image
         run: |
           chmod +x .github/test-unified-docker.sh
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            # For PRs, we need to build the image locally since it's not pushed
-            docker build -f infra/unified.dockerfile -t test-unified-image:latest --build-arg APP_VERSION=pr-test .
-            .github/test-unified-docker.sh test-unified-image:latest
-          else
-            # For non-PRs, use the pushed image
-            .github/test-unified-docker.sh ghcr.io/${{ github.repository }}-unified:${{ needs.setup.outputs.image_tag }}
-          fi
+          .github/test-unified-docker.sh ghcr.io/${{ github.repository }}-unified:${{ needs.setup.outputs.image_tag }}
+
+  test-unified-pr:
+    runs-on: ubuntu-latest
+    needs:
+      - test-build-unified
+    if: github.event_name == 'pull_request' && needs.test-build-unified.result == 'success'
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_USER: postgres
+          POSTGRES_DB: llmgateway
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build unified Docker image for testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/unified.dockerfile
+          platforms: linux/amd64
+          tags: test-unified-image:latest
+          push: false
+          load: true
+          cache-from: type=gha,scope=unified-linux-amd64
+          build-args: |
+            APP_VERSION=pr-test
+
+      - name: Test unified Docker image
+        run: |
+          chmod +x .github/test-unified-docker.sh
+          .github/test-unified-docker.sh test-unified-image:latest
 
   # PR-specific jobs that only build without pushing
   test-build-split:
