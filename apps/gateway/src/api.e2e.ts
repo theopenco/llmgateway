@@ -381,11 +381,9 @@ describe("e2e", { concurrent: true }, () => {
 		}
 	});
 
-	// Only clear logs and cache before each test to avoid conflicts
+	// Only clear cache before each test to avoid conflicts
 	beforeEach(async () => {
 		await clearCache();
-		// Only clear logs, not the shared test data
-		await db.delete(tables.log);
 	});
 
 	async function createProviderKey(
