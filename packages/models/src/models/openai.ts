@@ -192,7 +192,7 @@ export const openaiModels = [
 				supportsResponsesApi: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 		supportsSystemRole: false,
 	},
 	{

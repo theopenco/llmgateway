@@ -576,7 +576,7 @@ export const alibabaModels = [
 				tools: true,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 	{
 		id: "qwen3-next-80b-a3b-instruct",

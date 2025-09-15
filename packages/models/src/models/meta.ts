@@ -131,7 +131,7 @@ export const metaModels = [
 				tools: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 	{
 		id: "llama-3.3-70b-instruct",
@@ -220,6 +220,6 @@ export const metaModels = [
 				tools: true,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];

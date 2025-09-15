@@ -87,6 +87,6 @@ export const mistralModels = [
 				tools: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];
