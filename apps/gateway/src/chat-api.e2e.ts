@@ -361,7 +361,14 @@ export async function validateLogByRequestId(requestId: string) {
 	return log;
 }
 
+let setupComplete = false;
+
 export async function beforeAllHook() {
+	if (setupComplete) {
+		await clearCache();
+		return;
+	}
+
 	await clearCache();
 
 	// Clean up any existing data
@@ -426,6 +433,8 @@ export async function beforeAllHook() {
 			await createProviderKey(provider.id, envVarValue, "credits");
 		}
 	}
+
+	setupComplete = true;
 }
 
 export async function beforeEachHook() {
