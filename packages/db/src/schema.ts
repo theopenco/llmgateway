@@ -535,7 +535,6 @@ export const provider = pgTable("provider", {
 		.default("active"),
 	logsCount: integer().notNull().default(0),
 	errorsCount: integer().notNull().default(0),
-	errorRate: real().notNull().default(0),
 	throughput: real().notNull().default(0),
 	statsUpdatedAt: timestamp(),
 });
@@ -561,7 +560,6 @@ export const model = pgTable("model", {
 		.default("active"),
 	logsCount: integer().notNull().default(0),
 	errorsCount: integer().notNull().default(0),
-	errorRate: real().notNull().default(0),
 	throughput: real().notNull().default(0),
 	statsUpdatedAt: timestamp(),
 });
@@ -605,7 +603,6 @@ export const modelProviderMapping = pgTable(
 			.default("active"),
 		logsCount: integer().notNull().default(0),
 		errorsCount: integer().notNull().default(0),
-		errorRate: real().notNull().default(0),
 		throughput: real().notNull().default(0),
 		statsUpdatedAt: timestamp(),
 	},

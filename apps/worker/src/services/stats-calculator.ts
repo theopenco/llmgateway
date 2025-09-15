@@ -561,15 +561,11 @@ export async function calculateAggregatedStatistics() {
 				continue;
 			}
 
-			const pLogs = Number(aggregate.totalLogsCount || 0);
-			const pErrs = Number(aggregate.totalErrorsCount || 0);
-
 			await database
 				.update(provider)
 				.set({
-					logsCount: pLogs,
-					errorsCount: pErrs,
-					errorRate: pLogs > 0 ? pErrs / pLogs : 0,
+					logsCount: Number(aggregate.totalLogsCount || 0),
+					errorsCount: Number(aggregate.totalErrorsCount || 0),
 					throughput: Number(aggregate.avgThroughput || 0),
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
@@ -600,15 +596,11 @@ export async function calculateAggregatedStatistics() {
 				continue;
 			}
 
-			const mLogs = Number(aggregate.totalLogsCount || 0);
-			const mErrs = Number(aggregate.totalErrorsCount || 0);
-
 			await database
 				.update(model)
 				.set({
-					logsCount: mLogs,
-					errorsCount: mErrs,
-					errorRate: mLogs > 0 ? mErrs / mLogs : 0,
+					logsCount: Number(aggregate.totalLogsCount || 0),
+					errorsCount: Number(aggregate.totalErrorsCount || 0),
 					throughput: Number(aggregate.avgThroughput || 0),
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
@@ -654,15 +646,11 @@ export async function calculateAggregatedStatistics() {
 			const existingMapping = mappings[0];
 
 			if (existingMapping) {
-				const mappingLogs = Number(aggregate.totalLogsCount || 0);
-				const mappingErrs = Number(aggregate.totalErrorsCount || 0);
-
 				await database
 					.update(modelProviderMapping)
 					.set({
-						logsCount: mappingLogs,
-						errorsCount: mappingErrs,
-						errorRate: mappingLogs > 0 ? mappingErrs / mappingLogs : 0,
+						logsCount: Number(aggregate.totalLogsCount || 0),
+						errorsCount: Number(aggregate.totalErrorsCount || 0),
 						throughput: Number(aggregate.avgThroughput || 0),
 						statsUpdatedAt: new Date(),
 						updatedAt: new Date(),
