@@ -15,12 +15,12 @@ export default defineConfig({
 			reporter: ["text", "json", "html"],
 			exclude: ["**/node_modules/**", "**/dist/**"],
 		},
-		// Configure parallel execution with pool of 16 threads
-		pool: "threads",
+		// Configure parallel execution with pool of 16 forks
+		pool: "forks",
 		poolOptions: {
-			threads: {
-				maxThreads: 16,
-				minThreads: 8,
+			forks: {
+				maxForks: 16,
+				minForks: 8,
 			},
 		},
 		// Enable concurrent mode for parallel .each tests
