@@ -1,5 +1,5 @@
 {
-  "id": "02331b6f-43a2-47aa-8924-9b95f2bb8cff",
+  "id": "b5b89ec7-da0f-4d7f-b90f-aec676166133",
   "prevId": "bde28695-2866-4208-ad60-077f5e2a5587",
   "version": "7",
   "dialect": "postgresql",
@@ -1101,6 +1101,144 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.model_history": {
+      "name": "model_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "minute_timestamp": {
+          "name": "minute_timestamp",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "logs_count": {
+          "name": "logs_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "errors_count": {
+          "name": "errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "client_errors_count": {
+          "name": "client_errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "gateway_errors_count": {
+          "name": "gateway_errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "upstream_errors_count": {
+          "name": "upstream_errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "throughput": {
+          "name": "throughput",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_input_tokens": {
+          "name": "total_input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_output_tokens": {
+          "name": "total_output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_tokens": {
+          "name": "total_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_reasoning_tokens": {
+          "name": "total_reasoning_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_cached_tokens": {
+          "name": "total_cached_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_duration": {
+          "name": "total_duration",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "model_history_modelId_minuteTimestamp_unique": {
+          "name": "model_history_modelId_minuteTimestamp_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "model_id",
+            "minute_timestamp"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.model_provider_mapping": {
       "name": "model_provider_mapping",
       "schema": "",
@@ -1370,9 +1508,23 @@
           "notNull": true,
           "default": 0
         },
-        "error_rate": {
-          "name": "error_rate",
-          "type": "real",
+        "client_errors_count": {
+          "name": "client_errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "gateway_errors_count": {
+          "name": "gateway_errors_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "upstream_errors_count": {
+          "name": "upstream_errors_count",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "default": 0
@@ -1384,8 +1536,36 @@
           "notNull": true,
           "default": 0
         },
+        "total_input_tokens": {
+          "name": "total_input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "total_output_tokens": {
           "name": "total_output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_tokens": {
+          "name": "total_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_reasoning_tokens": {
+          "name": "total_reasoning_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_cached_tokens": {
+          "name": "total_cached_tokens",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1400,34 +1580,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "model_provider_mapping_history_model_id_model_id_fk": {
-          "name": "model_provider_mapping_history_model_id_model_id_fk",
-          "tableFrom": "model_provider_mapping_history",
-          "tableTo": "model",
-          "columnsFrom": [
-            "model_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "model_provider_mapping_history_provider_id_provider_id_fk": {
-          "name": "model_provider_mapping_history_provider_id_provider_id_fk",
-          "tableFrom": "model_provider_mapping_history",
-          "tableTo": "provider",
-          "columnsFrom": [
-            "provider_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "model_provider_mapping_history_modelId_providerId_minuteTimestamp_unique": {
