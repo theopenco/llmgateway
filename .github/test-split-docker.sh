@@ -36,8 +36,8 @@ declare -A CONTAINER_IDS
 cleanup() {
   echo -e "${YELLOW}Cleaning up containers...${NC}"
   if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
-    echo "Stopping docker-compose services"
-    docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+    echo "Stopping docker compose services"
+    docker compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
     rm -f "$TEMP_COMPOSE_FILE"
   fi
   # Fallback: direct container cleanup
@@ -104,9 +104,9 @@ wait_for_endpoints() {
 echo "=== LLMGateway Split Docker Images Test ==="
 echo "Testing split Docker images with prefix: $IMAGE_PREFIX"
 
-# Step 1: Create temporary docker-compose file
-TEMP_COMPOSE_FILE=$(mktemp -t docker-compose-split-test-XXXX.yml)
-echo -e "${YELLOW}Creating temporary docker-compose file: $TEMP_COMPOSE_FILE${NC}"
+# Step 1: Create temporary docker compose file
+TEMP_COMPOSE_FILE=$(mktemp -t docker compose-split-test-XXXX.yml)
+echo -e "${YELLOW}Creating temporary docker compose file: $TEMP_COMPOSE_FILE${NC}"
 
 cat > "$TEMP_COMPOSE_FILE" << EOF
 name: llmgateway-split-test
@@ -260,11 +260,11 @@ fi
 
 # Step 3: Stop any existing compose services
 echo -e "${YELLOW}Stopping any existing services...${NC}"
-docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+docker compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
 
-# Step 4: Start the services using docker-compose
+# Step 4: Start the services using docker compose
 echo -e "${YELLOW}Starting split Docker services...${NC}"
-if ! docker-compose -f "$TEMP_COMPOSE_FILE" up -d; then
+if ! docker compose -f "$TEMP_COMPOSE_FILE" up -d; then
   echo -e "${RED}Failed to start services${NC}"
   exit 1
 fi
@@ -281,16 +281,16 @@ while [ $timeout_count -lt $max_timeout ]; do
   total_services=4  # api, gateway, ui, docs (postgres and redis are dependencies)
   
   # Check health status of each service
-  if docker-compose -f "$TEMP_COMPOSE_FILE" ps api | grep -q "healthy"; then
+  if docker compose -f "$TEMP_COMPOSE_FILE" ps api | grep -q "healthy"; then
     healthy_count=$((healthy_count + 1))
   fi
-  if docker-compose -f "$TEMP_COMPOSE_FILE" ps gateway | grep -q "healthy"; then
+  if docker compose -f "$TEMP_COMPOSE_FILE" ps gateway | grep -q "healthy"; then
     healthy_count=$((healthy_count + 1))
   fi
-  if docker-compose -f "$TEMP_COMPOSE_FILE" ps ui | grep -q "healthy"; then
+  if docker compose -f "$TEMP_COMPOSE_FILE" ps ui | grep -q "healthy"; then
     healthy_count=$((healthy_count + 1))
   fi
-  if docker-compose -f "$TEMP_COMPOSE_FILE" ps docs | grep -q "healthy"; then
+  if docker compose -f "$TEMP_COMPOSE_FILE" ps docs | grep -q "healthy"; then
     healthy_count=$((healthy_count + 1))
   fi
   
@@ -305,8 +305,8 @@ while [ $timeout_count -lt $max_timeout ]; do
   
   if [ $timeout_count -ge $max_timeout ]; then
     echo -e "${RED}Services failed to become healthy within ${STARTUP_TIMEOUT}s${NC}"
-    docker-compose -f "$TEMP_COMPOSE_FILE" ps
-    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
+    docker compose -f "$TEMP_COMPOSE_FILE" ps
+    docker compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
     exit 1
   fi
 done
@@ -386,8 +386,8 @@ done
 # Show resource usage
 echo -e "\n=== Container Resource Usage ==="
 if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
-  echo -e "${YELLOW}Container stats from docker-compose:${NC}"
-  docker-compose -f "$TEMP_COMPOSE_FILE" ps
+  echo -e "${YELLOW}Container stats from docker compose:${NC}"
+  docker compose -f "$TEMP_COMPOSE_FILE" ps
 else
   for app in "${!APP_PORTS[@]}"; do
     container_name="${CONTAINER_PREFIX}-${app}"
@@ -404,8 +404,8 @@ if $all_success; then
 else
   echo -e "\n${RED}❌ Some endpoints failed health checks. Test failed.${NC}"
   if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
-    echo -e "${YELLOW}Container logs from docker-compose:${NC}"
-    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
+    echo -e "${YELLOW}Container logs from docker compose:${NC}"
+    docker compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
   fi
   exit 1
 fi

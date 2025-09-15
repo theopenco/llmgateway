@@ -28,8 +28,8 @@ declare -A RESULTS
 cleanup() {
   echo -e "${YELLOW}Cleaning up...${NC}"
   if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
-    echo "Stopping docker-compose services"
-    docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+    echo "Stopping docker compose services"
+    docker compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
     rm -f "$TEMP_COMPOSE_FILE"
   fi
   # Fallback: direct container cleanup
@@ -98,9 +98,9 @@ wait_for_endpoints() {
 echo "=== LLMGateway Unified Docker Image Test ==="
 echo "Testing unified Docker image: $IMAGE_NAME"
 
-# Step 1: Create temporary docker-compose file
-TEMP_COMPOSE_FILE=$(mktemp -t docker-compose-test-XXXX.yml)
-echo -e "${YELLOW}Creating temporary docker-compose file: $TEMP_COMPOSE_FILE${NC}"
+# Step 1: Create temporary docker compose file
+TEMP_COMPOSE_FILE=$(mktemp -t docker compose-test-XXXX.yml)
+echo -e "${YELLOW}Creating temporary docker compose file: $TEMP_COMPOSE_FILE${NC}"
 
 cat > "$TEMP_COMPOSE_FILE" << EOF
 name: llmgateway-unified-test
@@ -154,11 +154,11 @@ fi
 
 # Step 3: Stop any existing compose services
 echo -e "${YELLOW}Stopping any existing services...${NC}"
-docker-compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
+docker compose -f "$TEMP_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1 || true
 
-# Step 4: Start the services using docker-compose
+# Step 4: Start the services using docker compose
 echo -e "${YELLOW}Starting unified Docker services...${NC}"
-if ! docker-compose -f "$TEMP_COMPOSE_FILE" up -d; then
+if ! docker compose -f "$TEMP_COMPOSE_FILE" up -d; then
   echo -e "${RED}Failed to start services${NC}"
   exit 1
 fi
@@ -171,7 +171,7 @@ timeout_count=0
 max_timeout=$((STARTUP_TIMEOUT / 5))
 
 while [ $timeout_count -lt $max_timeout ]; do
-  if docker-compose -f "$TEMP_COMPOSE_FILE" ps | grep -q "healthy"; then
+  if docker compose -f "$TEMP_COMPOSE_FILE" ps | grep -q "healthy"; then
     echo -e "${GREEN}Services are healthy${NC}"
     break
   fi
@@ -182,7 +182,7 @@ while [ $timeout_count -lt $max_timeout ]; do
   
   if [ $timeout_count -ge $max_timeout ]; then
     echo -e "${RED}Services failed to become healthy within ${STARTUP_TIMEOUT}s${NC}"
-    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
+    docker compose -f "$TEMP_COMPOSE_FILE" logs --tail 50
     exit 1
   fi
 done
@@ -250,7 +250,7 @@ else
   echo -e "\n${RED}❌ Some endpoints failed health checks. Test failed.${NC}"
   echo -e "${YELLOW}Container logs (last 100 lines):${NC}"
   if [ -n "$TEMP_COMPOSE_FILE" ] && [ -f "$TEMP_COMPOSE_FILE" ]; then
-    docker-compose -f "$TEMP_COMPOSE_FILE" logs --tail 100
+    docker compose -f "$TEMP_COMPOSE_FILE" logs --tail 100
   else
     docker logs $CONTAINER_NAME --tail 100
   fi
