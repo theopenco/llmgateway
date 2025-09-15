@@ -68,11 +68,13 @@ jobs:
           ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}
 
       - name: Upload shard results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-results-${{ matrix.shard }}
           path: e2e-results-${{ matrix.shard }}.blob
           retention-days: 1
+          if-no-files-found: ignore
 
   merge-reports:
     runs-on: ubuntu-latest
