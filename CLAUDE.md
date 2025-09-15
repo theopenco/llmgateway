@@ -60,8 +60,6 @@ E2E tests are organized for optimal performance:
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 - `pnpm run setup` – Reset db, sync schema, seed data (use this for development)
-- `pnpm seed` - Seed database with initial data
-- `pnpm sync` - Sync both dev and test databases
 
 ## Architecture Overview
 
@@ -113,8 +111,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 - Use Drizzle ORM with latest object syntax
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- For schema changes: Use `pnpm push` instead of writing migrations which will generate .sql files
-- Always sync schema with `pnpm push` after table/column changes
+- For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
+- Always sync schema with `pnpm run setup` after table/column changes
 
 ### Code Standards
 
