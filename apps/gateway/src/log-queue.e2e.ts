@@ -1,12 +1,22 @@
 import "dotenv/config";
-import { beforeEach, describe, expect, test, type TestOptions } from "vitest";
+import {
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	type TestOptions,
+} from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import {
+	beforeAllHook,
+	beforeEachHook,
+	generateTestRequestId,
+} from "@/chat-helpers.e2e";
 
 import { app } from ".";
 import {
-	clearCache,
-	waitForLogs,
+	waitForLogByRequestId,
 	getProviderEnvVar,
 } from "./test-utils/test-helpers";
 
@@ -16,72 +26,8 @@ function getTestOptions(): TestOptions {
 }
 
 describe("Log Queue Processing E2E", () => {
-	beforeEach(async () => {
-		await clearCache();
-
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-			db.delete(tables.session),
-			db.delete(tables.verification),
-		]);
-
-		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		});
-
-		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
-			plan: "pro",
-		});
-
-		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		});
-
-		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		});
-
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-		});
-
-		// Set up a simple provider key for testing
-		const envVarName = getProviderEnvVar("openai");
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		if (envVarValue) {
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-openai",
-				token: envVarValue,
-				provider: "openai",
-				organizationId: "org-id",
-			});
-		}
-	});
+	beforeAll(beforeAllHook);
+	beforeEach(beforeEachHook);
 
 	test(
 		"process log queue processes logs correctly",
@@ -95,11 +41,13 @@ describe("Log Queue Processing E2E", () => {
 			}
 
 			// Make a request that should generate a log entry
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer real-token`,
+					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
 					model: "openai/gpt-4o-mini",
@@ -117,10 +65,7 @@ describe("Log Queue Processing E2E", () => {
 			expect(json).toHaveProperty("choices.[0].message.content");
 
 			// Test that the log queue processing works as expected
-			const logs = await waitForLogs(1);
-			expect(logs.length).toBe(1);
-
-			const log = logs[0];
+			const log = await waitForLogByRequestId(requestId);
 			expect(log.usedProvider).toBeTruthy();
 			expect(log.errorDetails).toBeNull();
 			expect(log.finishReason).not.toBeNull();
@@ -145,13 +90,17 @@ describe("Log Queue Processing E2E", () => {
 
 			// Make multiple requests that should generate multiple log entries
 			const promises = [];
+			const requestIds = [];
 			for (let i = 0; i < 3; i++) {
+				const requestId = generateTestRequestId();
+				requestIds.push(requestId);
 				promises.push(
 					app.request("/v1/chat/completions", {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",
 							Authorization: `Bearer real-token`,
+							"x-request-id": requestId,
 						},
 						body: JSON.stringify({
 							model: "openai/gpt-4o-mini",
@@ -172,7 +121,9 @@ describe("Log Queue Processing E2E", () => {
 			}
 
 			// Test that the log queue processing handles multiple logs
-			const logs = await waitForLogs(3);
+			const logs = await Promise.all(
+				requestIds.map((requestId) => waitForLogByRequestId(requestId)),
+			);
 			expect(logs.length).toBe(3);
 
 			for (const log of logs) {

@@ -22,7 +22,7 @@
 		"seed": "pnpm --filter db seed",
 		"setup": "docker compose down -v && docker compose up -d && sleep 5 && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
-		"test:e2e": "cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts",
+		"test:e2e": "cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
 		"test:unit": "cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" vitest run --no-file-parallelism"
 	},
 	"commitlint": {

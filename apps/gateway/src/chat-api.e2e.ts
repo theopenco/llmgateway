@@ -8,6 +8,8 @@ import {
 	type TestOptions,
 } from "vitest";
 
+import { beforeAllHook, beforeEachHook } from "@/chat-helpers.e2e";
+
 import { db, tables } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -17,12 +19,7 @@ import {
 } from "@llmgateway/models";
 
 import { app } from ".";
-import {
-	clearCache,
-	waitForLogByRequestId,
-	getProviderEnvVar,
-	readAll,
-} from "./test-utils/test-helpers";
+import { waitForLogByRequestId, readAll } from "./test-utils/test-helpers";
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
@@ -362,72 +359,6 @@ export async function validateLogByRequestId(requestId: string) {
 	expect(log.requestedModel).toBeTruthy();
 
 	return log;
-}
-
-export async function beforeAllHook() {
-	await clearCache();
-
-	// Set up shared test data that all tests can use - use ON CONFLICT DO NOTHING to avoid duplicate key errors
-	await db
-		.insert(tables.user)
-		.values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		})
-		.onConflictDoNothing();
-
-	await db
-		.insert(tables.organization)
-		.values({
-			id: "org-id",
-			name: "Test Organization",
-			plan: "pro",
-		})
-		.onConflictDoNothing();
-
-	await db
-		.insert(tables.userOrganization)
-		.values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		})
-		.onConflictDoNothing();
-
-	await db
-		.insert(tables.project)
-		.values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		})
-		.onConflictDoNothing();
-
-	await db
-		.insert(tables.apiKey)
-		.values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-		})
-		.onConflictDoNothing();
-
-	// Set up provider keys for all providers
-	for (const provider of providers) {
-		const envVarName = getProviderEnvVar(provider.id);
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		if (envVarValue) {
-			await createProviderKey(provider.id, envVarValue, "api-keys");
-			await createProviderKey(provider.id, envVarValue, "credits");
-		}
-	}
-}
-
-export async function beforeEachHook() {
-	await clearCache();
 }
 
 describe("e2e", { concurrent: true }, () => {
