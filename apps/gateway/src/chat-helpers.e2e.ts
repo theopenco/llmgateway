@@ -4,6 +4,7 @@ import { describe, expect, it, type TestOptions } from "vitest";
 import { db, tables } from "@llmgateway/db";
 import {
 	type ModelDefinition,
+	getProviderEnvVar,
 	models,
 	type ProviderModelMapping,
 	providers,
@@ -12,7 +13,7 @@ import {
 import {
 	clearCache,
 	waitForLogByRequestId,
-	getProviderEnvVar,
+	getConcurrentTestOptions,
 } from "./test-utils/test-helpers";
 
 // Helper function to generate unique request IDs for tests
@@ -24,6 +25,9 @@ export function generateTestRequestId(): string {
 export function getTestOptions(): TestOptions {
 	return process.env.CI ? { retry: 3 } : {};
 }
+
+// Re-export getConcurrentTestOptions from test-utils
+export { getConcurrentTestOptions };
 
 console.log("running with test options:", getTestOptions());
 
@@ -421,7 +425,7 @@ export async function beforeEachHook() {
 	await clearCache();
 }
 
-describe("e2e", { concurrent: true }, () => {
+describe("e2e", getConcurrentTestOptions(), () => {
 	it("empty", () => {
 		expect(true).toBe(true);
 	});

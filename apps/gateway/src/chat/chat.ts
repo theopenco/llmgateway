@@ -7,7 +7,6 @@ import { streamSSE } from "hono/streaming";
 import { calculateCosts } from "@/lib/costs";
 import { throwIamException, validateModelAccess } from "@/lib/iam";
 import { insertLog } from "@/lib/logs";
-import { getProviderEnvVar, hasProviderEnvironmentToken } from "@/lib/provider";
 import { checkFreeModelRateLimit } from "@/lib/rate-limit";
 
 import {
@@ -33,6 +32,10 @@ import {
 	type tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import {
+	getProviderEnvVar,
+	hasProviderEnvironmentToken,
+} from "@llmgateway/models";
 import {
 	getCheapestFromAvailableProviders,
 	getModelStreamingSupport,
