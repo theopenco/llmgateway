@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "tsc && tsup",
-		"dev": "nodemon -e ts,json --exec \"tsx src/index.ts\"",
+		"dev": "tsup && nodemon dist/index.js",
 		"start": "node --enable-source-maps dist/index.js"
 	},
 	"dependencies": {

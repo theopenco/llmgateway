@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "tsc && tsup && pnpm run generate",
-		"dev": "nodemon -e ts,json --exec 'tsx src/serve.ts'",
+		"dev": "tsup && nodemon dist/serve.js",
 		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
 		"start": "node --enable-source-maps dist/serve.js"
 	},

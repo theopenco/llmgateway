@@ -18,7 +18,8 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && tsup"
+		"build": "tsc && tsup",
+		"dev": "tsup --watch"
 	},
 	"dependencies": {
 		"@llmgateway/logger": "workspace:*"
