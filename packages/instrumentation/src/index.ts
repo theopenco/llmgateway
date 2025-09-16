@@ -22,6 +22,15 @@ import type { Sampler, SamplingResult } from "@opentelemetry/sdk-trace-base";
 
 const logger = createLogger({ name: "instrumentation" });
 
+// Error detection patterns (hoisted to avoid per-call allocation)
+const ERROR_NAME_PATTERNS = [
+	/error/i,
+	/exception/i,
+	/fail/i,
+	/timeout/i,
+	/abort/i,
+];
+
 class HeaderBasedForceSampler implements Sampler {
 	private fallbackSampler: Sampler;
 
@@ -121,20 +130,12 @@ class ErrorAwareSampler implements Sampler {
 		}
 
 		// Check for likely error indicator set by middleware
-		if (attributes["http.likely_error"]) {
+		if (attributes["sampling.likely_error"]) {
 			return true;
 		}
 
 		// Check for error-related span names
-		const errorPatterns = [
-			/error/i,
-			/exception/i,
-			/fail/i,
-			/timeout/i,
-			/abort/i,
-		];
-
-		return errorPatterns.some((pattern) => pattern.test(spanName));
+		return ERROR_NAME_PATTERNS.some((pattern) => pattern.test(spanName));
 	}
 
 	public toString(): string {

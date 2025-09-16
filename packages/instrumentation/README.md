@@ -69,7 +69,7 @@ The error-aware sampling works by:
 1. **Heuristic Detection**: Identifies likely error spans based on:
    - HTTP status codes ≥ 400
    - Error-related span names (containing "error", "exception", "fail", "timeout", "abort")
-   - Custom `http.likely_error` attribute set by middleware
+   - Custom `sampling.likely_error` attribute set by middleware
 
 2. **Differential Sampling**: Applies different sampling rates:
    - Normal spans: Uses `OTEL_SAMPLE_RATE`
