@@ -5,7 +5,7 @@ import { passkey } from "better-auth/plugins/passkey";
 import Redis from "ioredis";
 import nodemailer from "nodemailer";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
@@ -20,6 +20,7 @@ const smtpPass = process.env.SMTP_PASS;
 const smtpFromEmail =
 	process.env.SMTP_FROM_EMAIL || "contact@email.llmgateway.io";
 const replyToEmail = process.env.SMTP_REPLY_TO_EMAIL || "contact@llmgateway.io";
+const isHosted = process.env.HOSTED === "true";
 
 export const redisClient = new Redis({
 	host: process.env.REDIS_HOST || "localhost",
@@ -426,72 +427,79 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 			passkey: tables.passkey,
 		},
 	}),
-	emailVerification: {
-		sendOnSignUp: true,
-		autoSignInAfterVerification: true,
-		// TODO this should be afterEmailVerification in better-auth v1.3
-		onEmailVerification: async (user: {
-			id: string;
-			email: string;
-			name?: string | null;
-		}) => {
-			// Add verified email to Brevo CRM
-			await createBrevoContact(user.email, user.name || undefined);
-		},
-		sendVerificationEmail: async ({ user, token }) => {
-			const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
-			if (!smtpHost || !smtpUser || !smtpPass) {
-				const isDev = process.env.NODE_ENV === "development";
-				const maskedUrl = isDev
-					? url
-					: url.replace(
-							/token=[^&]+/,
-							`token=${token.slice(0, 4)}...${token.slice(-4)}`,
-						);
-
-				logger.info("Email verification link generated", {
-					...(isDev ? { url } : { maskedUrl }),
-					userId: user.id,
-				});
-				logger.error(
-					"SMTP configuration is not set. Email verification will not work.",
-				);
-				return;
-			}
-
-			const transporter = nodemailer.createTransport({
-				host: smtpHost,
-				port: smtpPort,
-				secure: smtpPort === 465,
-				auth: {
-					user: smtpUser,
-					pass: smtpPass,
+	emailVerification: isHosted
+		? {
+				sendOnSignUp: true,
+				autoSignInAfterVerification: true,
+				// TODO this should be afterEmailVerification in better-auth v1.3
+				onEmailVerification: async (user: {
+					id: string;
+					email: string;
+					name?: string | null;
+				}) => {
+					// Add verified email to Brevo CRM
+					await createBrevoContact(user.email, user.name || undefined);
 				},
-			});
+				sendVerificationEmail: async ({ user, token }) => {
+					const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+					if (!smtpHost || !smtpUser || !smtpPass) {
+						const isDev = process.env.NODE_ENV === "development";
+						const maskedUrl = isDev
+							? url
+							: url.replace(
+									/token=[^&]+/,
+									`token=${token.slice(0, 4)}...${token.slice(-4)}`,
+								);
 
-			try {
-				await transporter.sendMail({
-					from: smtpFromEmail,
-					replyTo: replyToEmail,
-					to: user.email,
-					subject: "Verify your email address",
-					html: `
+						logger.info("Email verification link generated", {
+							...(isDev ? { url } : { maskedUrl }),
+							userId: user.id,
+						});
+						logger.error(
+							"SMTP configuration is not set. Email verification will not work.",
+						);
+						return;
+					}
+
+					const transporter = nodemailer.createTransport({
+						host: smtpHost,
+						port: smtpPort,
+						secure: smtpPort === 465,
+						auth: {
+							user: smtpUser,
+							pass: smtpPass,
+						},
+					});
+
+					try {
+						await transporter.sendMail({
+							from: smtpFromEmail,
+							replyTo: replyToEmail,
+							to: user.email,
+							subject: "Verify your email address",
+							html: `
 						<h1>Welcome to LLMGateway!</h1>
 						<p>Please click the link below to verify your email address:</p>
 						<a href="${url}">Verify Email</a>
 						<p>If you didn't create an account, you can safely ignore this email.</p>
 						<p>Have feedback? Let us know by replying to this email – we might also have some free credits for you!</p>
 					`,
-				});
-			} catch (error) {
-				logger.error(
-					"Failed to send verification email",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-				throw new Error("Failed to send verification email. Please try again.");
+						});
+					} catch (error) {
+						logger.error(
+							"Failed to send verification email",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+						throw new Error(
+							"Failed to send verification email. Please try again.",
+						);
+					}
+				},
 			}
-		},
-	},
+		: {
+				sendOnSignUp: false,
+				autoSignInAfterVerification: false,
+			},
 	hooks: {
 		before: createAuthMiddleware(async (ctx) => {
 			// Check and record rate limit for ALL signup attempts
@@ -564,6 +572,18 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 
 					// Perform all DB operations in a single transaction for atomicity
 					await db.transaction(async (tx) => {
+						// For self-hosted installations, automatically verify the user's email
+						if (!isHosted) {
+							await tx
+								.update(tables.user)
+								.set({ emailVerified: true })
+								.where(eq(tables.user.id, userId));
+
+							logger.info("Automatically verified email for self-hosted user", {
+								userId,
+							});
+						}
+
 						// Create a default organization
 						const [organization] = await tx
 							.insert(tables.organization)
