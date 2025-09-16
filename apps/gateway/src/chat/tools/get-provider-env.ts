@@ -5,9 +5,9 @@ import { getProviderEnvVar, type Provider } from "@llmgateway/models";
 /**
  * Get provider token from environment variables
  * @param usedProvider The provider to get the token for
- * @returns The token for the provider or undefined if not found
+ * @returns The token for the provider
  */
-export function getProviderEnv(usedProvider: Provider): string | undefined {
+export function getProviderEnv(usedProvider: Provider): string {
 	const envVar = getProviderEnvVar(usedProvider);
 	if (!envVar) {
 		throw new HTTPException(400, {
