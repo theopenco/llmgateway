@@ -1977,7 +1977,9 @@ chat.openapi(completions, async (c) => {
 
 							if (finalTotalTokens === null) {
 								finalTotalTokens =
-									(finalPromptTokens || 0) + (finalCompletionTokens || 0);
+									(finalPromptTokens || 0) +
+									(finalCompletionTokens || 0) +
+									(reasoningTokens || 0);
 							}
 
 							// Send final usage chunk before [DONE] if we have any usage data
@@ -2001,10 +2003,13 @@ chat.openapi(completions, async (c) => {
 									usage: {
 										prompt_tokens: Math.max(1, finalPromptTokens || 1),
 										completion_tokens: finalCompletionTokens || 0,
-										total_tokens: Math.max(
-											1,
-											finalTotalTokens || Math.max(1, finalPromptTokens || 1),
-										),
+										total_tokens: (() => {
+											const fallbackTotal =
+												(finalPromptTokens || 0) +
+												(finalCompletionTokens || 0) +
+												(reasoningTokens || 0);
+											return Math.max(1, finalTotalTokens ?? fallbackTotal);
+										})(),
 									},
 								};
 

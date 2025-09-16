@@ -54,10 +54,13 @@ export function transformResponseToOpenai(
 				usage: {
 					prompt_tokens: Math.max(1, promptTokens || 1),
 					completion_tokens: completionTokens || 0,
-					total_tokens: Math.max(
-						1,
-						totalTokens || Math.max(1, promptTokens || 1),
-					),
+					total_tokens: (() => {
+						const fallbackTotal =
+							(promptTokens || 0) +
+							(completionTokens || 0) +
+							(reasoningTokens || 0);
+						return Math.max(1, totalTokens ?? fallbackTotal);
+					})(),
 					...(reasoningTokens !== null && {
 						reasoning_tokens: reasoningTokens,
 					}),
@@ -105,10 +108,13 @@ export function transformResponseToOpenai(
 				usage: {
 					prompt_tokens: Math.max(1, promptTokens || 1),
 					completion_tokens: completionTokens || 0,
-					total_tokens: Math.max(
-						1,
-						totalTokens || Math.max(1, promptTokens || 1),
-					),
+					total_tokens: (() => {
+						const fallbackTotal =
+							(promptTokens || 0) +
+							(completionTokens || 0) +
+							(reasoningTokens || 0);
+						return Math.max(1, totalTokens ?? fallbackTotal);
+					})(),
 					...(reasoningTokens !== null && {
 						reasoning_tokens: reasoningTokens,
 					}),
@@ -153,10 +159,13 @@ export function transformResponseToOpenai(
 					usage: {
 						prompt_tokens: Math.max(1, promptTokens || 1),
 						completion_tokens: completionTokens || 0,
-						total_tokens: Math.max(
-							1,
-							totalTokens || Math.max(1, promptTokens || 1),
-						),
+						total_tokens: (() => {
+							const fallbackTotal =
+								(promptTokens || 0) +
+								(completionTokens || 0) +
+								(reasoningTokens || 0);
+							return Math.max(1, totalTokens ?? fallbackTotal);
+						})(),
 						...(reasoningTokens !== null && {
 							reasoning_tokens: reasoningTokens,
 						}),
@@ -217,10 +226,13 @@ export function transformResponseToOpenai(
 					usage: {
 						prompt_tokens: Math.max(1, promptTokens || 1),
 						completion_tokens: completionTokens || 0,
-						total_tokens: Math.max(
-							1,
-							totalTokens || Math.max(1, promptTokens || 1),
-						),
+						total_tokens: (() => {
+							const fallbackTotal =
+								(promptTokens || 0) +
+								(completionTokens || 0) +
+								(reasoningTokens || 0);
+							return Math.max(1, totalTokens ?? fallbackTotal);
+						})(),
 						...(reasoningTokens !== null && {
 							reasoning_tokens: reasoningTokens,
 						}),
