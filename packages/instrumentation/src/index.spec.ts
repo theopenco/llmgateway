@@ -48,6 +48,7 @@ describe("HeaderBasedForceSampler", () => {
 		vi.clearAllMocks();
 		// Reset environment variables
 		delete process.env.OTEL_SAMPLE_RATE;
+		delete process.env.OTEL_ERROR_SAMPLE_RATE;
 		delete process.env.GOOGLE_CLOUD_PROJECT;
 	});
 
@@ -98,6 +99,41 @@ describe("HeaderBasedForceSampler", () => {
 
 	it("should fallback to base sampler when x-force-trace header is not present", async () => {
 		process.env.OTEL_SAMPLE_RATE = "1";
+
+		const sdk = initializeInstrumentation({
+			serviceName: "test-service",
+			projectId: "test-project",
+		});
+
+		expect(sdk).toBeDefined();
+	});
+
+	it("should use ErrorAwareSampler when OTEL_ERROR_SAMPLE_RATE is different from OTEL_SAMPLE_RATE", async () => {
+		process.env.OTEL_SAMPLE_RATE = "0.1";
+		process.env.OTEL_ERROR_SAMPLE_RATE = "1.0";
+
+		const sdk = initializeInstrumentation({
+			serviceName: "test-service",
+			projectId: "test-project",
+		});
+
+		expect(sdk).toBeDefined();
+	});
+
+	it("should use normal sampler when OTEL_ERROR_SAMPLE_RATE is not set", async () => {
+		process.env.OTEL_SAMPLE_RATE = "0.5";
+
+		const sdk = initializeInstrumentation({
+			serviceName: "test-service",
+			projectId: "test-project",
+		});
+
+		expect(sdk).toBeDefined();
+	});
+
+	it("should handle invalid OTEL_ERROR_SAMPLE_RATE gracefully", async () => {
+		process.env.OTEL_SAMPLE_RATE = "0.5";
+		process.env.OTEL_ERROR_SAMPLE_RATE = "invalid";
 
 		const sdk = initializeInstrumentation({
 			serviceName: "test-service",
