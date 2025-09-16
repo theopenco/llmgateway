@@ -8,7 +8,7 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup",
+		"build": "tsc && tsup",
 		"dev": "nodemon -e ts,json --exec \"tsx src/index.ts\"",
 		"start": "node --enable-source-maps dist/index.js"
 	},

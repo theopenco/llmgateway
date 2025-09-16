@@ -21,7 +21,6 @@
 		],
 		"paths": {
 			"@/*": ["./src/*"],
-			"@llmgateway/*": ["../../packages/*/src"],
 			"content-collections": ["./.content-collections/generated"]
 		}
 	},

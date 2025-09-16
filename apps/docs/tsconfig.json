@@ -8,8 +8,7 @@
 		"moduleResolution": "bundler",
 		"jsx": "preserve",
 		"paths": {
-			"@/*": ["./*"],
-			"@llmgateway/*": ["../../packages/*/src"]
+			"@/*": ["./*"]
 		},
 		"plugins": [
 			{
