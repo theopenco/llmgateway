@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider";
 import { models } from "./models";
-import {
-	prepareRequestBody,
-	getCheapestModelForProvider,
-} from "./provider-api";
+import { prepareRequestBody } from "./prepare-request-body";
 
 import type { BaseMessage, OpenAIRequestBody } from "./types";
 
