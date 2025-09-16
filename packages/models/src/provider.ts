@@ -1,4 +1,4 @@
-import type { Provider } from "@llmgateway/models";
+import type { Provider } from ".";
 
 export const providerEnvVarMap: Record<Provider, string> = {
 	llmgateway: "LLMGATEWAY_API_KEY",

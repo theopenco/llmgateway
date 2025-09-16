@@ -5,6 +5,7 @@ import {
 	beforeAllHook,
 	beforeEachHook,
 	generateTestRequestId,
+	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
 	toolCallModels,
@@ -12,7 +13,7 @@ import {
 } from "@/chat-helpers.e2e";
 import { app } from "@/index";
 
-describe("e2e", { concurrent: true }, () => {
+describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
 	beforeEach(beforeEachHook);
