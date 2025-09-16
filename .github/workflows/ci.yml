@@ -24,10 +24,10 @@ jobs:
     uses: ./.github/workflows/run.yml
     secrets: inherit
     with:
-      cmd: pnpm run setup && pnpm build && bash .github/start.sh
+      cmd: pnpm build && pnpm run setup && bash .github/start.sh
 
   test:
     uses: ./.github/workflows/run.yml
     secrets: inherit
     with:
-      cmd: pnpm run setup pnpm build && && pnpm test:unit
+      cmd: pnpm build && pnpm run setup && pnpm test:unit
