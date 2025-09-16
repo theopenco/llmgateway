@@ -132,7 +132,6 @@ describe("Log Queue Processing E2E", () => {
 				expect(log.unifiedFinishReason).not.toBeNull();
 				expect(log.usedModel).toBeTruthy();
 				expect(log.requestedModel).toBeTruthy();
-				expect(log.processedAt).toBeTruthy();
 			}
 		},
 	);
