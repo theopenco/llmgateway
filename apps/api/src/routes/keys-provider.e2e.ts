@@ -1,36 +1,14 @@
 import "dotenv/config";
-import {
-	afterAll,
-	beforeAll,
-	describe,
-	expect,
-	test,
-	type TestOptions,
-} from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { app } from "@/index";
 import { deleteAll } from "@/testing";
 
 import { db, tables } from "@llmgateway/db";
-import {
-	models,
-	type ProviderModelMapping,
-	providers,
-} from "@llmgateway/models";
+import { getProviderEnvVar, providers } from "@llmgateway/models";
 
-import { app } from "..";
 // eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
-
-function getTestOptions(): TestOptions {
-	const hasTestOnly = models.some((model) =>
-		model.providers.some(
-			(provider: ProviderModelMapping) => provider.test === "only",
-		),
-	);
-	return process.env.CI
-		? { retry: 3 }
-		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
-}
+import { getConcurrentTestOptions } from "../../../gateway/src/test-utils/test-helpers";
 
 // Helper function to generate unique IDs for tests
 function generateTestId(): string {
@@ -39,7 +17,7 @@ function generateTestId(): string {
 
 describe(
 	"e2e tests for provider keys",
-	{ concurrent: true, ...getTestOptions() },
+	getConcurrentTestOptions({ completions: false }),
 	() => {
 		beforeAll(async () => {
 			// Clean the database once before all tests

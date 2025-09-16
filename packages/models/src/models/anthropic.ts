@@ -24,6 +24,28 @@ export const anthropicModels = [
 		],
 	},
 	{
+		id: "claude-3-5-haiku-20241022",
+		name: "Claude 3.5 Haiku (2024-10-22)",
+		family: "anthropic",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "anthropic",
+				modelName: "claude-3-5-haiku-20241022",
+				inputPrice: 0.8 / 1e6,
+				outputPrice: 4.0 / 1e6,
+				cachedInputPrice: 0.08 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 8192,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+		],
+	},
+	{
 		id: "claude-3-7-sonnet-20250219",
 		name: "Claude 3.7 Sonnet (2025-02-19)",
 		family: "anthropic",

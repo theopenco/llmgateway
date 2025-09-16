@@ -5,6 +5,7 @@ import {
 	beforeAllHook,
 	beforeEachHook,
 	generateTestRequestId,
+	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
 	streamingModels,
@@ -13,7 +14,7 @@ import {
 import { app } from "@/index";
 import { readAll } from "@/test-utils/test-helpers";
 
-describe("e2e", { concurrent: true }, () => {
+describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
 	beforeEach(beforeEachHook);

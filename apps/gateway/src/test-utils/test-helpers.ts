@@ -1,13 +1,42 @@
 import { redisClient } from "@llmgateway/cache";
 import { db, tables, eq } from "@llmgateway/db";
+import { models, type ProviderModelMapping } from "@llmgateway/models";
 
 // eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
 import { processLogQueue } from "../../../worker/src/worker";
 
-export { getProviderEnvVar } from "../lib/provider";
+import type { TestOptions } from "vitest";
 
 export async function clearCache() {
 	await redisClient.flushdb();
+}
+
+/**
+ * Helper function to get test options with retry for CI environment
+ */
+export function getTestOptions(
+	opts: { completions?: boolean } = {
+		completions: true,
+	},
+): TestOptions {
+	const hasTestOnly = models.some((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.test === "only",
+		),
+	);
+	return process.env.CI || opts?.completions
+		? { retry: 3 }
+		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
+}
+
+/**
+ * Helper function to get concurrent test options with retry for CI environment
+ * @returns TestOptions with concurrent: true and CI retry configuration
+ */
+export function getConcurrentTestOptions(opts?: {
+	completions?: boolean;
+}): TestOptions {
+	return { concurrent: true, ...getTestOptions(opts) };
 }
 
 /**

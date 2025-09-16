@@ -13,3 +13,4 @@ openapi.json
 llmgateway_data
 .claude/settings.local.json
 http
+*.txt

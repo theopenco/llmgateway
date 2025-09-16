@@ -14,11 +14,10 @@ import {
 	generateTestRequestId,
 } from "@/chat-helpers.e2e";
 
+import { getProviderEnvVar } from "@llmgateway/models";
+
 import { app } from ".";
-import {
-	waitForLogByRequestId,
-	getProviderEnvVar,
-} from "./test-utils/test-helpers";
+import { waitForLogByRequestId } from "./test-utils/test-helpers";
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions(): TestOptions {
