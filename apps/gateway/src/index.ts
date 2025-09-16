@@ -10,6 +10,7 @@ import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+import { anthropic } from "./anthropic/anthropic";
 import { chat } from "./chat/chat";
 import { tracingMiddleware } from "./middleware/tracing";
 import { models } from "./models";
@@ -198,6 +199,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
 v1.route("/models", models);
+v1.route("/messages", anthropic);
 
 app.route("/v1", v1);
 

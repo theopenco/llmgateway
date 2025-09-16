@@ -5,6 +5,7 @@ import { testModels } from "@/chat-helpers.e2e";
 import {
 	beforeAllHook,
 	beforeEachHook,
+	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
 } from "@/chat-helpers.e2e";
@@ -12,7 +13,7 @@ import { app } from "@/index";
 
 import { type ModelDefinition, models } from "@llmgateway/models";
 
-describe("e2e", { concurrent: true }, () => {
+describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
 	beforeEach(beforeEachHook);
