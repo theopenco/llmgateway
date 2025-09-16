@@ -9,9 +9,9 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "tsc && tsup && pnpm run generate",
-		"dev": "tsup && nodemon dist/serve.js",
-		"generate": "NODE_ENV=production NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
+		"build": "tsc && pnpm run generate",
+		"dev": "tsc && nodemon dist/serve.js",
+		"generate": "node ./dist/scripts/generate-openapi.js",
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {

@@ -8,8 +8,8 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && tsup",
-		"dev": "tsup && nodemon dist/index.js",
+		"build": "tsc",
+		"dev": "tsc && nodemon dist/index.js",
 		"start": "node --enable-source-maps dist/index.js"
 	},
 	"dependencies": {
