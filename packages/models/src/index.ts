@@ -1,4 +1,5 @@
 export * from "./models";
+export * from "./provider";
 export * from "./providers";
 export * from "./provider-api";
 export * from "./types";

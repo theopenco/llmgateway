@@ -1,16 +1,11 @@
 import "dotenv/config";
-import {
-	beforeAll,
-	beforeEach,
-	describe,
-	expect,
-	test,
-	type TestOptions,
-} from "vitest";
+import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
 	beforeAllHook,
 	beforeEachHook,
+	getConcurrentTestOptions,
+	getTestOptions,
 	logMode,
 	providerModels,
 	testModels,
@@ -18,35 +13,11 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e";
 
-import { models, type ProviderModelMapping } from "@llmgateway/models";
-
 import { app } from ".";
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
 	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
-
-// Helper function to get test options with retry for CI environment
-export function getTestOptions(
-	opts: { completions?: boolean } = {
-		completions: true,
-	},
-): TestOptions {
-	const hasTestOnly = models.some((model) =>
-		model.providers.some(
-			(provider: ProviderModelMapping) => provider.test === "only",
-		),
-	);
-	return process.env.CI || opts?.completions
-		? { retry: 3 }
-		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
-}
-
-export function getConcurrentTestOptions(opts?: {
-	completions?: boolean;
-}): TestOptions {
-	return { concurrent: true, ...getTestOptions(opts) };
 }
 
 describe("e2e", getConcurrentTestOptions(), () => {

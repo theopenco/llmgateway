@@ -5,12 +5,10 @@ import { app } from "@/index";
 import { deleteAll } from "@/testing";
 
 import { db, tables } from "@llmgateway/db";
-import { providers } from "@llmgateway/models";
+import { getProviderEnvVar, providers } from "@llmgateway/models";
 
 // eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { getConcurrentTestOptions } from "../../../gateway/src/chat-basic.e2e";
-// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { getProviderEnvVar } from "../../../gateway/src/test-utils/test-helpers";
+import { getConcurrentTestOptions } from "../../../gateway/src/test-utils/test-helpers";
 
 // Helper function to generate unique IDs for tests
 function generateTestId(): string {
@@ -19,9 +17,7 @@ function generateTestId(): string {
 
 describe(
 	"e2e tests for provider keys",
-	getConcurrentTestOptions({
-		completions: false,
-	}),
+	getConcurrentTestOptions({ completions: false }),
 	() => {
 		beforeAll(async () => {
 			// Clean the database once before all tests

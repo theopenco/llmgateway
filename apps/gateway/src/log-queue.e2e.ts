@@ -13,7 +13,8 @@ import {
 	beforeEachHook,
 	generateTestRequestId,
 } from "@/chat-helpers.e2e";
-import { getProviderEnvVar } from "@/lib/provider";
+
+import { getProviderEnvVar } from "@llmgateway/models";
 
 import { app } from ".";
 import { waitForLogByRequestId } from "./test-utils/test-helpers";
