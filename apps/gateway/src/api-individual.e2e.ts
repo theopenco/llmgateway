@@ -6,6 +6,7 @@ import {
 	logMode,
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e";
+import { getProviderEnvVar } from "@/lib/provider";
 
 import { db, tables, eq } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
@@ -14,7 +15,6 @@ import { app } from ".";
 import {
 	clearCache,
 	waitForLogByRequestId,
-	getProviderEnvVar,
 	readAll,
 } from "./test-utils/test-helpers";
 

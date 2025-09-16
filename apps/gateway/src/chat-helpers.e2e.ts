@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { describe, expect, it, type TestOptions } from "vitest";
 
+import { getProviderEnvVar } from "@/lib/provider";
+
 import { db, tables } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -12,7 +14,6 @@ import {
 import {
 	clearCache,
 	waitForLogByRequestId,
-	getProviderEnvVar,
 	getConcurrentTestOptions,
 } from "./test-utils/test-helpers";
 
