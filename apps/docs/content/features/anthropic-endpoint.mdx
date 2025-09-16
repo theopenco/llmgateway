@@ -1,0 +1,98 @@
+---
+title: Anthropic API Compatibility
+description: Use the Anthropic-compatible endpoint to access any LLM model through the familiar Anthropic API format.
+icon: MessageCircle
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Anthropic API Compatibility
+
+LLMGateway provides a native Anthropic-compatible endpoint at `/v1/messages` that allows you to use any model in our catalog while maintaining the familiar Anthropic API format
+This is especially useful for applications designed for Claude that you want to extend to use other models.
+
+## Overview
+
+The Anthropic endpoint transforms requests from Anthropic's message format to the OpenAI-compatible format used by LLMGateway, then transforms the responses back to Anthropic's format. This means you can:
+
+- Use **any model** available in LLMGateway with Anthropic's API format
+- Maintain existing code that uses Anthropic's SDK or API format
+- Access models from OpenAI, Google, Cohere, and other providers through the Anthropic interface
+- Leverage LLMGateway's routing, caching, and cost optimization features
+
+## Basic Usage
+
+## Configuration for Claude Code
+
+This endpoint is perfect for configuring Claude Code to use any model available in LLMGateway:
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.llmgateway.io/v1/messages
+export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
+export ANTHROPIC_MODEL=openai/gpt-4o  # or any model from our catalog
+```
+
+<Callout type="info">
+	Note the different base URL: we use `/v1/anthropic` instead of just `/v1` to
+	point to the Anthropic-compatible endpoint.
+</Callout>
+
+### Choosing Models
+
+You can use any model from the [models page](https://llmgateway.io/models). Popular options for Claude Code include:
+
+```bash
+# Use OpenAI's latest model
+export ANTHROPIC_MODEL=openai/gpt-4o
+
+# Use a cost-effective alternative
+export ANTHROPIC_MODEL=openai/gpt-4o-mini
+
+# Use Google's Gemini
+export ANTHROPIC_MODEL=google/gemini-1.5-pro
+
+# Use Anthropic's actual Claude models
+export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
+```
+
+## Advanced Features
+
+### Making a manual request
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/messages" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ],
+    "max_tokens": 100
+  }'
+```
+
+### Response Format
+
+The endpoint returns responses in Anthropic's message format:
+
+```json
+{
+	"id": "msg_abc123",
+	"type": "message",
+	"role": "assistant",
+	"model": "openai/gpt-4o-mini",
+	"content": [
+		{
+			"type": "text",
+			"text": "Hello! I'm doing well, thank you for asking. How can I help you today?"
+		}
+	],
+	"stop_reason": "end_turn",
+	"stop_sequence": null,
+	"usage": {
+		"input_tokens": 13,
+		"output_tokens": 20
+	}
+}
+```
