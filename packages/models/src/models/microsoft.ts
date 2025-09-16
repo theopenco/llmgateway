@@ -1,3 +1,3 @@
-import type { ModelDefinition } from "@/models";
+import type { ModelDefinition } from "@/models.js";
 
 export const microsoftModels = [] as const satisfies ModelDefinition[];

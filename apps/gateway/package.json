@@ -4,13 +4,18 @@
 	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
+	"imports": {
+		"@/": {
+			"default": "."
+		}
+	},
 	"files": [
 		"dist/",
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "tsc && pnpm run generate",
-		"dev": "tsc && nodemon dist/serve.js",
+		"build": "tsc && resolve-tspaths && pnpm run generate",
+		"dev": "tsc && resolve-tspaths && nodemon dist/serve.js",
 		"generate": "node ./dist/scripts/generate-openapi.js",
 		"start": "node --enable-source-maps dist/serve.js"
 	},
@@ -31,6 +36,7 @@
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.6.1",
 		"redis": "5.8.2",
+		"worker": "workspace:*",
 		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
 	},

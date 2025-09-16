@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { app } from "..";
+import { app } from "@/app.js";
 
 describe("Models API", () => {
 	test("GET /v1/models should return a list of models", async () => {

@@ -1,8 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
-import { apiAuth } from "./config";
+import { apiAuth } from "./config.js";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 // Create a Hono app for auth routes
 export const authHandler = new OpenAPIHono<ServerTypes>();

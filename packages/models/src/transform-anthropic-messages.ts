@@ -1,6 +1,6 @@
 import { logger } from "@llmgateway/logger";
 
-import { processImageUrl } from "./process-image-url";
+import { processImageUrl } from "./process-image-url.js";
 import {
 	type AnthropicMessage,
 	type BaseMessage,
@@ -10,7 +10,7 @@ import {
 	type TextContent,
 	type ToolResultContent,
 	type ToolUseContent,
-} from "./types";
+} from "./types.js";
 
 /**
  * Transforms Anthropic messages

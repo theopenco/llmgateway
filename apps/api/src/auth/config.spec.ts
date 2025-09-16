@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { apiAuth, redisClient } from "./config";
+import { apiAuth, redisClient } from "./config.js";
 
 describe("API auth configuration", () => {
 	test("should inherit basic auth configuration", () => {

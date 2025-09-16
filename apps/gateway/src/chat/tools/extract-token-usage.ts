@@ -1,4 +1,4 @@
-import { estimateTokens } from "./estimate-tokens";
+import { estimateTokens } from "./estimate-tokens.js";
 
 import type { Provider } from "@llmgateway/models";
 

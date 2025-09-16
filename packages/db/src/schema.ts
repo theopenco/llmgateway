@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
-import type { errorDetails, tools, toolChoice, toolResults } from "./types";
+import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type z from "zod";
 
 export const UnifiedFinishReason = {

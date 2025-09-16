@@ -8,8 +8,8 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && pnpm run generate",
-		"dev": "tsc && nodemon dist/serve.js",
+		"build": "tsc && resolve-tspaths && pnpm run generate",
+		"dev": "tsc && resolve-tspaths && nodemon dist/serve.js",
 		"generate": "node ./dist/scripts/generate-openapi.js",
 		"start": "node --enable-source-maps dist/serve.js"
 	},

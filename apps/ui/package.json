@@ -10,7 +10,7 @@
 	"scripts": {
 		"build": "tsc && next build",
 		"dev": "next dev --port 3002 --turbopack",
-		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
+		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"start": "next start"
 	},
 	"dependencies": {

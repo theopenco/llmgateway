@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateCosts } from "./costs";
+import { calculateCosts } from "./costs.js";
 
 describe("calculateCosts", () => {
 	it("should calculate costs with provided token counts", () => {

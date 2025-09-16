@@ -2,7 +2,7 @@ import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
 
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types";
+import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types.js";
 
 import type { Provider } from "@llmgateway/models";
 

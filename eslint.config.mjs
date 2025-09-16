@@ -45,7 +45,7 @@ export default [
 			"import/no-useless-path-segments": [
 				"error",
 				{
-					noUselessIndex: true,
+					noUselessIndex: false,
 				},
 			],
 			"import/order": [

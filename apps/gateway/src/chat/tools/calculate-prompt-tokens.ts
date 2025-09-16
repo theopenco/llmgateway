@@ -1,6 +1,6 @@
 import { encodeChat } from "gpt-tokenizer";
 
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types";
+import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types.js";
 
 /**
  * Transforms streaming chunk to OpenAI format for non-OpenAI providers

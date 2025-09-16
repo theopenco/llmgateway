@@ -3,8 +3,8 @@
 	"private": true,
 	"license": "SEE LICENSE IN LICENSE",
 	"workspaces": [
-		"apps/*",
-		"packages/*"
+		"packages/*",
+		"apps/*"
 	],
 	"scripts": {
 		"build": "TURBO_TOKEN=turbotokenoss turbo run build",
@@ -49,6 +49,7 @@
 		"nodemon": "3.1.10",
 		"prettier": "^3.6.2",
 		"prettier-plugin-tailwindcss": "^0.6.14",
+		"resolve-tspaths": "0.8.23",
 		"sort-package-json": "3.4.0",
 		"tsup": "8.4.0",
 		"tsx": "^4.19.4",

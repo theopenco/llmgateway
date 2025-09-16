@@ -2,11 +2,11 @@ import {
 	type ModelDefinition,
 	models,
 	type ProviderModelMapping,
-} from "./models";
-import { transformAnthropicMessages } from "./transform-anthropic-messages";
-import { transformGoogleMessages } from "./transform-google-messages";
+} from "./models.js";
+import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
+import { transformGoogleMessages } from "./transform-google-messages.js";
 
-import type { ProviderId } from "./providers";
+import type { ProviderId } from "./providers.js";
 import type {
 	BaseMessage,
 	FunctionParameter,
@@ -15,7 +15,7 @@ import type {
 	OpenAIToolInput,
 	ProviderRequestBody,
 	ToolChoiceType,
-} from "./types";
+} from "./types.js";
 
 /**
  * Transforms messages for models that don't support system roles by converting system messages to user messages

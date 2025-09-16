@@ -1,4 +1,4 @@
-import type { ImageObject } from "./types";
+import type { ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 /**

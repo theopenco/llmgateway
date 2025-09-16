@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
+import { app } from "@/app.js";
 import {
 	beforeAllHook,
 	beforeEachHook,
@@ -10,9 +11,8 @@ import {
 	logMode,
 	streamingModels,
 	validateLogByRequestId,
-} from "@/chat-helpers.e2e";
-import { app } from "@/index";
-import { readAll } from "@/test-utils/test-helpers";
+} from "@/chat-helpers.e2e.js";
+import { readAll } from "@/test-utils/test-helpers.js";
 
 describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);

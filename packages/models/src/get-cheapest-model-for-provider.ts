@@ -1,6 +1,6 @@
-import { models } from "./models";
+import { models } from "./models.js";
 
-import type { ProviderId } from "./providers";
+import type { ProviderId } from "./providers.js";
 
 /**
  * Get the cheapest model for a given provider based on input + output pricing

@@ -1,8 +1,8 @@
-import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens";
-import { extractImages } from "./extract-images";
-import { transformOpenaiStreaming } from "./transform-openai-streaming";
+import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
+import { extractImages } from "./extract-images.js";
+import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
-import type { StreamingDelta } from "./types";
+import type { StreamingDelta } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 export function transformStreamingToOpenai(

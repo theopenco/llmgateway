@@ -1,3 +1,2 @@
-export * from "./cache";
-export * from "./redis";
-export { default as redisClient } from "./redis";
+export * from "./cache.js";
+export * from "./redis.js";

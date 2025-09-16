@@ -16,7 +16,7 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc",
+		"build": "tsc && resolve-tspaths && resolve-tspaths",
 		"generate": "pnpm drizzle-kit generate --config drizzle.config.ts",
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
