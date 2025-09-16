@@ -47,10 +47,8 @@ export async function validateFreeModelUsage(
 		const retryAfter = rateLimitResult.retryAfter;
 		if (retryAfter) {
 			c.header("Retry-After", retryAfter.toString());
-			const resetTime = (
-				Math.floor(Date.now() / 1000) + retryAfter
-			).toString();
-			c.header("X-RateLimit-Reset", resetTime);
+			const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
+			c.header("X-RateLimit-Reset", resetTime.toString());
 		}
 
 		throw new HTTPException(429, {
