@@ -1,11 +1,10 @@
-import { processLogQueue } from "@/apps/worker/src/worker";
-
 import { redisClient } from "@llmgateway/cache";
 import { db, tables, eq } from "@llmgateway/db";
 
-import type { TestOptions } from "vitest";
+// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
+import { processLogQueue } from "../../../worker/src/worker";
 
-export { getProviderEnvVar } from "../lib/provider";
+import type { TestOptions } from "vitest";
 
 export async function clearCache() {
 	await redisClient.flushdb();
