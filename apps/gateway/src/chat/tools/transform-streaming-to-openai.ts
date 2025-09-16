@@ -1,4 +1,4 @@
-import { calculatePromptTokensFromMessages } from "./calulcate-prompt-tokens";
+import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens";
 import { extractImages } from "./extract-images";
 import { transformOpenaiStreaming } from "./transform-openai-streaming";
 
