@@ -253,7 +253,7 @@ async function transformAnthropicMessages(
 			toolMessageGroups.get(message.tool_call_id)!.push(message);
 		} else {
 			// Process any accumulated tool message groups first
-			for (const [_toolCallId, toolMessages] of toolMessageGroups) {
+			for (const [_toolCallId, toolMessages] of Array.from(toolMessageGroups)) {
 				if (toolMessages.length > 0) {
 					// Process each tool message individually (don't combine them)
 					// This allows the individual tool_result handling to assign the correct unique IDs
@@ -270,7 +270,7 @@ async function transformAnthropicMessages(
 	}
 
 	// Process any remaining tool message groups at the end
-	for (const [_toolCallId, toolMessages] of toolMessageGroups) {
+	for (const [_toolCallId, toolMessages] of Array.from(toolMessageGroups)) {
 		if (toolMessages.length > 0) {
 			// Process each tool message individually (don't combine them)
 			// This allows the individual tool_result handling to assign the correct unique IDs
