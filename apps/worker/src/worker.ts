@@ -292,7 +292,7 @@ async function processAutoTopUp(): Promise<void> {
 	}
 }
 
-async function batchProcessLogs(): Promise<void> {
+export async function batchProcessLogs(): Promise<void> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
