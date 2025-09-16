@@ -10,7 +10,9 @@
 	"scripts": {
 		"build": "tsc && resolve-tspaths && pnpm run generate",
 		"dev": "tsc && resolve-tspaths && nodemon dist/serve.js",
+		"format": "eslint --fix . && prettier --write .",
 		"generate": "node ./dist/scripts/generate-openapi.js",
+		"lint": "eslint . && prettier --check .",
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
@@ -27,6 +29,7 @@
 		"@opentelemetry/sdk-node": "0.205.0",
 		"bcrypt-ts": "7.0.0",
 		"better-auth": "1.2.7",
+		"dotenv": "16.5.0",
 		"drizzle-zod": "0.7.1",
 		"gateway": "workspace:*",
 		"hono": "^4.9.7",

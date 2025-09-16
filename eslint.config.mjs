@@ -1,4 +1,4 @@
-import lint from "@steebchen/lint-next";
+import lint from "@steebchen/lint-base";
 import importPlugin from "eslint-plugin-import";
 import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths";
 
@@ -87,6 +87,7 @@ export default [
 				{
 					allowSameFolder: true,
 					prefix: "@",
+					rootDir: "./src",
 				},
 			],
 		},

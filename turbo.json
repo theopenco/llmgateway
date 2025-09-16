@@ -38,6 +38,7 @@
 			"cache": false
 		},
 		"lint": {},
+		"format": {},
 		"test": {}
 	}
 }

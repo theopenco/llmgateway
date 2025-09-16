@@ -1,6 +1,6 @@
 import { writeFileSync } from "fs";
 
-import { app, config } from "@/apps/api/src/index.js";
+import { app, config } from "@/index.js";
 
 import { logger } from "@llmgateway/logger";
 

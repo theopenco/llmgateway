@@ -1,4 +1,4 @@
-import type { ModelDefinition } from "@/models.js";
+import type { ModelDefinition } from "../models.js";
 
 export const anthropicModels = [
 	{

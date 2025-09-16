@@ -18,6 +18,8 @@
 	"scripts": {
 		"build": "tsc && resolve-tspaths && resolve-tspaths",
 		"dev": "tsc && resolve-tspaths && nodemon dist/index.js",
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check .",
 		"start": "node --enable-source-maps dist/index.js"
 	},
 	"dependencies": {
