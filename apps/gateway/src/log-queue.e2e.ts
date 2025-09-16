@@ -13,12 +13,10 @@ import {
 	beforeEachHook,
 	generateTestRequestId,
 } from "@/chat-helpers.e2e";
+import { getProviderEnvVar } from "@/lib/provider";
 
 import { app } from ".";
-import {
-	waitForLogByRequestId,
-	getProviderEnvVar,
-} from "./test-utils/test-helpers";
+import { waitForLogByRequestId } from "./test-utils/test-helpers";
 
 // Helper function to get test options with retry for CI environment
 function getTestOptions(): TestOptions {
@@ -133,6 +131,7 @@ describe("Log Queue Processing E2E", () => {
 				expect(log.unifiedFinishReason).not.toBeNull();
 				expect(log.usedModel).toBeTruthy();
 				expect(log.requestedModel).toBeTruthy();
+				expect(log.processedAt).toBeTruthy();
 			}
 		},
 	);
