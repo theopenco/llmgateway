@@ -6,7 +6,6 @@ import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths"
 export default [
 	...lint,
 	{
-		ignores: ["**/tsup.config.ts"],
 		plugins: {
 			import: importPlugin,
 			"no-relative-import-paths": noRelativeImportPathsPlugin,

@@ -1,5 +1,5 @@
 import lint from "../../eslint.config.mjs";
-import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths";
+import react from "@abinnovision/eslint-config-react";
 
 /** @type {import("eslint").Linter.Config[]} */
-export default [...lint];
+export default [...lint, ...react];
