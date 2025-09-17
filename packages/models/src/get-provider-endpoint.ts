@@ -1,6 +1,6 @@
-import { models, type ProviderModelMapping } from "./models";
+import { models, type ProviderModelMapping } from "./models.js";
 
-import type { ProviderId } from "./providers";
+import type { ProviderId } from "./providers.js";
 
 /**
  * Get the endpoint URL for a provider API call

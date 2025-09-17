@@ -2,14 +2,14 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { ensureStripeCustomer } from "@/stripe";
+import { ensureStripeCustomer } from "@/stripe.js";
 
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { stripe } from "./payments";
+import { stripe } from "./payments.js";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 export const subscriptions = new OpenAPIHono<ServerTypes>();
 

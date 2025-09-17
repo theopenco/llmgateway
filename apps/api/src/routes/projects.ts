@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { db, eq, tables } from "@llmgateway/db";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 

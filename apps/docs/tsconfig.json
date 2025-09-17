@@ -1,6 +1,7 @@
 {
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
+		"declaration": false,
 		"target": "ESNext",
 		"lib": ["dom", "dom.iterable", "esnext"],
 		"noEmit": true,
@@ -8,8 +9,7 @@
 		"moduleResolution": "bundler",
 		"jsx": "preserve",
 		"paths": {
-			"@/*": ["./*"],
-			"@llmgateway/*": ["../../packages/*/src"]
+			"@/*": ["./*"]
 		},
 		"plugins": [
 			{
@@ -19,7 +19,8 @@
 		"preserveSymlinks": true,
 		"allowJs": true,
 		"incremental": true,
-		"resolveJsonModule": true
+		"resolveJsonModule": true,
+		"isolatedModules": true
 	},
 	"include": [
 		"**/*.ts",

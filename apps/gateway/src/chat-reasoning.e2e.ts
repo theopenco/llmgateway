@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
+import { app } from "@/app.js";
 import {
 	beforeAllHook,
 	beforeEachHook,
@@ -11,8 +12,7 @@ import {
 	reasoningModels,
 	validateLogByRequestId,
 	validateResponse,
-} from "@/chat-helpers.e2e";
-import { app } from "@/index";
+} from "@/chat-helpers.e2e.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 

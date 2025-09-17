@@ -1,11 +1,11 @@
-import { processImageUrl } from "./process-image-url";
+import { processImageUrl } from "./process-image-url.js";
 import {
 	type BaseMessage,
 	type GoogleMessage,
 	isImageUrlContent,
 	isTextContent,
 	type MessageContent,
-} from "./types";
+} from "./types.js";
 
 /**
  * Transforms Google messages to handle image URLs by converting them to base64

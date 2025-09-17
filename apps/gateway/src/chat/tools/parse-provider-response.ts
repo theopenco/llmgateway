@@ -1,6 +1,6 @@
-import { estimateTokens } from "./estimate-tokens";
+import { estimateTokens } from "./estimate-tokens.js";
 
-import type { ImageObject } from "./types";
+import type { ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 /**

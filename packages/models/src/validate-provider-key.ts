@@ -1,13 +1,13 @@
 import { logger } from "@llmgateway/logger";
 
-import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider";
-import { getProviderEndpoint } from "./get-provider-endpoint";
-import { getProviderHeaders } from "./get-provider-headers";
-import { models, type ProviderModelMapping } from "./models";
-import { prepareRequestBody } from "./prepare-request-body";
+import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
+import { getProviderEndpoint } from "./get-provider-endpoint.js";
+import { getProviderHeaders } from "./get-provider-headers.js";
+import { models, type ProviderModelMapping } from "./models.js";
+import { prepareRequestBody } from "./prepare-request-body.js";
 
-import type { ProviderId } from "./providers";
-import type { BaseMessage, ProviderValidationResult } from "./types";
+import type { ProviderId } from "./providers.js";
+import type { BaseMessage, ProviderValidationResult } from "./types.js";
 
 /**
  * Validate a provider API key by making a minimal request

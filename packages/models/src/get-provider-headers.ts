@@ -1,4 +1,4 @@
-import type { ProviderId } from "./providers";
+import type { ProviderId } from "./providers.js";
 
 /**
  * Get the appropriate headers for a given provider API call

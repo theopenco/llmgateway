@@ -10,14 +10,14 @@ import { z } from "zod";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { redisClient } from "./auth/config";
-import { authHandler } from "./auth/handler";
-import { tracingMiddleware } from "./middleware/tracing";
-import { routes } from "./routes";
-import { beacon } from "./routes/beacon";
-import { stripeRoutes } from "./stripe";
+import { redisClient } from "./auth/config.js";
+import { authHandler } from "./auth/handler.js";
+import { tracingMiddleware } from "./middleware/tracing.js";
+import { beacon } from "./routes/beacon.js";
+import { routes } from "./routes/index.js";
+import { stripeRoutes } from "./stripe.js";
 
-import type { ServerTypes } from "./vars";
+import type { ServerTypes } from "./vars.js";
 
 export const config = {
 	servers: [
@@ -148,7 +148,7 @@ app.openapi(root, async (c) => {
 
 	return c.json({
 		message: "OK",
-		version: process.env.APP_VERSION || "v0.0.0-unknown",
+		version: process.env.APP_VERSION || "v0.0.0-55555555",
 		health,
 	});
 });

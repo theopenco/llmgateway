@@ -8,9 +8,11 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup && pnpm run generate",
-		"dev": "nodemon -e ts,json --exec 'tsx src/serve.ts'",
-		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
+		"build": "tsc && resolve-tspaths && pnpm run generate",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
+		"format": "eslint --fix . && prettier --write .",
+		"generate": "node ./dist/scripts/generate-openapi.js",
+		"lint": "eslint . && prettier --check .",
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
@@ -21,11 +23,13 @@
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
+		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.205.0",
 		"bcrypt-ts": "7.0.0",
 		"better-auth": "1.2.7",
+		"dotenv": "16.5.0",
 		"drizzle-zod": "0.7.1",
 		"gateway": "workspace:*",
 		"hono": "^4.9.7",

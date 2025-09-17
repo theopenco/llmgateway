@@ -1,8 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
-import { anthropic } from "./anthropic";
+import { anthropic } from "./anthropic.js";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 export const exposed = new OpenAPIHono<ServerTypes>();
 

@@ -3,10 +3,10 @@ import { encode, encodeChat } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
-import { validateSource } from "@/chat/tools/validate-source";
-import { calculateCosts } from "@/lib/costs";
-import { throwIamException, validateModelAccess } from "@/lib/iam";
-import { insertLog } from "@/lib/logs";
+import { validateSource } from "@/chat/tools/validate-source.js";
+import { calculateCosts } from "@/lib/costs.js";
+import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { insertLog } from "@/lib/logs.js";
 
 import {
 	checkCustomProviderExists,
@@ -47,22 +47,22 @@ import {
 	providers,
 } from "@llmgateway/models";
 
-import { createLogEntry } from "./tools/create-log-entry";
-import { estimateTokens } from "./tools/estimate-tokens";
-import { extractContent } from "./tools/extract-content";
-import { extractCustomHeaders } from "./tools/extract-custom-headers";
-import { extractReasoning } from "./tools/extract-reasoning";
-import { extractTokenUsage } from "./tools/extract-token-usage";
-import { extractToolCalls } from "./tools/extract-tool-calls";
-import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error";
-import { getProviderEnv } from "./tools/get-provider-env";
-import { parseProviderResponse } from "./tools/parse-provider-response";
-import { transformResponseToOpenai } from "./tools/transform-response-to-openai";
-import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai";
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types";
-import { validateFreeModelUsage } from "./tools/validate-free-model-usage";
+import { createLogEntry } from "./tools/create-log-entry.js";
+import { estimateTokens } from "./tools/estimate-tokens.js";
+import { extractContent } from "./tools/extract-content.js";
+import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
+import { extractReasoning } from "./tools/extract-reasoning.js";
+import { extractTokenUsage } from "./tools/extract-token-usage.js";
+import { extractToolCalls } from "./tools/extract-tool-calls.js";
+import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
+import { getProviderEnv } from "./tools/get-provider-env.js";
+import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
+import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
+import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
+import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 /**
  * Estimates tokens from content length using simple division

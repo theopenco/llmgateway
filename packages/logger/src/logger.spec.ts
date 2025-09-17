@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { logger, createLogger } from "@/index";
+import { logger, createLogger } from "@/index.js";
 
 describe("LLMGateway Logger", () => {
 	beforeEach(() => {

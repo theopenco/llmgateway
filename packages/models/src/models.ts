@@ -1,20 +1,20 @@
-import { alibabaModels } from "./models/alibaba";
-import { anthropicModels } from "./models/anthropic";
-import { deepseekModels } from "./models/deepseek";
-import { googleModels } from "./models/google";
-import { llmgatewayModels } from "./models/llmgateway";
-import { metaModels } from "./models/meta";
-import { microsoftModels } from "./models/microsoft";
-import { mistralModels } from "./models/mistral";
-import { moonshotModels } from "./models/moonshot";
-import { nousresearchModels } from "./models/nousresearch";
-import { openaiModels } from "./models/openai";
-import { perplexityModels } from "./models/perplexity";
-import { routewayModels } from "./models/routeway";
-import { xaiModels } from "./models/xai";
-import { zaiModels } from "./models/zai";
+import { alibabaModels } from "./models/alibaba.js";
+import { anthropicModels } from "./models/anthropic.js";
+import { deepseekModels } from "./models/deepseek.js";
+import { googleModels } from "./models/google.js";
+import { llmgatewayModels } from "./models/llmgateway.js";
+import { metaModels } from "./models/meta.js";
+import { microsoftModels } from "./models/microsoft.js";
+import { mistralModels } from "./models/mistral.js";
+import { moonshotModels } from "./models/moonshot.js";
+import { nousresearchModels } from "./models/nousresearch.js";
+import { openaiModels } from "./models/openai.js";
+import { perplexityModels } from "./models/perplexity.js";
+import { routewayModels } from "./models/routeway.js";
+import { xaiModels } from "./models/xai.js";
+import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers";
+import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 

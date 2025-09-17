@@ -27,8 +27,8 @@ import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,
 	backfillHistoryIfNeeded,
-} from "./services/stats-calculator";
-import { syncProvidersAndModels } from "./services/sync-models";
+} from "./services/stats-calculator.js";
+import { syncProvidersAndModels } from "./services/sync-models.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_123", {
 	apiVersion: "2025-04-30.basil",

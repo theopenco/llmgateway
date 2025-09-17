@@ -1,5 +1,5 @@
-import { models, type ProviderModelMapping } from "./models";
-import { providers } from "./providers";
+import { models, type ProviderModelMapping } from "./models.js";
+import { providers } from "./providers.js";
 
 /**
  * Check if a specific model and provider combination supports streaming

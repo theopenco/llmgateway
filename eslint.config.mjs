@@ -1,4 +1,4 @@
-import lint from "@steebchen/lint-next";
+import lint from "@steebchen/lint-base";
 import importPlugin from "eslint-plugin-import";
 import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths";
 
@@ -6,7 +6,6 @@ import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths"
 export default [
 	...lint,
 	{
-		ignores: ["**/tsup.config.ts"],
 		plugins: {
 			import: importPlugin,
 			"no-relative-import-paths": noRelativeImportPathsPlugin,
@@ -45,7 +44,7 @@ export default [
 			"import/no-useless-path-segments": [
 				"error",
 				{
-					noUselessIndex: true,
+					noUselessIndex: false,
 				},
 			],
 			"import/order": [
@@ -87,6 +86,7 @@ export default [
 				{
 					allowSameFolder: true,
 					prefix: "@",
+					rootDir: "./src",
 				},
 			],
 		},

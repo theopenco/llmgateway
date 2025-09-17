@@ -1,20 +1,20 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
-import { apiAuth as auth } from "@/auth/config";
+import { apiAuth as auth } from "@/auth/config.js";
 
-import { activity } from "./activity";
-import { chat } from "./chat";
-import { chats } from "./chats";
-import keysApi from "./keys-api";
-import keysProvider from "./keys-provider";
-import { logs } from "./logs";
-import organization from "./organization";
-import { payments } from "./payments";
-import projects from "./projects";
-import { subscriptions } from "./subscriptions";
-import { user } from "./user";
+import { activity } from "./activity.js";
+import { chat } from "./chat.js";
+import { chats } from "./chats.js";
+import keysApi from "./keys-api.js";
+import keysProvider from "./keys-provider.js";
+import { logs } from "./logs.js";
+import organization from "./organization.js";
+import { payments } from "./payments.js";
+import projects from "./projects.js";
+import { subscriptions } from "./subscriptions.js";
+import { user } from "./user.js";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 export const routes = new OpenAPIHono<ServerTypes>();
 

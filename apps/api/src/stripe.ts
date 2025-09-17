@@ -5,10 +5,10 @@ import { z } from "zod";
 import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { posthog } from "./posthog";
-import { stripe } from "./routes/payments";
+import { posthog } from "./posthog.js";
+import { stripe } from "./routes/payments.js";
 
-import type { ServerTypes } from "./vars";
+import type { ServerTypes } from "./vars.js";
 import type Stripe from "stripe";
 
 export async function ensureStripeCustomer(

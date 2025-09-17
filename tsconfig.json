@@ -1,11 +1,10 @@
 {
 	"compilerOptions": {
-		"outDir": "./dist/",
 		"noImplicitAny": true,
-		"moduleResolution": "bundler",
-		"module": "esnext",
-		"verbatimModuleSyntax": true,
 		"target": "es2022",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"esModuleInterop": true,
 		"removeComments": true,
 		"skipLibCheck": true,
 		"strict": true,
@@ -15,10 +14,10 @@
 		"strictPropertyInitialization": true,
 		"noImplicitThis": true,
 		"alwaysStrict": true,
-		"esModuleInterop": true,
 		"sourceMap": true,
 		"noFallthroughCasesInSwitch": true,
 		"forceConsistentCasingInFileNames": true,
-		"noImplicitReturns": true
+		"noImplicitReturns": true,
+		"declaration": true
 	}
 }

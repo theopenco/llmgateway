@@ -1,4 +1,4 @@
-import type { tables } from "./src";
+import type { tables } from "./index.js";
 import type { InferInsertModel } from "drizzle-orm";
 
 type Log = InferInsertModel<typeof tables.log>;

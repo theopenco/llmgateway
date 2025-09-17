@@ -1,42 +1,10 @@
+import { processLogQueue } from "worker";
+
 import { redisClient } from "@llmgateway/cache";
 import { db, tables, eq } from "@llmgateway/db";
-import { models, type ProviderModelMapping } from "@llmgateway/models";
-
-// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { processLogQueue } from "../../../worker/src/worker";
-
-import type { TestOptions } from "vitest";
 
 export async function clearCache() {
 	await redisClient.flushdb();
-}
-
-/**
- * Helper function to get test options with retry for CI environment
- */
-export function getTestOptions(
-	opts: { completions?: boolean } = {
-		completions: true,
-	},
-): TestOptions {
-	const hasTestOnly = models.some((model) =>
-		model.providers.some(
-			(provider: ProviderModelMapping) => provider.test === "only",
-		),
-	);
-	return process.env.CI || opts?.completions
-		? { retry: 3 }
-		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
-}
-
-/**
- * Helper function to get concurrent test options with retry for CI environment
- * @returns TestOptions with concurrent: true and CI retry configuration
- */
-export function getConcurrentTestOptions(opts?: {
-	completions?: boolean;
-}): TestOptions {
-	return { concurrent: true, ...getTestOptions(opts) };
 }
 
 /**
@@ -91,9 +59,6 @@ export async function waitForLogByRequestId(
 	intervalMs = 100,
 ) {
 	const startTime = Date.now();
-	console.log(
-		`Waiting for log with request ID ${requestId} (timeout: ${maxWaitMs}ms)...`,
-	);
 
 	while (Date.now() - startTime < maxWaitMs) {
 		// Process the log queue to ensure any pending logs are written to the database
@@ -109,9 +74,6 @@ export async function waitForLogByRequestId(
 		const log = logs[0] || null;
 
 		if (log) {
-			console.log(
-				`Found log with request ID ${requestId} after ${Date.now() - startTime}ms`,
-			);
 			return log;
 		}
 

@@ -19,7 +19,7 @@ import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,
 	backfillHistoryIfNeeded,
-} from "./stats-calculator";
+} from "./stats-calculator.js";
 
 // Mock current time for consistent testing
 const mockDate = new Date("2024-01-01T12:30:00.000Z");

@@ -1,8 +1,8 @@
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 
 import { logger } from "@llmgateway/logger";
 
-const redisClient = new Redis({
+export const redisClient = new Redis({
 	host: process.env.REDIS_HOST || "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
@@ -51,5 +51,3 @@ export async function consumeFromQueue(
 		throw error;
 	}
 }
-
-export default redisClient;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { tables } from ".";
+import type { tables } from "./index.js";
 import type { InferSelectModel, InferInsertModel } from "drizzle-orm";
 
 export const errorDetails = z.object({

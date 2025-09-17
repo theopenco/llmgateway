@@ -3,12 +3,12 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { ensureStripeCustomer } from "@/stripe";
+import { ensureStripeCustomer } from "@/stripe.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { calculateFees } from "@llmgateway/shared";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 export const stripe = new Stripe(
 	process.env.STRIPE_SECRET_KEY || "sk_test_123",

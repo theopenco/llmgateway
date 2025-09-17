@@ -4,14 +4,22 @@
 	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
+	"imports": {
+		"@/": {
+			"default": "."
+		}
+	},
 	"files": [
 		"dist/",
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup && pnpm run generate",
-		"dev": "nodemon -e ts,json --exec \"tsx src/serve.ts\"",
-		"generate": "NODE_ENV=production NODE_OPTIONS=\"--max-old-space-size=4096\" tsx ./src/scripts/generate-openapi.ts",
+		"build": "tsc && resolve-tspaths && pnpm run generate",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
+		"exec-dev": "resolve-tspaths && node dist/serve.js",
+		"format": "eslint --fix . && prettier --write .",
+		"generate": "node ./dist/scripts/generate-openapi.js",
+		"lint": "eslint . && prettier --check .",
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
@@ -26,13 +34,14 @@
 		"@llmgateway/models": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.205.0",
+		"dotenv": "16.5.0",
 		"gpt-tokenizer": "3.0.1",
 		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.6.1",
 		"redis": "5.8.2",
+		"worker": "workspace:*",
 		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
-	},
-	"devDependencies": {}
+	}
 }

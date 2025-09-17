@@ -10,11 +10,14 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "fumadocs-mdx && tsc && next build && cp ../gateway/openapi.json .",
+		"build": "fumadocs-mdx && next build && cp ../gateway/openapi.json .",
+		"build2": "fumadocs-mdx && tsc && next build && cp ../gateway/openapi.json .",
 		"dev": "next dev --turbo --port 3005",
+		"format": "eslint --fix . && prettier --write .",
 		"gen-docs": "node scripts/generate-docs.mjs",
 		"generate": "pnpm gen-docs",
 		"postinstall": "fumadocs-mdx || true",
+		"lint": "eslint . && prettier --check .",
 		"start": "next start -H 0.0.0.0"
 	},
 	"dependencies": {

@@ -46,6 +46,7 @@ jobs:
       - name: Setup and run e2e shard ${{ matrix.shard }}
         run: |
           set -eux
+          pnpm build
           pnpm run setup
           export DATABASE_URL=postgres://postgres:pw@localhost:5432/test
           E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism --shard=${{ matrix.shard }}/5 --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob || true

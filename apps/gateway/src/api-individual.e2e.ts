@@ -5,17 +5,17 @@ import {
 	generateTestRequestId,
 	logMode,
 	validateLogByRequestId,
-} from "@/chat-helpers.e2e";
+} from "@/chat-helpers.e2e.js";
 
 import { db, tables, eq } from "@llmgateway/db";
 import { models, providers, getProviderEnvVar } from "@llmgateway/models";
 
-import { app } from ".";
+import { app } from "./app.js";
 import {
 	clearCache,
 	waitForLogByRequestId,
 	readAll,
-} from "./test-utils/test-helpers";
+} from "./test-utils/test-helpers.js";
 
 describe("e2e individual tests", () => {
 	// Helper to create unique test data for each test to avoid conflicts

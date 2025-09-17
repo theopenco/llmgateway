@@ -8,9 +8,11 @@
 		".next"
 	],
 	"scripts": {
-		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" next build",
+		"build": "tsc && next build",
 		"dev": "next dev --port 3002 --turbopack",
-		"generate": "NODE_OPTIONS=\"--max-old-space-size=4096\" openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
+		"format": "eslint --fix . && prettier --write .",
+		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
+		"lint": "eslint . && prettier --check .",
 		"start": "next start"
 	},
 	"dependencies": {
@@ -18,6 +20,7 @@
 		"@content-collections/next": "0.2.1",
 		"@hey-api/client-fetch": "0.13.1",
 		"@hookform/resolvers": "5.1.1",
+		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@radix-ui/react-accordion": "1.2.12",
 		"@radix-ui/react-alert-dialog": "1.1.15",

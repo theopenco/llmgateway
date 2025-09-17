@@ -1,15 +1,15 @@
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import { testModels } from "@/chat-helpers.e2e";
+import { app } from "@/app.js";
+import { testModels } from "@/chat-helpers.e2e.js";
 import {
 	beforeAllHook,
 	beforeEachHook,
 	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
-} from "@/chat-helpers.e2e";
-import { app } from "@/index";
+} from "@/chat-helpers.e2e.js";
 
 import { type ModelDefinition, models } from "@llmgateway/models";
 
