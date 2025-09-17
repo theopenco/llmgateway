@@ -7,18 +7,18 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
+			"import": "./dist/index.js"
 		}
 	},
-	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && tsup"
+		"build": "tsc && resolve-tspaths && resolve-tspaths",
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
 		"zod": "3.25.75"

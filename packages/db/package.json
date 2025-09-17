@@ -7,22 +7,22 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
+			"import": "./dist/index.js"
 		}
 	},
-	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && tsup",
+		"build": "tsc && resolve-tspaths && resolve-tspaths",
+		"format": "eslint --fix . && prettier --write .",
 		"generate": "pnpm drizzle-kit generate --config drizzle.config.ts",
+		"lint": "eslint . && prettier --check .",
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
-		"seed": "tsx seed.ts"
+		"seed": "node dist/seed.js"
 	},
 	"dependencies": {
 		"@llmgateway/logger": "workspace:*",

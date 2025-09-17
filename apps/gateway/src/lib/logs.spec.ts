@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { UnifiedFinishReason } from "@llmgateway/db";
 
-import { getUnifiedFinishReason } from "./logs";
+import { getUnifiedFinishReason } from "./logs.js";
 
 describe("getUnifiedFinishReason", () => {
 	it("maps OpenAI finish reasons correctly", () => {

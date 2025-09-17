@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { posthog } from "@/posthog";
-
-import { app } from "..";
+import { app } from "@/index.js";
+import { posthog } from "@/posthog.js";
 
 // Mock PostHog
 vi.mock("@/posthog", () => ({

@@ -1,14 +1,15 @@
 import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { app } from "@/index";
-import { deleteAll } from "@/testing";
+import { app } from "@/index.js";
+import { deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
-import { getProviderEnvVar, providers } from "@llmgateway/models";
-
-// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { getConcurrentTestOptions } from "../../../gateway/src/test-utils/test-helpers";
+import {
+	getConcurrentTestOptions,
+	getProviderEnvVar,
+	providers,
+} from "@llmgateway/models";
 
 // Helper function to generate unique IDs for tests
 function generateTestId(): string {

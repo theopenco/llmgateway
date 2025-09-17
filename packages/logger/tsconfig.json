@@ -1,9 +1,10 @@
 {
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
+		"baseUrl": ".",
+		"outDir": "./dist/",
 		"paths": {
-			"@/*": ["./src/*"],
-			"@llmgateway/*": ["../../packages/*/src"]
+			"@/*": ["./src/*"]
 		}
 	},
 	"include": ["./src/**/*.ts"]

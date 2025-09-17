@@ -1,7 +1,8 @@
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import { imageModels, streamingImageModels } from "@/chat-helpers.e2e";
+import { app } from "@/app.js";
+import { imageModels, streamingImageModels } from "@/chat-helpers.e2e.js";
 import {
 	beforeAllHook,
 	beforeEachHook,
@@ -12,9 +13,8 @@ import {
 	logMode,
 	testModels,
 	validateLogByRequestId,
-} from "@/chat-helpers.e2e";
-import { app } from "@/index";
-import { readAll } from "@/test-utils/test-helpers";
+} from "@/chat-helpers.e2e.js";
+import { readAll } from "@/test-utils/test-helpers.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 

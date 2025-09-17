@@ -3,7 +3,7 @@ import { Client } from "pg";
 
 import { logger } from "@llmgateway/logger";
 
-import { relations } from "./relations";
+import { relations } from "./relations.js";
 
 const client = new Client({
 	connectionString:

@@ -1,11 +1,11 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
-import { hasActiveApiKey } from "@/lib/hasActiveApiKey";
+import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 
 import { db, tables, desc, eq, count, and } from "@llmgateway/db";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 const chats = new OpenAPIHono<ServerTypes>();
 

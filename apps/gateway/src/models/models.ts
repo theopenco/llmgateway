@@ -9,7 +9,7 @@ import {
 	type ModelDefinition,
 } from "@llmgateway/models";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 export const modelsApi = new OpenAPIHono<ServerTypes>();
 

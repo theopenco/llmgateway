@@ -11,9 +11,9 @@ import {
 	testModels,
 	validateLogByRequestId,
 	validateResponse,
-} from "@/chat-helpers.e2e";
+} from "@/chat-helpers.e2e.js";
 
-import { app } from ".";
+import { app } from "./app.js";
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {

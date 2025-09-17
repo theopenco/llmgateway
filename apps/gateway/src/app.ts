@@ -10,12 +10,12 @@ import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { anthropic } from "./anthropic/anthropic";
-import { chat } from "./chat/chat";
-import { tracingMiddleware } from "./middleware/tracing";
-import { models } from "./models";
+import { anthropic } from "./anthropic/anthropic.js";
+import { chat } from "./chat/chat.js";
+import { tracingMiddleware } from "./middleware/tracing.js";
+import { models } from "./models/route.js";
 
-import type { ServerTypes } from "./vars";
+import type { ServerTypes } from "./vars.js";
 
 export const config = {
 	servers: [

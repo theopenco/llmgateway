@@ -4,12 +4,22 @@
 	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
 	"files": [
 		"dist/"
 	],
 	"scripts": {
-		"build": "NODE_OPTIONS=\"--max-old-space-size=8192\" tsc && NODE_OPTIONS=\"--max-old-space-size=8192\" tsup",
-		"dev": "nodemon -e ts,json --exec \"tsx src/index.ts\"",
+		"build": "tsc && resolve-tspaths && resolve-tspaths",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/index.js\"",
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check .",
 		"start": "node --enable-source-maps dist/index.js"
 	},
 	"dependencies": {

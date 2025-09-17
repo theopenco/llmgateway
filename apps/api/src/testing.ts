@@ -1,8 +1,6 @@
 import { db, tables } from "@llmgateway/db";
 
-import { app } from ".";
-// eslint-disable-next-line no-relative-import-paths/no-relative-import-paths
-import { clearCache } from "../../gateway/src/test-utils/test-helpers";
+import { app } from "./index.js";
 
 import type { OpenAPIHono } from "@hono/zod-openapi";
 
@@ -12,7 +10,7 @@ const credentials = {
 };
 
 export async function deleteAll() {
-	await clearCache();
+	// await redisClient.flushdb();
 
 	await Promise.all([
 		db.delete(tables.log),

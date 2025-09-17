@@ -1,4 +1,4 @@
-import type { AvailableModelProvider, ModelWithPricing } from "./types";
+import type { AvailableModelProvider, ModelWithPricing } from "./types.js";
 
 /**
  * Get the cheapest provider and model from a list of available model providers

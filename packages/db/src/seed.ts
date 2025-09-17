@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 
-import { logs } from "./logs";
-import { closeDatabase, db, tables } from "./src";
+import { closeDatabase, db, tables } from "./index.js";
+import { logs } from "./logs.js";
 
 import type { PgTable } from "drizzle-orm/pg-core";
 

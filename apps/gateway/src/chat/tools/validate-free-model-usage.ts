@@ -1,13 +1,13 @@
 // Helper function to validate free model usage
 import { HTTPException } from "hono/http-exception";
 
-import { checkFreeModelRateLimit } from "@/lib/rate-limit";
+import { checkFreeModelRateLimit } from "@/lib/rate-limit.js";
 
 import { logger } from "@llmgateway/logger";
 
-import { getUserFromOrganization } from "./get-user-from-organization";
+import { getUserFromOrganization } from "./get-user-from-organization.js";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 import type { ModelDefinition } from "@llmgateway/models";
 import type { Context } from "hono";
 

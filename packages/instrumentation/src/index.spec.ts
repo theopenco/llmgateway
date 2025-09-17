@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Import after mocking (Vitest hoists vi.mock)
-import { initializeInstrumentation } from ".";
+import { initializeInstrumentation } from "./index.js";
 
 // Mock the logger and OpenTelemetry modules
 vi.mock("@llmgateway/logger", () => ({

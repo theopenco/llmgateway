@@ -1,3 +1,5 @@
+import { allBlogs } from "content-collections";
+
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
@@ -10,9 +12,7 @@ interface BlogItem {
 }
 
 export default async function BlogPage() {
-	const { allBlogs } = (await import("content-collections")) as any;
-
-	const sortedEntries = (allBlogs as any[])
+	const sortedEntries = allBlogs
 		.sort(
 			(a: any, b: any) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime(),

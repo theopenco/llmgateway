@@ -1,3 +1,5 @@
+import { allBlogs } from "content-collections";
+
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
@@ -24,7 +26,6 @@ interface CategoryPageProps {
 export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	const { category } = await params;
 	const slug = decodeURIComponent(category);
-	const { allBlogs } = (await import("content-collections")) as any;
 
 	const filtered = (allBlogs as any[])
 		.filter((entry: any) => !entry?.draft)
@@ -50,7 +51,6 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 }
 
 export async function generateStaticParams() {
-	const { allBlogs } = (await import("content-collections")) as any;
 	const slugs = new Set<string>();
 	for (const post of allBlogs as any[]) {
 		(post.categories || []).forEach((c: string) => slugs.add(slugify(c)));

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { logger } from "@llmgateway/logger";
 
-import type { ServerTypes } from "@/vars";
+import type { ServerTypes } from "@/vars.js";
 
 const chat = new OpenAPIHono<ServerTypes>();
 

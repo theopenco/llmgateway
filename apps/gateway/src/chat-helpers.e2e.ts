@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { describe, expect, it, type TestOptions } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 import {
@@ -8,28 +8,21 @@ import {
 	models,
 	type ProviderModelMapping,
 	providers,
+	getConcurrentTestOptions,
+	getTestOptions,
 } from "@llmgateway/models";
 
 import {
 	clearCache,
 	waitForLogByRequestId,
-	getConcurrentTestOptions,
-} from "./test-utils/test-helpers";
+} from "./test-utils/test-helpers.js";
+
+export { getConcurrentTestOptions, getTestOptions };
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
 	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
-
-// Helper function to get test options with retry for CI environment
-export function getTestOptions(): TestOptions {
-	return process.env.CI ? { retry: 3 } : {};
-}
-
-// Re-export getConcurrentTestOptions from test-utils
-export { getConcurrentTestOptions };
-
-console.log("running with test options:", getTestOptions());
 
 export const fullMode = process.env.FULL_MODE;
 export const logMode = process.env.LOG_MODE;

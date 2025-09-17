@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { acquireLock } from "./worker";
+import { acquireLock } from "./worker.js";
 
 describe("worker", () => {
 	beforeEach(async () => {
