@@ -110,6 +110,14 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
 				"totalDuration",
 			),
+			totalTimeToFirstToken:
+				sql<number>`coalesce(sum(${log.timeToFirstToken}), 0)::int`.as(
+					"totalTimeToFirstToken",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}), 0)::int`.as(
+					"totalTimeToFirstReasoningToken",
+				),
 		})
 		.from(log)
 		.where(
@@ -160,6 +168,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const totalReasoningTokens = stat?.totalReasoningTokens || 0;
 		const totalCachedTokens = stat?.totalCachedTokens || 0;
 		const totalDuration = stat?.totalDuration || 0;
+		const totalTimeToFirstToken = stat?.totalTimeToFirstToken || 0;
+		const totalTimeToFirstReasoningToken =
+			stat?.totalTimeToFirstReasoningToken || 0;
 
 		// Insert or update a history record for this minute
 		await database
@@ -179,6 +190,8 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				totalReasoningTokens,
 				totalCachedTokens,
 				totalDuration,
+				totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken,
 			})
 			.onConflictDoUpdate({
 				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
@@ -195,6 +208,8 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					totalReasoningTokens,
 					totalCachedTokens,
 					totalDuration,
+					totalTimeToFirstToken,
+					totalTimeToFirstReasoningToken,
 					updatedAt: new Date(),
 				},
 			});
@@ -267,6 +282,14 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::int`.as(
 				"totalDuration",
 			),
+			totalTimeToFirstToken:
+				sql<number>`coalesce(sum(${log.timeToFirstToken}), 0)::int`.as(
+					"totalTimeToFirstToken",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}), 0)::int`.as(
+					"totalTimeToFirstReasoningToken",
+				),
 		})
 		.from(log)
 		.where(
@@ -322,6 +345,9 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const totalReasoningTokens = stat?.totalReasoningTokens || 0;
 		const totalCachedTokens = stat?.totalCachedTokens || 0;
 		const totalDuration = stat?.totalDuration || 0;
+		const totalTimeToFirstToken = stat?.totalTimeToFirstToken || 0;
+		const totalTimeToFirstReasoningToken =
+			stat?.totalTimeToFirstReasoningToken || 0;
 
 		// Insert or update a history record for this minute
 		await database
@@ -343,6 +369,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				totalReasoningTokens,
 				totalCachedTokens,
 				totalDuration,
+				totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken,
 			})
 			.onConflictDoUpdate({
 				target: [
@@ -362,6 +390,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					totalReasoningTokens,
 					totalCachedTokens,
 					totalDuration,
+					totalTimeToFirstToken,
+					totalTimeToFirstReasoningToken,
 					updatedAt: new Date(),
 				},
 			});

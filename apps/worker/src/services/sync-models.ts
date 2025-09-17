@@ -3,8 +3,11 @@ import {
 	provider,
 	model,
 	modelProviderMapping,
+	log,
 	eq,
 	and,
+	sql,
+	isNotNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { providers, models } from "@llmgateway/models";
@@ -212,6 +215,110 @@ export async function syncProvidersAndModels() {
 		logger.info("Providers and models sync completed successfully");
 	} catch (error) {
 		logger.error("Error syncing providers and models:", error as Error);
+		throw error;
+	}
+}
+
+export async function updateTimingAverages() {
+	logger.info("Starting timing averages update...");
+
+	try {
+		const database = db;
+
+		// Update provider averages
+		const providerAverages = await database
+			.select({
+				providerId: log.usedProvider,
+				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
+				avgTimeToFirstReasoningToken:
+					sql<number>`avg(${log.timeToFirstReasoningToken})`.as(
+						"avgTimeToFirstReasoningToken",
+					),
+			})
+			.from(log)
+			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
+			.groupBy(log.usedProvider);
+
+		for (const avg of providerAverages) {
+			await database
+				.update(provider)
+				.set({
+					avgTimeToFirstToken: avg.avgTimeToFirstToken,
+					avgTimeToFirstReasoningToken: avg.avgTimeToFirstReasoningToken,
+					statsUpdatedAt: new Date(),
+				})
+				.where(eq(provider.id, avg.providerId));
+		}
+
+		// Update model averages
+		const modelAverages = await database
+			.select({
+				modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as(
+					"modelId",
+				),
+				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
+				avgTimeToFirstReasoningToken:
+					sql<number>`avg(${log.timeToFirstReasoningToken})`.as(
+						"avgTimeToFirstReasoningToken",
+					),
+			})
+			.from(log)
+			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
+			.groupBy(sql`split_part(${log.usedModel}, '/', 2)`);
+
+		for (const avg of modelAverages) {
+			await database
+				.update(model)
+				.set({
+					avgTimeToFirstToken: avg.avgTimeToFirstToken,
+					avgTimeToFirstReasoningToken: avg.avgTimeToFirstReasoningToken,
+					statsUpdatedAt: new Date(),
+				})
+				.where(eq(model.id, avg.modelId));
+		}
+
+		// Update model-provider mapping averages
+		const mappingAverages = await database
+			.select({
+				modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as(
+					"modelId",
+				),
+				providerId: log.usedProvider,
+				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
+				avgTimeToFirstReasoningToken:
+					sql<number>`avg(${log.timeToFirstReasoningToken})`.as(
+						"avgTimeToFirstReasoningToken",
+					),
+			})
+			.from(log)
+			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
+			.groupBy(sql`split_part(${log.usedModel}, '/', 2)`, log.usedProvider);
+
+		for (const avg of mappingAverages) {
+			await database
+				.update(modelProviderMapping)
+				.set({
+					avgTimeToFirstToken: avg.avgTimeToFirstToken,
+					avgTimeToFirstReasoningToken: avg.avgTimeToFirstReasoningToken,
+					statsUpdatedAt: new Date(),
+				})
+				.where(
+					and(
+						eq(modelProviderMapping.modelId, avg.modelId),
+						eq(modelProviderMapping.providerId, avg.providerId),
+					),
+				);
+		}
+
+		logger.info("Timing averages update completed successfully");
+	} catch (error) {
+		logger.error("Error updating timing averages:", error as Error);
 		throw error;
 	}
 }

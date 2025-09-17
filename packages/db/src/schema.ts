@@ -333,6 +333,8 @@ export const log = pgTable("log", {
 	projectId: text().notNull(),
 	apiKeyId: text().notNull(),
 	duration: integer().notNull(),
+	timeToFirstToken: integer(),
+	timeToFirstReasoningToken: integer(),
 	requestedModel: text().notNull(),
 	requestedProvider: text(),
 	usedModel: text().notNull(),
@@ -539,6 +541,8 @@ export const provider = pgTable("provider", {
 	gatewayErrorsCount: integer().notNull().default(0),
 	upstreamErrorsCount: integer().notNull().default(0),
 	cachedCount: integer().notNull().default(0),
+	avgTimeToFirstToken: real(),
+	avgTimeToFirstReasoningToken: real(),
 	statsUpdatedAt: timestamp(),
 });
 
@@ -567,6 +571,8 @@ export const model = pgTable("model", {
 	gatewayErrorsCount: integer().notNull().default(0),
 	upstreamErrorsCount: integer().notNull().default(0),
 	cachedCount: integer().notNull().default(0),
+	avgTimeToFirstToken: real(),
+	avgTimeToFirstReasoningToken: real(),
 	statsUpdatedAt: timestamp(),
 });
 
@@ -613,6 +619,8 @@ export const modelProviderMapping = pgTable(
 		gatewayErrorsCount: integer().notNull().default(0),
 		upstreamErrorsCount: integer().notNull().default(0),
 		cachedCount: integer().notNull().default(0),
+		avgTimeToFirstToken: real(),
+		avgTimeToFirstReasoningToken: real(),
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [unique().on(table.modelId, table.providerId)],
@@ -644,6 +652,8 @@ export const modelProviderMappingHistory = pgTable(
 		totalReasoningTokens: integer().notNull().default(0),
 		totalCachedTokens: integer().notNull().default(0),
 		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -675,6 +685,8 @@ export const modelHistory = pgTable(
 		totalReasoningTokens: integer().notNull().default(0),
 		totalCachedTokens: integer().notNull().default(0),
 		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination

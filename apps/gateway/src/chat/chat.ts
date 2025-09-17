@@ -1300,6 +1300,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration: 0, // No processing time for cached response
+					timeToFirstToken: null, // Not applicable for cached response
+					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: JSON.stringify(cachedStreamingResponse).length,
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
@@ -1388,6 +1390,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration,
+					timeToFirstToken: null, // Not applicable for cached response
+					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: JSON.stringify(cachedResponse).length,
 					content: cachedResponse.choices?.[0]?.message?.content || null,
 					reasoningContent:
@@ -1514,6 +1518,12 @@ chat.openapi(completions, async (c) => {
 			}> = [];
 			const streamStartTime = Date.now();
 
+			// Timing tracking variables
+			let timeToFirstToken: number | null = null;
+			let timeToFirstReasoningToken: number | null = null;
+			let firstTokenReceived = false;
+			let firstReasoningTokenReceived = false;
+
 			// Helper function to write SSE and capture for cache
 			const writeSSEAndCache = async (sseData: {
 				data: string;
@@ -1600,6 +1610,8 @@ chat.openapi(completions, async (c) => {
 					await insertLog({
 						...baseLogEntry,
 						duration: Date.now() - startTime,
+						timeToFirstToken: null, // Not applicable for canceled request
+						timeToFirstReasoningToken: null, // Not applicable for canceled request
 						responseSize: 0,
 						content: null,
 						reasoningContent: null,
@@ -1723,6 +1735,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration: Date.now() - startTime,
+					timeToFirstToken: null, // Not applicable for error case
+					timeToFirstReasoningToken: null, // Not applicable for error case
 					responseSize: errorResponseText.length,
 					content: null,
 					reasoningContent: null,
@@ -2164,6 +2178,12 @@ chat.openapi(completions, async (c) => {
 							const contentChunk = extractContent(data, usedProvider);
 							if (contentChunk) {
 								fullContent += contentChunk;
+
+								// Track time to first token if this is the first content chunk
+								if (!firstTokenReceived) {
+									timeToFirstToken = Date.now() - startTime;
+									firstTokenReceived = true;
+								}
 							}
 
 							// Extract reasoning content for logging using helper function
@@ -2173,6 +2193,12 @@ chat.openapi(completions, async (c) => {
 							);
 							if (reasoningContentChunk) {
 								fullReasoningContent += reasoningContentChunk;
+
+								// Track time to first reasoning token if this is the first reasoning chunk
+								if (!firstReasoningTokenReceived) {
+									timeToFirstReasoningToken = Date.now() - startTime;
+									firstReasoningTokenReceived = true;
+								}
 							}
 
 							// Extract and accumulate tool calls
@@ -2526,6 +2552,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration,
+					timeToFirstToken,
+					timeToFirstReasoningToken,
 					responseSize: fullContent.length,
 					content: fullContent,
 					reasoningContent: fullReasoningContent || null,
@@ -2663,6 +2691,8 @@ chat.openapi(completions, async (c) => {
 		await insertLog({
 			...baseLogEntry,
 			duration,
+			timeToFirstToken: null, // Not applicable for canceled request
+			timeToFirstReasoningToken: null, // Not applicable for canceled request
 			responseSize: 0,
 			content: null,
 			reasoningContent: null,
@@ -2743,6 +2773,8 @@ chat.openapi(completions, async (c) => {
 		await insertLog({
 			...baseLogEntry,
 			duration,
+			timeToFirstToken: null, // Not applicable for error case
+			timeToFirstReasoningToken: null, // Not applicable for error case
 			responseSize: errorResponseText.length,
 			content: null,
 			reasoningContent: null,
@@ -2917,6 +2949,8 @@ chat.openapi(completions, async (c) => {
 	await insertLog({
 		...baseLogEntry,
 		duration,
+		timeToFirstToken: null, // Not applicable for non-streaming requests
+		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
 		responseSize: responseText.length,
 		content: content,
 		reasoningContent: reasoningContent,
