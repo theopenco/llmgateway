@@ -148,7 +148,11 @@ chat.openapi(completionRoute, async (c) => {
 					error: responseData.error,
 					responseData,
 				});
-				throw new Error(responseData.error);
+				const errorMessage =
+					typeof responseData.error === "string"
+						? responseData.error
+						: responseData.error?.message || JSON.stringify(responseData.error);
+				throw new Error(errorMessage);
 			}
 
 			// Validate response structure

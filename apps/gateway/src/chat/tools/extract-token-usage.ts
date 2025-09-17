@@ -23,11 +23,6 @@ export function extractTokenUsage(
 				completionTokens = data.usageMetadata.candidatesTokenCount ?? null;
 				// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount ?? null;
-				// Calculate total including reasoning tokens
-				totalTokens =
-					(promptTokens ?? 0) +
-					(completionTokens ?? 0) +
-					(reasoningTokens ?? 0);
 
 				// If candidatesTokenCount is missing and we have content, estimate it
 				if (completionTokens === null && fullContent) {
@@ -40,6 +35,11 @@ export function extractTokenUsage(
 					);
 					completionTokens = estimation.calculatedCompletionTokens;
 				}
+				// Calculate total including reasoning tokens (after potential estimation)
+				totalTokens =
+					(promptTokens ?? 0) +
+					(completionTokens ?? 0) +
+					(reasoningTokens ?? 0);
 			}
 			break;
 		case "anthropic":

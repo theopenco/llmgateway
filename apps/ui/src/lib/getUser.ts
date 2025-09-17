@@ -15,7 +15,7 @@ export async function getUser() {
 	const sessionCookie = cookieStore.get(`${key}`);
 	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
 
-	const data = await fetch(`${config.apiUrl}/user/me`, {
+	const data = await fetch(`${config.apiBackendUrl}/user/me`, {
 		method: "GET",
 		headers: {
 			Cookie: secureSessionCookie

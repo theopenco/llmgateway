@@ -118,8 +118,9 @@ services:
     networks:
       - llmgateway-network
     environment:
-      - API_URL=${API_URL:-http://api:80}
-      - DOCS_URL=${DOCS_URL:-http://docs:80}
+      - API_URL=${API_URL:-http://localhost:4002}
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
 
