@@ -22,7 +22,7 @@
 		],
 		"paths": {
 			"@/*": ["./src/*"],
-			"content-collections": ["./.content-collections/generated"]
+			"content-collections-dist": ["./.content-collections/generated"]
 		}
 	},
 	"include": [

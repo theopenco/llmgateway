@@ -1,9 +1,9 @@
 // eslint-disable-next-line import/order
-import { allChangelogs } from "content-collections";
+import { allChangelogs } from "content-collections-dist";
 import { ChangelogComponent } from "@/components/changelog";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import type { Changelog } from "content-collections";
+import type { Changelog } from "content-collections-dist";
 
 export default async function ChangelogPage() {
 	const sortedEntries = allChangelogs
