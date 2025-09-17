@@ -10,7 +10,6 @@ export const alibabaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "cloudrift",
 				modelName: "Qwen/Qwen3-Next-80B-A3B-Thinking",
 				inputPrice: 0.0 / 1e6,
