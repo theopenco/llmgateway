@@ -59,9 +59,6 @@ export async function waitForLogByRequestId(
 	intervalMs = 100,
 ) {
 	const startTime = Date.now();
-	console.log(
-		`Waiting for log with request ID ${requestId} (timeout: ${maxWaitMs}ms)...`,
-	);
 
 	while (Date.now() - startTime < maxWaitMs) {
 		// Process the log queue to ensure any pending logs are written to the database
@@ -77,9 +74,6 @@ export async function waitForLogByRequestId(
 		const log = logs[0] || null;
 
 		if (log) {
-			console.log(
-				`Found log with request ID ${requestId} after ${Date.now() - startTime}ms`,
-			);
 			return log;
 		}
 
