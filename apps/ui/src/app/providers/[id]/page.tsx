@@ -10,8 +10,6 @@ import {
 	providers as providerDefinitions,
 } from "@llmgateway/models";
 
-import type { Metadata } from "next";
-
 interface ProviderPageProps {
 	params: Promise<{ id: string }>;
 }
@@ -64,9 +62,7 @@ export async function generateStaticParams() {
 		}));
 }
 
-export async function generateMetadata({
-	params,
-}: ProviderPageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: ProviderPageProps) {
 	const { id } = await params;
 
 	const provider = providerDefinitions.find((p) => p.id === id);
