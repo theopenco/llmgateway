@@ -183,6 +183,7 @@ components:
         target: ui
       environment:
         API_URL: "https://api-{{env.base_domain}}"
+        API_BACKEND_URL: "http://api:80"
         DOCS_URL: "https://docs-{{env.base_domain}}"
         POSTHOG_HOST: ""
         POSTHOG_KEY: ""

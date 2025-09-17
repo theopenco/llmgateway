@@ -1,6 +1,7 @@
 export interface AppConfig {
 	hosted: boolean;
 	apiUrl: string;
+	apiBackendUrl: string;
 	githubUrl: string;
 	discordUrl: string;
 	twitterUrl: string;
@@ -11,9 +12,11 @@ export interface AppConfig {
 }
 
 export function getConfig(): AppConfig {
+	const apiUrl = process.env.API_URL || "http://localhost:4002";
 	return {
 		hosted: process.env.HOSTED === "true",
-		apiUrl: process.env.API_URL || "http://localhost:4002",
+		apiUrl,
+		apiBackendUrl: process.env.API_BACKEND_URL || apiUrl,
 		githubUrl:
 			process.env.GITHUB_URL || "https://github.com/theopenco/llmgateway",
 		discordUrl: process.env.DISCORD_URL || "https://discord.gg/gcqcZeYWEz",
