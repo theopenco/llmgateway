@@ -43,16 +43,7 @@ export function transformResponseToOpenai(
 							...(toolResults && { tool_calls: toolResults }),
 							...(images && images.length > 0 && { images }),
 						},
-						finish_reason:
-							finishReason === "STOP"
-								? toolResults && toolResults.length > 0
-									? "tool_calls"
-									: "stop"
-								: finishReason === "MAX_TOKENS"
-									? "length"
-									: finishReason === "SAFETY"
-										? "content_filter"
-										: "stop",
+						finish_reason: finishReason || "stop",
 					},
 				],
 				usage: {

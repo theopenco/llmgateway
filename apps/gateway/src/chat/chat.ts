@@ -2220,10 +2220,17 @@ chat.openapi(completions, async (c) => {
 								case "google-ai-studio":
 									if (data.candidates?.[0]?.finishReason) {
 										const googleFinishReason = data.candidates[0].finishReason;
+										// Check if there are function calls in this response
+										const hasFunctionCalls =
+											data.candidates?.[0]?.content?.parts?.some(
+												(part: any) => part.functionCall,
+											);
 										// Map Google finish reasons to OpenAI format
 										finishReason =
 											googleFinishReason === "STOP"
-												? "stop"
+												? hasFunctionCalls
+													? "tool_calls"
+													: "stop"
 												: googleFinishReason === "MAX_TOKENS"
 													? "length"
 													: googleFinishReason === "SAFETY"
