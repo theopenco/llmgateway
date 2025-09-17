@@ -30,7 +30,7 @@
 			]
 		},
 		"generate": {
-			"dependsOn": ["^generate"],
+			"dependsOn": ["^generate", "build"],
 			"outputs": ["openapi.json", "content/**", "migrations", "**/v1.d.ts"]
 		},
 		"dev": {
