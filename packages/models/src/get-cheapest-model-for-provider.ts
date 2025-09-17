@@ -4,7 +4,6 @@ import type { ProviderId } from "./providers.js";
 
 /**
  * Get the cheapest model for a given provider based on input + output pricing
- * Ignore free models as they might be less stable; there's different routing
  */
 export function getCheapestModelForProvider(
 	provider: ProviderId,
@@ -18,7 +17,8 @@ export function getCheapestModelForProvider(
 		}))
 		.filter(
 			({ provider: providerInfo }) =>
-				providerInfo.inputPrice && providerInfo.outputPrice,
+				providerInfo.inputPrice !== undefined &&
+				providerInfo.outputPrice !== undefined,
 		);
 
 	if (availableModels.length === 0) {
