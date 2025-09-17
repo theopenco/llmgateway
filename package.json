@@ -13,7 +13,7 @@
 		"dev": "turbo run dev",
 		"format": "turbo run format",
 		"generate": "turbo run generate",
-		"postinstall": "husky && sync-editorconfig || true",
+		"postinstall": "husky",
 		"lint": "turbo run lint",
 		"migrate": "pnpm --filter db migrate",
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
