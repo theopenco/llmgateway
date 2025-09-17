@@ -112,6 +112,30 @@ const root = createRoute({
 			},
 			description: "Health check response.",
 		},
+		503: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							message: z.string(),
+							version: z.string(),
+							health: z.object({
+								status: z.string(),
+								database: z.object({
+									connected: z.boolean(),
+									error: z.string().optional(),
+								}),
+								redis: z.object({
+									connected: z.boolean(),
+									error: z.string().optional(),
+								}),
+							}),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Service unavailable - Redis or database connection failed.",
+		},
 	},
 });
 
@@ -146,11 +170,16 @@ app.openapi(root, async (c) => {
 		);
 	}
 
-	return c.json({
-		message: "OK",
-		version: process.env.APP_VERSION || "v0.0.0-unknown",
-		health,
-	});
+	const statusCode = health.status === "error" ? 503 : 200;
+
+	return c.json(
+		{
+			message: "OK",
+			version: process.env.APP_VERSION || "v0.0.0-unknown",
+			health,
+		},
+		statusCode,
+	);
 });
 
 app.route("/stripe", stripeRoutes);

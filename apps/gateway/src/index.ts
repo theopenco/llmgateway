@@ -141,6 +141,30 @@ const root = createRoute({
 			},
 			description: "Health check response.",
 		},
+		503: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							message: z.string(),
+							version: z.string(),
+							health: z.object({
+								status: z.string(),
+								redis: z.object({
+									connected: z.boolean(),
+									error: z.string().optional(),
+								}),
+								database: z.object({
+									connected: z.boolean(),
+									error: z.string().optional(),
+								}),
+							}),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Service unavailable - Redis or database connection failed.",
+		},
 	},
 });
 
@@ -188,11 +212,16 @@ app.openapi(root, async (c) => {
 		health.database.connected = true;
 	}
 
-	return c.json({
-		message: "OK",
-		version: process.env.APP_VERSION || "v0.0.0-unknown",
-		health,
-	});
+	const statusCode = health.status === "error" ? 503 : 200;
+
+	return c.json(
+		{
+			message: "OK",
+			version: process.env.APP_VERSION || "v0.0.0-unknown",
+			health,
+		},
+		statusCode,
+	);
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();
