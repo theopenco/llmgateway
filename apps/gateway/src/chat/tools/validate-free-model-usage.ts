@@ -44,11 +44,11 @@ export async function validateFreeModelUsage(
 
 	if (!rateLimitResult.allowed) {
 		// Only set retry and reset headers when rate limited
-		const retryAfter = rateLimitResult.retryAfter?.toString();
+		const retryAfter = rateLimitResult.retryAfter;
 		if (retryAfter) {
-			c.header("Retry-After", retryAfter);
-			const resetTime = (Math.floor(Date.now() / 1000) + retryAfter).toString();
-			c.header("X-RateLimit-Reset", resetTime);
+			c.header("Retry-After", retryAfter.toString());
+			const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
+			c.header("X-RateLimit-Reset", resetTime.toString());
 		}
 
 		throw new HTTPException(429, {
