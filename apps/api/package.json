@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "tsc && resolve-tspaths && pnpm run generate",
-		"dev": "tsc && resolve-tspaths && nodemon dist/serve.js",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "node ./dist/scripts/generate-openapi.js",
 		"lint": "eslint . && prettier --check .",
