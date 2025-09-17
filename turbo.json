@@ -38,7 +38,9 @@
 			"cache": false
 		},
 		"lint": {},
-		"format": {},
+		"format": {
+			"cache": false
+		},
 		"test": {}
 	}
 }
