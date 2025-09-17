@@ -2,6 +2,29 @@ import type { ModelDefinition } from "@llmgateway/models";
 
 export const alibabaModels = [
 	{
+		id: "qwen3-next-80b-a3b-thinking-free",
+		name: "Qwen3 Next 80B A3B Thinking (Free)",
+		family: "meta",
+		free: true,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				test: "only",
+				providerId: "cloudrift",
+				modelName: "Qwen/Qwen3-Next-80B-A3B-Thinking",
+				inputPrice: 0.0 / 1e6,
+				outputPrice: 0.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 16380,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: false,
+			},
+		],
+	},
+	{
 		id: "qwen-max",
 		name: "Qwen Max",
 		family: "alibaba",
