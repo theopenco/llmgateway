@@ -11,7 +11,6 @@ on:
     paths:
       - "**/package.json"
       - "**/tsconfig.json"
-      - "**/tsup.ts"
       - "pnpm-lock.yaml"
       - "infra/**"
       - ".github/workflows/images.yml"
@@ -176,7 +175,7 @@ jobs:
       - merge-split
       - build-split
     if: |
-      always() && 
+      always() &&
       (
         (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-split.result == 'success') ||
         (github.event_name == 'pull_request' && needs.setup.result == 'success' && needs.build-split.result == 'success')
@@ -340,7 +339,7 @@ jobs:
       - merge-unified
       - build-unified
     if: |
-      always() && 
+      always() &&
       (
         (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-unified.result == 'success') ||
         (github.event_name == 'pull_request' && needs.setup.result == 'success' && needs.build-unified.result == 'success')
