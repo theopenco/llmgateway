@@ -19,6 +19,7 @@ export interface ImageObject {
 export interface ToolCall {
 	id: string;
 	type: "function";
+	index: number;
 	function: {
 		name: string;
 		arguments: string;

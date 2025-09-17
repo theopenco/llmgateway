@@ -238,6 +238,7 @@ export function transformStreamingToOpenai(
 						.map((part: any, index: number) => ({
 							id: part.functionCall.name + "_" + Date.now() + "_" + index,
 							type: "function",
+							index: index,
 							function: {
 								name: part.functionCall.name,
 								arguments: JSON.stringify(part.functionCall.args || {}),
