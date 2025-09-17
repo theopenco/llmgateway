@@ -12,4 +12,7 @@ export default [
 			"react/no-unescaped-entities": "off",
 		},
 	},
+	{
+		ignores: ["**/v1.d.ts"],
+	},
 ];
