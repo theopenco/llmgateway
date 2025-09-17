@@ -1,7 +1,7 @@
-import { allBlogs } from "content-collections";
-
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+
+import { allBlogs } from "content-collections";
 
 interface BlogItem {
 	id: string;
