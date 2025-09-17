@@ -136,7 +136,9 @@ export function transformStreamingToOpenai(
 									? "stop"
 									: stopReason === "tool_use"
 										? "tool_calls"
-										: stopReason?.toLowerCase() || "stop",
+										: stopReason === "max_tokens"
+											? "length"
+											: "stop",
 						},
 					],
 					usage: data.usage || null,
@@ -159,7 +161,9 @@ export function transformStreamingToOpenai(
 									? "stop"
 									: stopReason === "tool_use"
 										? "tool_calls"
-										: stopReason?.toLowerCase() || "stop",
+										: stopReason === "max_tokens"
+											? "length"
+											: "stop",
 						},
 					],
 					usage: data.usage || null,
@@ -303,7 +307,11 @@ export function transformStreamingToOpenai(
 									? hasFunctionCalls
 										? "tool_calls"
 										: "stop"
-									: finishReason?.toLowerCase() || "stop",
+									: finishReason === "MAX_TOKENS"
+										? "length"
+										: finishReason === "SAFETY"
+											? "content_filter"
+											: "stop",
 						},
 					],
 					usage: data.usageMetadata

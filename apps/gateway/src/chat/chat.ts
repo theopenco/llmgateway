@@ -2219,7 +2219,16 @@ chat.openapi(completions, async (c) => {
 							switch (usedProvider) {
 								case "google-ai-studio":
 									if (data.candidates?.[0]?.finishReason) {
-										finishReason = data.candidates[0].finishReason;
+										const googleFinishReason = data.candidates[0].finishReason;
+										// Map Google finish reasons to OpenAI format
+										finishReason =
+											googleFinishReason === "STOP"
+												? "stop"
+												: googleFinishReason === "MAX_TOKENS"
+													? "length"
+													: googleFinishReason === "SAFETY"
+														? "content_filter"
+														: "stop"; // Safe fallback for unknown reasons
 									}
 									break;
 								case "anthropic":

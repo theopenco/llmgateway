@@ -84,7 +84,17 @@ export function parseProviderResponse(
 				}),
 			);
 
-			finishReason = json.candidates?.[0]?.finishReason || null;
+			const googleFinishReason = json.candidates?.[0]?.finishReason;
+			// Map Google finish reasons to OpenAI format
+			finishReason = googleFinishReason
+				? googleFinishReason === "STOP"
+					? "stop"
+					: googleFinishReason === "MAX_TOKENS"
+						? "length"
+						: googleFinishReason === "SAFETY"
+							? "content_filter"
+							: "stop" // Safe fallback for unknown reasons
+				: null;
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;

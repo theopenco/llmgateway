@@ -48,7 +48,11 @@ export function transformResponseToOpenai(
 								? toolResults && toolResults.length > 0
 									? "tool_calls"
 									: "stop"
-								: finishReason?.toLowerCase() || "stop",
+								: finishReason === "MAX_TOKENS"
+									? "length"
+									: finishReason === "SAFETY"
+										? "content_filter"
+										: "stop",
 					},
 				],
 				usage: {
@@ -102,7 +106,9 @@ export function transformResponseToOpenai(
 								? "stop"
 								: finishReason === "tool_use"
 									? "tool_calls"
-									: finishReason?.toLowerCase() || "stop",
+									: finishReason === "max_tokens"
+										? "length"
+										: "stop",
 					},
 				],
 				usage: {
