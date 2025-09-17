@@ -1,8 +1,6 @@
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import { allBlogs } from "content-collections";
-
 interface BlogItem {
 	id: string;
 	slug: string;
@@ -12,6 +10,8 @@ interface BlogItem {
 }
 
 export default async function BlogPage() {
+	const { allBlogs } = await import("content-collections");
+
 	const sortedEntries = allBlogs
 		.sort(
 			(a: any, b: any) =>

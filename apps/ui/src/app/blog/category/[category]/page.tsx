@@ -1,8 +1,6 @@
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import { allBlogs } from "content-collections";
-
 interface BlogItem {
 	id: string;
 	slug: string;
@@ -27,7 +25,9 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	const { category } = await params;
 	const slug = decodeURIComponent(category);
 
-	const filtered = (allBlogs as any[])
+	const { allBlogs } = await import("content-collections");
+
+	const filtered = allBlogs
 		.filter((entry: any) => !entry?.draft)
 		.filter((entry: any) =>
 			(entry.categories || []).some((c: string) => slugify(c) === slug),
@@ -51,8 +51,11 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 }
 
 export async function generateStaticParams() {
+	const { allBlogs } = await import("content-collections");
 	const slugs = new Set<string>();
-	for (const post of allBlogs as any[]) {
+	for (const post of allBlogs) {
+		// TODO
+		// @ts-ignore
 		(post.categories || []).forEach((c: string) => slugs.add(slugify(c)));
 	}
 	return Array.from(slugs).map((category) => ({ category }));
