@@ -22,7 +22,7 @@
 		"lint": "eslint . && prettier --check .",
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
-		"seed": "tsx seed.ts"
+		"seed": "node dist/seed.js"
 	},
 	"dependencies": {
 		"@llmgateway/logger": "workspace:*",
