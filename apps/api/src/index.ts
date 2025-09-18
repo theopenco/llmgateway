@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { HealthChecker } from "@llmgateway/shared";
 
 import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
@@ -140,46 +141,21 @@ const root = createRoute({
 });
 
 app.openapi(root, async (c) => {
-	const health = {
-		status: "ok",
-		redis: { connected: false, error: undefined as string | undefined },
-		database: { connected: false, error: undefined as string | undefined },
-	};
+	const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 5000;
 
-	try {
-		await db.query.user.findFirst({});
-		health.database.connected = true;
-	} catch (error) {
-		health.status = "error";
-		health.database.error = "Database connection failed";
-		logger.error(
-			"Database healthcheck failed",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	}
+	const healthChecker = new HealthChecker({
+		redisClient,
+		db,
+		logger,
+	});
 
-	try {
-		await redisClient.ping();
-		health.redis.connected = true;
-	} catch (error) {
-		health.status = "error";
-		health.redis.error = "Redis connection failed";
-		logger.error(
-			"Redis healthcheck failed",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	}
+	const health = await healthChecker.performHealthChecks({
+		timeoutMs: TIMEOUT_MS,
+	});
 
-	const statusCode = health.status === "error" ? 503 : 200;
+	const { response, statusCode } = healthChecker.createHealthResponse(health);
 
-	return c.json(
-		{
-			message: "OK",
-			version: process.env.APP_VERSION || "v0.0.0-unknown",
-			health,
-		},
-		statusCode,
-	);
+	return c.json(response, statusCode as 200 | 503);
 });
 
 app.route("/stripe", stripeRoutes);

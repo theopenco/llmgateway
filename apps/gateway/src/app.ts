@@ -9,6 +9,7 @@ import { z } from "zod";
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
@@ -174,127 +175,22 @@ app.openapi(root, async (c) => {
 		? skip.split(",").map((s) => s.trim().toLowerCase())
 		: [];
 
-	const health = {
-		status: "ok",
-		redis: { connected: false, error: undefined as string | undefined },
-		database: { connected: false, error: undefined as string | undefined },
-	};
-
 	const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 5000;
 
-	// Helper function to add timeout to promises
-	const withTimeout = <T>(
-		promise: Promise<T>,
-		timeoutMs: number,
-	): Promise<T> => {
-		const timeoutPromise = new Promise<T>((_, reject) => {
-			setTimeout(
-				() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)),
-				timeoutMs,
-			);
-		});
-		return Promise.race([promise, timeoutPromise]);
-	};
+	const healthChecker = new HealthChecker({
+		redisClient,
+		db,
+		logger,
+	});
 
-	// Run health checks in parallel
-	const healthChecks = await Promise.allSettled([
-		// Redis check
-		skipChecks.includes("redis")
-			? Promise.resolve({ type: "redis" as const, skipped: true })
-			: withTimeout(
-					redisClient
-						.ping()
-						.then(() => ({ type: "redis" as const, success: true })),
-					TIMEOUT_MS,
-				),
-		// Database check
-		skipChecks.includes("database")
-			? Promise.resolve({ type: "database" as const, skipped: true })
-			: withTimeout(
-					db.query.user
-						.findFirst({})
-						.then(() => ({ type: "database" as const, success: true })),
-					TIMEOUT_MS,
-				),
-	]);
+	const health = await healthChecker.performHealthChecks({
+		skipChecks,
+		timeoutMs: TIMEOUT_MS,
+	});
 
-	// Process results
-	for (const result of healthChecks) {
-		if (result.status === "fulfilled") {
-			const check = result.value;
-			if ("skipped" in check && check.skipped) {
-				// Set as connected when skipped
-				if (check.type === "redis") {
-					health.redis.connected = true;
-				}
-				if (check.type === "database") {
-					health.database.connected = true;
-				}
-			} else if ("success" in check && check.success) {
-				// Set as connected when successful
-				if (check.type === "redis") {
-					health.redis.connected = true;
-				}
-				if (check.type === "database") {
-					health.database.connected = true;
-				}
-			}
-		} else {
-			// Handle failures
-			const errorMessage =
-				result.reason instanceof Error
-					? result.reason.message
-					: String(result.reason);
+	const { response, statusCode } = healthChecker.createHealthResponse(health);
 
-			// Determine which check failed based on the error or order
-			// Since we know the order: [redis, database]
-			const checkIndex = healthChecks.indexOf(result);
-			if (checkIndex === 0) {
-				// Redis check failed
-				health.status = "error";
-				health.redis.error = errorMessage.includes("timed out")
-					? "Redis check timed out"
-					: "Redis connection failed";
-				logger.error("Redis healthcheck failed", result.reason);
-			} else if (checkIndex === 1) {
-				// Database check failed
-				health.status = "error";
-				health.database.error = errorMessage.includes("timed out")
-					? "Database check timed out"
-					: "Database connection failed";
-				logger.error("Database healthcheck failed", result.reason);
-			}
-		}
-	}
-
-	const statusCode = health.status === "error" ? 503 : 200;
-
-	// Set appropriate message based on health status
-	let message = "OK";
-	if (health.status === "error") {
-		const failedSystems: string[] = [];
-		if (health.redis.error) {
-			failedSystems.push("Redis");
-		}
-		if (health.database.error) {
-			failedSystems.push("Database");
-		}
-
-		if (failedSystems.length > 0) {
-			message = `Service Unavailable - ${failedSystems.join(", ")} ${failedSystems.length === 1 ? "is" : "are"} unavailable`;
-		} else {
-			message = "Service Unavailable";
-		}
-	}
-
-	return c.json(
-		{
-			message,
-			version: process.env.APP_VERSION || "v0.0.0-unknown",
-			health,
-		},
-		statusCode,
-	);
+	return c.json(response, statusCode as 200 | 503);
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();

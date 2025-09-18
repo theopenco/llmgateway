@@ -32,6 +32,7 @@
 		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.205.0",
 		"dotenv": "16.5.0",
