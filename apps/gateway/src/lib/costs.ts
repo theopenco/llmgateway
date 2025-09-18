@@ -74,7 +74,7 @@ export function calculateCosts(
 					// If encoding fails, leave as null
 					logger.error(`Failed to encode chat messages in costs: ${error}`);
 				}
-			} else if (fullOutput.prompt) {
+			} else if (fullOutput.prompt && typeof fullOutput.prompt === "string") {
 				// For text prompt
 				try {
 					calculatedPromptTokens = encode(fullOutput.prompt).length;
@@ -86,7 +86,12 @@ export function calculateCosts(
 		}
 
 		// Calculate completion tokens
-		if (!completionTokens && fullOutput && fullOutput.completion) {
+		if (
+			!completionTokens &&
+			fullOutput &&
+			fullOutput.completion &&
+			typeof fullOutput.completion === "string"
+		) {
 			try {
 				calculatedCompletionTokens = encode(fullOutput.completion).length;
 			} catch (error) {

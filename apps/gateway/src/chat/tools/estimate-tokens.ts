@@ -49,7 +49,7 @@ export function estimateTokens(
 		}
 
 		// Estimate completion tokens using encode for better accuracy
-		if (!completionTokens && content) {
+		if (!completionTokens && content && typeof content === "string") {
 			try {
 				calculatedCompletionTokens = encode(content).length;
 			} catch (error) {

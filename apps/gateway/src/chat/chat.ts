@@ -2442,7 +2442,11 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
-					if (!completionTokens && fullContent) {
+					if (
+						!completionTokens &&
+						fullContent &&
+						typeof fullContent === "string"
+					) {
 						try {
 							calculatedCompletionTokens = encode(fullContent).length;
 						} catch (error) {
