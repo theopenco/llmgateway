@@ -441,12 +441,16 @@ anthropic.openapi(messages, async (c) => {
 		openaiRequest.tools = openaiTools;
 	}
 
+	// Get user-agent for forwarding
+	const userAgent = c.req.header("User-Agent") || "";
+
 	// Make internal request to the existing chat completions endpoint using app.request()
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 			Authorization: c.req.header("Authorization") || "",
+			"User-Agent": userAgent,
 			"x-request-id": c.req.header("x-request-id") || "",
 			"x-source": c.req.header("x-source") || "",
 			"x-debug": c.req.header("x-debug") || "",

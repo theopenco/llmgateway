@@ -384,10 +384,18 @@ chat.openapi(completions, async (c) => {
 	} = validationResult.data;
 
 	// Extract and validate source from x-source header with HTTP-Referer fallback
-	const source = validateSource(
+	let source = validateSource(
 		c.req.header("x-source"),
 		c.req.header("HTTP-Referer"),
 	);
+
+	// Match specific user agents and set source if x-source header is not specified
+	if (!source) {
+		const userAgent = c.req.header("User-Agent") || "";
+		if (/^claude-cli\/.+/.test(userAgent)) {
+			source = "claude.ai";
+		}
+	}
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
