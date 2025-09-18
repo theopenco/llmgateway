@@ -27,7 +27,7 @@ export interface HealthCheckDependencies {
 		};
 	};
 	logger: {
-		error: (message: string, error: Error | unknown) => void;
+		error: (message: string, error?: object | Error | undefined) => void;
 	};
 }
 
