@@ -16,7 +16,8 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && resolve-tspaths && resolve-tspaths",
+		"build": "tsc && resolve-tspaths",
+		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check ."
 	},

@@ -14,6 +14,7 @@
 		"tsconfig.json",
 		"turbo.json"
 	],
+	"concurrency": "16",
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
@@ -29,6 +30,7 @@
 			]
 		},
 		"generate": {
+			"cache": false,
 			"dependsOn": ["build", "^generate"],
 			"outputs": ["openapi.json", "content/**", "migrations", "**/v1.d.ts"]
 		},
