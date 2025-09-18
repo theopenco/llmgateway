@@ -383,8 +383,11 @@ chat.openapi(completions, async (c) => {
 		free_models_only,
 	} = validationResult.data;
 
-	// Extract and validate source from x-source header
-	const source = validateSource(c.req.header("x-source"));
+	// Extract and validate source from x-source header with HTTP-Referer fallback
+	const source = validateSource(
+		c.req.header("x-source"),
+		c.req.header("referer"),
+	);
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =

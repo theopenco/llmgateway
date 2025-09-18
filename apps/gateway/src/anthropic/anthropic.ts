@@ -449,6 +449,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-request-id": c.req.header("x-request-id") || "",
 			"x-source": c.req.header("x-source") || "",
 			"x-debug": c.req.header("x-debug") || "",
+			referer: c.req.header("referer") || "",
 		},
 		body: JSON.stringify(openaiRequest),
 	});

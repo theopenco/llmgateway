@@ -1,17 +1,23 @@
 import { HTTPException } from "hono/http-exception";
 
 /**
- * Validates and normalizes the x-source header
+ * Validates and normalizes the x-source header with HTTP-Referer fallback
  * Strips http(s):// and www. if present
  * Validates allowed characters: a-zA-Z0-9, -, ., /
  */
-export function validateSource(source: string | undefined): string | undefined {
-	if (!source) {
+export function validateSource(
+	source: string | undefined,
+	referer?: string | undefined,
+): string | undefined {
+	// Use x-source if available, otherwise fallback to HTTP-Referer
+	const sourceToValidate = source || referer;
+
+	if (!sourceToValidate) {
 		return undefined;
 	}
 
 	// Strip http:// or https:// if present
-	let normalized = source.replace(/^https?:\/\//, "");
+	let normalized = sourceToValidate.replace(/^https?:\/\//, "");
 
 	// Strip www. if present
 	normalized = normalized.replace(/^www\./, "");
