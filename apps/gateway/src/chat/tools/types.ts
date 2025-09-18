@@ -15,9 +15,21 @@ export interface ImageObject {
 	};
 }
 
+// Define tool call object type
+export interface ToolCall {
+	id: string;
+	type: "function";
+	index: number;
+	function: {
+		name: string;
+		arguments: string;
+	};
+}
+
 // Define streaming delta object type
 export interface StreamingDelta {
 	role?: "assistant";
 	content?: string;
 	images?: ImageObject[];
+	tool_calls?: ToolCall[];
 }

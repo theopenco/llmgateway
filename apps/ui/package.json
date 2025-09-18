@@ -8,7 +8,7 @@
 		".next"
 	],
 	"scripts": {
-		"build": "tsc && next build",
+		"build": "next build && tsc",
 		"dev": "next dev --port 3002 --turbopack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",

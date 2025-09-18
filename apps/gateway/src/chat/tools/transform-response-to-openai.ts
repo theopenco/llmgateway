@@ -43,12 +43,7 @@ export function transformResponseToOpenai(
 							...(toolResults && { tool_calls: toolResults }),
 							...(images && images.length > 0 && { images }),
 						},
-						finish_reason:
-							finishReason === "STOP"
-								? toolResults && toolResults.length > 0
-									? "tool_calls"
-									: "stop"
-								: finishReason?.toLowerCase() || "stop",
+						finish_reason: finishReason || "stop",
 					},
 				],
 				usage: {
@@ -102,7 +97,9 @@ export function transformResponseToOpenai(
 								? "stop"
 								: finishReason === "tool_use"
 									? "tool_calls"
-									: finishReason?.toLowerCase() || "stop",
+									: finishReason === "max_tokens"
+										? "length"
+										: "stop",
 					},
 				],
 				usage: {

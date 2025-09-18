@@ -11,11 +11,13 @@ import { ViewOptions } from "@/components/ai/page-actions";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
+import type { Metadata } from "next";
+
 export async function generateMetadata({
 	params,
 }: {
 	params: Promise<{ slug?: string[] }>;
-}) {
+}): Promise<Metadata> {
 	const { slug = [] } = await params;
 
 	const page = source.getPage(slug);

@@ -1,6 +1,8 @@
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
+import type { Metadata } from "next";
+
 interface BlogItem {
 	id: string;
 	slug: string;
@@ -54,14 +56,14 @@ export async function generateStaticParams() {
 	const { allBlogs } = await import("content-collections");
 	const slugs = new Set<string>();
 	for (const post of allBlogs) {
-		// TODO
-		// @ts-ignore
 		(post.categories || []).forEach((c: string) => slugs.add(slugify(c)));
 	}
 	return Array.from(slugs).map((category) => ({ category }));
 }
 
-export async function generateMetadata({ params }: CategoryPageProps) {
+export async function generateMetadata({
+	params,
+}: CategoryPageProps): Promise<Metadata> {
 	const { category } = await params;
 	const decoded = decodeURIComponent(category);
 	return {

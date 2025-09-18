@@ -136,7 +136,9 @@ export function transformStreamingToOpenai(
 									? "stop"
 									: stopReason === "tool_use"
 										? "tool_calls"
-										: stopReason?.toLowerCase() || "stop",
+										: stopReason === "max_tokens"
+											? "length"
+											: "stop",
 						},
 					],
 					usage: data.usage || null,
@@ -159,7 +161,9 @@ export function transformStreamingToOpenai(
 									? "stop"
 									: stopReason === "tool_use"
 										? "tool_calls"
-										: stopReason?.toLowerCase() || "stop",
+										: stopReason === "max_tokens"
+											? "length"
+											: "stop",
 						},
 					],
 					usage: data.usage || null,
@@ -209,20 +213,44 @@ export function transformStreamingToOpenai(
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const hasText = parts.some((part: any) => part.text);
 			const hasImages = parts.some((part: any) => part.inlineData);
+			const hasFunctionCalls = parts.some((part: any) => part.functionCall);
 
-			if (hasText || hasImages) {
+			if (hasText || hasImages || hasFunctionCalls) {
 				const delta: StreamingDelta = {
 					role: "assistant",
 				};
 
 				// Add text content if present
 				if (hasText) {
-					delta.content = parts.map((part: any) => part.text).join("") || "";
+					delta.content =
+						parts
+							.map((part: any) =>
+								typeof part.text === "string" ? part.text : "",
+							)
+							.join("") || "";
 				}
 
 				// Add images if present
 				if (hasImages) {
 					delta.images = extractImages(data, "google-ai-studio");
+				}
+
+				// Emit tool_calls if present
+				if (hasFunctionCalls) {
+					const toolCalls = parts
+						.filter((part: any) => part.functionCall)
+						.map((part: any, index: number) => ({
+							id: part.functionCall.name + "_" + Date.now() + "_" + index,
+							type: "function",
+							index: index,
+							function: {
+								name: part.functionCall.name,
+								arguments: JSON.stringify(part.functionCall.args || {}),
+							},
+						}));
+					if (toolCalls.length > 0) {
+						delta.tool_calls = toolCalls;
+					}
 				}
 
 				transformedData = {
@@ -279,7 +307,11 @@ export function transformStreamingToOpenai(
 									? hasFunctionCalls
 										? "tool_calls"
 										: "stop"
-									: finishReason?.toLowerCase() || "stop",
+									: finishReason === "MAX_TOKENS"
+										? "length"
+										: finishReason === "SAFETY"
+											? "content_filter"
+											: "stop",
 						},
 					],
 					usage: data.usageMetadata

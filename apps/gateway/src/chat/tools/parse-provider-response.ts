@@ -84,7 +84,39 @@ export function parseProviderResponse(
 				}),
 			);
 
-			finishReason = json.candidates?.[0]?.finishReason || null;
+			// Extract tool calls from Google format - reuse the same parts array
+			toolResults =
+				parts
+					.filter((part: any) => part.functionCall)
+					.map((part: any, index: number) => ({
+						id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
+						type: "function",
+						function: {
+							name: part.functionCall.name,
+							arguments: JSON.stringify(part.functionCall.args || {}),
+						},
+					})) || null;
+			if (toolResults && toolResults.length === 0) {
+				toolResults = null;
+			}
+
+			const googleFinishReason = json.candidates?.[0]?.finishReason;
+			// Check if there are function calls in this response
+			const hasFunctionCalls = json.candidates?.[0]?.content?.parts?.some(
+				(part: any) => part.functionCall,
+			);
+			// Map Google finish reasons to OpenAI format
+			finishReason = googleFinishReason
+				? googleFinishReason === "STOP"
+					? hasFunctionCalls
+						? "tool_calls"
+						: "stop"
+					: googleFinishReason === "MAX_TOKENS"
+						? "length"
+						: googleFinishReason === "SAFETY"
+							? "content_filter"
+							: "stop" // Safe fallback for unknown reasons
+				: null;
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
@@ -112,22 +144,6 @@ export function parseProviderResponse(
 			if (promptTokens !== null) {
 				totalTokens =
 					promptTokens + (completionTokens || 0) + (reasoningTokens || 0);
-			}
-
-			// Extract tool calls from Google format - reuse the same parts array
-			toolResults =
-				parts
-					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => ({
-						id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
-						type: "function",
-						function: {
-							name: part.functionCall.name,
-							arguments: JSON.stringify(part.functionCall.args || {}),
-						},
-					})) || null;
-			if (toolResults && toolResults.length === 0) {
-				toolResults = null;
 			}
 			break;
 		}
