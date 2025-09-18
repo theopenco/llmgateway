@@ -386,7 +386,7 @@ chat.openapi(completions, async (c) => {
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	const source = validateSource(
 		c.req.header("x-source"),
-		c.req.header("referer"),
+		c.req.header("HTTP-Referer"),
 	);
 
 	// Check if debug mode is enabled via x-debug header
