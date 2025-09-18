@@ -8,7 +8,7 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 
-import { ArchiveProjectSettingsRsc } from "./_components/archive-project-rsc";
+import { ArchiveProjectSettings } from "./_components/archive-project";
 import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
 import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
 import { CachingSettingsSkeleton } from "./_skeletons/caching-settings-skeleton";
@@ -65,10 +65,7 @@ export default async function PreferencesPage({
 						</CardHeader>
 						<CardContent>
 							<Suspense fallback={<div>Loading...</div>}>
-								<ArchiveProjectSettingsRsc
-									orgId={orgId}
-									projectId={projectId}
-								/>
+								<ArchiveProjectSettings orgId={orgId} projectId={projectId} />
 							</Suspense>
 						</CardContent>
 					</Card>

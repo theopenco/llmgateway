@@ -1,4 +1,4 @@
-import { ArchiveProjectSettings } from "@/components/settings/archive-project-settings";
+import { ArchiveProjectSettings as ArchiveProjectSettingsClient } from "@/components/settings/archive-project-settings";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
@@ -11,7 +11,7 @@ interface OrganizationsData {
 	organizations: Organization[];
 }
 
-export const ArchiveProjectSettingsRsc = async ({
+export const ArchiveProjectSettings = async ({
 	orgId,
 	projectId,
 }: {
@@ -57,7 +57,7 @@ export const ArchiveProjectSettingsRsc = async ({
 	}
 
 	return (
-		<ArchiveProjectSettings
+		<ArchiveProjectSettingsClient
 			orgId={orgId}
 			projectId={projectId}
 			projectName={project.name}

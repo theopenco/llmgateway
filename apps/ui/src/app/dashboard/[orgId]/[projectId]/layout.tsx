@@ -1,10 +1,12 @@
+import { notFound } from "next/navigation";
+
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
 import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { fetchServerData } from "@/lib/server-api";
 
-import type { User } from "@/lib/types";
+import type { User, Project } from "@/lib/types";
 import type { ReactNode } from "react";
 
 // Force dynamic rendering since this layout uses cookies for authentication
@@ -46,6 +48,22 @@ export default async function ProjectLayout({
 			);
 		} catch (error) {
 			console.warn("Failed to fetch projects for organization:", orgId, error);
+		}
+	}
+
+	// Validate that the project exists and is not deleted
+	if (
+		projectId &&
+		initialProjectsData &&
+		typeof initialProjectsData === "object" &&
+		"projects" in initialProjectsData
+	) {
+		const projects = (initialProjectsData as { projects: Project[] }).projects;
+		const currentProject = projects.find((p: Project) => p.id === projectId);
+
+		// If project is not found in the active projects list, it's either deleted or doesn't exist
+		if (!currentProject) {
+			notFound();
 		}
 	}
 

@@ -627,6 +627,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Check if project is deleted (archived)
+	if (project.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Project has been archived and is no longer accessible",
+		});
+	}
+
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
