@@ -1,4 +1,4 @@
-import type { ModelDefinition } from "@llmgateway/models";
+import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
@@ -43,28 +43,6 @@ export const metaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-			},
-		],
-	},
-	{
-		id: "llama-3.1-70b-instruct-free",
-		name: "Meta Llama 3.1 70B Instruct FP8 (Free)",
-		family: "meta",
-		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
-		providers: [
-			{
-				providerId: "cloudrift",
-				modelName: "meta-llama/Meta-Llama-3.1-70B-Instruct-FP8",
-				inputPrice: 0.0 / 1e6,
-				outputPrice: 0.0 / 1e6,
-				requestPrice: 0,
-				contextSize: 16380,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-				tools: false,
 			},
 		],
 	},
@@ -131,7 +109,7 @@ export const metaModels = [
 				tools: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 	{
 		id: "llama-3.3-70b-instruct",
@@ -220,6 +198,6 @@ export const metaModels = [
 				tools: true,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];

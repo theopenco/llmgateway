@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { models } from "./models";
-import {
-	prepareRequestBody,
-	getCheapestModelForProvider,
-} from "./provider-api";
+import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
+import { models } from "./models.js";
+import { prepareRequestBody } from "./prepare-request-body.js";
 
-import type { BaseMessage, OpenAIRequestBody } from "./types";
+import type { BaseMessage, OpenAIRequestBody } from "./types.js";
 
 describe("Models", () => {
 	it("should not have duplicate model IDs", () => {

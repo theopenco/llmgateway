@@ -43,6 +43,29 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Service unavailable - Redis or database connection failed. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            version: string;
+                            health: {
+                                status: string;
+                                database: {
+                                    connected: boolean;
+                                    error?: string;
+                                };
+                                redis: {
+                                    connected: boolean;
+                                    error?: string;
+                                };
+                            };
+                        };
+                    };
+                };
             };
         };
         put?: never;

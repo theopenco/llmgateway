@@ -1,6 +1,8 @@
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
+import type { Metadata } from "next";
+
 interface BlogItem {
 	id: string;
 	slug: string;
@@ -24,9 +26,10 @@ interface CategoryPageProps {
 export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	const { category } = await params;
 	const slug = decodeURIComponent(category);
-	const { allBlogs } = (await import("content-collections")) as any;
 
-	const filtered = (allBlogs as any[])
+	const { allBlogs } = await import("content-collections");
+
+	const filtered = allBlogs
 		.filter((entry: any) => !entry?.draft)
 		.filter((entry: any) =>
 			(entry.categories || []).some((c: string) => slugify(c) === slug),
@@ -50,15 +53,17 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 }
 
 export async function generateStaticParams() {
-	const { allBlogs } = (await import("content-collections")) as any;
+	const { allBlogs } = await import("content-collections");
 	const slugs = new Set<string>();
-	for (const post of allBlogs as any[]) {
+	for (const post of allBlogs) {
 		(post.categories || []).forEach((c: string) => slugs.add(slugify(c)));
 	}
 	return Array.from(slugs).map((category) => ({ category }));
 }
 
-export async function generateMetadata({ params }: CategoryPageProps) {
+export async function generateMetadata({
+	params,
+}: CategoryPageProps): Promise<Metadata> {
 	const { category } = await params;
 	const decoded = decodeURIComponent(category);
 	return {

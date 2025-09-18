@@ -3,7 +3,7 @@
  * These functions provide type-safe runtime validation
  */
 
-import type { ProviderModelMapping } from "./models";
+import type { ProviderModelMapping } from "./models.js";
 
 /**
  * Checks if an object has the required properties of a ProviderModelMapping

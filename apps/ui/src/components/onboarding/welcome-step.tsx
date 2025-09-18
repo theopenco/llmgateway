@@ -1,15 +1,15 @@
 import { Rocket } from "lucide-react";
 import * as React from "react";
 
-import { useAuth } from "../../lib/auth-client";
+import { useAuth } from "@/lib/auth-client";
 import {
 	Card,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
-} from "../../lib/components/card";
-import { Step } from "../../lib/components/stepper";
+} from "@/lib/components/card";
+import { Step } from "@/lib/components/stepper";
 
 export function WelcomeStep() {
 	const { useSession } = useAuth();

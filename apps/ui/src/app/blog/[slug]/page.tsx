@@ -1,4 +1,3 @@
-import { allBlogs } from "content-collections";
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
 import Image from "next/image";
@@ -10,12 +9,15 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import type { Blog } from "content-collections";
+import type { Metadata } from "next";
 
 interface BlogEntryPageProps {
 	params: Promise<{ slug: string }>;
 }
 
 export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
+	const { allBlogs } = await import("content-collections");
+
 	const { slug } = await params;
 
 	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
@@ -84,12 +86,18 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 }
 
 export async function generateStaticParams() {
+	const { allBlogs } = await import("content-collections");
+
 	return allBlogs.map((entry: Blog) => ({
 		slug: entry.slug,
 	}));
 }
 
-export async function generateMetadata({ params }: BlogEntryPageProps) {
+export async function generateMetadata({
+	params,
+}: BlogEntryPageProps): Promise<Metadata> {
+	const { allBlogs } = await import("content-collections");
+
 	const { slug } = await params;
 
 	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);

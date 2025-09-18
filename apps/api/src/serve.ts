@@ -7,9 +7,9 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
-import { app } from ".";
-import { redisClient } from "./auth/config";
-import { sendInstallationBeacon } from "./lib/beacon";
+import { redisClient } from "./auth/config.js";
+import { app } from "./index.js";
+import { sendInstallationBeacon } from "./lib/beacon.js";
 
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 

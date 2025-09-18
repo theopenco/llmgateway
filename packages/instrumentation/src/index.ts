@@ -22,6 +22,15 @@ import type { Sampler, SamplingResult } from "@opentelemetry/sdk-trace-base";
 
 const logger = createLogger({ name: "instrumentation" });
 
+// Error detection patterns (hoisted to avoid per-call allocation)
+const ERROR_NAME_PATTERNS = [
+	/error/i,
+	/exception/i,
+	/fail/i,
+	/timeout/i,
+	/abort/i,
+];
+
 class HeaderBasedForceSampler implements Sampler {
 	private fallbackSampler: Sampler;
 
@@ -68,33 +77,141 @@ class HeaderBasedForceSampler implements Sampler {
 	}
 }
 
+class ErrorAwareSampler implements Sampler {
+	private normalSampler: Sampler;
+	private errorSampler: Sampler;
+
+	public constructor(normalSampler: Sampler, errorSampler: Sampler) {
+		this.normalSampler = normalSampler;
+		this.errorSampler = errorSampler;
+	}
+
+	public shouldSample(
+		context: Context,
+		traceId: string,
+		spanName: string,
+		spanKind: SpanKind,
+		attributes: Attributes,
+		links: Link[],
+	): SamplingResult {
+		// Check if this span is likely to be an error span based on attributes
+		// This is a heuristic approach since we can't know the final status at sampling time
+		const isLikelyError = this.isLikelyErrorSpan(attributes, spanName);
+
+		const sampler = isLikelyError ? this.errorSampler : this.normalSampler;
+		const result = sampler.shouldSample(
+			context,
+			traceId,
+			spanName,
+			spanKind,
+			attributes,
+			links,
+		);
+
+		// Add metadata to indicate which sampling strategy was used
+		if (result.decision === SamplingDecision.RECORD_AND_SAMPLED) {
+			return {
+				...result,
+				attributes: {
+					...result.attributes,
+					"sampling.strategy": isLikelyError ? "error" : "normal",
+				},
+			};
+		}
+
+		return result;
+	}
+
+	private isLikelyErrorSpan(attributes: Attributes, spanName: string): boolean {
+		// Check for HTTP error status codes
+		const httpStatus = attributes["http.status_code"];
+		if (httpStatus && typeof httpStatus === "number" && httpStatus >= 400) {
+			return true;
+		}
+
+		// Check for likely error indicator set by middleware
+		if (attributes["sampling.likely_error"]) {
+			return true;
+		}
+
+		// Check for error-related span names
+		return ERROR_NAME_PATTERNS.some((pattern) => pattern.test(spanName));
+	}
+
+	public toString(): string {
+		return `ErrorAwareSampler{normal=${this.normalSampler.toString()}, error=${this.errorSampler.toString()}}`;
+	}
+}
+
 function getSamplerConfig() {
 	const sampleRate = process.env.OTEL_SAMPLE_RATE;
+	const errorSampleRate = process.env.OTEL_ERROR_SAMPLE_RATE;
 
-	let baseSampler: Sampler;
-	let baseDescription: string;
+	// Create normal sampler
+	let normalSampler: Sampler;
+	let normalDescription: string;
 
 	if (sampleRate === undefined) {
-		baseSampler = new AlwaysOnSampler();
-		baseDescription = "100% (always on)";
+		normalSampler = new AlwaysOnSampler();
+		normalDescription = "100% (always on)";
 	} else {
 		const rate = parseFloat(sampleRate);
 		if (isNaN(rate) || rate < 0 || rate > 1) {
 			logger.warn(
 				`Invalid OTEL_SAMPLE_RATE value "${sampleRate}", using 100% sampling`,
 			);
-			baseSampler = new AlwaysOnSampler();
-			baseDescription = "100% (always on, invalid rate specified)";
+			normalSampler = new AlwaysOnSampler();
+			normalDescription = "100% (always on, invalid rate specified)";
 		} else if (rate === 1) {
-			baseSampler = new AlwaysOnSampler();
-			baseDescription = "100% (always on)";
+			normalSampler = new AlwaysOnSampler();
+			normalDescription = "100% (always on)";
 		} else if (rate === 0) {
-			baseSampler = new TraceIdRatioBasedSampler(rate);
-			baseDescription = "0% (never sample)";
+			normalSampler = new TraceIdRatioBasedSampler(rate);
+			normalDescription = "0% (never sample)";
 		} else {
-			baseSampler = new TraceIdRatioBasedSampler(rate);
-			baseDescription = `${Math.round(rate * 100)}% (ratio-based)`;
+			normalSampler = new TraceIdRatioBasedSampler(rate);
+			normalDescription = `${Math.round(rate * 100)}% (ratio-based)`;
 		}
+	}
+
+	// Create error sampler
+	let errorSampler: Sampler;
+	let errorDescription: string;
+
+	if (errorSampleRate === undefined) {
+		// Default to same as normal sampling if not specified
+		errorSampler = normalSampler;
+		errorDescription = normalDescription;
+	} else {
+		const rate = parseFloat(errorSampleRate);
+		if (isNaN(rate) || rate < 0 || rate > 1) {
+			logger.warn(
+				`Invalid OTEL_ERROR_SAMPLE_RATE value "${errorSampleRate}", using normal sampling rate for errors`,
+			);
+			errorSampler = normalSampler;
+			errorDescription = `${normalDescription} (invalid error rate specified)`;
+		} else if (rate === 1) {
+			errorSampler = new AlwaysOnSampler();
+			errorDescription = "100% (always on)";
+		} else if (rate === 0) {
+			errorSampler = new TraceIdRatioBasedSampler(rate);
+			errorDescription = "0% (never sample)";
+		} else {
+			errorSampler = new TraceIdRatioBasedSampler(rate);
+			errorDescription = `${Math.round(rate * 100)}% (ratio-based)`;
+		}
+	}
+
+	// Create error-aware sampler if error rate is different from normal rate
+	let baseSampler: Sampler;
+	let baseDescription: string;
+
+	if (errorSampleRate !== undefined && errorSampleRate !== sampleRate) {
+		baseSampler = new ErrorAwareSampler(normalSampler, errorSampler);
+		baseDescription = `Normal: ${normalDescription}, Errors: ${errorDescription}`;
+	} else {
+		baseSampler = normalSampler;
+		baseDescription = normalDescription;
 	}
 
 	// Wrap with header-based force sampler

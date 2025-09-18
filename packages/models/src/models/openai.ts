@@ -1,4 +1,4 @@
-import type { ModelDefinition } from "@llmgateway/models";
+import type { ModelDefinition } from "@/models.js";
 
 export const openaiModels = [
 	{
@@ -192,7 +192,7 @@ export const openaiModels = [
 				supportsResponsesApi: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 		supportsSystemRole: false,
 	},
 	{

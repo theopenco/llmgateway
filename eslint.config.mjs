@@ -1,5 +1,6 @@
-import lint from "@steebchen/lint-next";
+import lint from "@steebchen/lint-base";
 import importPlugin from "eslint-plugin-import";
+import noRelativeImportPathsPlugin from "eslint-plugin-no-relative-import-paths";
 
 /** @type {import("eslint").Linter.Config[]} */
 export default [
@@ -7,6 +8,7 @@ export default [
 	{
 		plugins: {
 			import: importPlugin,
+			"no-relative-import-paths": noRelativeImportPathsPlugin,
 		},
 		settings: {
 			"import/resolver": {
@@ -42,7 +44,7 @@ export default [
 			"import/no-useless-path-segments": [
 				"error",
 				{
-					noUselessIndex: true,
+					noUselessIndex: false,
 				},
 			],
 			"import/order": [
@@ -79,6 +81,14 @@ export default [
 					pathGroupsExcludedImportTypes: ["builtin", "type"],
 				},
 			],
+			"no-relative-import-paths/no-relative-import-paths": [
+				"error",
+				{
+					allowSameFolder: true,
+					prefix: "@",
+					rootDir: "./src",
+				},
+			],
 		},
 	},
 	{
@@ -96,12 +106,6 @@ export default [
 			"no-console": "off",
 		},
 	},
-	// {
-	// 	files: ["**/*.{ts,tsx}"],
-	// 	rules: {
-	// 		"import/no-relative-parent-imports": "error",
-	// 	},
-	// },
 	{
 		ignores: [
 			"**/.tanstack/",

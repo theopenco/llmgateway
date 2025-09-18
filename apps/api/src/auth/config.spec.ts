@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { apiAuth, redisClient } from "./config";
+import { apiAuth, redisClient } from "./config.js";
 
 describe("API auth configuration", () => {
 	test("should inherit basic auth configuration", () => {
@@ -19,17 +19,26 @@ describe("API auth configuration", () => {
 		expect(apiAuth.options.hooks).toBeDefined();
 	});
 
-	test("should have email verification configured", () => {
-		expect(apiAuth.options.emailVerification?.sendOnSignUp).toBe(true);
-		expect(apiAuth.options.emailVerification?.autoSignInAfterVerification).toBe(
-			true,
-		);
-		expect(
-			apiAuth.options.emailVerification?.sendVerificationEmail,
-		).toBeDefined();
-		expect(
-			typeof apiAuth.options.emailVerification?.sendVerificationEmail,
-		).toBe("function");
+	test("should have email verification configured based on HOSTED flag", () => {
+		const isHosted = process.env.HOSTED === "true";
+
+		if (isHosted) {
+			expect(apiAuth.options.emailVerification?.sendOnSignUp).toBe(true);
+			expect(
+				apiAuth.options.emailVerification?.autoSignInAfterVerification,
+			).toBe(true);
+			expect(
+				apiAuth.options.emailVerification?.sendVerificationEmail,
+			).toBeDefined();
+			expect(
+				typeof apiAuth.options.emailVerification?.sendVerificationEmail,
+			).toBe("function");
+		} else {
+			expect(apiAuth.options.emailVerification?.sendOnSignUp).toBe(false);
+			expect(
+				apiAuth.options.emailVerification?.autoSignInAfterVerification,
+			).toBe(false);
+		}
 	});
 
 	test("should have before and after hooks configured", () => {
@@ -125,6 +134,47 @@ describe("API auth hooks functionality", () => {
 
 		expect(project).not.toBeNull();
 		expect(project?.name).toBe("Default Project");
+	});
+
+	test("should automatically verify email for self-hosted installations", async () => {
+		const isHosted = process.env.HOSTED === "true";
+
+		// Skip this test if we're in hosted mode
+		if (isHosted) {
+			return;
+		}
+
+		// Sign up a new user in self-hosted mode
+		const email = `test-selfhosted-${Date.now()}@example.com`;
+		const password = "Password123!";
+
+		const signUpResponse = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": `192.168.10.${Math.floor(Math.random() * 255)}`,
+				},
+				body: JSON.stringify({ email, password }),
+			}),
+		);
+
+		expect(signUpResponse.status).toBe(200);
+
+		// Get the user from the database
+		const user = await db.query.user.findFirst({
+			where: {
+				email: {
+					eq: email,
+				},
+			},
+		});
+
+		expect(user).not.toBeNull();
+		expect(user?.email).toBe(email);
+
+		// In self-hosted mode, email should be automatically verified
+		expect(user?.emailVerified).toBe(true);
 	});
 });
 

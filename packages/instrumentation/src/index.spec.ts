@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+// Import after mocking (Vitest hoists vi.mock)
+import { initializeInstrumentation } from "./index.js";
+
 // Mock the logger and OpenTelemetry modules
 vi.mock("@llmgateway/logger", () => ({
 	createLogger: () => ({
@@ -40,19 +43,17 @@ vi.mock("@opentelemetry/sdk-trace-base", async () => {
 	};
 });
 
-// Import after mocking
-const { initializeInstrumentation } = await import(".");
-
 describe("HeaderBasedForceSampler", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		// Reset environment variables
 		delete process.env.OTEL_SAMPLE_RATE;
+		delete process.env.OTEL_ERROR_SAMPLE_RATE;
 		delete process.env.GOOGLE_CLOUD_PROJECT;
 	});
 
-	it("should initialize instrumentation successfully", () => {
-		const sdk = initializeInstrumentation({
+	it("should initialize instrumentation successfully", async () => {
+		const sdk = await initializeInstrumentation({
 			serviceName: "test-service",
 			projectId: "test-project",
 		});
@@ -64,7 +65,7 @@ describe("HeaderBasedForceSampler", () => {
 		// Set up a low sampling rate to ensure normal requests wouldn't be sampled
 		process.env.OTEL_SAMPLE_RATE = "0";
 
-		const sdk = initializeInstrumentation({
+		const sdk = await initializeInstrumentation({
 			serviceName: "test-service",
 			projectId: "test-project",
 		});
@@ -77,7 +78,7 @@ describe("HeaderBasedForceSampler", () => {
 	it("should force sampling when x-force-trace header is present with value '1'", async () => {
 		process.env.OTEL_SAMPLE_RATE = "0";
 
-		const sdk = initializeInstrumentation({
+		const sdk = await initializeInstrumentation({
 			serviceName: "test-service",
 			projectId: "test-project",
 		});
@@ -88,7 +89,7 @@ describe("HeaderBasedForceSampler", () => {
 	it("should not force sampling when x-force-trace header is present with invalid value", async () => {
 		process.env.OTEL_SAMPLE_RATE = "0";
 
-		const sdk = initializeInstrumentation({
+		const sdk = await initializeInstrumentation({
 			serviceName: "test-service",
 			projectId: "test-project",
 		});
@@ -99,7 +100,42 @@ describe("HeaderBasedForceSampler", () => {
 	it("should fallback to base sampler when x-force-trace header is not present", async () => {
 		process.env.OTEL_SAMPLE_RATE = "1";
 
-		const sdk = initializeInstrumentation({
+		const sdk = await initializeInstrumentation({
+			serviceName: "test-service",
+			projectId: "test-project",
+		});
+
+		expect(sdk).toBeDefined();
+	});
+
+	it("should use ErrorAwareSampler when OTEL_ERROR_SAMPLE_RATE is different from OTEL_SAMPLE_RATE", async () => {
+		process.env.OTEL_SAMPLE_RATE = "0.1";
+		process.env.OTEL_ERROR_SAMPLE_RATE = "1.0";
+
+		const sdk = await initializeInstrumentation({
+			serviceName: "test-service",
+			projectId: "test-project",
+		});
+
+		expect(sdk).toBeDefined();
+	});
+
+	it("should use normal sampler when OTEL_ERROR_SAMPLE_RATE is not set", async () => {
+		process.env.OTEL_SAMPLE_RATE = "0.5";
+
+		const sdk = await initializeInstrumentation({
+			serviceName: "test-service",
+			projectId: "test-project",
+		});
+
+		expect(sdk).toBeDefined();
+	});
+
+	it("should handle invalid OTEL_ERROR_SAMPLE_RATE gracefully", async () => {
+		process.env.OTEL_SAMPLE_RATE = "0.5";
+		process.env.OTEL_ERROR_SAMPLE_RATE = "invalid";
+
+		const sdk = await initializeInstrumentation({
 			serviceName: "test-service",
 			projectId: "test-project",
 		});

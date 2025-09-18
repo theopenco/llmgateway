@@ -1,0 +1,5 @@
+content/(api)/
+.content-collections
+.next
+.source
+openapi.json

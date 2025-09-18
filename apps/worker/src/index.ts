@@ -1,6 +1,8 @@
 import { logger } from "@llmgateway/logger";
 
-import { startWorker, stopWorker } from "./worker";
+import { startWorker, stopWorker } from "./worker.js";
+
+export { processLogQueue } from "./worker.js";
 
 let isShuttingDown = false;
 

@@ -55,6 +55,12 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 			attributes["http.header.x-force-trace"] = forceTrace;
 		}
 
+		// Check for error-indicating headers or patterns
+		const ua = (c.req.header("user-agent") || "").toLowerCase();
+		if (/error|test/.test(ua)) {
+			attributes["sampling.likely_error"] = true;
+		}
+
 		return await tracer.startActiveSpan(
 			spanName,
 			{
@@ -79,14 +85,15 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 					});
 
 					// Set span status
-					if (status >= 400) {
+					if (status >= 500) {
 						span.setStatus({
-							code: status >= 500 ? SpanStatusCode.ERROR : SpanStatusCode.OK,
-							message: status >= 500 ? "Internal Server Error" : "Client Error",
+							code: SpanStatusCode.ERROR,
+							message: "Internal Server Error",
 						});
-					} else {
+					} else if (status < 400) {
 						span.setStatus({ code: SpanStatusCode.OK });
 					}
+					// For 4xx responses, leave status unset (default is OK without message)
 
 					// Add trace headers to response for client correlation
 					c.res.headers.set("x-trace-id", spanContext.traceId);

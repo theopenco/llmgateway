@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { app } from ".";
+import { app } from "./index.js";
 
 test("/", async () => {
 	const res = await app.request("/");

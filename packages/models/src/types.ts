@@ -2,7 +2,7 @@
  * Comprehensive TypeScript types for provider API messages and tool definitions
  */
 
-import type { ProviderId } from "./providers";
+import type { ProviderId } from "./providers.js";
 
 // Base content types
 export interface TextContent {

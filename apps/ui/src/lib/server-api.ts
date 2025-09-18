@@ -16,7 +16,7 @@ export async function createServerApiClient() {
 	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
 
 	return createFetchClient<paths>({
-		baseUrl: config.apiUrl,
+		baseUrl: config.apiBackendUrl,
 		credentials: "include",
 		headers: {
 			Cookie: secureSessionCookie

@@ -1,6 +1,6 @@
 import { defineRelations } from "drizzle-orm";
 
-import * as schema from "./schema";
+import * as schema from "./schema.js";
 
 export const relations = defineRelations(schema, (r) => ({
 	user: {
@@ -87,6 +87,28 @@ export const relations = defineRelations(schema, (r) => ({
 		chat: r.one.chat({
 			from: r.message.chatId,
 			to: r.chat.id,
+		}),
+	},
+	provider: {
+		modelProviderMappings: r.many.modelProviderMapping({
+			from: r.provider.id,
+			to: r.modelProviderMapping.providerId,
+		}),
+	},
+	model: {
+		modelProviderMappings: r.many.modelProviderMapping({
+			from: r.model.id,
+			to: r.modelProviderMapping.modelId,
+		}),
+	},
+	modelProviderMapping: {
+		model: r.one.model({
+			from: r.modelProviderMapping.modelId,
+			to: r.model.id,
+		}),
+		provider: r.one.provider({
+			from: r.modelProviderMapping.providerId,
+			to: r.provider.id,
 		}),
 	},
 }));

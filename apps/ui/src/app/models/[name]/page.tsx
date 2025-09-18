@@ -24,6 +24,8 @@ import {
 	type ModelDefinition,
 } from "@llmgateway/models";
 
+import type { Metadata } from "next";
+
 interface PageProps {
 	params: Promise<{ name: string }>;
 }
@@ -270,7 +272,9 @@ export async function generateStaticParams() {
 	}));
 }
 
-export async function generateMetadata({ params }: PageProps) {
+export async function generateMetadata({
+	params,
+}: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 	const model = modelDefinitions.find((m) => m.id === decodedName);

@@ -1,8 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { trace } from "@opentelemetry/api";
 import { encode, encodeChat } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
+
+import { validateSource } from "@/chat/tools/validate-source.js";
+import { calculateCosts } from "@/lib/costs.js";
+import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { insertLog } from "@/lib/logs.js";
 
 import {
 	checkCustomProviderExists,
@@ -19,1730 +23,52 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	type ApiKey,
 	db,
 	type InferSelectModel,
-	type Project,
 	shortid,
 	type tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	type BaseMessage,
 	getCheapestFromAvailableProviders,
 	getModelStreamingSupport,
 	getProviderEndpoint,
 	getProviderHeaders,
+	hasMaxTokens,
+	hasProviderEnvironmentToken,
 	type Model,
 	type ModelDefinition,
-	type ProviderModelMapping,
 	models,
 	prepareRequestBody,
-	type BaseMessage,
 	type Provider,
+	type ProviderModelMapping,
 	type ProviderRequestBody,
-	type OpenAIToolInput,
-	hasMaxTokens,
 	providers,
 } from "@llmgateway/models";
 
-import { calculateCosts } from "../lib/costs";
-import { throwIamException, validateModelAccess } from "../lib/iam";
-import { insertLog } from "../lib/logs";
-import {
-	getProviderEnvVar,
-	hasProviderEnvironmentToken,
-} from "../lib/provider";
-import { checkFreeModelRateLimit } from "../lib/rate-limit";
+import { createLogEntry } from "./tools/create-log-entry.js";
+import { estimateTokens } from "./tools/estimate-tokens.js";
+import { extractContent } from "./tools/extract-content.js";
+import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
+import { extractReasoning } from "./tools/extract-reasoning.js";
+import { extractTokenUsage } from "./tools/extract-token-usage.js";
+import { extractToolCalls } from "./tools/extract-tool-calls.js";
+import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
+import { getProviderEnv } from "./tools/get-provider-env.js";
+import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
+import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
+import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
+import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
-import type { ServerTypes } from "../vars";
-import type { Context } from "hono";
-
-// Helper function to validate free model usage
-async function validateFreeModelUsage(
-	c: Context<ServerTypes>,
-	organizationId: string,
-	requestedModel: string,
-	modelInfo: ModelDefinition,
-) {
-	const user = await getUserFromOrganization(organizationId);
-	if (!user) {
-		logger.error("User not found", { organizationId });
-		throw new HTTPException(500, {
-			message: "User not found",
-		});
-	}
-	if (!user.emailVerified) {
-		throw new HTTPException(403, {
-			message:
-				"Email verification required to use free models. Please verify your email address.",
-		});
-	}
-
-	// Check rate limits for free models
-	const rateLimitResult = await checkFreeModelRateLimit(
-		organizationId,
-		requestedModel,
-		modelInfo,
-	);
-
-	// Always set limit and remaining headers
-	c.header("X-RateLimit-Limit", rateLimitResult.limit.toString());
-	c.header("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
-
-	if (!rateLimitResult.allowed) {
-		// Only set retry and reset headers when rate limited
-		const retryAfter = rateLimitResult.retryAfter?.toString();
-		if (retryAfter) {
-			c.header("Retry-After", retryAfter);
-			const resetTime = (Math.floor(Date.now() / 1000) + retryAfter).toString();
-			c.header("X-RateLimit-Reset", resetTime);
-		}
-
-		throw new HTTPException(429, {
-			message: "Rate limit exceeded for free models. Please try again later.",
-		});
-	}
-}
-
-// Define ChatMessage type to match what gpt-tokenizer expects
-interface ChatMessage {
-	role: "user" | "system" | "assistant" | undefined;
-	content: string;
-	name?: string;
-}
-
-// Define OpenAI-compatible image object type
-interface ImageObject {
-	type: "image_url";
-	image_url: {
-		url: string;
-	};
-}
-
-// Define streaming delta object type
-interface StreamingDelta {
-	role?: "assistant";
-	content?: string;
-	images?: ImageObject[];
-}
-
-const DEFAULT_TOKENIZER_MODEL = "gpt-4";
-
-/**
- * Determines the appropriate finish reason based on HTTP status code and error message
- * 5xx status codes indicate upstream provider errors
- * 4xx status codes indicate client/gateway errors
- * Special client errors (like JSON format validation) are classified as client_error
- */
-function getFinishReasonForError(
-	statusCode: number,
-	errorText?: string,
-): string {
-	if (statusCode >= 500) {
-		return "upstream_error";
-	}
-
-	// Check for specific client validation errors from providers
-	if (statusCode === 400 && errorText) {
-		// OpenAI JSON format validation error
-		if (
-			errorText.includes("'messages' must contain") &&
-			errorText.includes("the word 'json'")
-		) {
-			return "client_error";
-		}
-	}
-
-	return "gateway_error";
-}
-
-/**
- * Validates and normalizes the x-source header
- * Strips http(s):// and www. if present
- * Validates allowed characters: a-zA-Z0-9, -, ., /
- */
-function validateAndNormalizeSource(
-	source: string | undefined,
-): string | undefined {
-	if (!source) {
-		return undefined;
-	}
-
-	// Strip http:// or https:// if present
-	let normalized = source.replace(/^https?:\/\//, "");
-
-	// Strip www. if present
-	normalized = normalized.replace(/^www\./, "");
-
-	// Validate allowed characters: a-zA-Z0-9, -, ., /
-	const allowedPattern = /^[a-zA-Z0-9./-]+$/;
-	if (!allowedPattern.test(normalized)) {
-		throw new HTTPException(400, {
-			message:
-				"Invalid x-source header: only alphanumeric characters, hyphens, dots, and slashes are allowed",
-		});
-	}
-
-	return normalized;
-}
-
-/**
- * Extracts X-LLMGateway-* headers from the request context
- * Returns a key-value object where keys are the suffix after x-llmgateway- and values are header values
- */
-function extractCustomHeaders(c: any): Record<string, string> {
-	const customHeaders: Record<string, string> = {};
-
-	// Get all headers from the raw request
-	const headers = c.req.raw.headers;
-
-	// Iterate through all headers
-	for (const [key, value] of headers.entries()) {
-		if (key.toLowerCase().startsWith("x-llmgateway-")) {
-			// Extract the suffix after x-llmgateway- and store with lowercase key
-			const suffix = key.toLowerCase().substring("x-llmgateway-".length);
-			customHeaders[suffix] = value;
-		}
-	}
-
-	return customHeaders;
-}
-
-/**
- * Get the user associated with an organization (first user found)
- */
-async function getUserFromOrganization(organizationId: string) {
-	const userOrg = await db.query.userOrganization.findFirst({
-		where: {
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			user: true,
-		},
-	});
-
-	return userOrg?.user || null;
-}
-
-/**
- * Creates a partial log entry with common fields to reduce duplication
- */
-function createLogEntry(
-	requestId: string,
-	project: Project,
-	apiKey: ApiKey,
-	providerKeyId: string | undefined,
-	usedModel: string,
-	usedModelMapping: string | undefined,
-	usedProvider: string,
-	requestedModel: string,
-	requestedProvider: string | undefined,
-	messages: any[],
-	temperature: number | undefined,
-	max_tokens: number | undefined,
-	top_p: number | undefined,
-	frequency_penalty: number | undefined,
-	presence_penalty: number | undefined,
-	reasoningEffort: "low" | "medium" | "high" | undefined,
-	tools: OpenAIToolInput[] | undefined,
-	toolChoice: any | undefined,
-	source: string | undefined,
-	customHeaders: Record<string, string>,
-	debugMode: boolean,
-	rawRequest?: unknown,
-	rawResponse?: unknown,
-	upstreamRequest?: unknown,
-	upstreamResponse?: unknown,
-) {
-	const activeSpan = trace.getActiveSpan();
-	const traceId = activeSpan?.spanContext().traceId || null;
-
-	return {
-		requestId,
-		organizationId: project.organizationId,
-		projectId: apiKey.projectId,
-		apiKeyId: apiKey.id,
-		usedMode: providerKeyId ? "api-keys" : "credits",
-		usedModel,
-		usedModelMapping,
-		usedProvider,
-		requestedModel,
-		requestedProvider,
-		messages,
-		temperature: temperature || null,
-		maxTokens: max_tokens || null,
-		topP: top_p || null,
-		frequencyPenalty: frequency_penalty || null,
-		presencePenalty: presence_penalty || null,
-		reasoningEffort: reasoningEffort || null,
-		tools: tools || null,
-		toolChoice: toolChoice || null,
-		mode: project.mode,
-		source: source || null,
-		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
-		traceId,
-		// Only include raw payloads if x-debug header is set to true
-		rawRequest: debugMode ? rawRequest || null : null,
-		rawResponse: debugMode ? rawResponse || null : null,
-		upstreamRequest: debugMode ? upstreamRequest || null : null,
-		upstreamResponse: debugMode ? upstreamResponse || null : null,
-	} as const;
-}
-
-/**
- * Get provider token from environment variables
- * @param usedProvider The provider to get the token for
- * @returns The token for the provider or undefined if not found
- */
-function getProviderTokenFromEnv(usedProvider: Provider): string | undefined {
-	const envVar = getProviderEnvVar(usedProvider);
-	if (!envVar) {
-		throw new HTTPException(400, {
-			message: `No environment variable set for provider: ${usedProvider}`,
-		});
-	}
-	const token = process.env[envVar];
-	if (!token) {
-		throw new HTTPException(400, {
-			message: `No API key set in environment for provider: ${usedProvider}`,
-		});
-	}
-	return token;
-}
-
-/**
- * Parses response content and metadata from different providers
- */
-function parseProviderResponse(
-	usedProvider: Provider,
-	json: any,
-	messages: any[] = [],
-) {
-	let content = null;
-	let reasoningContent = null;
-	let finishReason = null;
-	let promptTokens = null;
-	let completionTokens = null;
-	let totalTokens = null;
-	let reasoningTokens = null;
-	let cachedTokens = null;
-	let toolResults = null;
-	let images: ImageObject[] = [];
-
-	switch (usedProvider) {
-		case "anthropic": {
-			// Extract content and reasoning content from Anthropic response
-			const contentBlocks = json.content || [];
-			const textBlocks = contentBlocks.filter(
-				(block: any) => block.type === "text",
-			);
-			const thinkingBlocks = contentBlocks.filter(
-				(block: any) => block.type === "thinking",
-			);
-
-			content = textBlocks.map((block: any) => block.text).join("") || null;
-			reasoningContent =
-				thinkingBlocks.map((block: any) => block.thinking).join("") || null;
-
-			finishReason = json.stop_reason || null;
-			promptTokens = json.usage?.input_tokens || null;
-			completionTokens = json.usage?.output_tokens || null;
-			reasoningTokens = json.usage?.reasoning_output_tokens || null;
-			cachedTokens = json.usage?.cache_read_input_tokens || null;
-			totalTokens =
-				json.usage?.input_tokens && json.usage?.output_tokens
-					? json.usage.input_tokens + json.usage.output_tokens
-					: null;
-			// Extract tool calls from Anthropic format
-			toolResults =
-				json.content
-					?.filter((block: any) => block.type === "tool_use")
-					?.map((block: any) => ({
-						id: block.id,
-						type: "function",
-						function: {
-							name: block.name,
-							arguments: JSON.stringify(block.input),
-						},
-					})) || null;
-			if (toolResults && toolResults.length === 0) {
-				toolResults = null;
-			}
-			break;
-		}
-		case "google-ai-studio": {
-			// Extract content and reasoning content from Google response parts
-			const parts = json.candidates?.[0]?.content?.parts || [];
-			const contentParts = parts.filter((part: any) => !part.thought);
-			const reasoningParts = parts.filter((part: any) => part.thought);
-
-			content = contentParts.map((part: any) => part.text).join("") || null;
-			reasoningContent =
-				reasoningParts.map((part: any) => part.text).join("") || null;
-
-			// Extract images from Google response parts
-			const imageParts = parts.filter((part: any) => part.inlineData);
-			images = imageParts.map(
-				(part: any): ImageObject => ({
-					type: "image_url",
-					image_url: {
-						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-					},
-				}),
-			);
-
-			finishReason = json.candidates?.[0]?.finishReason || null;
-			promptTokens = json.usageMetadata?.promptTokenCount || null;
-			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
-			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
-			// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
-			totalTokens = null;
-
-			// If candidatesTokenCount is missing, estimate it from the content or set to 0
-			if (completionTokens === null) {
-				if (content) {
-					const estimation = estimateTokens(
-						usedProvider,
-						[],
-						content,
-						null,
-						null,
-					);
-					completionTokens = estimation.calculatedCompletionTokens;
-				} else {
-					// No content means 0 completion tokens (e.g., MAX_TOKENS with only reasoning)
-					completionTokens = 0;
-				}
-			}
-
-			// Calculate totalTokens to include reasoning tokens for Google models
-			if (promptTokens !== null) {
-				totalTokens =
-					promptTokens + (completionTokens || 0) + (reasoningTokens || 0);
-			}
-
-			// Extract tool calls from Google format - reuse the same parts array
-			toolResults =
-				parts
-					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => ({
-						id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
-						type: "function",
-						function: {
-							name: part.functionCall.name,
-							arguments: JSON.stringify(part.functionCall.args || {}),
-						},
-					})) || null;
-			if (toolResults && toolResults.length === 0) {
-				toolResults = null;
-			}
-			break;
-		}
-		case "mistral":
-			content = json.choices?.[0]?.message?.content || null;
-			finishReason = json.choices?.[0]?.finish_reason || null;
-			promptTokens = json.usage?.prompt_tokens || null;
-			completionTokens = json.usage?.completion_tokens || null;
-			reasoningTokens = json.usage?.reasoning_tokens || null;
-			totalTokens = json.usage?.total_tokens || null;
-
-			// Handle Mistral's JSON output mode which wraps JSON in markdown code blocks
-			if (
-				content &&
-				typeof content === "string" &&
-				content.includes("```json")
-			) {
-				const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-				if (jsonMatch && jsonMatch[1]) {
-					// Extract and clean the JSON content
-					content = jsonMatch[1].trim();
-					// Ensure it's valid JSON by parsing and re-stringifying to normalize formatting
-					try {
-						const parsed = JSON.parse(content);
-						content = JSON.stringify(parsed);
-					} catch {}
-				}
-			}
-
-			// Extract tool calls from Mistral format (same as OpenAI)
-			toolResults = json.choices?.[0]?.message?.tool_calls || null;
-			break;
-		default: // OpenAI format
-			// Check if this is an OpenAI responses format (has output array instead of choices)
-			if (json.output && Array.isArray(json.output)) {
-				// OpenAI responses endpoint format
-				const messageOutput = json.output.find(
-					(item: any) => item.type === "message",
-				);
-				const reasoningOutput = json.output.find(
-					(item: any) => item.type === "reasoning",
-				);
-
-				// Extract message content
-				if (messageOutput?.content?.[0]?.text) {
-					content = messageOutput.content[0].text;
-				}
-
-				// Extract reasoning content from summary
-				if (reasoningOutput?.summary?.[0]?.text) {
-					reasoningContent = reasoningOutput.summary[0].text;
-				}
-
-				// Extract tool calls (if any) from the output array and transform to OpenAI format
-				const functionCalls = json.output.filter(
-					(item: any) => item.type === "function_call",
-				);
-				if (functionCalls.length > 0) {
-					toolResults = functionCalls.map((functionCall: any) => ({
-						id: functionCall.call_id || functionCall.id,
-						type: "function",
-						function: {
-							name: functionCall.name,
-							arguments: functionCall.arguments,
-						},
-					}));
-				} else {
-					toolResults = null;
-				}
-
-				// Status mapping with tool call detection for responses API
-				if (json.status === "completed") {
-					// Check if there are tool calls in the response
-					if (toolResults && toolResults.length > 0) {
-						finishReason = "tool_calls";
-					} else {
-						finishReason = "stop";
-					}
-				} else {
-					finishReason = json.status;
-				}
-
-				// Usage token extraction
-				promptTokens = json.usage?.input_tokens || null;
-				completionTokens = json.usage?.output_tokens || null;
-				reasoningTokens =
-					json.usage?.output_tokens_details?.reasoning_tokens || null;
-				cachedTokens = json.usage?.input_tokens_details?.cached_tokens || null;
-				totalTokens = json.usage?.total_tokens || null;
-			} else {
-				// Standard OpenAI chat completions format
-				toolResults = json.choices?.[0]?.message?.tool_calls || null;
-				content = json.choices?.[0]?.message?.content || null;
-				// Extract reasoning content for reasoning-capable models (check both field names)
-				reasoningContent =
-					json.choices?.[0]?.message?.reasoning_content ||
-					json.choices?.[0]?.message?.reasoning ||
-					null;
-				finishReason = json.choices?.[0]?.finish_reason || null;
-
-				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
-				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
-				if (
-					usedProvider === "zai" &&
-					finishReason === "tool_calls" &&
-					messages.length > 0
-				) {
-					const lastMessage = messages[messages.length - 1];
-					const modelName = json.model;
-
-					// Only apply to specific failing models and only when last message was a tool result
-					if (
-						(modelName === "glm-4.5-airx" || modelName === "glm-4.5-flash") &&
-						lastMessage?.role === "tool"
-					) {
-						// Check if the response actually contains new tool calls that should be prevented
-						const hasNewToolCalls =
-							json.choices?.[0]?.message?.tool_calls?.length > 0;
-						if (hasNewToolCalls) {
-							finishReason = "stop";
-							// Also update JSON to match
-							if (json.choices?.[0]) {
-								json.choices[0].finish_reason = "stop";
-								delete json.choices[0].message.tool_calls;
-							}
-						}
-					}
-				}
-
-				promptTokens = json.usage?.prompt_tokens || null;
-				completionTokens = json.usage?.completion_tokens || null;
-				reasoningTokens = json.usage?.reasoning_tokens || null;
-				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
-				totalTokens =
-					json.usage?.total_tokens ||
-					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens || 0)
-						: null);
-
-				// Extract images from OpenAI-format response (including Gemini via gateway)
-				if (json.choices?.[0]?.message?.images) {
-					images = json.choices[0].message.images;
-				}
-			}
-			break;
-	}
-
-	return {
-		content,
-		reasoningContent,
-		finishReason,
-		promptTokens,
-		completionTokens,
-		totalTokens,
-		reasoningTokens,
-		cachedTokens,
-		toolResults,
-		images,
-	};
-}
-
-/**
- * Estimates token counts when not provided by the API using gpt-tokenizer
- */
-export function estimateTokens(
-	usedProvider: Provider,
-	messages: any[],
-	content: string | null,
-	promptTokens: number | null,
-	completionTokens: number | null,
-) {
-	let calculatedPromptTokens = promptTokens;
-	let calculatedCompletionTokens = completionTokens;
-
-	// Always estimate missing tokens for any provider
-	if (!promptTokens || !completionTokens) {
-		// Estimate prompt tokens using encodeChat for better accuracy
-		if (!promptTokens && messages && messages.length > 0) {
-			try {
-				// Convert messages to the format expected by gpt-tokenizer
-				const chatMessages: ChatMessage[] = messages.map((m) => ({
-					role: m.role,
-					content:
-						typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
-					name: m.name,
-				}));
-				calculatedPromptTokens = encodeChat(
-					chatMessages,
-					DEFAULT_TOKENIZER_MODEL,
-				).length;
-			} catch (error) {
-				// Fallback to simple estimation if encoding fails
-				logger.error(
-					"Failed to encode chat messages in estimate tokens",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-				calculatedPromptTokens =
-					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
-			}
-		}
-
-		// Estimate completion tokens using encode for better accuracy
-		if (!completionTokens && content) {
-			try {
-				calculatedCompletionTokens = encode(content).length;
-			} catch (error) {
-				// Fallback to simple estimation if encoding fails
-				logger.error(
-					"Failed to encode completion text",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-				calculatedCompletionTokens = content.length / 4;
-			}
-		}
-	}
-
-	return {
-		calculatedPromptTokens,
-		calculatedCompletionTokens,
-	};
-}
+import type { ServerTypes } from "@/vars.js";
 
 /**
  * Estimates tokens from content length using simple division
  */
 export function estimateTokensFromContent(content: string): number {
 	return Math.max(1, Math.round(content.length / 4));
-}
-
-/**
- * Extracts content from streaming data based on provider format
- */
-function extractContentFromProvider(data: any, provider: Provider): string {
-	switch (provider) {
-		case "google-ai-studio": {
-			const parts = data.candidates?.[0]?.content?.parts || [];
-			const contentParts = parts.filter((part: any) => !part.thought);
-			return contentParts.map((part: any) => part.text).join("") || "";
-		}
-		case "anthropic":
-			if (data.type === "content_block_delta" && data.delta?.text) {
-				return data.delta.text;
-			} else if (data.delta?.text) {
-				return data.delta.text;
-			}
-			return "";
-		default: // OpenAI format
-			return data.choices?.[0]?.delta?.content || "";
-	}
-}
-
-/**
- * Extracts reasoning content from streaming data based on provider format
- */
-function extractReasoningContentFromProvider(
-	data: any,
-	provider: Provider,
-): string {
-	switch (provider) {
-		case "anthropic": {
-			// Handle Anthropic thinking content blocks in streaming format
-			if (
-				data.type === "content_block_delta" &&
-				data.delta?.type === "thinking_delta" &&
-				data.delta?.thinking
-			) {
-				// This is a thinking delta - return the thinking content
-				return data.delta.thinking;
-			}
-			return "";
-		}
-		case "google-ai-studio": {
-			const parts = data.candidates?.[0]?.content?.parts || [];
-			const reasoningParts = parts.filter((part: any) => part.thought);
-			return reasoningParts.map((part: any) => part.text).join("") || "";
-		}
-		default: // OpenAI format
-			return (
-				data.choices?.[0]?.delta?.reasoning_content ||
-				data.choices?.[0]?.delta?.reasoning ||
-				""
-			);
-	}
-}
-
-/**
- * Extracts images from streaming data based on provider format
- */
-function extractImagesFromProvider(
-	data: any,
-	provider: Provider,
-): ImageObject[] {
-	switch (provider) {
-		case "google-ai-studio": {
-			const parts = data.candidates?.[0]?.content?.parts || [];
-			const imageParts = parts.filter((part: any) => part.inlineData);
-			return imageParts.map(
-				(part: any): ImageObject => ({
-					type: "image_url",
-					image_url: {
-						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-					},
-				}),
-			);
-		}
-		default: // OpenAI format
-			return [];
-	}
-}
-
-/**
- * Extracts tool calls from streaming data based on provider format
- */
-function extractToolCallsFromProvider(
-	data: any,
-	provider: Provider,
-): any[] | null {
-	switch (provider) {
-		case "anthropic":
-			// Anthropic streaming tool calls come as content_block_start with tool_use type
-			if (
-				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_use"
-			) {
-				return [
-					{
-						id: data.content_block.id,
-						type: "function",
-						function: {
-							name: data.content_block.name,
-							arguments: "",
-						},
-					},
-				];
-			}
-			// Tool arguments come as content_block_delta - these don't have a direct ID,
-			// so we return null and let the streaming logic handle the accumulation
-			// by finding the matching tool call by content block index
-			if (data.type === "content_block_delta" && data.delta?.partial_json) {
-				// Return a partial tool call with the index to help with matching
-				return [
-					{
-						_contentBlockIndex: data.index, // Use this for matching
-						type: "function",
-						function: {
-							name: "",
-							arguments: data.delta.partial_json,
-						},
-					},
-				];
-			}
-			return null;
-		case "google-ai-studio": {
-			// Google AI Studio tool calls in streaming
-			const parts = data.candidates?.[0]?.content?.parts || [];
-			return (
-				parts
-					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => ({
-						id: part.functionCall.name + "_" + Date.now() + "_" + index,
-						type: "function",
-						function: {
-							name: part.functionCall.name,
-							arguments: JSON.stringify(part.functionCall.args || {}),
-						},
-					})) || null
-			);
-		}
-		default: // OpenAI format
-			return data.choices?.[0]?.delta?.tool_calls || null;
-	}
-}
-
-/**
- * Extracts token usage information from streaming data based on provider format
- */
-function extractTokenUsage(
-	data: any,
-	provider: Provider,
-	fullContent?: string,
-) {
-	let promptTokens = null;
-	let completionTokens = null;
-	let totalTokens = null;
-	let reasoningTokens = null;
-	let cachedTokens = null;
-
-	switch (provider) {
-		case "google-ai-studio":
-			if (data.usageMetadata) {
-				promptTokens = data.usageMetadata.promptTokenCount || null;
-				completionTokens = data.usageMetadata.candidatesTokenCount || null;
-				// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
-				reasoningTokens = data.usageMetadata.thoughtsTokenCount || null;
-				// Calculate total including reasoning tokens
-				totalTokens =
-					(promptTokens || 0) +
-					(completionTokens || 0) +
-					(reasoningTokens || 0);
-
-				// If candidatesTokenCount is missing and we have content, estimate it
-				if (completionTokens === null && fullContent) {
-					const estimation = estimateTokens(
-						provider,
-						[],
-						fullContent,
-						null,
-						null,
-					);
-					completionTokens = estimation.calculatedCompletionTokens;
-				}
-			}
-			break;
-		case "anthropic":
-			if (data.usage) {
-				promptTokens = data.usage.input_tokens || null;
-				completionTokens = data.usage.output_tokens || null;
-				reasoningTokens = data.usage.reasoning_output_tokens || null;
-				cachedTokens = data.usage.cache_read_input_tokens || null;
-				totalTokens = (promptTokens || 0) + (completionTokens || 0);
-			}
-			break;
-		default: // OpenAI format
-			if (data.usage) {
-				promptTokens = data.usage.prompt_tokens || null;
-				completionTokens = data.usage.completion_tokens || null;
-				totalTokens = data.usage.total_tokens || null;
-				reasoningTokens = data.usage.reasoning_tokens || null;
-				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens || null;
-			}
-			break;
-	}
-
-	return {
-		promptTokens,
-		completionTokens,
-		totalTokens,
-		reasoningTokens,
-		cachedTokens,
-	};
-}
-
-/**
- * Transforms response to OpenAI format for non-OpenAI providers
- */
-function transformToOpenAIFormat(
-	usedProvider: Provider,
-	usedModel: string,
-	json: any,
-	content: string | null,
-	reasoningContent: string | null,
-	finishReason: string | null,
-	promptTokens: number | null,
-	completionTokens: number | null,
-	totalTokens: number | null,
-	reasoningTokens: number | null,
-	cachedTokens: number | null,
-	toolResults: any,
-	images: ImageObject[],
-	requestedModel: string,
-	requestedProvider: string | null,
-	baseModelName: string,
-) {
-	let transformedResponse = json;
-
-	switch (usedProvider) {
-		case "google-ai-studio": {
-			transformedResponse = {
-				id: `chatcmpl-${Date.now()}`,
-				object: "chat.completion",
-				created: Math.floor(Date.now() / 1000),
-				model: `${usedProvider}/${baseModelName}`,
-				choices: [
-					{
-						index: 0,
-						message: {
-							role: "assistant",
-							content: content,
-							...(reasoningContent !== null && {
-								reasoning_content: reasoningContent,
-							}),
-							...(toolResults && { tool_calls: toolResults }),
-							...(images && images.length > 0 && { images }),
-						},
-						finish_reason:
-							finishReason === "STOP"
-								? toolResults && toolResults.length > 0
-									? "tool_calls"
-									: "stop"
-								: finishReason?.toLowerCase() || "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: Math.max(
-						1,
-						totalTokens || Math.max(1, promptTokens || 1),
-					),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
-				metadata: {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					underlying_used_model: usedModel,
-				},
-			};
-			break;
-		}
-		case "anthropic": {
-			transformedResponse = {
-				id: `chatcmpl-${Date.now()}`,
-				object: "chat.completion",
-				created: Math.floor(Date.now() / 1000),
-				model: `${usedProvider}/${baseModelName}`,
-				choices: [
-					{
-						index: 0,
-						message: {
-							role: "assistant",
-							content: content,
-							...(reasoningContent !== null && {
-								reasoning_content: reasoningContent,
-							}),
-							...(toolResults && { tool_calls: toolResults }),
-						},
-						finish_reason:
-							finishReason === "end_turn"
-								? "stop"
-								: finishReason === "tool_use"
-									? "tool_calls"
-									: finishReason?.toLowerCase() || "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: Math.max(
-						1,
-						totalTokens || Math.max(1, promptTokens || 1),
-					),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
-				metadata: {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					underlying_used_model: usedModel,
-				},
-			};
-			break;
-		}
-		case "inference.net":
-		case "together.ai":
-		case "groq": {
-			if (!transformedResponse.id) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(reasoningContent !== null && {
-									reasoning_content: reasoningContent,
-								}),
-							},
-							finish_reason: finishReason || "stop",
-						},
-					],
-					usage: {
-						prompt_tokens: Math.max(1, promptTokens || 1),
-						completion_tokens: completionTokens || 0,
-						total_tokens: Math.max(
-							1,
-							totalTokens || Math.max(1, promptTokens || 1),
-						),
-						...(reasoningTokens !== null && {
-							reasoning_tokens: reasoningTokens,
-						}),
-					},
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-					},
-				};
-			} else {
-				// Always transform reasoning field to reasoning_content even if response already has an id
-				if (transformedResponse.choices?.[0]?.message) {
-					const message = transformedResponse.choices[0].message;
-					if (reasoningContent !== null) {
-						message.reasoning_content = reasoningContent;
-						// Remove the old reasoning field if it exists
-						delete message.reasoning;
-					}
-				}
-				// Add metadata to existing response
-				transformedResponse.model = `${usedProvider}/${baseModelName}`;
-				transformedResponse.metadata = {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					underlying_used_model: usedModel,
-				};
-			}
-			break;
-		}
-		case "openai": {
-			// Handle OpenAI responses format transformation to chat completions format
-			if (json.output && Array.isArray(json.output)) {
-				// This is from the responses endpoint - transform to chat completions format
-				transformedResponse = {
-					id: json.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: json.created_at || Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(reasoningContent !== null && {
-									reasoning_content: reasoningContent,
-								}),
-								...(toolResults && { tool_calls: toolResults }),
-							},
-							finish_reason: finishReason || "stop",
-						},
-					],
-					usage: {
-						prompt_tokens: Math.max(1, promptTokens || 1),
-						completion_tokens: completionTokens || 0,
-						total_tokens: Math.max(
-							1,
-							totalTokens || Math.max(1, promptTokens || 1),
-						),
-						...(reasoningTokens !== null && {
-							reasoning_tokens: reasoningTokens,
-						}),
-						...(cachedTokens !== null && {
-							prompt_tokens_details: {
-								cached_tokens: cachedTokens,
-							},
-						}),
-					},
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-					},
-				};
-			} else {
-				// For standard chat completions format, update model field and add metadata
-				if (transformedResponse && typeof transformedResponse === "object") {
-					transformedResponse.model = `${usedProvider}/${baseModelName}`;
-					transformedResponse.metadata = {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-					};
-				}
-			}
-			break;
-		}
-		default: {
-			// For any other provider, add metadata to existing response
-			if (transformedResponse && typeof transformedResponse === "object") {
-				transformedResponse.model = `${usedProvider}/${baseModelName}`;
-				transformedResponse.metadata = {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					underlying_used_model: usedModel,
-				};
-			}
-			break;
-		}
-	}
-
-	return transformedResponse;
-}
-
-/**
- * Transforms streaming chunk to OpenAI format for non-OpenAI providers
- */
-// Helper function to calculate prompt tokens when missing or 0
-export function calculatePromptTokensFromMessages(messages: any[]): number {
-	try {
-		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
-			role: m.role,
-			content:
-				typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-			name: m.name,
-		}));
-		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch {
-		return Math.max(
-			1,
-			Math.round(
-				messages.reduce(
-					(acc: number, m: any) => acc + (m.content?.length || 0),
-					0,
-				) / 4,
-			),
-		);
-	}
-}
-
-/**
- * Helper function to transform standard OpenAI streaming format
- */
-function transformStandardOpenAIStreaming(data: any, usedModel: string): any {
-	// Ensure the response has the required OpenAI format fields
-	if (!data.id || !data.object) {
-		const delta = data.delta
-			? {
-					...data.delta,
-					role: data.delta.role || "assistant",
-				}
-			: {
-					content: data.content || "",
-					tool_calls: data.tool_calls || null,
-					role: "assistant",
-				};
-
-		// Normalize reasoning field to reasoning_content for consistency
-		if (delta.reasoning && !delta.reasoning_content) {
-			delta.reasoning_content = delta.reasoning;
-			delete delta.reasoning;
-		}
-
-		return {
-			id: data.id || `chatcmpl-${Date.now()}`,
-			object: "chat.completion.chunk",
-			created: data.created || Math.floor(Date.now() / 1000),
-			model: data.model || usedModel,
-			choices: data.choices || [
-				{
-					index: 0,
-					delta,
-					finish_reason: data.finish_reason || null,
-				},
-			],
-			usage: data.usage || null,
-		};
-	} else {
-		// Even if the response has the correct format, ensure role is set in delta and object is correct for streaming
-		return {
-			...data,
-			object: "chat.completion.chunk", // Force correct object type for streaming
-			choices:
-				data.choices?.map((choice: any) => {
-					const delta = choice.delta
-						? {
-								...choice.delta,
-								role: choice.delta.role || "assistant",
-							}
-						: choice.delta;
-
-					// Normalize reasoning field to reasoning_content for consistency
-					if (delta?.reasoning && !delta.reasoning_content) {
-						delta.reasoning_content = delta.reasoning;
-						delete delta.reasoning;
-					}
-
-					return {
-						...choice,
-						delta,
-					};
-				}) || data.choices,
-		};
-	}
-}
-
-function transformStreamingChunkToOpenAIFormat(
-	usedProvider: Provider,
-	usedModel: string,
-	data: any,
-	messages: any[],
-): any {
-	let transformedData = data;
-
-	switch (usedProvider) {
-		case "anthropic": {
-			// Handle different types of Anthropic streaming events
-			if (data.type === "content_block_delta" && data.delta?.text) {
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								content: data.delta.text,
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else if (
-				data.type === "content_block_delta" &&
-				data.delta?.type === "thinking_delta" &&
-				data.delta?.thinking
-			) {
-				// Handle thinking content delta - convert to unified reasoning_content format
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								reasoning_content: data.delta.thinking,
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else if (
-				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_use"
-			) {
-				// Handle tool call start
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								tool_calls: [
-									{
-										index: data.index || 0,
-										id: data.content_block.id,
-										type: "function",
-										function: {
-											name: data.content_block.name,
-											arguments: "",
-										},
-									},
-								],
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else if (
-				data.type === "content_block_delta" &&
-				data.delta?.partial_json
-			) {
-				// Handle tool call arguments delta
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								tool_calls: [
-									{
-										index: data.index || 0,
-										function: {
-											arguments: data.delta.partial_json,
-										},
-									},
-								],
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
-				const stopReason = data.delta.stop_reason;
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
-							},
-							finish_reason:
-								stopReason === "end_turn"
-									? "stop"
-									: stopReason === "tool_use"
-										? "tool_calls"
-										: stopReason?.toLowerCase() || "stop",
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else if (data.type === "message_stop" || data.stop_reason) {
-				const stopReason = data.stop_reason || "end_turn";
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
-							},
-							finish_reason:
-								stopReason === "end_turn"
-									? "stop"
-									: stopReason === "tool_use"
-										? "tool_calls"
-										: stopReason?.toLowerCase() || "stop",
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else if (data.delta?.text) {
-				// Fallback for older format
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								content: data.delta.text,
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			} else {
-				// For other Anthropic events (like message_start, content_block_start, etc.)
-				// Transform them to OpenAI format but without content
-				transformedData = {
-					id: data.id || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created || Math.floor(Date.now() / 1000),
-					model: data.model || usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage || null,
-				};
-			}
-			break;
-		}
-		case "google-ai-studio": {
-			const parts = data.candidates?.[0]?.content?.parts || [];
-			const hasText = parts.some((part: any) => part.text);
-			const hasImages = parts.some((part: any) => part.inlineData);
-
-			if (hasText || hasImages) {
-				const delta: StreamingDelta = {
-					role: "assistant",
-				};
-
-				// Add text content if present
-				if (hasText) {
-					delta.content = parts.map((part: any) => part.text).join("") || "";
-				}
-
-				// Add images if present
-				if (hasImages) {
-					delta.images = extractImagesFromProvider(data, "google-ai-studio");
-				}
-
-				transformedData = {
-					id: data.responseId || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: data.modelVersion || usedModel,
-					choices: [
-						{
-							index: data.candidates[0].index || 0,
-							delta,
-							finish_reason: null,
-						},
-					],
-					usage: data.usageMetadata
-						? {
-								prompt_tokens:
-									data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages),
-								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
-								// Calculate total including reasoning tokens for Google models
-								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages)) +
-									(data.usageMetadata.candidatesTokenCount || 0) +
-									(data.usageMetadata.thoughtsTokenCount || 0),
-								...(data.usageMetadata.thoughtsTokenCount && {
-									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
-								}),
-							}
-						: null,
-				};
-			} else if (data.candidates?.[0]?.finishReason) {
-				const finishReason = data.candidates[0].finishReason;
-				// Check if there are function calls in this response
-				const hasFunctionCalls = data.candidates?.[0]?.content?.parts?.some(
-					(part: any) => part.functionCall,
-				);
-				transformedData = {
-					id: data.responseId || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: data.modelVersion || usedModel,
-					choices: [
-						{
-							index: data.candidates[0].index || 0,
-							delta: {
-								role: "assistant",
-							},
-							finish_reason:
-								finishReason === "STOP"
-									? hasFunctionCalls
-										? "tool_calls"
-										: "stop"
-									: finishReason?.toLowerCase() || "stop",
-						},
-					],
-					usage: data.usageMetadata
-						? {
-								prompt_tokens:
-									data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages),
-								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
-								// Calculate total including reasoning tokens for Google models
-								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages)) +
-									(data.usageMetadata.candidatesTokenCount || 0) +
-									(data.usageMetadata.thoughtsTokenCount || 0),
-								...(data.usageMetadata.thoughtsTokenCount && {
-									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
-								}),
-							}
-						: null,
-				};
-			} else {
-				// Handle any other Google chunks that don't have content or finishReason
-				// but still need to be in proper OpenAI format
-				transformedData = {
-					id: data.responseId || `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: data.modelVersion || usedModel,
-					choices: [
-						{
-							index: data.candidates?.[0]?.index || 0,
-							delta: {},
-							finish_reason: null,
-						},
-					],
-					usage: data.usageMetadata
-						? {
-								prompt_tokens:
-									data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages),
-								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
-								// Calculate total including reasoning tokens for Google models
-								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages)) +
-									(data.usageMetadata.candidatesTokenCount || 0) +
-									(data.usageMetadata.thoughtsTokenCount || 0),
-								...(data.usageMetadata.thoughtsTokenCount && {
-									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
-								}),
-							}
-						: null,
-				};
-			}
-			break;
-		}
-		case "openai": {
-			// Handle OpenAI responses API streaming format (event-based)
-			if (data.type) {
-				// Handle different OpenAI responses streaming event types
-				switch (data.type) {
-					case "response.created":
-					case "response.in_progress":
-						// Initial/progress events - return empty delta to maintain stream
-						transformedData = {
-							id: data.response?.id || `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created:
-								data.response?.created_at || Math.floor(Date.now() / 1000),
-							model: data.response?.model || usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: { role: "assistant" },
-									finish_reason: null,
-								},
-							],
-							usage: null,
-						};
-						break;
-
-					case "response.output_item.added":
-						// New output item added (reasoning or message) - return empty delta
-						transformedData = {
-							id: data.response?.id || `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created:
-								data.response?.created_at || Math.floor(Date.now() / 1000),
-							model: data.response?.model || usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: { role: "assistant" },
-									finish_reason: null,
-								},
-							],
-							usage: null,
-						};
-						break;
-
-					case "response.reasoning_summary_part.added":
-					case "response.reasoning_summary_text.delta":
-						// Reasoning content delta
-						transformedData = {
-							id: data.response?.id || `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created:
-								data.response?.created_at || Math.floor(Date.now() / 1000),
-							model: data.response?.model || usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: {
-										role: "assistant",
-										reasoning_content: data.delta || data.part?.text || "",
-									},
-									finish_reason: null,
-								},
-							],
-							usage: null,
-						};
-						break;
-
-					case "response.content_part.added":
-					case "response.output_text.delta":
-					case "response.text.delta":
-						// Message content delta
-						transformedData = {
-							id: data.response?.id || `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created:
-								data.response?.created_at || Math.floor(Date.now() / 1000),
-							model: data.response?.model || usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: {
-										role: "assistant",
-										content: data.delta || data.part?.text || "",
-									},
-									finish_reason: null,
-								},
-							],
-							usage: null,
-						};
-						break;
-
-					case "response.completed": {
-						// Final completion event with usage data
-						const responseUsage = data.response?.usage;
-						let usage = null;
-						if (responseUsage) {
-							// Map OpenAI responses usage format to chat completions format
-							usage = {
-								prompt_tokens: responseUsage.input_tokens || 0,
-								completion_tokens: responseUsage.output_tokens || 0,
-								total_tokens: responseUsage.total_tokens || 0,
-								...(responseUsage.output_tokens_details?.reasoning_tokens && {
-									reasoning_tokens:
-										responseUsage.output_tokens_details.reasoning_tokens,
-								}),
-								...(responseUsage.input_tokens_details?.cached_tokens && {
-									prompt_tokens_details: {
-										cached_tokens:
-											responseUsage.input_tokens_details.cached_tokens,
-									},
-								}),
-							};
-						}
-						transformedData = {
-							id: data.response?.id || `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created:
-								data.response?.created_at || Math.floor(Date.now() / 1000),
-							model: data.response?.model || usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: {},
-									finish_reason: "stop",
-								},
-							],
-							usage,
-						};
-						break;
-					}
-
-					default:
-						// Unknown event type - still provide basic OpenAI format structure
-						transformedData = {
-							id: data.response?.id || `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created:
-								data.response?.created_at || Math.floor(Date.now() / 1000),
-							model: data.response?.model || usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: { role: "assistant" },
-									finish_reason: null,
-								},
-							],
-							usage: null,
-						};
-						break;
-				}
-			} else {
-				// If not responses format, handle as regular OpenAI streaming
-				transformedData = transformStandardOpenAIStreaming(data, usedModel);
-			}
-			break;
-		}
-		// OpenAI and other providers that already use OpenAI format
-		default: {
-			transformedData = transformStandardOpenAIStreaming(data, usedModel);
-			break;
-		}
-	}
-
-	return transformedData;
 }
 
 export const chat = new OpenAPIHono<ServerTypes>();
@@ -2057,8 +383,11 @@ chat.openapi(completions, async (c) => {
 		free_models_only,
 	} = validationResult.data;
 
-	// Extract and validate source from x-source header
-	const source = validateAndNormalizeSource(c.req.header("x-source"));
+	// Extract and validate source from x-source header with HTTP-Referer fallback
+	const source = validateSource(
+		c.req.header("x-source"),
+		c.req.header("HTTP-Referer"),
+	);
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
@@ -2298,6 +627,13 @@ chat.openapi(completions, async (c) => {
 	if (!project) {
 		throw new HTTPException(500, {
 			message: "Could not find project",
+		});
+	}
+
+	// Check if project is deleted (archived)
+	if (project.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Project has been archived and is no longer accessible",
 		});
 	}
 
@@ -2729,7 +1065,7 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		usedToken = getProviderTokenFromEnv(usedProvider);
+		usedToken = getProviderEnv(usedProvider);
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
@@ -2781,7 +1117,7 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			usedToken = getProviderTokenFromEnv(usedProvider);
+			usedToken = getProviderEnv(usedProvider);
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -2974,6 +1310,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration: 0, // No processing time for cached response
+					timeToFirstToken: null, // Not applicable for cached response
+					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: JSON.stringify(cachedStreamingResponse).length,
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
@@ -3062,6 +1400,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration,
+					timeToFirstToken: null, // Not applicable for cached response
+					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: JSON.stringify(cachedResponse).length,
 					content: cachedResponse.choices?.[0]?.message?.content || null,
 					reasoningContent:
@@ -3188,6 +1528,12 @@ chat.openapi(completions, async (c) => {
 			}> = [];
 			const streamStartTime = Date.now();
 
+			// Timing tracking variables
+			let timeToFirstToken: number | null = null;
+			let timeToFirstReasoningToken: number | null = null;
+			let firstTokenReceived = false;
+			let firstReasoningTokenReceived = false;
+
 			// Helper function to write SSE and capture for cache
 			const writeSSEAndCache = async (sseData: {
 				data: string;
@@ -3274,6 +1620,8 @@ chat.openapi(completions, async (c) => {
 					await insertLog({
 						...baseLogEntry,
 						duration: Date.now() - startTime,
+						timeToFirstToken: null, // Not applicable for canceled request
+						timeToFirstReasoningToken: null, // Not applicable for canceled request
 						responseSize: 0,
 						content: null,
 						reasoningContent: null,
@@ -3320,7 +1668,7 @@ chat.openapi(completions, async (c) => {
 				});
 
 				// Determine the finish reason for error handling
-				const finishReason = getFinishReasonForError(
+				const finishReason = getFinishReasonFromError(
 					res.status,
 					errorResponseText,
 				);
@@ -3397,10 +1745,12 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration: Date.now() - startTime,
+					timeToFirstToken: null, // Not applicable for error case
+					timeToFirstReasoningToken: null, // Not applicable for error case
 					responseSize: errorResponseText.length,
 					content: null,
 					reasoningContent: null,
-					finishReason: getFinishReasonForError(res.status, errorResponseText),
+					finishReason: getFinishReasonFromError(res.status, errorResponseText),
 					promptTokens: null,
 					completionTokens: null,
 					totalTokens: null,
@@ -3651,7 +2001,9 @@ chat.openapi(completions, async (c) => {
 
 							if (finalTotalTokens === null) {
 								finalTotalTokens =
-									(finalPromptTokens || 0) + (finalCompletionTokens || 0);
+									(finalPromptTokens || 0) +
+									(finalCompletionTokens || 0) +
+									(reasoningTokens || 0);
 							}
 
 							// Send final usage chunk before [DONE] if we have any usage data
@@ -3675,10 +2027,13 @@ chat.openapi(completions, async (c) => {
 									usage: {
 										prompt_tokens: Math.max(1, finalPromptTokens || 1),
 										completion_tokens: finalCompletionTokens || 0,
-										total_tokens: Math.max(
-											1,
-											finalTotalTokens || Math.max(1, finalPromptTokens || 1),
-										),
+										total_tokens: (() => {
+											const fallbackTotal =
+												(finalPromptTokens || 0) +
+												(finalCompletionTokens || 0) +
+												(reasoningTokens || 0);
+											return Math.max(1, finalTotalTokens ?? fallbackTotal);
+										})(),
 									},
 								};
 
@@ -3736,7 +2091,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Transform streaming responses to OpenAI format for all providers
-							const transformedData = transformStreamingChunkToOpenAIFormat(
+							const transformedData = transformStreamingToOpenai(
 								usedProvider,
 								usedModel,
 								data,
@@ -3830,28 +2185,34 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract content for logging using helper function
-							const contentChunk = extractContentFromProvider(
-								data,
-								usedProvider,
-							);
+							const contentChunk = extractContent(data, usedProvider);
 							if (contentChunk) {
 								fullContent += contentChunk;
+
+								// Track time to first token if this is the first content chunk
+								if (!firstTokenReceived) {
+									timeToFirstToken = Date.now() - startTime;
+									firstTokenReceived = true;
+								}
 							}
 
 							// Extract reasoning content for logging using helper function
-							const reasoningContentChunk = extractReasoningContentFromProvider(
+							const reasoningContentChunk = extractReasoning(
 								data,
 								usedProvider,
 							);
 							if (reasoningContentChunk) {
 								fullReasoningContent += reasoningContentChunk;
+
+								// Track time to first reasoning token if this is the first reasoning chunk
+								if (!firstReasoningTokenReceived) {
+									timeToFirstReasoningToken = Date.now() - startTime;
+									firstReasoningTokenReceived = true;
+								}
 							}
 
 							// Extract and accumulate tool calls
-							const toolCallsChunk = extractToolCallsFromProvider(
-								data,
-								usedProvider,
-							);
+							const toolCallsChunk = extractToolCalls(data, usedProvider);
 							if (toolCallsChunk && toolCallsChunk.length > 0) {
 								if (!streamingToolCalls) {
 									streamingToolCalls = [];
@@ -3894,7 +2255,23 @@ chat.openapi(completions, async (c) => {
 							switch (usedProvider) {
 								case "google-ai-studio":
 									if (data.candidates?.[0]?.finishReason) {
-										finishReason = data.candidates[0].finishReason;
+										const googleFinishReason = data.candidates[0].finishReason;
+										// Check if there are function calls in this response
+										const hasFunctionCalls =
+											data.candidates?.[0]?.content?.parts?.some(
+												(part: any) => part.functionCall,
+											);
+										// Map Google finish reasons to OpenAI format
+										finishReason =
+											googleFinishReason === "STOP"
+												? hasFunctionCalls
+													? "tool_calls"
+													: "stop"
+												: googleFinishReason === "MAX_TOKENS"
+													? "length"
+													: googleFinishReason === "SAFETY"
+														? "content_filter"
+														: "stop"; // Safe fallback for unknown reasons
 									}
 									break;
 								case "anthropic":
@@ -4201,6 +2578,8 @@ chat.openapi(completions, async (c) => {
 				await insertLog({
 					...baseLogEntry,
 					duration,
+					timeToFirstToken,
+					timeToFirstReasoningToken,
 					responseSize: fullContent.length,
 					content: fullContent,
 					reasoningContent: fullReasoningContent || null,
@@ -4338,6 +2717,8 @@ chat.openapi(completions, async (c) => {
 		await insertLog({
 			...baseLogEntry,
 			duration,
+			timeToFirstToken: null, // Not applicable for canceled request
+			timeToFirstReasoningToken: null, // Not applicable for canceled request
 			responseSize: 0,
 			content: null,
 			reasoningContent: null,
@@ -4381,7 +2762,10 @@ chat.openapi(completions, async (c) => {
 		});
 
 		// Determine the finish reason first
-		const finishReason = getFinishReasonForError(res.status, errorResponseText);
+		const finishReason = getFinishReasonFromError(
+			res.status,
+			errorResponseText,
+		);
 
 		// Log the error in the database
 		const baseLogEntry = createLogEntry(
@@ -4415,6 +2799,8 @@ chat.openapi(completions, async (c) => {
 		await insertLog({
 			...baseLogEntry,
 			duration,
+			timeToFirstToken: null, // Not applicable for error case
+			timeToFirstReasoningToken: null, // Not applicable for error case
 			responseSize: errorResponseText.length,
 			content: null,
 			reasoningContent: null,
@@ -4537,7 +2923,7 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
-	const transformedResponse = transformToOpenAIFormat(
+	const transformedResponse = transformResponseToOpenai(
 		usedProvider,
 		usedModel,
 		json,
@@ -4589,6 +2975,8 @@ chat.openapi(completions, async (c) => {
 	await insertLog({
 		...baseLogEntry,
 		duration,
+		timeToFirstToken: null, // Not applicable for non-streaming requests
+		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
 		responseSize: responseText.length,
 		content: content,
 		reasoningContent: reasoningContent,

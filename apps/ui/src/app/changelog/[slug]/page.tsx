@@ -1,4 +1,3 @@
-import { allChangelogs } from "content-collections";
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
 import Image from "next/image";
@@ -10,6 +9,7 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import type { Changelog } from "content-collections";
+import type { Metadata } from "next";
 
 interface ChangelogEntryPageProps {
 	params: Promise<{ slug: string }>;
@@ -18,6 +18,8 @@ interface ChangelogEntryPageProps {
 export default async function ChangelogEntryPage({
 	params,
 }: ChangelogEntryPageProps) {
+	const { allChangelogs } = await import("content-collections");
+
 	const { slug } = await params;
 
 	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
@@ -87,12 +89,18 @@ export default async function ChangelogEntryPage({
 }
 
 export async function generateStaticParams() {
+	const { allChangelogs } = await import("content-collections");
+
 	return allChangelogs.map((entry) => ({
 		slug: entry.slug,
 	}));
 }
 
-export async function generateMetadata({ params }: ChangelogEntryPageProps) {
+export async function generateMetadata({
+	params,
+}: ChangelogEntryPageProps): Promise<Metadata> {
+	const { allChangelogs } = await import("content-collections");
+
 	const { slug } = await params;
 
 	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);

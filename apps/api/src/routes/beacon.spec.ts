@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { app } from "..";
-import { posthog } from "../posthog";
+import { app } from "@/index.js";
+import { posthog } from "@/posthog.js";
 
 // Mock PostHog
-vi.mock("../posthog", () => ({
+vi.mock("@/posthog", () => ({
 	posthog: {
 		capture: vi.fn(),
 	},

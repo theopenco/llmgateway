@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { checkFreeModelRateLimit, isFreeModel } from "./rate-limit";
+import { checkFreeModelRateLimit, isFreeModel } from "./rate-limit.js";
 
 // Mock dependencies
 vi.mock("@llmgateway/cache", () => ({

@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { db, type InferSelectModel } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import redisClient from "./redis";
+import { redisClient } from "./redis.js";
 
 import type { tables } from "@llmgateway/db";
 
