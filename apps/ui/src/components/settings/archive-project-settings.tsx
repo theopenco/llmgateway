@@ -33,19 +33,10 @@ export function ArchiveProjectSettings({
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const router = useRouter();
-	const [isDeleting, setIsDeleting] = React.useState(false);
 
 	const api = useApi();
-
-	const handleArchiveProject = async () => {
-		try {
-			setIsDeleting(true);
-
-			await api.mutate("delete", "/projects/{id}", {
-				params: { path: { id: projectId } },
-			});
-
-			// Invalidate relevant queries
+	const deleteProject = api.useMutation("delete", "/projects/{id}", {
+		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
 				params: { path: { id: orgId } },
 			}).queryKey;
@@ -58,14 +49,23 @@ export function ArchiveProjectSettings({
 
 			// Redirect to organization dashboard
 			router.push(`/dashboard/${orgId}`);
-		} catch {
+		},
+		onError: () => {
 			toast({
 				title: "Error",
 				description: "Failed to archive the project. Please try again.",
 				variant: "destructive",
 			});
-		} finally {
-			setIsDeleting(false);
+		},
+	});
+
+	const handleArchiveProject = async () => {
+		try {
+			await deleteProject.mutateAsync({
+				params: { path: { id: projectId } },
+			});
+		} catch {
+			// Error is handled in onError callback
 		}
 	};
 
@@ -106,7 +106,7 @@ export function ArchiveProjectSettings({
 
 				<AlertDialog>
 					<AlertDialogTrigger asChild>
-						<Button variant="destructive" disabled={isDeleting}>
+						<Button variant="destructive" disabled={deleteProject.isPending}>
 							Archive Project
 						</Button>
 					</AlertDialogTrigger>
@@ -124,10 +124,10 @@ export function ArchiveProjectSettings({
 							<AlertDialogCancel>Cancel</AlertDialogCancel>
 							<AlertDialogAction
 								onClick={handleArchiveProject}
-								disabled={isDeleting}
+								disabled={deleteProject.isPending}
 								className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 							>
-								{isDeleting ? "Archiving..." : "Archive Project"}
+								{deleteProject.isPending ? "Archiving..." : "Archive Project"}
 							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
