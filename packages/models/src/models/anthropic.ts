@@ -156,7 +156,7 @@ export const anthropicModels = [
 		],
 	},
 	{
-		id: "claude-opus-4-1",
+		id: "claude-opus-4-1-20250805",
 		name: "Claude Opus 4.1",
 		family: "anthropic",
 		deprecatedAt: undefined,
@@ -164,7 +164,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-opus-4-1",
+				modelName: "claude-opus-4-1-20250805",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,
 				cachedInputPrice: 1.5 / 1e6,
@@ -174,6 +174,28 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				tools: true,
+			},
+		],
+	},
+	{
+		id: "claude-3-5-sonnet-20240620",
+		name: "Claude 3.5 Sonnet (Old)",
+		family: "anthropic",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "anthropic",
+				modelName: "claude-3-5-sonnet-20240620",
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				cachedInputPrice: 0.3 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 8192,
+				streaming: true,
+				vision: true,
 				tools: true,
 			},
 		],
