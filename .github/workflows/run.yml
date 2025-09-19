@@ -55,3 +55,5 @@ jobs:
           NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
           Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
           ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}
+          ROUTEWAY_DISCOUNT_API_KEY: ${{ secrets.ROUTEWAY_DISCOUNT_API_KEY }}
+          ROUTEWAY_DISCOUNT_BASE_URL: ${{ secrets.ROUTEWAY_DISCOUNT_BASE_URL }}
