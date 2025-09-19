@@ -1,5 +1,13 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Apply discount to Routeway paid models based on ROUTEWAY_PAID_DISCOUNT env var
+ */
+function getDiscountedPrice(basePrice: number): number {
+	const discount = parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1");
+	return basePrice * discount;
+}
+
 export const routewayModels = [
 	{
 		id: "deepseek-r1t2-chimera-free",
@@ -204,6 +212,134 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
+		id: "claude-opus-4-20250514-v1:0",
+		name: "Claude Opus 4 (2025-05-14) v1:0",
+		family: "anthropic",
+		free: false,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				test: "only",
+				providerId: "routeway-discount",
+				modelName: "claude-opus-4-20250514-v1:0",
+				inputPrice: getDiscountedPrice(15.0) / 1e6,
+				outputPrice: getDiscountedPrice(75.0) / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: undefined,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
+		id: "claude-opus-4-1-20250805-v1:0",
+		name: "Claude Opus 4.1 (2025-08-05) v1:0",
+		family: "anthropic",
+		free: false,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				test: "only",
+				providerId: "routeway-discount",
+				modelName: "claude-opus-4-1-20250805-v1:0",
+				inputPrice: getDiscountedPrice(15.0) / 1e6,
+				outputPrice: getDiscountedPrice(75.0) / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 32000,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
+		id: "claude-3-7-sonnet-20250219-v1:0",
+		name: "Claude 3.7 Sonnet (2025-02-19) v1:0",
+		family: "anthropic",
+		free: false,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				test: "only",
+				providerId: "routeway-discount",
+				modelName: "claude-3-7-sonnet-20250219-v1:0",
+				inputPrice: getDiscountedPrice(3.0) / 1e6,
+				outputPrice: getDiscountedPrice(15.0) / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 8192,
+				streaming: true,
+				vision: false,
+				reasoning: true,
+				reasoningOutput: "omit",
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
+		id: "claude-3-5-haiku-20241022-v1:0",
+		name: "Claude 3.5 Haiku (2024-10-22) v1:0",
+		family: "anthropic",
+		free: false,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				test: "only",
+				providerId: "routeway-discount",
+				modelName: "claude-3-5-haiku-20241022-v1:0",
+				inputPrice: getDiscountedPrice(0.8) / 1e6,
+				outputPrice: getDiscountedPrice(4.0) / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 8192,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
+		id: "claude-sonnet-4-20250514-v1:0",
+		name: "Claude Sonnet 4 (2025-05-14) v1:0",
+		family: "anthropic",
+		free: false,
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				test: "only",
+				providerId: "routeway-discount",
+				modelName: "claude-sonnet-4-20250514-v1:0",
+				inputPrice: getDiscountedPrice(3.0) / 1e6,
+				outputPrice: getDiscountedPrice(15.0) / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: undefined,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: false,
+				tools: true,
 			},
 		],
 		jsonOutput: true,

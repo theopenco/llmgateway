@@ -211,6 +211,45 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "routeway-discount": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				// Override json_object to json for routeway-discount
+				if (response_format.type === "json_object") {
+					requestBody.response_format = {
+						...response_format,
+						type: "json",
+					};
+				} else {
+					requestBody.response_format = response_format;
+				}
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
 		case "xai":
 		case "groq":
 		case "deepseek":

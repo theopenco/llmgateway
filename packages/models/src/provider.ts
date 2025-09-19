@@ -19,6 +19,7 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	nebius: "NEBIUS_API_KEY",
 	zai: "Z_AI_API_KEY",
 	routeway: "ROUTEWAY_API_KEY",
+	"routeway-discount": "ROUTEWAY_DISCOUNT_API_KEY",
 	custom: "UNUSED",
 };
 

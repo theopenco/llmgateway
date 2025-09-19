@@ -223,6 +223,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "routeway-discount",
+		name: "RouteWay Discount",
+		description: "RouteWay's discounted models with special pricing",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#4f46e5",
+		website: "https://routeway.ai",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
