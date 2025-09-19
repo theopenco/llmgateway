@@ -5,7 +5,7 @@ date: "2025-09-19"
 title: "50% Off Claude Code - Limited Time Offer"
 summary: "Get 50% off Claude Code for a limited time. Use any model via LLMGateway's unified API."
 image:
-  src: "/changelog/claude-code-50-percent-off-09-19.png"
+  src: "/changelog/claude-code-50-percent-off.png"
   alt: "Claude Code 50% off limited time offer"
   width: 1768
   height: 677
