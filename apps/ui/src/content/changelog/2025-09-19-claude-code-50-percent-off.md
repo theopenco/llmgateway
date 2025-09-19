@@ -29,7 +29,7 @@ export ANTHROPIC_AUTH_TOKEN=llmgtwy_.... # your llmgateway.io api key here
 
 ```shell
 # optionally, choose your model, otherwise it will use the default Claude model via LLMGateway
-export ROUTEWAY_MODEL=gpt-5
+export ANTHROPIC_MODEL=gpt-5
 ```
 
 ---
