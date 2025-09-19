@@ -137,30 +137,30 @@ export default async function ModelPage({ params }: PageProps) {
 								context
 							</div>
 							<div>
-								Starting at $
+								Starting at{" "}
 								{(() => {
 									const inputPrices = modelProviders
 										.filter((p) => p.inputPrice)
 										.map((p) => (p.inputPrice! * 1e6).toFixed(2))
 										.map(Number);
 									return inputPrices.length > 0
-										? Math.min(...inputPrices)
-										: "N/A";
-								})()}
-								/M input tokens
+										? `$${Math.min(...inputPrices)}/M`
+										: "Free";
+								})()}{" "}
+								input tokens
 							</div>
 							<div>
-								Starting at $
+								Starting at{" "}
 								{(() => {
 									const outputPrices = modelProviders
 										.filter((p) => p.outputPrice)
 										.map((p) => (p.outputPrice! * 1e6).toFixed(2))
 										.map(Number);
 									return outputPrices.length > 0
-										? Math.min(...outputPrices)
-										: "N/A";
-								})()}
-								/M output tokens
+										? `$${Math.min(...outputPrices)}/M`
+										: "Free";
+								})()}{" "}
+								output tokens
 							</div>
 						</div>
 

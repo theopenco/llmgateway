@@ -21,6 +21,8 @@ export const providerLogoUrls: Partial<
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
+	routeway: ProviderIcons.routeway,
+	"routeway-discount": ProviderIcons.routeway,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
