@@ -219,7 +219,7 @@ export const providers = [
 		cancellation: true,
 		jsonOutput: true,
 		color: "#4f46e5",
-		website: "https://api.routeway.ai",
+		website: "https://routeway.ai",
 		announcement: null,
 	},
 	{
