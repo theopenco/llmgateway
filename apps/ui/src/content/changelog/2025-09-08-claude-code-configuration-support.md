@@ -22,6 +22,9 @@ export ANTHROPIC_BASE_URL=https://api.llmgateway.io
 export ANTHROPIC_AUTH_TOKEN=llmgtwy_.... # your llmgateway.io api key here
 # optionally, choose your model, otherwise it will use the default Claude model via LLMGateway
 export ANTHROPIC_MODEL=gpt-5 # choose your model with tool support
+
+# now run claude!
+claude
 ```
 
 ## 🚀 Key Benefits

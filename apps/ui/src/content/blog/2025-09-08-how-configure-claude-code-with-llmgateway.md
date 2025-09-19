@@ -30,6 +30,9 @@ export ANTHROPIC_BASE_URL=https://api.llmgateway.io
 export ANTHROPIC_AUTH_TOKEN=llmgtwy_.... # your llmgateway.io api key here
 # optionally, choose your model, otherwise it will use the default Claude model via LLMGateway
 export ANTHROPIC_MODEL=gpt-5 # choose your model on llmgateway which supports tool calls
+
+# now run claude!
+claude
 ```
 
 ### Getting Your API Key
@@ -61,18 +64,6 @@ export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
 ```
 
 To see the full list of models available to you, check out [models with tool calls](https://llmgateway.io/models?filters=1&tools=true)
-
-### Provider-Specific Models
-
-Use models from any configured provider:
-
-```bash
-# Google Gemini
-export ANTHROPIC_MODEL=google/gemini-1.5-pro
-
-# Cohere Command R+
-export ANTHROPIC_MODEL=cohere/command-r-plus
-```
 
 ### Persistent Configuration
 
