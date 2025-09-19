@@ -1,13 +1,5 @@
 import type { ModelDefinition } from "@/models.js";
 
-/**
- * Apply discount to Routeway paid models based on ROUTEWAY_PAID_DISCOUNT env var
- */
-function getDiscountedPrice(basePrice: number): number {
-	const discount = parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1");
-	return basePrice * discount;
-}
-
 export const anthropicModels = [
 	{
 		id: "claude-3-7-sonnet",
@@ -52,10 +44,11 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				providerId: "routeway-discount",
+				providerId: "routeway",
 				modelName: "claude-3-5-haiku-20241022-v1:0",
-				inputPrice: getDiscountedPrice(0.8) / 1e6,
-				outputPrice: getDiscountedPrice(4.0) / 1e6,
+				inputPrice: 0.8 / 1e6,
+				outputPrice: 4.0 / 1e6,
+				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 8192,
@@ -87,10 +80,11 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				providerId: "routeway-discount",
+				providerId: "routeway",
 				modelName: "claude-3-7-sonnet-20250219-v1:0",
-				inputPrice: getDiscountedPrice(3.0) / 1e6,
-				outputPrice: getDiscountedPrice(15.0) / 1e6,
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 8192,
@@ -166,10 +160,11 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				providerId: "routeway-discount",
+				providerId: "routeway",
 				modelName: "claude-sonnet-4-20250514-v1:0",
-				inputPrice: getDiscountedPrice(3.0) / 1e6,
-				outputPrice: getDiscountedPrice(15.0) / 1e6,
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: undefined,
@@ -202,10 +197,11 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				providerId: "routeway-discount",
+				providerId: "routeway",
 				modelName: "claude-opus-4-20250514-v1:0",
-				inputPrice: getDiscountedPrice(15.0) / 1e6,
-				outputPrice: getDiscountedPrice(75.0) / 1e6,
+				inputPrice: 15.0 / 1e6,
+				outputPrice: 75.0 / 1e6,
+				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: undefined,
@@ -239,10 +235,11 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				providerId: "routeway-discount",
+				providerId: "routeway",
 				modelName: "claude-opus-4-1-20250805-v1:0",
-				inputPrice: getDiscountedPrice(15.0) / 1e6,
-				outputPrice: getDiscountedPrice(75.0) / 1e6,
+				inputPrice: 15.0 / 1e6,
+				outputPrice: 75.0 / 1e6,
+				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 32000,

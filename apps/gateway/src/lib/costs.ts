@@ -49,6 +49,7 @@ export function calculateCosts(
 			completionTokens,
 			cachedTokens,
 			estimatedCost: false,
+			discount: undefined,
 		};
 	}
 
@@ -108,6 +109,7 @@ export function calculateCosts(
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
 			estimatedCost: isEstimated,
+			discount: undefined,
 		};
 	}
 
@@ -127,6 +129,7 @@ export function calculateCosts(
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
 			estimatedCost: isEstimated,
+			discount: undefined,
 		};
 	}
 
@@ -134,11 +137,14 @@ export function calculateCosts(
 	const outputPrice = providerInfo.outputPrice || 0;
 	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
+	const discount = providerInfo.discount || 1;
 
-	const inputCost = calculatedPromptTokens * inputPrice;
-	const outputCost = calculatedCompletionTokens * outputPrice;
-	const cachedInputCost = cachedTokens ? cachedTokens * cachedInputPrice : 0;
-	const requestCost = requestPrice;
+	const inputCost = calculatedPromptTokens * inputPrice * discount;
+	const outputCost = calculatedCompletionTokens * outputPrice * discount;
+	const cachedInputCost = cachedTokens
+		? cachedTokens * cachedInputPrice * discount
+		: 0;
+	const requestCost = requestPrice * discount;
 	const totalCost = inputCost + outputCost + cachedInputCost + requestCost;
 
 	return {
@@ -151,5 +157,6 @@ export function calculateCosts(
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		estimatedCost: isEstimated,
+		discount: discount !== 1 ? discount : undefined,
 	};
 }
