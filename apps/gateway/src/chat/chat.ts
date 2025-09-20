@@ -10,6 +10,7 @@ import { insertLog } from "@/lib/logs.js";
 
 import {
 	checkCustomProviderExists,
+	DatabaseCache,
 	generateCacheKey,
 	generateStreamingCacheKey,
 	getCache,
@@ -22,12 +23,7 @@ import {
 	setCache,
 	setStreamingCache,
 } from "@llmgateway/cache";
-import {
-	db,
-	type InferSelectModel,
-	shortid,
-	type tables,
-} from "@llmgateway/db";
+import { type InferSelectModel, shortid, type tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	type BaseMessage,
@@ -608,13 +604,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			token: {
-				eq: token,
-			},
-		},
-	});
+	const apiKey = await DatabaseCache.getApiKey(token);
 
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, {
@@ -741,20 +731,14 @@ chat.openapi(completions, async (c) => {
 		let availableProviders: string[] = [];
 
 		if (project.mode === "api-keys") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await DatabaseCache.getProviderKeys(
+				project.organizationId,
+			);
 			availableProviders = providerKeys.map((key) => key.provider);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await DatabaseCache.getProviderKeys(
+				project.organizationId,
+			);
 			const databaseProviders = providerKeys.map((key) => key.provider);
 
 			// Check which providers have environment tokens available
@@ -903,19 +887,13 @@ chat.openapi(completions, async (c) => {
 			usedModel = modelInfo.providers[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						in: providerIds,
-					},
-				},
-			});
+			// Get all provider keys and filter client-side for specific provider IDs
+			const allProviderKeys = await DatabaseCache.getProviderKeys(
+				project.organizationId,
+			);
+			const providerKeys = allProviderKeys.filter((key) =>
+				providerIds.some((providerId) => providerId === key.provider),
+			);
 
 			const availableProviders =
 				project.mode === "api-keys"
