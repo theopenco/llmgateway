@@ -704,7 +704,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description List of API keys. */
+                /** @description List of API keys with plan limits. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -740,6 +740,12 @@ export interface paths {
                                 }[];
                                 maskedToken: string;
                             }[];
+                            planLimits?: {
+                                currentCount: number;
+                                maxKeys: number;
+                                /** @enum {string} */
+                                plan: "free" | "pro";
+                            };
                         };
                     };
                 };
