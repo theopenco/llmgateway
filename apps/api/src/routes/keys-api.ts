@@ -194,6 +194,46 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
+	// Get the organization for the project to check plan limits
+	const project = await db.query.project.findFirst({
+		where: {
+			id: {
+				eq: projectId,
+			},
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!project?.organization) {
+		throw new HTTPException(404, {
+			message: "Project or organization not found",
+		});
+	}
+
+	// Count existing active API keys for this project
+	const existingApiKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: {
+				eq: projectId,
+			},
+			status: {
+				ne: "deleted",
+			},
+		},
+	});
+
+	// Check plan limits
+	const maxApiKeys = project.organization.plan === "pro" ? 20 : 5;
+
+	if (existingApiKeys.length >= maxApiKeys) {
+		const planName = project.organization.plan === "pro" ? "Pro" : "Free";
+		throw new HTTPException(400, {
+			message: `API key limit reached. ${planName} plan allows maximum ${maxApiKeys} API keys per project.`,
+		});
+	}
+
 	// Generate a token with a prefix for better identification
 	const prefix =
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
@@ -238,10 +278,17 @@ const list = createRoute({
 								}),
 							)
 							.openapi({}),
+						planLimits: z
+							.object({
+								currentCount: z.number(),
+								maxKeys: z.number(),
+								plan: z.enum(["free", "pro"]),
+							})
+							.optional(),
 					}),
 				},
 			},
-			description: "List of API keys.",
+			description: "List of API keys with plan limits.",
 		},
 	},
 });
@@ -302,12 +349,43 @@ keysApi.openapi(list, async (c) => {
 		},
 	});
 
+	// Get organization plan info if projectId is specified
+	let currentCount = 0;
+	let maxKeys = 0;
+	let plan: "free" | "pro" = "free";
+
+	if (projectId) {
+		const project = await db.query.project.findFirst({
+			where: {
+				id: {
+					eq: projectId,
+				},
+			},
+			with: {
+				organization: true,
+			},
+		});
+
+		if (project?.organization) {
+			plan = project.organization.plan as "free" | "pro";
+			maxKeys = plan === "pro" ? 20 : 5;
+			currentCount = apiKeys.filter((key) => key.status !== "deleted").length;
+		}
+	}
+
 	return c.json({
 		apiKeys: apiKeys.map((key) => ({
 			...key,
 			maskedToken: maskToken(key.token),
 			token: undefined,
 		})),
+		planLimits: projectId
+			? {
+					currentCount,
+					maxKeys,
+					plan,
+				}
+			: undefined,
 	});
 });
 

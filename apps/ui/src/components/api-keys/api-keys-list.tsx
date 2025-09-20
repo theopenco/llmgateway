@@ -121,6 +121,7 @@ export function ApiKeysList({
 	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") || [];
 	const activeKeys = allKeys.filter((key) => key.status === "active");
 	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
+	const planLimits = data?.planLimits;
 
 	const filteredKeys = (() => {
 		switch (statusFilter) {
@@ -328,10 +329,23 @@ export function ApiKeysList({
 					<KeyIcon className="h-10 w-10 text-gray-500" />
 				</div>
 				<p className="text-gray-400 mb-6">No API keys have been created yet.</p>
-				<CreateApiKeyDialog selectedProject={selectedProject}>
+				<CreateApiKeyDialog
+					selectedProject={selectedProject}
+					disabled={
+						planLimits ? planLimits.currentCount >= planLimits.maxKeys : false
+					}
+					disabledMessage={
+						planLimits
+							? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+							: undefined
+					}
+				>
 					<Button
 						type="button"
-						className="cursor-pointer flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md hover:bg-gray-200"
+						disabled={
+							planLimits ? planLimits.currentCount >= planLimits.maxKeys : false
+						}
+						className="cursor-pointer flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
 					>
 						<PlusIcon className="h-5 w-5" />
 						Create API Key
@@ -384,6 +398,34 @@ export function ApiKeysList({
 					</TabsList>
 				</Tabs>
 			</div>
+
+			{/* Plan Limits Display */}
+			{planLimits && (
+				<div className="mb-4 rounded-lg border bg-muted/30 p-4">
+					<div className="flex items-center justify-between">
+						<div className="flex items-center gap-4">
+							<div className="text-sm text-muted-foreground">
+								<span className="font-medium">API Keys:</span>{" "}
+								{planLimits.currentCount} of {planLimits.maxKeys} used
+							</div>
+							<div className="text-sm text-muted-foreground">
+								<span className="font-medium">Plan:</span>{" "}
+								{planLimits.plan === "pro" ? "Pro" : "Free"}
+							</div>
+						</div>
+						{planLimits.currentCount >= planLimits.maxKeys && (
+							<div className="text-xs text-amber-600 font-medium">
+								Limit reached
+							</div>
+						)}
+					</div>
+					{planLimits.plan === "free" && planLimits.currentCount >= 3 && (
+						<div className="mt-2 text-xs text-muted-foreground">
+							💡 Upgrade to Pro plan to create up to 20 API keys per project
+						</div>
+					)}
+				</div>
+			)}
 
 			{/* Inactive Keys Summary Bar */}
 			{statusFilter === "active" && inactiveKeys.length > 0 && (

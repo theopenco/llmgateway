@@ -57,6 +57,24 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 		return actualProject || null;
 	}, [projectId, projectsData]);
 
+	// Get API keys data to check plan limits
+	const { data: apiKeysData } = api.useQuery(
+		"get",
+		"/keys/api",
+		{
+			params: {
+				query: { projectId: selectedProject?.id || "" },
+			},
+		},
+		{
+			enabled: !!selectedProject?.id,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+		},
+	);
+
+	const planLimits = apiKeysData?.planLimits;
+
 	return (
 		<div className="flex flex-col">
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
@@ -68,10 +86,27 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 						</p>
 					</div>
 					{selectedProject && (
-						<CreateApiKeyDialog selectedProject={selectedProject}>
+						<CreateApiKeyDialog
+							selectedProject={selectedProject}
+							disabled={
+								planLimits
+									? planLimits.currentCount >= planLimits.maxKeys
+									: false
+							}
+							disabledMessage={
+								planLimits
+									? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+									: undefined
+							}
+						>
 							<Button
-								disabled={!selectedProject}
-								className="cursor-pointer flex items-center space-x-1 w-full md:w-auto"
+								disabled={
+									!selectedProject ||
+									(planLimits
+										? planLimits.currentCount >= planLimits.maxKeys
+										: false)
+								}
+								className="cursor-pointer flex items-center space-x-1 w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
 							>
 								<Orbit className=" h-4 w-4 mt-0.5" />
 								Create API Key
