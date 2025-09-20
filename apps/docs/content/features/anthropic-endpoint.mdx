@@ -58,6 +58,32 @@ export ANTHROPIC_MODEL=google/gemini-1.5-pro
 export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
 ```
 
+## Environment Variables
+
+When configuring Claude Code or other Anthropic-compatible applications, you can use these environment variables:
+
+### ANTHROPIC_MODEL
+
+Specifies the main model to use for primary requests.
+
+- **Default**: `claude-sonnet-4-20250514`
+- **Example**: `export ANTHROPIC_MODEL=gpt-4o`
+
+### ANTHROPIC_SMALL_FAST_MODEL
+
+Specifies a smaller, faster model used for background functionality and internal operations.
+
+- **Default**: `claude-3-5-haiku-20241022`
+- **Example**: `export ANTHROPIC_SMALL_FAST_MODEL=gpt-5-nano`
+
+```bash
+# Example configuration
+export ANTHROPIC_BASE_URL=https://api.llmgateway.io
+export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
+export ANTHROPIC_MODEL=gpt-4o
+export ANTHROPIC_SMALL_FAST_MODEL=gpt-5-nano
+```
+
 ## Advanced Features
 
 ### Making a manual request
