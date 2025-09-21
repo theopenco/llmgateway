@@ -38,14 +38,25 @@ export function parseProviderResponse(
 				thinkingBlocks.map((block: any) => block.thinking).join("") || null;
 
 			finishReason = json.stop_reason || null;
-			promptTokens = json.usage?.input_tokens || null;
-			completionTokens = json.usage?.output_tokens || null;
-			reasoningTokens = json.usage?.reasoning_output_tokens || null;
-			cachedTokens = json.usage?.cache_read_input_tokens || null;
-			totalTokens =
-				json.usage?.input_tokens && json.usage?.output_tokens
-					? json.usage.input_tokens + json.usage.output_tokens
-					: null;
+
+			// For Anthropic: input_tokens are the non-cached tokens
+			// We need to add cache_creation_input_tokens to get total input tokens
+			if (json.usage) {
+				const inputTokens = json.usage.input_tokens || 0;
+				const cacheCreationTokens = json.usage.cache_creation_input_tokens || 0;
+				const cacheReadTokens = json.usage.cache_read_input_tokens || 0;
+
+				// Total prompt tokens = non-cached + cache creation + cache read
+				promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+				completionTokens = json.usage.output_tokens || null;
+				reasoningTokens = json.usage.reasoning_output_tokens || null;
+				// Cached tokens are the tokens read from cache (discount applies to these)
+				cachedTokens = cacheReadTokens || null;
+				totalTokens =
+					promptTokens && completionTokens
+						? promptTokens + completionTokens
+						: null;
+			}
 			// Extract tool calls from Anthropic format
 			toolResults =
 				json.content

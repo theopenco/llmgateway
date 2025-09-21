@@ -92,16 +92,43 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with cached tokens for Anthropic (prompt_tokens excludes cached)", () => {
-		const result = calculateCosts("claude-3-5-sonnet-20241022", "anthropic", 80, 50, 20);
+	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", () => {
+		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
+		const result = calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			1663,
+			50,
+			0,
+		);
 
-		expect(result.inputCost).toBeCloseTo(0.00024); // 80 * 0.000003 (no subtraction for Anthropic)
+		expect(result.inputCost).toBeCloseTo(0.004989); // 1663 * 0.000003 (all tokens charged full price)
 		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
-		expect(result.cachedInputCost).toBeCloseTo(0.0000006); // 20 * 0.00000003
-		expect(result.totalCost).toBeCloseTo(0.0009906); // 0.00024 + 0.00075 + 0.0000006
-		expect(result.promptTokens).toBe(80);
+		expect(result.cachedInputCost).toBeCloseTo(0); // 0 cache reads
+		expect(result.totalCost).toBeCloseTo(0.005739); // 0.004989 + 0.00075 + 0
+		expect(result.promptTokens).toBe(1663);
 		expect(result.completionTokens).toBe(50);
-		expect(result.cachedTokens).toBe(20);
+		expect(result.cachedTokens).toBe(0);
+		expect(result.estimatedCost).toBe(false); // Not estimated
+	});
+
+	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", () => {
+		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
+		const result = calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			1663,
+			50,
+			1659,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.000012); // 4 * 0.000003 (only non-cached tokens at full price)
+		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
+		expect(result.cachedInputCost).toBeCloseTo(0.0004977); // 1659 * 0.0000003 (cached token price)
+		expect(result.totalCost).toBeCloseTo(0.0012597); // 0.000012 + 0.00075 + 0.0004977
+		expect(result.promptTokens).toBe(1663);
+		expect(result.completionTokens).toBe(50);
+		expect(result.cachedTokens).toBe(1659);
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 });

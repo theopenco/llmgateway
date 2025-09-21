@@ -140,14 +140,12 @@ export function calculateCosts(
 	const requestPrice = providerInfo.requestPrice || 0;
 
 	// Calculate input cost accounting for cached tokens
-	// For Anthropic, prompt_tokens already excludes cached tokens, so no subtraction needed
-	// For other providers (like OpenAI), prompt_tokens includes cached tokens, so we subtract
-	const uncachedPromptTokens =
-		provider === "anthropic"
-			? calculatedPromptTokens // Anthropic already excludes cached tokens
-			: cachedTokens
-				? calculatedPromptTokens - cachedTokens // Other providers include cached tokens
-				: calculatedPromptTokens;
+	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
+	// that get charged at the discounted rate
+	// For other providers (like OpenAI), prompt_tokens includes cached tokens, so we subtract them too
+	const uncachedPromptTokens = cachedTokens
+		? calculatedPromptTokens - cachedTokens
+		: calculatedPromptTokens;
 	const inputCost = uncachedPromptTokens * inputPrice;
 	const outputCost = calculatedCompletionTokens * outputPrice;
 	const cachedInputCost = cachedTokens ? cachedTokens * cachedInputPrice : 0;
