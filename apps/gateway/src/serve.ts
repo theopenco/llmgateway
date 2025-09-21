@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 
 import { redisClient } from "@llmgateway/cache";
-import { closeDatabase } from "@llmgateway/db";
+import { closeDatabase, closeCachedDatabase } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
 	shutdownInstrumentation,
@@ -9,7 +9,6 @@ import {
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
-import { closeCachedDatabase } from "./lib/cached-db.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";

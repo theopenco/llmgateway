@@ -1,20 +1,18 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
-import { relations } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { RedisCache } from "./redis-cache.js";
+import { relations } from "./relations.js";
 
-// Import relations from the db package
-
-const pool = new Pool({
+const cachedPool = new Pool({
 	connectionString:
 		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
 });
 
-export const cachedDb = drizzle({
-	client: pool,
+export const cdb = drizzle({
+	client: cachedPool,
 	casing: "snake_case",
 	relations,
 	cache: new RedisCache(),
@@ -22,7 +20,7 @@ export const cachedDb = drizzle({
 
 export async function closeCachedDatabase(): Promise<void> {
 	try {
-		await pool.end();
+		await cachedPool.end();
 		logger.info("Cached database connection pool closed");
 	} catch (error) {
 		logger.error(

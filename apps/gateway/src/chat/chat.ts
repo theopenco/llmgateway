@@ -4,26 +4,30 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
-import { cachedDb as db } from "@/lib/cached-db.js";
 import { calculateCosts } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { insertLog } from "@/lib/logs.js";
 
 import {
-	checkCustomProviderExists,
 	generateCacheKey,
 	generateStreamingCacheKey,
 	getCache,
+	getStreamingCache,
+	setCache,
+	setStreamingCache,
+} from "@llmgateway/cache";
+import {
+	cdb as db,
+	checkCustomProviderExists,
 	getCustomProviderKey,
 	getOrganization,
 	getProject,
 	getProviderKey,
-	getStreamingCache,
 	isCachingEnabled,
-	setCache,
-	setStreamingCache,
-} from "@llmgateway/cache";
-import { type InferSelectModel, shortid, type tables } from "@llmgateway/db";
+	type InferSelectModel,
+	shortid,
+	type tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	type BaseMessage,

@@ -1,4 +1,4 @@
-import { cachedDb as db } from "@/lib/cached-db.js";
+import { cdb as db } from "@llmgateway/db";
 
 /**
  * Get the user associated with an organization (first user found)

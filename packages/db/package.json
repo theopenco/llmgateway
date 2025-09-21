@@ -26,6 +26,7 @@
 		"seed": "node dist/seed.js"
 	},
 	"dependencies": {
+		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"drizzle-orm": "1.0.0-beta.1-57a367f",
 		"nanoid": "5.1.5",

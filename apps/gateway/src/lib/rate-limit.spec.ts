@@ -4,7 +4,6 @@ import { checkFreeModelRateLimit, isFreeModel } from "./rate-limit.js";
 
 // Mock dependencies
 vi.mock("@llmgateway/cache", () => ({
-	getOrganization: vi.fn(),
 	redisClient: {
 		zremrangebyscore: vi.fn(),
 		zcard: vi.fn(),
@@ -12,6 +11,10 @@ vi.mock("@llmgateway/cache", () => ({
 		zadd: vi.fn(),
 		expire: vi.fn(),
 	},
+}));
+
+vi.mock("@llmgateway/db", () => ({
+	getOrganization: vi.fn(),
 }));
 
 vi.mock("@llmgateway/logger", () => ({
@@ -23,7 +26,9 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 const mockCache = await import("@llmgateway/cache");
+const mockDb = await import("@llmgateway/db");
 const redis = mockCache.redisClient;
+const { getOrganization } = mockDb;
 
 describe("Rate Limiting", () => {
 	beforeEach(() => {
@@ -67,7 +72,7 @@ describe("Rate Limiting", () => {
 		it("should apply base rate limits for orgs with 0 credits", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(getOrganization).mockResolvedValue({
 				credits: "0",
 			});
 
@@ -88,7 +93,7 @@ describe("Rate Limiting", () => {
 		it("should apply elevated rate limits for orgs with credits > 0", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(getOrganization).mockResolvedValue({
 				credits: "10.50",
 			});
 
@@ -106,7 +111,7 @@ describe("Rate Limiting", () => {
 		it("should block requests when base rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(getOrganization).mockResolvedValue({
 				credits: "0",
 			});
 
@@ -132,7 +137,7 @@ describe("Rate Limiting", () => {
 		it("should block requests when elevated rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(getOrganization).mockResolvedValue({
 				credits: "10.50",
 			});
 
@@ -158,7 +163,7 @@ describe("Rate Limiting", () => {
 		it("should allow requests on Redis errors", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(getOrganization).mockResolvedValue({
 				credits: "0",
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(
