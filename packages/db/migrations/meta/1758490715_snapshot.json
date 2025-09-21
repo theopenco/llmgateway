@@ -1,6 +1,6 @@
 {
-  "id": "57e9ee6c-2a92-40eb-9be7-118c20777070",
-  "prevId": "efb98737-6304-475b-ac79-1002e0d117c2",
+  "id": "6654e572-bdc3-4991-94b1-53cdc9cfe509",
+  "prevId": "68307ed7-24d6-4b7d-9c94-f04f758dea76",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -902,7 +902,29 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "log_project_id_created_at_idx": {
+          "name": "log_project_id_created_at_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

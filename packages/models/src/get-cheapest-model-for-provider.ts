@@ -30,7 +30,7 @@ export function getCheapestModelForProvider(
 	let lowestPrice = Number.MAX_VALUE;
 
 	for (const { provider: providerInfo } of availableModels) {
-		const discount = (providerInfo as ProviderModelMapping).discount || 1;
+		const discount = (providerInfo as ProviderModelMapping).discount ?? 1;
 		const totalPrice =
 			((providerInfo.inputPrice! + providerInfo.outputPrice!) / 2) * discount;
 		if (totalPrice < lowestPrice) {
