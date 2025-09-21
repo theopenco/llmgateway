@@ -1,7 +1,8 @@
 import { Cache, type MutationOption } from "drizzle-orm/cache/core";
 
-import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+
+import type { Redis } from "ioredis";
 
 interface CacheConfig {
 	ex?: number;
@@ -13,12 +14,18 @@ interface CacheConfig {
 }
 
 export class RedisCache extends Cache {
+	private readonly redisClient: Redis;
 	private readonly keyPrefix = "drizzle:cache:";
 	private readonly tablePrefix = "drizzle:tables:";
 	private readonly tagPrefix = "drizzle:tags:";
 	private readonly tableKeysPrefix = "drizzle:table_keys:";
 	private readonly defaultTtl = 300; // 5 minutes in seconds
 	private readonly batchSize = 500; // Max keys to process in one batch
+
+	constructor(redisClient: Redis) {
+		super();
+		this.redisClient = redisClient;
+	}
 
 	strategy(): "all" {
 		return "all";
@@ -32,7 +39,7 @@ export class RedisCache extends Cache {
 	): Promise<any[] | undefined> {
 		try {
 			const cacheKey = this.keyPrefix + key;
-			const cached = await redisClient.get(cacheKey);
+			const cached = await this.redisClient.get(cacheKey);
 
 			if (!cached) {
 				return undefined;
@@ -44,7 +51,7 @@ export class RedisCache extends Cache {
 			if (isAutoInvalidate && tables.length > 0) {
 				const lastModified = await this.getLastModified(tables);
 				if (parsed.timestamp < lastModified) {
-					await redisClient.del(cacheKey);
+					await this.redisClient.del(cacheKey);
 					return undefined;
 				}
 			}
@@ -78,7 +85,7 @@ export class RedisCache extends Cache {
 			};
 
 			// Use pipeline to set cache data and update indices atomically
-			const pipeline = redisClient.pipeline();
+			const pipeline = this.redisClient.pipeline();
 
 			// Set the cache entry
 			pipeline.setex(cacheKey, ttl, JSON.stringify(cacheData));
@@ -173,7 +180,7 @@ export class RedisCache extends Cache {
 	private async getLastModified(tables: string[]): Promise<number> {
 		try {
 			const keys = tables.map((table) => this.tablePrefix + table);
-			const timestamps = await redisClient.mget(...keys);
+			const timestamps = await this.redisClient.mget(...keys);
 
 			let maxTimestamp = 0;
 			for (const timestamp of timestamps) {
@@ -195,7 +202,7 @@ export class RedisCache extends Cache {
 	private async updateLastModified(tables: string[]): Promise<void> {
 		try {
 			const timestamp = Date.now().toString();
-			const pipeline = redisClient.pipeline();
+			const pipeline = this.redisClient.pipeline();
 
 			for (const table of tables) {
 				pipeline.set(this.tablePrefix + table, timestamp);
@@ -217,7 +224,7 @@ export class RedisCache extends Cache {
 			// Collect keys from tag sets
 			for (const tag of tags) {
 				const tagKeysSet = this.tagPrefix + tag;
-				const tagKeys = await redisClient.smembers(tagKeysSet);
+				const tagKeys = await this.redisClient.smembers(tagKeysSet);
 				for (const key of tagKeys) {
 					allKeysToDelete.add(key);
 				}
@@ -228,7 +235,7 @@ export class RedisCache extends Cache {
 				await this.deleteKeysInBatches(Array.from(allKeysToDelete));
 
 				// Clean up tag sets
-				const pipeline = redisClient.pipeline();
+				const pipeline = this.redisClient.pipeline();
 				for (const tag of tags) {
 					pipeline.del(this.tagPrefix + tag);
 				}
@@ -249,7 +256,7 @@ export class RedisCache extends Cache {
 			// Collect keys from table index sets
 			for (const table of tables) {
 				const tableKeysSet = this.tableKeysPrefix + table;
-				const tableKeys = await redisClient.smembers(tableKeysSet);
+				const tableKeys = await this.redisClient.smembers(tableKeysSet);
 				for (const key of tableKeys) {
 					allKeysToDelete.add(key);
 				}
@@ -261,7 +268,7 @@ export class RedisCache extends Cache {
 				await this.deleteKeysInBatches(keysArray);
 
 				// Remove keys from table index sets
-				const pipeline = redisClient.pipeline();
+				const pipeline = this.redisClient.pipeline();
 				for (const table of tables) {
 					const tableKeysSet = this.tableKeysPrefix + table;
 					// Remove invalidated keys from the set
@@ -288,7 +295,7 @@ export class RedisCache extends Cache {
 			for (let i = 0; i < keys.length; i += this.batchSize) {
 				const batch = keys.slice(i, i + this.batchSize);
 				if (batch.length > 0) {
-					await redisClient.unlink(...batch);
+					await this.redisClient.unlink(...batch);
 				}
 			}
 		} catch (error) {

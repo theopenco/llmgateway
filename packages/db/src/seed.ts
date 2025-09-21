@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 
+import { redisClient } from "@llmgateway/cache";
+
 import { closeCachedDatabase, closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
 
@@ -85,7 +87,9 @@ async function seed() {
 	// Insert logs
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 
+	// Cleanup all connections
 	await Promise.all([closeDatabase(), closeCachedDatabase()]);
+	await redisClient.quit();
 }
 
 void seed();

@@ -35,6 +35,7 @@
 	},
 	"devDependencies": {
 		"@types/pg": "^8.15.5",
-		"drizzle-kit": "1.0.0-beta.1-57a367f"
+		"drizzle-kit": "1.0.0-beta.1-57a367f",
+		"ioredis": "5.7.0"
 	}
 }

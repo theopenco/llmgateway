@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
+import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { RedisCache } from "./redis-cache.js";
@@ -15,7 +16,7 @@ export const cdb = drizzle({
 	client: cachedPool,
 	casing: "snake_case",
 	relations,
-	cache: new RedisCache(),
+	cache: new RedisCache(redisClient),
 });
 
 export async function closeCachedDatabase(): Promise<void> {
