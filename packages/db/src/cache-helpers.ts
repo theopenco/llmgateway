@@ -14,7 +14,7 @@ export async function isCachingEnabled(
 		const cachedConfig = await getCache(configCacheKey);
 
 		if (cachedConfig) {
-			return JSON.parse(cachedConfig);
+			return cachedConfig;
 		}
 
 		const project = await db.query.project.findFirst({
