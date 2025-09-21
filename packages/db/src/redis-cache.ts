@@ -15,7 +15,10 @@ interface CacheConfig {
 export class RedisCache extends Cache {
 	private readonly keyPrefix = "drizzle:cache:";
 	private readonly tablePrefix = "drizzle:tables:";
+	private readonly tagPrefix = "drizzle:tags:";
+	private readonly tableKeysPrefix = "drizzle:table_keys:";
 	private readonly defaultTtl = 300; // 5 minutes in seconds
+	private readonly batchSize = 500; // Max keys to process in one batch
 
 	strategy(): "all" {
 		return "all";
@@ -74,7 +77,28 @@ export class RedisCache extends Cache {
 				tables,
 			};
 
-			await redisClient.setex(cacheKey, ttl, JSON.stringify(cacheData));
+			// Use pipeline to set cache data and update indices atomically
+			const pipeline = redisClient.pipeline();
+
+			// Set the cache entry
+			pipeline.setex(cacheKey, ttl, JSON.stringify(cacheData));
+
+			// Add cache key to table index sets
+			for (const table of tables) {
+				const tableKeysSet = this.tableKeysPrefix + table;
+				pipeline.sadd(tableKeysSet, cacheKey);
+				// Set expiry on the table index set (slightly longer than cache entries)
+				pipeline.expire(tableKeysSet, ttl + 60);
+			}
+
+			// If this is a tag-based cache entry, handle tag indexing
+			if (isTag) {
+				const tagKeysSet = this.tagPrefix + hashedQuery;
+				pipeline.sadd(tagKeysSet, cacheKey);
+				pipeline.expire(tagKeysSet, ttl + 60);
+			}
+
+			await pipeline.exec();
 			logger.debug(`Cached query result for key: ${hashedQuery}`, {
 				tables,
 				ttl,
@@ -188,20 +212,28 @@ export class RedisCache extends Cache {
 
 	private async invalidateByTags(tags: string[]): Promise<void> {
 		try {
-			// For tag-based invalidation, we'd need to maintain a mapping
-			// of tags to cache keys. For now, we'll do a pattern-based deletion
-			// which is less efficient but simpler to implement
-			const pipeline = redisClient.pipeline();
+			const allKeysToDelete = new Set<string>();
 
+			// Collect keys from tag sets
 			for (const tag of tags) {
-				const pattern = `${this.keyPrefix}*:tag:${tag}`;
-				const keys = await redisClient.keys(pattern);
-				if (keys.length > 0) {
-					pipeline.del(...keys);
+				const tagKeysSet = this.tagPrefix + tag;
+				const tagKeys = await redisClient.smembers(tagKeysSet);
+				for (const key of tagKeys) {
+					allKeysToDelete.add(key);
 				}
 			}
 
-			await pipeline.exec();
+			// Delete keys in batches
+			if (allKeysToDelete.size > 0) {
+				await this.deleteKeysInBatches(Array.from(allKeysToDelete));
+
+				// Clean up tag sets
+				const pipeline = redisClient.pipeline();
+				for (const tag of tags) {
+					pipeline.del(this.tagPrefix + tag);
+				}
+				await pipeline.exec();
+			}
 		} catch (error) {
 			logger.error(
 				"Error invalidating cache by tags",
@@ -212,42 +244,56 @@ export class RedisCache extends Cache {
 
 	private async invalidateByTables(tables: string[]): Promise<void> {
 		try {
-			// Get all cache keys and check which ones are associated with these tables
-			const allKeys = await redisClient.keys(`${this.keyPrefix}*`);
-			const keysToDelete: string[] = [];
+			const allKeysToDelete = new Set<string>();
 
-			if (allKeys.length > 0) {
-				const values = await redisClient.mget(...allKeys);
-
-				for (let i = 0; i < allKeys.length; i++) {
-					const value = values[i];
-					if (value) {
-						try {
-							const parsed = JSON.parse(value);
-							if (parsed.tables && Array.isArray(parsed.tables)) {
-								const hasAffectedTable = parsed.tables.some((table: string) =>
-									tables.includes(table),
-								);
-								if (hasAffectedTable) {
-									keysToDelete.push(allKeys[i]);
-								}
-							}
-						} catch {
-							// Skip invalid JSON
-						}
-					}
+			// Collect keys from table index sets
+			for (const table of tables) {
+				const tableKeysSet = this.tableKeysPrefix + table;
+				const tableKeys = await redisClient.smembers(tableKeysSet);
+				for (const key of tableKeys) {
+					allKeysToDelete.add(key);
 				}
 			}
 
-			if (keysToDelete.length > 0) {
-				await redisClient.del(...keysToDelete);
-				logger.debug(`Invalidated ${keysToDelete.length} cache entries`, {
+			// Delete keys in batches and clean up table indices
+			if (allKeysToDelete.size > 0) {
+				const keysArray = Array.from(allKeysToDelete);
+				await this.deleteKeysInBatches(keysArray);
+
+				// Remove keys from table index sets
+				const pipeline = redisClient.pipeline();
+				for (const table of tables) {
+					const tableKeysSet = this.tableKeysPrefix + table;
+					// Remove invalidated keys from the set
+					for (const key of keysArray) {
+						pipeline.srem(tableKeysSet, key);
+					}
+				}
+				await pipeline.exec();
+
+				logger.debug(`Invalidated ${keysArray.length} cache entries`, {
 					tables,
 				});
 			}
 		} catch (error) {
 			logger.error(
 				"Error invalidating cache by tables",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+	}
+
+	private async deleteKeysInBatches(keys: string[]): Promise<void> {
+		try {
+			for (let i = 0; i < keys.length; i += this.batchSize) {
+				const batch = keys.slice(i, i + this.batchSize);
+				if (batch.length > 0) {
+					await redisClient.unlink(...batch);
+				}
+			}
+		} catch (error) {
+			logger.error(
+				"Error deleting keys in batches",
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		}
