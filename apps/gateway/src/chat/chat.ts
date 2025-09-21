@@ -2444,11 +2444,9 @@ chat.openapi(completions, async (c) => {
 
 					if (!completionTokens && fullContent) {
 						try {
-							const contentToEncode =
-								typeof fullContent === "string"
-									? fullContent
-									: JSON.stringify(fullContent ?? "");
-							calculatedCompletionTokens = encode(contentToEncode).length;
+							calculatedCompletionTokens = encode(
+								JSON.stringify(fullContent),
+							).length;
 						} catch (error) {
 							// Fallback to simple estimation if encoding fails
 							logger.error(
