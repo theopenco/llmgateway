@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 
-import { closeDatabase, db, tables } from "./index.js";
+import { closeCachedDatabase, closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
 
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -85,7 +85,7 @@ async function seed() {
 	// Insert logs
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 
-	await closeDatabase();
+	await Promise.all([closeDatabase(), closeCachedDatabase()]);
 }
 
 void seed();
