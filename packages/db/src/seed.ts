@@ -89,6 +89,7 @@ async function seed() {
 
 	// Cleanup all connections
 	await Promise.all([closeDatabase(), closeCachedDatabase()]);
+
 	await redisClient.quit();
 }
 

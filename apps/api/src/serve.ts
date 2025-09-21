@@ -82,13 +82,13 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		await closeServer(server);
 		logger.info("HTTP server closed");
 
-		logger.info("Closing Redis connection");
-		await redisClient.quit();
-		logger.info("Redis connection closed");
-
 		logger.info("Closing database connection");
 		await closeDatabase();
 		logger.info("Database connection closed");
+
+		logger.info("Closing Redis connection");
+		await redisClient.quit();
+		logger.info("Redis connection closed");
 
 		// Shutdown instrumentation last to ensure all spans are flushed
 		if (sdk) {
