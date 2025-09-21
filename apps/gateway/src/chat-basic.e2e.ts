@@ -132,18 +132,8 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					inputCost: secondLog.inputCost,
 					totalCost: secondLog.cost,
 				});
-				// For now, just verify that caching information is being tracked
-				// OpenAI should have cached input cost, Anthropic might need different setup
-				if (log.usedProvider === "openai") {
-					expect(secondLog.cachedInputCost).toBeGreaterThan(0);
-				} else if (log.usedProvider === "anthropic") {
-					// Anthropic caching might not work immediately in test environment
-					// Just verify the structure is there for now
-					expect(typeof secondLog.cachedInputCost).toBe("number");
-					console.log(
-						"Note: Anthropic caching may require more specific setup or time delay",
-					);
-				}
+
+				expect(secondLog.cachedInputCost).toBeGreaterThan(0);
 			}
 		},
 	);

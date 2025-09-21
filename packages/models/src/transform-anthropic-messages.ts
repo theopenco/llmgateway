@@ -103,12 +103,27 @@ export async function transformAnthropicMessages(
 							} as TextContent;
 						}
 					}
+					if (isTextContent(part) && part.text && !part.cache_control) {
+						// Automatically add cache_control for long text blocks
+						const shouldCache = part.text.length >= 1024 * 4; // Rough token estimation
+						if (shouldCache) {
+							return {
+								...part,
+								cache_control: { type: "ephemeral" },
+							};
+						}
+					}
 					return part;
 				}),
 			);
 		} else if (m.content && typeof m.content === "string") {
-			// Handle string content - preserve cache_control if it exists on the message
-			const textContent: TextContent = { type: "text", text: m.content };
+			// Handle string content - automatically add cache_control for long prompts (1024+ tokens)
+			const shouldCache = m.content.length >= 1024 * 4; // Rough token estimation: 1 token ≈ 4 chars
+			const textContent: TextContent = {
+				type: "text",
+				text: m.content,
+				...(shouldCache && { cache_control: { type: "ephemeral" } }),
+			};
 			content = [textContent];
 		}
 
