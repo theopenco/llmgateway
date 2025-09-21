@@ -1,5 +1,5 @@
 ---
-id: "20"
+id: "21"
 slug: "claude-code-50-percent-off"
 date: "2025-09-19"
 title: "50% Off Claude Code - Limited Time Offer"

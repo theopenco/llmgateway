@@ -1,4 +1,4 @@
-import { db } from "@llmgateway/db";
+import { cdb as db } from "@llmgateway/db";
 
 /**
  * Get the user associated with an organization (first user found)

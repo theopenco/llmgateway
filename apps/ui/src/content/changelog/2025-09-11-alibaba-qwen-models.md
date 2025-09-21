@@ -1,5 +1,5 @@
 ---
-id: "19"
+id: "20"
 slug: "alibaba-qwen-models-support"
 date: "2025-09-11"
 title: "New Alibaba Qwen Models: Qwen3 Next, Max, Plus, Flash, Vision"

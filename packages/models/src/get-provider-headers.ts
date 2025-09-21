@@ -12,7 +12,7 @@ export function getProviderHeaders(
 			return {
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
-				"anthropic-beta": "tools-2024-04-04",
+				"anthropic-beta": "tools-2024-04-04,prompt-caching-2024-07-31",
 			};
 		case "google-ai-studio":
 			return {};

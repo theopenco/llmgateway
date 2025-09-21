@@ -229,6 +229,47 @@ export async function prepareRequestBody(
 				}
 			}
 
+			// Add cache_control for claude models while keeping OpenAI format
+			if (usedModel.startsWith("claude-")) {
+				requestBody.messages = processedMessages.map((message: any) => {
+					if (Array.isArray(message.content)) {
+						// Handle array content - add cache_control to long text blocks
+						const updatedContent = message.content.map((part: any) => {
+							if (part.type === "text" && part.text && !part.cache_control) {
+								const shouldCache = part.text.length >= 1024 * 4; // Rough token estimation
+								if (shouldCache) {
+									return {
+										...part,
+										cache_control: { type: "ephemeral" },
+									};
+								}
+							}
+							return part;
+						});
+						return {
+							...message,
+							content: updatedContent,
+						};
+					} else if (typeof message.content === "string") {
+						// Handle string content - add cache_control for long prompts
+						const shouldCache = message.content.length >= 1024 * 4; // Rough token estimation
+						if (shouldCache) {
+							return {
+								...message,
+								content: [
+									{
+										type: "text",
+										text: message.content,
+										cache_control: { type: "ephemeral" },
+									},
+								],
+							};
+						}
+					}
+					return message;
+				});
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;
@@ -329,6 +370,8 @@ export async function prepareRequestBody(
 					tool_calls: m.tool_calls, // Include tool_calls for transformation
 				})),
 				isProd,
+				usedProvider,
+				usedModel,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format

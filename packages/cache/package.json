@@ -19,7 +19,6 @@
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
-		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"ioredis": "^5.4.1"
 	},

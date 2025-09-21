@@ -65,7 +65,7 @@ const defaultContent: HeroContent = {
 			href: "/signup",
 		},
 		secondary: {
-			text: "View Docomentation",
+			text: "View Documentation",
 			href: "https://docs.llmgateway.io",
 			external: true,
 		},

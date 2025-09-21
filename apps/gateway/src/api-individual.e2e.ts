@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 
 import {
 	generateTestRequestId,
+	getTestOptions,
 	logMode,
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e.js";
@@ -17,7 +18,7 @@ import {
 	readAll,
 } from "./test-utils/test-helpers.js";
 
-describe("e2e individual tests", () => {
+describe("e2e individual tests", getTestOptions(), () => {
 	// Helper to create unique test data for each test to avoid conflicts
 	async function createTestData(testId: string) {
 		const userId = `user-${testId}`;

@@ -18,6 +18,11 @@ const anthropicMessageSchema = z.object({
 				z.object({
 					type: z.literal("text"),
 					text: z.string(),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+						})
+						.optional(),
 				}),
 				z.object({
 					type: z.literal("image"),
@@ -91,6 +96,11 @@ const anthropicRequestSchema = z.object({
 				z.object({
 					type: z.literal("text"),
 					text: z.string(),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+						})
+						.optional(),
 				}),
 			),
 		])
@@ -178,31 +188,20 @@ anthropic.openapi(messages, async (c) => {
 	try {
 		rawRequest = await c.req.json();
 	} catch (error) {
-		// console.log("Failed to parse JSON from request:", error);
 		throw new HTTPException(400, {
 			message: `Invalid JSON in request body: ${error}`,
 		});
 	}
 
-	// console.log("Raw Anthropic request:", JSON.stringify(rawRequest, null, 2));
-
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
-		// console.log(
-		// 	"Anthropic request validation failed:",
-		// 	JSON.stringify(validation.error.issues, null, 2),
-		// );
 		throw new HTTPException(400, {
 			message: `Invalid request format: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
 		});
 	}
 
 	const anthropicRequest: AnthropicRequest = validation.data;
-	// console.log(
-	// 	"Validated Anthropic request:",
-	// 	JSON.stringify(anthropicRequest, null, 2),
-	// );
 
 	// Transform Anthropic request to OpenAI format
 	const openaiMessages: Array<Record<string, unknown>> = [];

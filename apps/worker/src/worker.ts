@@ -1,13 +1,9 @@
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { consumeFromQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
-	getOrganization,
-	consumeFromQueue,
-	LOG_QUEUE,
-} from "@llmgateway/cache";
-import {
-	db,
+	cdb as db,
 	log,
 	organization,
 	eq,
@@ -65,20 +61,34 @@ export async function acquireLock(key: string): Promise<boolean> {
 	const lockExpiry = new Date(Date.now() - LOCK_DURATION_MINUTES * 60 * 1000);
 
 	try {
-		await db
-			.delete(tables.lock)
-			.where(
-				and(eq(tables.lock.key, key), lt(tables.lock.updatedAt, lockExpiry)),
-			);
+		await db.transaction(async (tx) => {
+			// First, delete any expired locks with the same key
+			await tx
+				.delete(tables.lock)
+				.where(
+					and(eq(tables.lock.key, key), lt(tables.lock.updatedAt, lockExpiry)),
+				);
 
-		await db.insert(tables.lock).values({
-			key,
+			// Then try to insert the new lock
+			try {
+				await tx.insert(tables.lock).values({
+					key,
+				});
+			} catch (insertError) {
+				// If the insert failed due to a unique constraint violation within the transaction,
+				// another process holds the lock - throw a special error to be caught outside
+				const actualError = (insertError as any)?.cause || insertError;
+				if (hasErrorCode(actualError) && actualError.code === "23505") {
+					throw new Error("LOCK_EXISTS");
+				}
+				throw insertError;
+			}
 		});
 
 		return true;
 	} catch (error) {
-		// If the insert failed due to a unique constraint violation, another process holds the lock
-		if (hasErrorCode(error) && error.code === "23505") {
+		// If we threw our special error, return false
+		if (error instanceof Error && error.message === "LOCK_EXISTS") {
 			return false;
 		}
 		// Re-throw unexpected errors so they can be handled upstream
@@ -443,7 +453,13 @@ export async function processLogQueue(): Promise<void> {
 			| Omit<LogInsertData, "messages" | "content">
 		)[] = await Promise.all(
 			logData.map(async (data) => {
-				const organization = await getOrganization(data.organizationId);
+				const organization = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: data.organizationId,
+						},
+					},
+				});
 
 				if (organization?.retentionLevel === "none") {
 					const {

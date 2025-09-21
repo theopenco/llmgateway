@@ -103,7 +103,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						</div>
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />
-							<span>{log.totalTokens} tokens</span>
+							<span>
+								{log.totalTokens} tokens
+								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
+									<span className="ml-1">({log.cachedTokens} cached)</span>
+								)}
+							</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />
@@ -190,6 +195,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>{log.completionTokens}</div>
 								<div className="text-muted-foreground">Total Tokens</div>
 								<div className="font-medium">{log.totalTokens}</div>
+								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Cached Input Tokens
+										</div>
+										<div className="font-medium">{log.cachedTokens}</div>
+									</>
+								)}
 								{log.reasoningTokens && (
 									<>
 										<div className="text-muted-foreground">
@@ -254,6 +267,16 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>
 									{log.outputCost ? `$${log.outputCost.toFixed(6)}` : "$0"}
 								</div>
+								{!!log.cachedInputCost && Number(log.cachedInputCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Cached Input Cost
+										</div>
+										<div className="">
+											{`$${Number(log.cachedInputCost).toFixed(6)}`}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Request Cost</div>
 								<div>
 									{log.requestCost ? `$${log.requestCost.toFixed(6)}` : "$0"}

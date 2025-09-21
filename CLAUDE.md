@@ -28,6 +28,10 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 - `pnpm lint` - Check linting and formatting (without fixing)
 - `pnpm generate` - Regenerate OpenAPI schemas from API routes
 
+### Writing code
+
+This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
+
 ### Testing
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.

@@ -9,6 +9,7 @@
 # test & build
 /coverage
 /.next/
+/.next-dev/
 /.next-prod/
 /out/
 /build
