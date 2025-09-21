@@ -13,7 +13,8 @@ import {
 	and,
 	avg,
 	sum,
-} from "@llmgateway/db";
+} from "@/lib/db.js";
+
 import { logger } from "@llmgateway/logger";
 
 // Environment variable for backfill duration in seconds (defaults to 300 seconds = 5 minutes)

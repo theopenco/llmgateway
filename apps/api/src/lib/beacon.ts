@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 
-import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+
+import { db, tables } from "./db.js";
 
 interface BeaconData {
 	uuid: string;

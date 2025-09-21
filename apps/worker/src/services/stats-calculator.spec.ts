@@ -13,7 +13,7 @@ import {
 	apiKey,
 	eq,
 	and,
-} from "@llmgateway/db";
+} from "@/lib/db.js";
 
 import {
 	calculateMinutelyHistory,

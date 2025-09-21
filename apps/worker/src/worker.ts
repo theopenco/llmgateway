@@ -1,11 +1,11 @@
 import Stripe from "stripe";
 import { z } from "zod";
 
-import {
-	getOrganization,
-	consumeFromQueue,
-	LOG_QUEUE,
-} from "@llmgateway/cache";
+import { consumeFromQueue, LOG_QUEUE } from "@llmgateway/cache";
+import { logger } from "@llmgateway/logger";
+import { hasErrorCode } from "@llmgateway/models";
+import { calculateFees } from "@llmgateway/shared";
+
 import {
 	db,
 	log,
@@ -17,12 +17,9 @@ import {
 	tables,
 	apiKey,
 	inArray,
+	getOrganization,
 	type LogInsertData,
-} from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
-import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees } from "@llmgateway/shared";
-
+} from "./lib/db.js";
 import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,

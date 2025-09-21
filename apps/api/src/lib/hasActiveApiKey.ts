@@ -1,4 +1,4 @@
-import { db, tables, eq, and } from "@llmgateway/db";
+import { db, tables, eq, and } from "./db.js";
 
 /**
  * Check if a user has at least one active (non-revoked) API key

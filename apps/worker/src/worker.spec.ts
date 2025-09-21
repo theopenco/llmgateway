@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
-
+import { db, tables } from "./lib/db.js";
 import { acquireLock } from "./worker.js";
 
 describe("worker", () => {

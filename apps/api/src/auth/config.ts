@@ -5,7 +5,8 @@ import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 import nodemailer from "nodemailer";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@/lib/db.js";
+
 import { logger } from "@llmgateway/logger";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";

@@ -20,7 +20,7 @@ import {
 	toolChoice,
 	toolResults,
 	tools,
-} from "@llmgateway/db";
+} from "@/lib/db.js";
 
 import type { ServerTypes } from "@/vars.js";
 

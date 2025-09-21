@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
-import { db, tables, log, organization, project, apiKey } from "@llmgateway/db";
-
+import { db, tables, log, organization, project, apiKey } from "./lib/db.js";
 import { batchProcessLogs } from "./worker.js";
 
 describe("Log Processing", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { db, provider, model, modelProviderMapping, eq } from "@llmgateway/db";
+import { db, provider, model, modelProviderMapping, eq } from "@/lib/db.js";
 
 import { syncProvidersAndModels } from "./sync-models.js";
 

@@ -3,9 +3,9 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { db, eq, tables } from "@/lib/db.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
-import { db, eq, tables } from "@llmgateway/db";
 import { calculateFees } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";

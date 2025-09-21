@@ -1,9 +1,8 @@
 import { expect, test, beforeEach, describe, afterEach } from "vitest";
 
 import { app } from "@/index.js";
+import { db, tables, eq } from "@/lib/db.js";
 import { createTestUser, deleteAll } from "@/testing.js";
-
-import { db, tables, eq } from "@llmgateway/db";
 
 describe("keys route", () => {
 	let token: string;

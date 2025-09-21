@@ -8,7 +8,8 @@ import {
 	and,
 	sql,
 	isNotNull,
-} from "@llmgateway/db";
+} from "@/lib/db.js";
+
 import { logger } from "@llmgateway/logger";
 import { providers, models } from "@llmgateway/models";
 

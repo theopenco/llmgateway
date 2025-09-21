@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkFreeModelRateLimit, isFreeModel } from "./rate-limit.js";
 
 // Mock dependencies
-vi.mock("@llmgateway/cache", () => ({
+vi.mock("./db.js", () => ({
 	getOrganization: vi.fn(),
+}));
+
+vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		zremrangebyscore: vi.fn(),
 		zcard: vi.fn(),
@@ -22,6 +25,7 @@ vi.mock("@llmgateway/logger", () => ({
 	},
 }));
 
+const mockDb = await import("./db.js");
 const mockCache = await import("@llmgateway/cache");
 const redis = mockCache.redisClient;
 
@@ -67,7 +71,7 @@ describe("Rate Limiting", () => {
 		it("should apply base rate limits for orgs with 0 credits", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(mockDb.getOrganization).mockResolvedValue({
 				credits: "0",
 			});
 
@@ -88,7 +92,7 @@ describe("Rate Limiting", () => {
 		it("should apply elevated rate limits for orgs with credits > 0", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(mockDb.getOrganization).mockResolvedValue({
 				credits: "10.50",
 			});
 
@@ -106,7 +110,7 @@ describe("Rate Limiting", () => {
 		it("should block requests when base rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(mockDb.getOrganization).mockResolvedValue({
 				credits: "0",
 			});
 
@@ -132,7 +136,7 @@ describe("Rate Limiting", () => {
 		it("should block requests when elevated rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(mockDb.getOrganization).mockResolvedValue({
 				credits: "10.50",
 			});
 
@@ -158,7 +162,7 @@ describe("Rate Limiting", () => {
 		it("should allow requests on Redis errors", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(mockCache.getOrganization).mockResolvedValue({
+			vi.mocked(mockDb.getOrganization).mockResolvedValue({
 				credits: "0",
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(

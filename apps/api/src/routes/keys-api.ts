@@ -2,9 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { eq, db, shortid, tables } from "@/lib/db.js";
 import { maskToken } from "@/lib/maskToken.js";
-
-import { eq, db, shortid, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 

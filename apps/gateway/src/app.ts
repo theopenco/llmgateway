@@ -7,12 +7,12 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { redisClient } from "@llmgateway/cache";
-import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { db } from "./lib/db.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 

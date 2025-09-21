@@ -1,6 +1,5 @@
 import { serve, type ServerType } from "@hono/node-server";
 
-import { closeDatabase, runMigrations } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
 	shutdownInstrumentation,
@@ -10,6 +9,7 @@ import { logger } from "@llmgateway/logger";
 import { redisClient } from "./auth/config.js";
 import { app } from "./index.js";
 import { sendInstallationBeacon } from "./lib/beacon.js";
+import { closeDatabase, runMigrations } from "./lib/db.js";
 
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 

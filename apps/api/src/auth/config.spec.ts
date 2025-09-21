@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables } from "@/lib/db.js";
 
 import { apiAuth, redisClient } from "./config.js";
 

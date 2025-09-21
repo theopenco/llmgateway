@@ -2,9 +2,9 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
+import { db, tables } from "@/lib/db.js";
 import { deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
 import {
 	getConcurrentTestOptions,
 	getProviderEnvVar,

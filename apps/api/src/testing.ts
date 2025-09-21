@@ -1,6 +1,5 @@
-import { db, tables } from "@llmgateway/db";
-
 import { app } from "./index.js";
+import { db, tables } from "./lib/db.js";
 
 import type { OpenAPIHono } from "@hono/zod-openapi";
 

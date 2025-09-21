@@ -2,9 +2,9 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+import { db, eq, sql, tables } from "./lib/db.js";
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
 

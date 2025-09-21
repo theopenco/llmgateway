@@ -1,7 +1,8 @@
 import { HTTPException } from "hono/http-exception";
 
-import { db } from "@llmgateway/db";
 import { models, type ModelDefinition } from "@llmgateway/models";
+
+import { db } from "./db.js";
 
 export interface IamRule {
 	id: string;
@@ -29,10 +30,11 @@ export async function validateModelAccess(
 ): Promise<{ allowed: boolean; reason?: string }> {
 	// Get all active IAM rules for this API key
 	const iamRules = await db.query.apiKeyIamRule.findMany({
-		where: {
-			apiKeyId: { eq: apiKeyId },
-			status: { eq: "active" },
-		},
+		where: (apiKeyIamRule, { eq, and }) =>
+			and(
+				eq(apiKeyIamRule.apiKeyId, apiKeyId),
+				eq(apiKeyIamRule.status, "active"),
+			),
 	});
 
 	// If no rules exist, allow all access (backwards compatibility)
