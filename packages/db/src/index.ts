@@ -5,7 +5,6 @@ export * from "./types.js";
 export * from "./migrate.js";
 export * from "./relations.js";
 export * from "./db.js";
-export * from "./cached-db.js";
 
 export * from "drizzle-orm";
 
