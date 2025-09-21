@@ -2,6 +2,9 @@ import { Redis } from "ioredis";
 
 import { logger } from "@llmgateway/logger";
 
+// Re-export Redis type for other packages
+export type { Redis };
+
 export const redisClient = new Redis({
 	host: process.env.REDIS_HOST || "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
