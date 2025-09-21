@@ -4,7 +4,6 @@ slug: "claude-code-configuration-support"
 date: "2025-09-08"
 title: "Claude Code Configuration Now Supported"
 summary: "Configure Claude Code to use any LLM model through LLMGateway's unified API with simple environment variable setup."
-draft: true
 image:
   src: "/changelog/claude-code-configuration-support.png"
   alt: "Claude Code configuration support on LLM Gateway"
@@ -21,7 +20,11 @@ Set up Claude Code with LLMGateway using three environment variables:
 ```bash
 export ANTHROPIC_BASE_URL=https://api.llmgateway.io
 export ANTHROPIC_AUTH_TOKEN=llmgtwy_.... # your llmgateway.io api key here
-export ANTHROPIC_MODEL=glm-4.5v # choose your model with tool support
+# optionally, choose your model, otherwise it will use the default Claude model via LLMGateway
+export ANTHROPIC_MODEL=gpt-5 # choose your model with tool support
+
+# now run claude!
+claude
 ```
 
 ## 🚀 Key Benefits
@@ -29,8 +32,6 @@ export ANTHROPIC_MODEL=glm-4.5v # choose your model with tool support
 **Model Flexibility**: Switch between any supported model - from GPT-4o to Claude Sonnet, Gemini, or cost-effective alternatives like GLM-4.5v.
 
 **Cost Optimization**: Choose the most cost-effective model for your specific tasks while maintaining Claude Code's full functionality.
-
-**Tool Support**: Use models that support function calling and tool use for advanced coding workflows.
 
 **Unified Interface**: Single configuration gives you access to the entire ecosystem of LLM models.
 

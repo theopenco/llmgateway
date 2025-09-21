@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 3, "column": 0}, "map": {"version":3,"sources":["file:///Users/smakosh/Desktop/work/openllm/node_modules/.pnpm/next%4015.5.3_%40opentelemetry%2Bapi%401.9.0_react-dom%4019.1.0_react%4019.1.0__react%4019.1.0/node_modules/next/navigation.js"],"sourcesContent":["module.exports = require('./dist/client/components/navigation')\n"],"names":[],"mappings":"AAAA,OAAO,OAAO","ignoreList":[0],"debugId":null}}]
+}

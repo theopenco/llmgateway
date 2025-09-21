@@ -79,16 +79,56 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with cached tokens", () => {
+	it("should calculate costs with cached tokens for OpenAI (prompt_tokens includes cached)", () => {
 		const result = calculateCosts("gpt-4o", "openai", 100, 50, 20);
 
-		expect(result.inputCost).toBeCloseTo(0.00025); // 100 * 0.0000025
+		expect(result.inputCost).toBeCloseTo(0.0002); // (100 - 20) * 0.0000025 = 80 * 0.0000025
 		expect(result.outputCost).toBeCloseTo(0.0005); // 50 * 0.00001
 		expect(result.cachedInputCost).toBeCloseTo(0.000025); // 20 * 0.00000125
-		expect(result.totalCost).toBeCloseTo(0.000575); // 0.00025 + 0.0005 + 0.000025
+		expect(result.totalCost).toBeCloseTo(0.000525); // 0.0002 + 0.0005 + 0.000025
 		expect(result.promptTokens).toBe(100);
 		expect(result.completionTokens).toBe(50);
 		expect(result.cachedTokens).toBe(20);
+		expect(result.estimatedCost).toBe(false); // Not estimated
+	});
+
+	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", () => {
+		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
+		const result = calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			1663,
+			50,
+			0,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.004989); // 1663 * 0.000003 (all tokens charged full price)
+		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
+		expect(result.cachedInputCost).toBeCloseTo(0); // 0 cache reads
+		expect(result.totalCost).toBeCloseTo(0.005739); // 0.004989 + 0.00075 + 0
+		expect(result.promptTokens).toBe(1663);
+		expect(result.completionTokens).toBe(50);
+		expect(result.cachedTokens).toBe(0);
+		expect(result.estimatedCost).toBe(false); // Not estimated
+	});
+
+	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", () => {
+		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
+		const result = calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			1663,
+			50,
+			1659,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.000012); // 4 * 0.000003 (only non-cached tokens at full price)
+		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
+		expect(result.cachedInputCost).toBeCloseTo(0.0004977); // 1659 * 0.0000003 (cached token price)
+		expect(result.totalCost).toBeCloseTo(0.0012597); // 0.000012 + 0.00075 + 0.0004977
+		expect(result.promptTokens).toBe(1663);
+		expect(result.completionTokens).toBe(50);
+		expect(result.cachedTokens).toBe(1659);
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 });

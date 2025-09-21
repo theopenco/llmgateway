@@ -91,6 +91,9 @@ export function getProviderEndpoint(
 			case "routeway":
 				url = "https://api.routeway.ai";
 				break;
+			case "routeway-discount":
+				url = process.env.ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -159,6 +162,7 @@ export function getProviderEndpoint(
 		case "alibaba":
 		case "nebius":
 		case "routeway":
+		case "routeway-discount":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

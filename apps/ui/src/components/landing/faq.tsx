@@ -51,8 +51,8 @@ export function Faq() {
 								<p>Unlike OpenRouter, we offer:</p>
 								<ul className="list-disc pl-6 mt-2 space-y-1">
 									<li>
-										Full <strong>self‑hosting</strong> under an MIT license –
-										run the gateway entirely on your infra, free forever
+										Full <strong>self‑hosting</strong> under an AGPLv3 license –
+										run the gateway entirely on your infra.
 									</li>
 									<li>
 										Deeper, real‑time <strong>cost & latency analytics</strong>{" "}

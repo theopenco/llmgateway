@@ -110,6 +110,7 @@ export default [
 		ignores: [
 			"**/.tanstack/",
 			"**/.next/",
+			"**/.next-dev/",
 			"**/.source/",
 			"**/.output/",
 			"**/.conductor/",

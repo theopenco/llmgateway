@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Orbit } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 
@@ -12,7 +12,6 @@ import {
 	CardContent,
 	CardDescription,
 	CardHeader,
-	CardTitle,
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
@@ -58,45 +57,97 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 		return actualProject || null;
 	}, [projectId, projectsData]);
 
+	// Get API keys data to check plan limits
+	const { data: apiKeysData } = api.useQuery(
+		"get",
+		"/keys/api",
+		{
+			params: {
+				query: { projectId: selectedProject?.id || "" },
+			},
+		},
+		{
+			enabled: !!selectedProject?.id,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+		},
+	);
+
+	const planLimits = apiKeysData?.planLimits;
+
 	return (
 		<div className="flex flex-col">
-			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<div className="flex items-center justify-between space-y-2">
+			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
+				<div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
 					<div>
 						<h2 className="text-3xl font-bold tracking-tight">API Keys</h2>
 						<p className="text-muted-foreground">
-							Manage your API keys for accessing LLM Gateway
+							Create and manage API keys to authenticate requests to LLM Gateway
 						</p>
 					</div>
 					{selectedProject && (
-						<CreateApiKeyDialog selectedProject={selectedProject}>
-							<Button disabled={!selectedProject}>
-								<Plus className="mr-2 h-4 w-4" />
+						<CreateApiKeyDialog
+							selectedProject={selectedProject}
+							disabled={
+								planLimits
+									? planLimits.currentCount >= planLimits.maxKeys
+									: false
+							}
+							disabledMessage={
+								planLimits
+									? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+									: undefined
+							}
+						>
+							<Button
+								disabled={
+									!selectedProject ||
+									(planLimits
+										? planLimits.currentCount >= planLimits.maxKeys
+										: false)
+								}
+								className="cursor-pointer flex items-center space-x-1 w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								<Orbit className=" h-4 w-4 mt-0.5" />
 								Create API Key
 							</Button>
 						</CreateApiKeyDialog>
 					)}
 				</div>
 				<div className="space-y-4">
-					<Card>
-						<CardHeader>
-							<CardTitle>Your API Keys</CardTitle>
-							<CardDescription>
-								API keys allow you to authenticate with the LLM Gateway API.
-								{!selectedProject && (
-									<span className="block mt-2 text-amber-600">
-										Loading project information...
-									</span>
-								)}
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<ApiKeysList
-								selectedProject={selectedProject}
-								initialData={initialData}
-							/>
-						</CardContent>
-					</Card>
+					{/* Desktop Card */}
+					<div className="hidden md:block">
+						<Card className="gap-0">
+							<CardHeader>
+								<CardDescription>
+									{!selectedProject && (
+										<span className="text-amber-600">
+											Loading project information...
+										</span>
+									)}
+								</CardDescription>
+							</CardHeader>
+							<CardContent>
+								<ApiKeysList
+									selectedProject={selectedProject}
+									initialData={initialData}
+								/>
+							</CardContent>
+						</Card>
+					</div>
+
+					{/* Mobile - Direct rendering */}
+					<div className="md:hidden">
+						{!selectedProject && (
+							<div className="text-amber-600 mb-4">
+								Loading project information...
+							</div>
+						)}
+						<ApiKeysList
+							selectedProject={selectedProject}
+							initialData={initialData}
+						/>
+					</div>
 				</div>
 			</div>
 		</div>

@@ -28,7 +28,7 @@ export function useChats() {
 	return api.useQuery("get", "/chats");
 }
 
-export function useChat(chatId: string) {
+export function useDataChat(chatId: string) {
 	const api = useApi();
 
 	return api.useQuery(

@@ -5,8 +5,11 @@ import {
 	MoreHorizontal,
 	PlusIcon,
 	Shield,
+	Zap,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -48,18 +51,26 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/lib/components/table";
+import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 import { IamRulesDialog } from "./iam-rules-dialog";
 
-import type { Project, ApiKey } from "@/lib/types";
+import type { ApiKey, Project } from "@/lib/types";
 
 interface ApiKeysListProps {
 	selectedProject: Project | null;
 	initialData: ApiKey[];
 }
+
+type StatusFilter = "all" | "active" | "inactive";
 
 export function ApiKeysList({
 	selectedProject,
@@ -67,6 +78,7 @@ export function ApiKeysList({
 }: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -106,6 +118,42 @@ export function ApiKeysList({
 		"/keys/api/limit/{id}",
 	);
 
+	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") || [];
+	const activeKeys = allKeys.filter((key) => key.status === "active");
+	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
+	const planLimits = data?.planLimits;
+
+	const filteredKeys = (() => {
+		switch (statusFilter) {
+			case "active":
+				return activeKeys;
+			case "inactive":
+				return inactiveKeys;
+			case "all":
+			default:
+				return allKeys;
+		}
+	})();
+
+	// Auto-switch to a tab with content if current tab becomes empty
+	useEffect(() => {
+		if (filteredKeys.length === 0 && allKeys.length > 0) {
+			if (statusFilter === "active" && inactiveKeys.length > 0) {
+				setStatusFilter("inactive");
+			} else if (statusFilter === "inactive" && activeKeys.length > 0) {
+				setStatusFilter("active");
+			} else if (statusFilter !== "all") {
+				setStatusFilter("all");
+			}
+		}
+	}, [
+		filteredKeys.length,
+		allKeys.length,
+		activeKeys.length,
+		inactiveKeys.length,
+		statusFilter,
+	]);
+
 	// Show message if no project is selected
 	if (!selectedProject) {
 		return (
@@ -119,8 +167,6 @@ export function ApiKeysList({
 			</div>
 		);
 	}
-
-	const keys = data?.apiKeys.filter((key) => key.status !== "deleted");
 
 	// Handle loading state
 	if (isLoading) {
@@ -243,17 +289,63 @@ export function ApiKeysList({
 		);
 	};
 
-	if (keys!.length === 0) {
+	const bulkActivateInactive = () => {
+		inactiveKeys.forEach((key) => {
+			toggleKeyStatus(
+				{
+					params: {
+						path: { id: key.id },
+					},
+					body: {
+						status: "active",
+					},
+				},
+				{
+					onSuccess: () => {
+						const queryKey = api.queryOptions("get", "/keys/api", {
+							params: {
+								query: { projectId: selectedProject!.id },
+							},
+						}).queryKey;
+						queryClient.invalidateQueries({ queryKey });
+					},
+				},
+			);
+		});
+
+		// Switch to active tab to show the results
+		setStatusFilter("active");
+
+		toast({
+			title: "Activating Keys",
+			description: `${inactiveKeys.length} key${inactiveKeys.length !== 1 ? "s" : ""} are being activated.`,
+		});
+	};
+
+	if (allKeys.length === 0) {
 		return (
 			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
 				<div className="mb-4">
 					<KeyIcon className="h-10 w-10 text-gray-500" />
 				</div>
 				<p className="text-gray-400 mb-6">No API keys have been created yet.</p>
-				<CreateApiKeyDialog selectedProject={selectedProject}>
+				<CreateApiKeyDialog
+					selectedProject={selectedProject}
+					disabled={
+						planLimits ? planLimits.currentCount >= planLimits.maxKeys : false
+					}
+					disabledMessage={
+						planLimits
+							? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+							: undefined
+					}
+				>
 					<Button
 						type="button"
-						className="cursor-pointer flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md hover:bg-gray-200"
+						disabled={
+							planLimits ? planLimits.currentCount >= planLimits.maxKeys : false
+						}
+						className="cursor-pointer flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
 					>
 						<PlusIcon className="h-5 w-5" />
 						Create API Key
@@ -265,6 +357,133 @@ export function ApiKeysList({
 
 	return (
 		<>
+			{/* Status Filter Tabs */}
+			<div className="mb-6">
+				<Tabs
+					value={statusFilter}
+					onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+				>
+					<TabsList className="flex space-x-2 w-full md:w-fit">
+						<TabsTrigger value="all">
+							All{" "}
+							<Badge
+								variant={statusFilter === "all" ? "default" : "outline"}
+								className="text-xs"
+							>
+								{allKeys.length}
+							</Badge>
+						</TabsTrigger>
+						{activeKeys.length > 0 && (
+							<TabsTrigger value="active">
+								Active{" "}
+								<Badge
+									variant={statusFilter === "active" ? "default" : "outline"}
+									className="text-xs"
+								>
+									{activeKeys.length}
+								</Badge>
+							</TabsTrigger>
+						)}
+						{inactiveKeys.length > 0 && (
+							<TabsTrigger value="inactive">
+								Inactive{" "}
+								<Badge
+									variant={statusFilter === "inactive" ? "default" : "outline"}
+									className="text-xs"
+								>
+									{inactiveKeys.length}
+								</Badge>
+							</TabsTrigger>
+						)}
+					</TabsList>
+				</Tabs>
+			</div>
+
+			{/* Plan Limits Display */}
+			{planLimits && (
+				<div className="mb-4 rounded-lg border bg-muted/30 p-4">
+					<div className="flex items-center justify-between">
+						<div className="flex items-center gap-4">
+							<div className="text-sm text-muted-foreground">
+								<span className="font-medium">API Keys:</span>{" "}
+								{planLimits.currentCount} of {planLimits.maxKeys} used
+							</div>
+							<div className="text-sm text-muted-foreground">
+								<span className="font-medium">Plan:</span>{" "}
+								{planLimits.plan === "pro" ? "Pro" : "Free"}
+							</div>
+						</div>
+						{planLimits.currentCount >= planLimits.maxKeys && (
+							<div className="text-xs text-amber-600 font-medium">
+								Limit reached
+							</div>
+						)}
+					</div>
+					{planLimits.plan === "free" && planLimits.currentCount >= 3 && (
+						<div className="mt-2 text-xs text-muted-foreground">
+							💡 Upgrade to Pro plan to create up to 20 API keys per project
+						</div>
+					)}
+				</div>
+			)}
+
+			{/* Inactive Keys Summary Bar */}
+			{statusFilter === "active" && inactiveKeys.length > 0 && (
+				<div className="mb-4 rounded-lg border bg-muted/30 p-2">
+					<div className="flex flex-col space-y-2 md:space-y-0 md:flex-row md:items-center justify-between">
+						<div className="flex items-center gap-2">
+							<div className="text-sm text-muted-foreground">
+								💤 {inactiveKeys.length} inactive key
+								{inactiveKeys.length !== 1 ? "s" : ""}
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setStatusFilter("inactive")}
+							>
+								Manage
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={bulkActivateInactive}
+								className="flex items-center gap-1"
+							>
+								<Zap className="h-3 w-3" />
+								Activate All
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Bulk Actions Bar for Inactive Tab */}
+			{statusFilter === "inactive" && inactiveKeys.length > 0 && (
+				<div className="mb-4 rounded-lg border bg-muted/30 p-4">
+					<div className="flex items-center justify-between">
+						<div className="flex items-center gap-2">
+							<div className="text-sm text-muted-foreground">
+								💤 {inactiveKeys.length} inactive key
+								{inactiveKeys.length !== 1 ? "s" : ""} selected
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="default"
+								size="sm"
+								onClick={bulkActivateInactive}
+								className="flex items-center gap-1"
+							>
+								<Zap className="h-3 w-3" />
+								Activate All
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
+
 			{/* Desktop Table */}
 			<div className="hidden md:block">
 				<Table>
@@ -272,8 +491,8 @@ export function ApiKeysList({
 						<TableRow>
 							<TableHead>Name</TableHead>
 							<TableHead>API Key</TableHead>
-							<TableHead>Created</TableHead>
 							<TableHead>Status</TableHead>
+							<TableHead>Created</TableHead>
 							<TableHead>Usage</TableHead>
 							<TableHead>Usage Limit</TableHead>
 							<TableHead>IAM Rules</TableHead>
@@ -281,27 +500,45 @@ export function ApiKeysList({
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{keys!.map((key) => (
-							<TableRow key={key.id}>
-								<TableCell className="font-medium">{key.description}</TableCell>
+						{filteredKeys.map((key) => (
+							<TableRow
+								key={key.id}
+								className="hover:bg-muted/30 transition-colors"
+							>
+								<TableCell className="font-medium">
+									<span className="text-sm font-medium">{key.description}</span>
+								</TableCell>
 								<TableCell>
 									<div className="flex items-center space-x-2">
 										<span className="font-mono text-xs">{key.maskedToken}</span>
 									</div>
 								</TableCell>
-								<TableCell>{key.createdAt}</TableCell>
 								<TableCell>
-									<Badge
-										variant={
-											key.status === "active"
-												? "default"
-												: key.status === "deleted"
-													? "destructive"
-													: "secondary"
-										}
-									>
-										{key.status}
-									</Badge>
+									<StatusBadge status={key.status} variant="detailed" />
+								</TableCell>
+								<TableCell>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
+												{Intl.DateTimeFormat(undefined, {
+													month: "short",
+													day: "numeric",
+													year: "numeric",
+												}).format(new Date(key.createdAt))}
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="max-w-xs text-xs whitespace-nowrap">
+												{Intl.DateTimeFormat(undefined, {
+													month: "short",
+													day: "numeric",
+													year: "numeric",
+													hour: "2-digit",
+													minute: "2-digit",
+												}).format(new Date(key.createdAt))}
+											</p>
+										</TooltipContent>
+									</Tooltip>
 								</TableCell>
 								<TableCell>${Number(key.usage).toFixed(2)}</TableCell>
 								<TableCell>
@@ -430,7 +667,8 @@ export function ApiKeysList({
 											<DropdownMenuItem
 												onClick={() => toggleStatus(key.id, key.status)}
 											>
-												{key.status === "active" ? "Disable" : "Enable"} Key
+												{key.status === "active" ? "Deactivate" : "Activate"}{" "}
+												Key
 											</DropdownMenuItem>
 											<DropdownMenuSeparator />
 											<AlertDialog>
@@ -474,26 +712,23 @@ export function ApiKeysList({
 
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
-				{keys!.map((key) => (
-					<div key={key.id} className="border rounded-lg p-4 space-y-3">
+				{filteredKeys.map((key) => (
+					<div key={key.id} className="border rounded-lg p-3 space-y-3">
 						<div className="flex items-start justify-between">
 							<div className="flex-1 min-w-0">
-								<h3 className="font-medium text-sm">{key.description}</h3>
+								<div className="flex items-center gap-2">
+									<h3 className="font-medium text-sm">{key.description}</h3>
+									<StatusBadge status={key.status} />
+								</div>
 								<div className="flex items-center gap-2 mt-1">
-									<Badge
-										variant={
-											key.status === "active"
-												? "default"
-												: key.status === "deleted"
-													? "destructive"
-													: "secondary"
-										}
-										className="text-xs"
-									>
-										{key.status}
-									</Badge>
 									<span className="text-xs text-muted-foreground">
-										{key.createdAt}
+										{Intl.DateTimeFormat(undefined, {
+											month: "short",
+											day: "numeric",
+											year: "numeric",
+											hour: "2-digit",
+											minute: "2-digit",
+										}).format(new Date(key.createdAt))}
 									</span>
 								</div>
 							</div>
@@ -516,7 +751,7 @@ export function ApiKeysList({
 									<DropdownMenuItem
 										onClick={() => toggleStatus(key.id, key.status)}
 									>
-										{key.status === "active" ? "Disable" : "Enable"} Key
+										{key.status === "active" ? "Deactivate" : "Activate"} Key
 									</DropdownMenuItem>
 									<DropdownMenuSeparator />
 									<AlertDialog>

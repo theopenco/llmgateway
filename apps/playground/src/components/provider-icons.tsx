@@ -399,6 +399,45 @@ export const ZaiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// Routeway Icon
+export const RoutewayIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		{...props}
+		className={cn("h-14 w-14 text-black dark:text-white", props.className)}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="900 200 800 1000"
+	>
+		<defs>
+			<clipPath clipPathUnits="userSpaceOnUse" id="a">
+				<path d="M-1213.3696 448.07749h1920v-1080h-1920Z" />
+			</clipPath>
+		</defs>
+		<path
+			d="m0 0-100.901-101.171v-118.195L2.633-116.212Z"
+			style={{
+				fill: "currentColor",
+				fillOpacity: 1,
+				fillRule: "nonzero",
+				stroke: "none",
+			}}
+			transform="matrix(1.33333 0 0 -1.33333 1050.7755 755.13573)"
+		/>
+		<path
+			d="m0 0-152.952 153.777L-306.654.677l58.795-60.395 52.108 51.669v-170.727c0-22.332-17.035-37.753-29.388-46.019-50.92-34.07-103.062 10.39-103.062 70.866 0 16.974 13.395 27.2 21.335 35.141l.212 119.465-94.784-95.038c-9.52-10.277-10.492-41.896-9.554-70.415.894-27.205 4.758-49.913 9.854-63.646 18.469-41.315 48.974-72.172 94.038-85.426 98.221-28.888 193.766 42.45 196.112 143.51l-.027 162.288 52.099-51.668z"
+			style={{
+				fill: "currentColor",
+				fillOpacity: 1,
+				fillRule: "nonzero",
+				stroke: "none",
+			}}
+			transform="matrix(1.33333 0 0 -1.33333 1617.8261 597.43667)"
+			clipPath="url(#a)"
+		/>
+	</svg>
+);
+
 // Export all icons as a map for easy access
 export const ProviderIcons = {
 	anthropic: AnthropicIcon,
@@ -417,6 +456,8 @@ export const ProviderIcons = {
 	alibaba: AlibabaIcon,
 	nebius: NebiusIcon,
 	zai: ZaiIcon,
+	routeway: RoutewayIcon,
+	"routeway-discount": RoutewayIcon,
 } as const;
 
 // Type for provider icon keys

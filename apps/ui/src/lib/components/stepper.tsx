@@ -35,50 +35,98 @@ export function Stepper({
 	return (
 		<div className={cn("flex flex-col gap-8", className)}>
 			<div className="flex flex-col gap-4">
-				<Progress value={progress} className="h-2" />
-				<div className="flex justify-between">
-					{steps.map((step, index) => {
-						const isActive = activeStep === index;
-						const isCompleted = activeStep > index;
-						const isClickable = isCompleted || index === activeStep + 1;
+				{/* Desktop stepper - show full horizontal layout */}
+				<div className="hidden md:flex flex-col gap-4">
+					<Progress value={progress} className="h-2" />
+					<div className="flex justify-between">
+						{steps.map((step, index) => {
+							const isActive = activeStep === index;
+							const isCompleted = activeStep > index;
+							const isClickable = isCompleted || index === activeStep + 1;
 
-						return (
-							<div
-								key={step.id}
-								className={cn(
-									"flex flex-col items-center gap-2",
-									isActive && "text-primary",
-									isCompleted && "text-primary",
-									!isActive && !isCompleted && "text-muted-foreground",
-								)}
-							>
-								<button
-									type="button"
-									onClick={() => isClickable && onStepChange(index)}
+							return (
+								<div
+									key={step.id}
 									className={cn(
-										"flex h-8 w-8 items-center justify-center rounded-full border text-sm font-medium",
-										isActive &&
-											"border-primary bg-primary text-primary-foreground",
-										isCompleted &&
-											"border-primary bg-primary text-primary-foreground",
-										!isActive && !isCompleted && "border-muted-foreground",
-										isClickable
-											? "cursor-pointer"
-											: "cursor-not-allowed opacity-50",
+										"flex flex-col items-center gap-2",
+										isActive && "text-primary",
+										isCompleted && "text-primary",
+										!isActive && !isCompleted && "text-muted-foreground",
 									)}
-									disabled={!isClickable}
 								>
-									{isCompleted ? <Check className="h-4 w-4" /> : index + 1}
-								</button>
-								<span className="text-xs font-medium">{step.title}</span>
-								{step.optional && (
-									<span className="text-xs text-muted-foreground">
-										(Optional)
+									<button
+										type="button"
+										onClick={() => isClickable && onStepChange(index)}
+										className={cn(
+											"flex h-8 w-8 items-center justify-center rounded-full border text-sm font-medium",
+											isActive &&
+												"border-primary bg-primary text-primary-foreground",
+											isCompleted &&
+												"border-primary bg-primary text-primary-foreground",
+											!isActive && !isCompleted && "border-muted-foreground",
+											isClickable
+												? "cursor-pointer"
+												: "cursor-not-allowed opacity-50",
+										)}
+										disabled={!isClickable}
+									>
+										{isCompleted ? <Check className="h-4 w-4" /> : index + 1}
+									</button>
+									<span className="text-xs font-medium text-center">
+										{step.title}
 									</span>
-								)}
-							</div>
-						);
-					})}
+									{step.optional && (
+										<span className="text-xs text-muted-foreground text-center">
+											(Optional)
+										</span>
+									)}
+								</div>
+							);
+						})}
+					</div>
+				</div>
+
+				{/* Mobile stepper - compact circular progress with current/next step */}
+				<div className="md:hidden flex items-center gap-4">
+					<div className="relative flex h-14 w-14 items-center justify-center">
+						<svg className="h-14 w-14 -rotate-90" viewBox="0 0 36 36">
+							<path
+								className="text-muted-foreground/20"
+								d="M18 2.0845
+									a 15.9155 15.9155 0 0 1 0 31.831
+									a 15.9155 15.9155 0 0 1 0 -31.831"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+							/>
+							<path
+								className="text-primary"
+								d="M18 2.0845
+									a 15.9155 15.9155 0 0 1 0 31.831
+									a 15.9155 15.9155 0 0 1 0 -31.831"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeDasharray={`${progress}, 100`}
+							/>
+						</svg>
+						<span className="absolute text-xs font-medium">
+							{activeStep + 1} of {steps.length}
+						</span>
+					</div>
+					<div className="flex flex-col gap-1">
+						<h3 className="font-medium text-sm">
+							{currentStep?.title}
+							{currentStep?.optional && (
+								<span className="text-muted-foreground ml-1">(Optional)</span>
+							)}
+						</h3>
+						{activeStep < steps.length - 1 && (
+							<p className="text-xs text-muted-foreground">
+								Next: {steps[activeStep + 1]?.title}
+							</p>
+						)}
+					</div>
 				</div>
 			</div>
 

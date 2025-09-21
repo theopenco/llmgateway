@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { KeyIcon, MoreHorizontal } from "lucide-react";
 
 import { ProviderIcons } from "@/components/ui/providers-icons";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -187,16 +188,10 @@ export function ProviderKeysList({
 									</div>
 									{hasKey && (
 										<div className="flex items-center gap-2 mt-1">
-											<Badge
-												variant={
-													existingKey.status === "active"
-														? "default"
-														: "secondary"
-												}
-												className="text-xs"
-											>
-												{existingKey.status}
-											</Badge>
+											<StatusBadge
+												status={existingKey.status}
+												variant="simple"
+											/>
 											<span className="text-xs text-muted-foreground font-mono block max-w-[200px] truncate">
 												{existingKey.maskedToken}
 											</span>

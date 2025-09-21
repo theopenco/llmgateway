@@ -1,0 +1,20 @@
+{
+  "node": {
+    "003961a65585189935c2c3b67e9300024aff3b1874": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/apps/playground/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/apps/playground/src/lib/actions/project.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "clearLastUsedProjectCookiesAction",
+          "filename": "apps/playground/src/lib/actions/project.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "exportedName": "clearLastUsedProjectCookiesAction",
+      "filename": "apps/playground/src/lib/actions/project.ts"
+    }
+  },
+  "edge": {}
+}

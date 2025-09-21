@@ -21,6 +21,7 @@
 			"outputs": [
 				"dist/**",
 				".next/**",
+				".next-dev/**",
 				".vercel/**",
 				".output/**",
 				".vinxi/**",

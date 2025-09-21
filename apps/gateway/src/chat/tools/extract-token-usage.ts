@@ -9,6 +9,7 @@ export function extractTokenUsage(
 	data: any,
 	provider: Provider,
 	fullContent?: string,
+	usedModel?: string,
 ) {
 	let promptTokens = null;
 	let completionTokens = null;
@@ -44,20 +45,50 @@ export function extractTokenUsage(
 			break;
 		case "anthropic":
 			if (data.usage) {
-				promptTokens = data.usage.input_tokens ?? null;
+				// For Anthropic: input_tokens are the non-cached tokens
+				// We need to add cache_creation_input_tokens to get total input tokens
+				const inputTokens = data.usage.input_tokens ?? 0;
+				const cacheCreationTokens = data.usage.cache_creation_input_tokens ?? 0;
+				const cacheReadTokens = data.usage.cache_read_input_tokens ?? 0;
+
+				// Total prompt tokens = non-cached + cache creation + cache read
+				promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
 				completionTokens = data.usage.output_tokens ?? null;
 				reasoningTokens = data.usage.reasoning_output_tokens ?? null;
-				cachedTokens = data.usage.cache_read_input_tokens ?? null;
+				// Cached tokens are the tokens read from cache (discount applies to these)
+				cachedTokens = cacheReadTokens || null;
 				totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
 			}
 			break;
 		default: // OpenAI format
 			if (data.usage) {
-				promptTokens = data.usage.prompt_tokens ?? null;
-				completionTokens = data.usage.completion_tokens ?? null;
-				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
-				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
+				// Special handling for routeway-discount claude models (use Anthropic-style parsing)
+				if (
+					provider === "routeway-discount" &&
+					usedModel?.startsWith("claude-")
+				) {
+					// Use Anthropic-style token parsing for claude models
+					const inputTokens = data.usage.input_tokens ?? 0;
+					const cacheCreationTokens =
+						data.usage.cache_creation_input_tokens ?? 0;
+					const cacheReadTokens = data.usage.cache_read_input_tokens ?? 0;
+
+					// Total prompt tokens = non-cached + cache creation + cache read
+					promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+					completionTokens = data.usage.output_tokens ?? null;
+					reasoningTokens = data.usage.reasoning_output_tokens ?? null;
+					// Cached tokens are the tokens read from cache (discount applies to these)
+					cachedTokens = cacheReadTokens || null;
+					totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
+				} else {
+					// Standard OpenAI-style token parsing
+					promptTokens = data.usage.prompt_tokens ?? null;
+					completionTokens = data.usage.completion_tokens ?? null;
+					totalTokens = data.usage.total_tokens ?? null;
+					reasoningTokens = data.usage.reasoning_tokens ?? null;
+					cachedTokens =
+						data.usage.prompt_tokens_details?.cached_tokens ?? null;
+				}
 			}
 			break;
 	}

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI agents when working with code in this repository.
 
 ## Development Commands
 
@@ -27,6 +27,10 @@ Always run `pnpm format` before committing code. Run `pnpm generate` if API rout
 - `pnpm format` - Format code and fix linting issues
 - `pnpm lint` - Check linting and formatting (without fixing)
 - `pnpm generate` - Regenerate OpenAPI schemas from API routes
+
+### Writing code
+
+This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
 
 ### Testing
 
@@ -59,11 +63,13 @@ E2E tests are organized for optimal performance:
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
+- `pnpm --filter db push` - Push database schema
+- `pnpm --filter db seed` - Seed database with initial data
 - `pnpm run setup` – Reset db, sync schema, seed data (use this for development)
 
 ## Architecture Overview
 
-**LLMGateway** is a monorepo containing a full-stack LLM API gateway with multiple services:
+**LLM Gateway** is a monorepo containing a full-stack LLM API gateway with multiple services:
 
 ### Core Services
 
@@ -140,6 +146,16 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 
+## Folder Structure
+
+- `apps/ui`: Next.js frontend
+- `apps/api`: Hono backend
+- `apps/gateway`: API gateway for routing LLM requests
+- `apps/docs`: Documentation site
+- `packages/db`: Drizzle ORM schema and migrations
+- `packages/models`: Model and provider definitions
+- `packages/shared`: Shared types and utilities
+
 ## Key Features
 
 ### LLM Gateway
@@ -165,3 +181,21 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - API keys and provider configurations
 - Usage tracking and billing records
 - Analytics and performance metrics
+
+## License
+
+LLM Gateway is available under a dual license:
+
+- **Open Source**: Core functionality is licensed under AGPLv3 - see the [LICENSE](LICENSE) file for details.
+- **Enterprise**: Commercial features in the `ee/` directory require an Enterprise license - see [ee/LICENSE](ee/LICENSE) for details.
+
+### Enterprise features include:
+
+- Advanced billing and subscription management
+- Extended data retention (90 days vs 3 days)
+- Provider API key management (Pro plan)
+- Team and organization management
+- Priority support
+- And more to be defined
+
+For enterprise licensing, please contact us at contact@llmgateway.io

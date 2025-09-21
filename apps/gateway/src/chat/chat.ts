@@ -9,21 +9,16 @@ import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { insertLog } from "@/lib/logs.js";
 
 import {
-	checkCustomProviderExists,
 	generateCacheKey,
 	generateStreamingCacheKey,
 	getCache,
-	getCustomProviderKey,
-	getOrganization,
-	getProject,
-	getProviderKey,
 	getStreamingCache,
-	isCachingEnabled,
 	setCache,
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	db,
+	cdb as db,
+	isCachingEnabled,
 	type InferSelectModel,
 	shortid,
 	type tables,
@@ -384,10 +379,18 @@ chat.openapi(completions, async (c) => {
 	} = validationResult.data;
 
 	// Extract and validate source from x-source header with HTTP-Referer fallback
-	const source = validateSource(
+	let source = validateSource(
 		c.req.header("x-source"),
 		c.req.header("HTTP-Referer"),
 	);
+
+	// Match specific user agents and set source if x-source header is not specified
+	if (!source) {
+		const userAgent = c.req.header("User-Agent") || "";
+		if (/^claude-cli\/.+/.test(userAgent)) {
+			source = "claude.com/claude-code";
+		}
+	}
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
@@ -622,7 +625,13 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Get the project to determine mode for routing decisions
-	const project = await getProject(apiKey.projectId);
+	const project = await db.query.project.findFirst({
+		where: {
+			id: {
+				eq: apiKey.projectId,
+			},
+		},
+	});
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -651,7 +660,13 @@ chat.openapi(completions, async (c) => {
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
 	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
-		const organization = await getOrganization(project.organizationId);
+		const organization = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: project.organizationId,
+				},
+			},
+		});
 		if (!organization) {
 			throw new HTTPException(500, { message: "Could not find organization" });
 		}
@@ -665,11 +680,23 @@ chat.openapi(completions, async (c) => {
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderExists = await checkCustomProviderExists(
-			project.organizationId,
-			customProviderName,
-		);
-		if (!customProviderExists) {
+		const customProviderKey = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					eq: "active",
+				},
+				organizationId: {
+					eq: project.organizationId,
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: customProviderName,
+				},
+			},
+		});
+		if (!customProviderKey) {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
 			});
@@ -1012,7 +1039,13 @@ chat.openapi(completions, async (c) => {
 		const isPaidMode = process.env.PAID_MODE === "true";
 
 		if (isHosted && isPaidMode) {
-			const organization = await getOrganization(project.organizationId);
+			const organization = await db.query.organization.findFirst({
+				where: {
+					id: {
+						eq: project.organizationId,
+					},
+				},
+			});
 
 			if (!organization) {
 				throw new HTTPException(500, {
@@ -1030,12 +1063,36 @@ chat.openapi(completions, async (c) => {
 
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await getCustomProviderKey(
-				project.organizationId,
-				customProviderName,
-			);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: "custom",
+					},
+					name: {
+						eq: customProviderName,
+					},
+				},
+			});
 		} else {
-			providerKey = await getProviderKey(project.organizationId, usedProvider);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: usedProvider,
+					},
+				},
+			});
 		}
 
 		if (!providerKey) {
@@ -1051,7 +1108,13 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check if the organization has enough credits using cached helper function
-		const organization = await getOrganization(project.organizationId);
+		const organization = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: project.organizationId,
+				},
+			},
+		});
 
 		if (!organization) {
 			throw new HTTPException(500, {
@@ -1059,7 +1122,10 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (organization.credits <= 0 && !(modelInfo as ModelDefinition).free) {
+		if (
+			parseFloat(organization.credits || "0") <= 0 &&
+			!(modelInfo as ModelDefinition).free
+		) {
 			throw new HTTPException(402, {
 				message: "Organization has insufficient credits",
 			});
@@ -1069,12 +1135,36 @@ chat.openapi(completions, async (c) => {
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await getCustomProviderKey(
-				project.organizationId,
-				customProviderName,
-			);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: "custom",
+					},
+					name: {
+						eq: customProviderName,
+					},
+				},
+			});
 		} else {
-			providerKey = await getProviderKey(project.organizationId, usedProvider);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: usedProvider,
+					},
+				},
+			});
 		}
 
 		if (providerKey) {
@@ -1083,7 +1173,13 @@ chat.openapi(completions, async (c) => {
 			const isPaidMode = process.env.PAID_MODE === "true";
 
 			if (isHosted && isPaidMode) {
-				const organization = await getOrganization(project.organizationId);
+				const organization = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: project.organizationId,
+						},
+					},
+				});
 
 				if (!organization) {
 					throw new HTTPException(500, {
@@ -1102,7 +1198,13 @@ chat.openapi(completions, async (c) => {
 			usedToken = providerKey.token;
 		} else {
 			// No API key available, fall back to credits - no pro plan required
-			const organization = await getOrganization(project.organizationId);
+			const organization = await db.query.organization.findFirst({
+				where: {
+					id: {
+						eq: project.organizationId,
+					},
+				},
+			});
 
 			if (!organization) {
 				throw new HTTPException(500, {
@@ -1110,7 +1212,10 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			if (organization.credits <= 0 && !(modelInfo as ModelDefinition).free) {
+			if (
+				parseFloat(organization.credits || "0") <= 0 &&
+				!(modelInfo as ModelDefinition).free
+			) {
 				throw new HTTPException(402, {
 					message:
 						"No API key set for provider and organization has insufficient credits",
@@ -2129,6 +2234,7 @@ chat.openapi(completions, async (c) => {
 									data,
 									usedProvider,
 									fullContent,
+									usedModel,
 								);
 
 								// If we have usage data from Google, add it to the streaming chunk
@@ -2294,7 +2400,12 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract token usage using helper function
-							const usage = extractTokenUsage(data, usedProvider, fullContent);
+							const usage = extractTokenUsage(
+								data,
+								usedProvider,
+								fullContent,
+								usedModel,
+							);
 							if (usage.promptTokens !== null) {
 								promptTokens = usage.promptTokens;
 							}
@@ -2436,7 +2547,9 @@ chat.openapi(completions, async (c) => {
 
 					if (!completionTokens && fullContent) {
 						try {
-							calculatedCompletionTokens = encode(fullContent).length;
+							calculatedCompletionTokens = encode(
+								JSON.stringify(fullContent),
+							).length;
 						} catch (error) {
 							// Fallback to simple estimation if encoding fails
 							logger.error(
@@ -2894,7 +3007,7 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
-	} = parseProviderResponse(usedProvider, json, messages);
+	} = parseProviderResponse(usedProvider, json, messages, usedModel);
 
 	// Debug: Log images found in response
 	logger.debug("Gateway - parseProviderResponse extracted images", { images });

@@ -77,7 +77,9 @@ export function calculateCosts(
 			} else if (fullOutput.prompt) {
 				// For text prompt
 				try {
-					calculatedPromptTokens = encode(fullOutput.prompt).length;
+					calculatedPromptTokens = encode(
+						JSON.stringify(fullOutput.prompt),
+					).length;
 				} catch (error) {
 					// If encoding fails, leave as null
 					logger.error(`Failed to encode prompt text: ${error}`);
@@ -88,7 +90,9 @@ export function calculateCosts(
 		// Calculate completion tokens
 		if (!completionTokens && fullOutput && fullOutput.completion) {
 			try {
-				calculatedCompletionTokens = encode(fullOutput.completion).length;
+				calculatedCompletionTokens = encode(
+					JSON.stringify(fullOutput.completion),
+				).length;
 			} catch (error) {
 				// If encoding fails, leave as null
 				logger.error(`Failed to encode completion text: ${error}`);
@@ -135,7 +139,14 @@ export function calculateCosts(
 	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
 
-	const inputCost = calculatedPromptTokens * inputPrice;
+	// Calculate input cost accounting for cached tokens
+	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
+	// that get charged at the discounted rate
+	// For other providers (like OpenAI), prompt_tokens includes cached tokens, so we subtract them too
+	const uncachedPromptTokens = cachedTokens
+		? calculatedPromptTokens - cachedTokens
+		: calculatedPromptTokens;
+	const inputCost = uncachedPromptTokens * inputPrice;
 	const outputCost = calculatedCompletionTokens * outputPrice;
 	const cachedInputCost = cachedTokens ? cachedTokens * cachedInputPrice : 0;
 	const requestCost = requestPrice;

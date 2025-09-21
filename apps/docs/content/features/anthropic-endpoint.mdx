@@ -11,6 +11,10 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLMGateway provides a native Anthropic-compatible endpoint at `/v1/messages` that allows you to use any model in our catalog while maintaining the familiar Anthropic API format
 This is especially useful for applications designed for Claude that you want to extend to use other models.
 
+<Callout type="info">
+	Enjoy a 50% discount on our Anthropic models for a limited time.
+</Callout>
+
 ## Overview
 
 The Anthropic endpoint transforms requests from Anthropic's message format to the OpenAI-compatible format used by LLMGateway, then transforms the responses back to Anthropic's format. This means you can:
@@ -27,15 +31,14 @@ The Anthropic endpoint transforms requests from Anthropic's message format to th
 This endpoint is perfect for configuring Claude Code to use any model available in LLMGateway:
 
 ```bash
-export ANTHROPIC_BASE_URL=https://api.llmgateway.io/v1/messages
+export ANTHROPIC_BASE_URL=https://api.llmgateway.io
 export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
-export ANTHROPIC_MODEL=openai/gpt-4o  # or any model from our catalog
-```
+# optional: specify a model, otherwise it uses the default Claude model
+export ANTHROPIC_MODEL=gpt-5  # or any model from our catalog
 
-<Callout type="info">
-	Note the different base URL: we use `/v1/anthropic` instead of just `/v1` to
-	point to the Anthropic-compatible endpoint.
-</Callout>
+# now run claude!
+claude
+```
 
 ### Choosing Models
 
@@ -43,16 +46,42 @@ You can use any model from the [models page](https://llmgateway.io/models). Popu
 
 ```bash
 # Use OpenAI's latest model
-export ANTHROPIC_MODEL=openai/gpt-4o
+export ANTHROPIC_MODEL=gpt-5
 
 # Use a cost-effective alternative
-export ANTHROPIC_MODEL=openai/gpt-4o-mini
+export ANTHROPIC_MODEL=gpt-5-mini
 
 # Use Google's Gemini
-export ANTHROPIC_MODEL=google/gemini-1.5-pro
+export ANTHROPIC_MODEL=google/gemini-2.5-pro
 
 # Use Anthropic's actual Claude models
 export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
+```
+
+## Environment Variables
+
+When configuring Claude Code or other Anthropic-compatible applications, you can use these environment variables:
+
+### ANTHROPIC_MODEL
+
+Specifies the main model to use for primary requests.
+
+- **Default**: `claude-sonnet-4-20250514`
+- **Example**: `export ANTHROPIC_MODEL=gpt-5`
+
+### ANTHROPIC_SMALL_FAST_MODEL
+
+Specifies a smaller, faster model used for background functionality and internal operations.
+
+- **Default**: `claude-3-5-haiku-20241022`
+- **Example**: `export ANTHROPIC_SMALL_FAST_MODEL=gpt-5-nano`
+
+```bash
+# Example configuration
+export ANTHROPIC_BASE_URL=https://api.llmgateway.io
+export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
+export ANTHROPIC_MODEL=gpt-5
+export ANTHROPIC_SMALL_FAST_MODEL=gpt-5-nano
 ```
 
 ## Advanced Features
@@ -64,7 +93,7 @@ curl -X POST "https://api.llmgateway.io/v1/messages" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini",
+    "model": "gpt-5",
     "messages": [
       {"role": "user", "content": "Hello, how are you?"}
     ],
@@ -81,7 +110,7 @@ The endpoint returns responses in Anthropic's message format:
 	"id": "msg_abc123",
 	"type": "message",
 	"role": "assistant",
-	"model": "openai/gpt-4o-mini",
+	"model": "gpt-5",
 	"content": [
 		{
 			"type": "text",

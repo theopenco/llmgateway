@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { useAppConfig } from "./config";
 
-import type { paths } from "@/lib/api/v1";
+import type { paths } from "./api/v1";
 
 // React hook to get the fetch client
 export function useFetchClient() {
