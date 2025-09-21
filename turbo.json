@@ -17,6 +17,7 @@
 	"concurrency": "16",
 	"tasks": {
 		"build": {
+			"cache": false,
 			"dependsOn": ["^build"],
 			"outputs": [
 				"dist/**",
