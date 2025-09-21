@@ -2,7 +2,7 @@ import { Cache, type MutationOption } from "drizzle-orm/cache/core";
 
 import { logger } from "@llmgateway/logger";
 
-import type { Redis } from "@llmgateway/cache";
+import type { Redis } from "ioredis";
 
 interface CacheConfig {
 	ex?: number;
