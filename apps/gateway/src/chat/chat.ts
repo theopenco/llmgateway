@@ -2234,6 +2234,7 @@ chat.openapi(completions, async (c) => {
 									data,
 									usedProvider,
 									fullContent,
+									usedModel,
 								);
 
 								// If we have usage data from Google, add it to the streaming chunk
@@ -2399,7 +2400,12 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract token usage using helper function
-							const usage = extractTokenUsage(data, usedProvider, fullContent);
+							const usage = extractTokenUsage(
+								data,
+								usedProvider,
+								fullContent,
+								usedModel,
+							);
 							if (usage.promptTokens !== null) {
 								promptTokens = usage.promptTokens;
 							}
@@ -3001,7 +3007,7 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
-	} = parseProviderResponse(usedProvider, json, messages);
+	} = parseProviderResponse(usedProvider, json, messages, usedModel);
 
 	// Debug: Log images found in response
 	logger.debug("Gateway - parseProviderResponse extracted images", { images });
