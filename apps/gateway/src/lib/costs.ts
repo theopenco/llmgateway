@@ -74,10 +74,14 @@ export function calculateCosts(
 					// If encoding fails, leave as null
 					logger.error(`Failed to encode chat messages in costs: ${error}`);
 				}
-			} else if (fullOutput.prompt && typeof fullOutput.prompt === "string") {
+			} else if (fullOutput.prompt) {
 				// For text prompt
 				try {
-					calculatedPromptTokens = encode(fullOutput.prompt).length;
+					const promptToEncode =
+						typeof fullOutput.prompt === "string"
+							? fullOutput.prompt
+							: JSON.stringify(fullOutput.prompt ?? "");
+					calculatedPromptTokens = encode(promptToEncode).length;
 				} catch (error) {
 					// If encoding fails, leave as null
 					logger.error(`Failed to encode prompt text: ${error}`);
@@ -86,14 +90,13 @@ export function calculateCosts(
 		}
 
 		// Calculate completion tokens
-		if (
-			!completionTokens &&
-			fullOutput &&
-			fullOutput.completion &&
-			typeof fullOutput.completion === "string"
-		) {
+		if (!completionTokens && fullOutput && fullOutput.completion) {
 			try {
-				calculatedCompletionTokens = encode(fullOutput.completion).length;
+				const completionToEncode =
+					typeof fullOutput.completion === "string"
+						? fullOutput.completion
+						: JSON.stringify(fullOutput.completion ?? "");
+				calculatedCompletionTokens = encode(completionToEncode).length;
 			} catch (error) {
 				// If encoding fails, leave as null
 				logger.error(`Failed to encode completion text: ${error}`);

@@ -2442,13 +2442,13 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
-					if (
-						!completionTokens &&
-						fullContent &&
-						typeof fullContent === "string"
-					) {
+					if (!completionTokens && fullContent) {
 						try {
-							calculatedCompletionTokens = encode(fullContent).length;
+							const contentToEncode =
+								typeof fullContent === "string"
+									? fullContent
+									: JSON.stringify(fullContent ?? "");
+							calculatedCompletionTokens = encode(contentToEncode).length;
 						} catch (error) {
 							// Fallback to simple estimation if encoding fails
 							logger.error(
