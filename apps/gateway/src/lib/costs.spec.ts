@@ -79,7 +79,7 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with cached tokens", () => {
+	it("should calculate costs with cached tokens for OpenAI (prompt_tokens includes cached)", () => {
 		const result = calculateCosts("gpt-4o", "openai", 100, 50, 20);
 
 		expect(result.inputCost).toBeCloseTo(0.0002); // (100 - 20) * 0.0000025 = 80 * 0.0000025
@@ -87,6 +87,19 @@ describe("calculateCosts", () => {
 		expect(result.cachedInputCost).toBeCloseTo(0.000025); // 20 * 0.00000125
 		expect(result.totalCost).toBeCloseTo(0.000525); // 0.0002 + 0.0005 + 0.000025
 		expect(result.promptTokens).toBe(100);
+		expect(result.completionTokens).toBe(50);
+		expect(result.cachedTokens).toBe(20);
+		expect(result.estimatedCost).toBe(false); // Not estimated
+	});
+
+	it("should calculate costs with cached tokens for Anthropic (prompt_tokens excludes cached)", () => {
+		const result = calculateCosts("claude-3-5-sonnet-20241022", "anthropic", 80, 50, 20);
+
+		expect(result.inputCost).toBeCloseTo(0.00024); // 80 * 0.000003 (no subtraction for Anthropic)
+		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
+		expect(result.cachedInputCost).toBeCloseTo(0.0000006); // 20 * 0.00000003
+		expect(result.totalCost).toBeCloseTo(0.0009906); // 0.00024 + 0.00075 + 0.0000006
+		expect(result.promptTokens).toBe(80);
 		expect(result.completionTokens).toBe(50);
 		expect(result.cachedTokens).toBe(20);
 		expect(result.estimatedCost).toBe(false); // Not estimated

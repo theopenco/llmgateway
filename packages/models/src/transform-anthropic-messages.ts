@@ -24,10 +24,8 @@ export async function transformAnthropicMessages(
 	const results: AnthropicMessage[] = [];
 
 	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider, or for routeway-discount provider with claude models
-	const shouldApplyCacheControl =
-		provider === "anthropic" ||
-		(provider === "routeway-discount" && model?.startsWith("claude-"));
+	// Apply for anthropic provider only (routeway-discount handles this separately in prepare-request-body)
+	const shouldApplyCacheControl = provider === "anthropic";
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
