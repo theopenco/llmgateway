@@ -90,12 +90,6 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				?.providers.find(
 					(p) => p.providerId === log.usedProvider,
 				) as ProviderModelMapping;
-			console.log(
-				"originalModelProviderMapping",
-				originalModel,
-				log.usedProvider,
-				originalModelProviderMapping.cachedInputPrice,
-			);
 			if (originalModelProviderMapping.cachedInputPrice) {
 				// for models that support cached input cost, make the same request twice with a long prompt (1024+ tokens) to trigger caching
 				const secondRequestId = generateTestRequestId();
