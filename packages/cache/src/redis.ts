@@ -51,3 +51,16 @@ export async function consumeFromQueue(
 		throw error;
 	}
 }
+
+export async function closeRedisClient(): Promise<void> {
+	try {
+		await redisClient.disconnect();
+		logger.info("Redis client disconnected");
+	} catch (error) {
+		logger.error(
+			"Error disconnecting Redis client",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw error;
+	}
+}

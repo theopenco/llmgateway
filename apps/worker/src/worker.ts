@@ -1,7 +1,11 @@
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { consumeFromQueue, LOG_QUEUE } from "@llmgateway/cache";
+import {
+	consumeFromQueue,
+	LOG_QUEUE,
+	closeRedisClient,
+} from "@llmgateway/cache";
 import {
 	db,
 	log,
@@ -14,6 +18,8 @@ import {
 	apiKey,
 	inArray,
 	type LogInsertData,
+	closeDatabase,
+	closeCachedDatabase,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
@@ -710,6 +716,22 @@ export async function stopWorker(): Promise<void> {
 		await new Promise((resolve) => {
 			setTimeout(resolve, pollInterval);
 		});
+	}
+
+	// Close database and Redis connections
+	try {
+		await Promise.all([
+			closeDatabase(),
+			closeCachedDatabase(),
+			closeRedisClient(),
+		]);
+		logger.info("All connections closed successfully");
+	} catch (error) {
+		logger.error(
+			"Error closing connections",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		// Don't throw here to allow graceful shutdown to continue
 	}
 
 	logger.info("Worker stopped gracefully");
