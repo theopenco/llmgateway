@@ -82,10 +82,10 @@ describe("calculateCosts", () => {
 	it("should calculate costs with cached tokens", () => {
 		const result = calculateCosts("gpt-4o", "openai", 100, 50, 20);
 
-		expect(result.inputCost).toBeCloseTo(0.00025); // 100 * 0.0000025
+		expect(result.inputCost).toBeCloseTo(0.0002); // (100 - 20) * 0.0000025 = 80 * 0.0000025
 		expect(result.outputCost).toBeCloseTo(0.0005); // 50 * 0.00001
 		expect(result.cachedInputCost).toBeCloseTo(0.000025); // 20 * 0.00000125
-		expect(result.totalCost).toBeCloseTo(0.000575); // 0.00025 + 0.0005 + 0.000025
+		expect(result.totalCost).toBeCloseTo(0.000525); // 0.0002 + 0.0005 + 0.000025
 		expect(result.promptTokens).toBe(100);
 		expect(result.completionTokens).toBe(50);
 		expect(result.cachedTokens).toBe(20);

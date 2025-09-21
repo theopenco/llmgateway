@@ -139,7 +139,11 @@ export function calculateCosts(
 	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
 
-	const inputCost = calculatedPromptTokens * inputPrice;
+	// Calculate input cost accounting for cached tokens
+	const uncachedPromptTokens = cachedTokens
+		? calculatedPromptTokens - cachedTokens
+		: calculatedPromptTokens;
+	const inputCost = uncachedPromptTokens * inputPrice;
 	const outputCost = calculatedCompletionTokens * outputPrice;
 	const cachedInputCost = cachedTokens ? cachedTokens * cachedInputPrice : 0;
 	const requestCost = requestPrice;

@@ -33,6 +33,9 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		"completions $model",
 		getTestOptions(),
 		async ({ model, originalModel }) => {
+			// Use a long prompt to trigger caching mechanism (1024+ tokens) for models that support it
+			const longPrompt = `You are a helpful assistant. Please analyze the following long text carefully and provide insights. ${"This is a very detailed example text that needs to be quite long to trigger OpenAI's caching mechanism which requires at least 1024 tokens. ".repeat(50)} Just reply 'OK' after processing this text.`;
+
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -46,7 +49,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					messages: [
 						{
 							role: "system",
-							content: "You are a helpful assistant.",
+							content: longPrompt,
 						},
 						{
 							role: "user",
@@ -94,7 +97,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				originalModelProviderMapping.cachedInputPrice,
 			);
 			if (originalModelProviderMapping.cachedInputPrice) {
-				// for models that support cached input cost, to the same request and check that cachedInputCost is greater than 0
+				// for models that support cached input cost, make the same request twice with a long prompt (1024+ tokens) to trigger caching
 				const secondRequestId = generateTestRequestId();
 				const secondRes = await app.request("/v1/chat/completions", {
 					method: "POST",
@@ -108,7 +111,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 						messages: [
 							{
 								role: "system",
-								content: "You are a helpful assistant.",
+								content: longPrompt,
 							},
 							{
 								role: "user",
