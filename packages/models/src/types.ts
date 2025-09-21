@@ -253,6 +253,7 @@ export interface ModelWithPricing {
 		outputPrice?: number;
 		supportedParameters?: string[];
 		modelName: string;
+		discount?: number;
 	}>;
 }
 

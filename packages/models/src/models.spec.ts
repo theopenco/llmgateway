@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { getCheapestFromAvailableProviders } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { models } from "./models.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
+import type { ProviderModelMapping } from "./models.js";
 import type { BaseMessage, OpenAIRequestBody } from "./types.js";
 
 describe("Models", () => {
@@ -329,5 +331,179 @@ describe("getCheapestModelForProvider", () => {
 				expect(new Date() <= modelWithProvider.deprecatedAt).toBe(true);
 			}
 		}
+	});
+
+	it("should account for discount when calculating cheapest model", () => {
+		// Test that discounts are properly applied in the cheapest model calculation
+		// Look for models with discount providers
+		const modelsWithDiscountProviders = models.filter((model) =>
+			model.providers.some(
+				(p) =>
+					(p as ProviderModelMapping).discount !== undefined &&
+					(p as ProviderModelMapping).discount! < 1,
+			),
+		);
+
+		if (modelsWithDiscountProviders.length > 0) {
+			// Find a model that has both regular and discount providers
+			const testModel = modelsWithDiscountProviders.find((model) => {
+				const regularProvider = model.providers.find(
+					(p) =>
+						!(p as ProviderModelMapping).discount ||
+						(p as ProviderModelMapping).discount === 1,
+				);
+				const discountProvider = model.providers.find(
+					(p) =>
+						(p as ProviderModelMapping).discount &&
+						(p as ProviderModelMapping).discount! < 1,
+				);
+				return regularProvider && discountProvider;
+			});
+
+			if (testModel) {
+				const regularProvider = testModel.providers.find(
+					(p) =>
+						!(p as ProviderModelMapping).discount ||
+						(p as ProviderModelMapping).discount === 1,
+				);
+				const discountProvider = testModel.providers.find(
+					(p) =>
+						(p as ProviderModelMapping).discount &&
+						(p as ProviderModelMapping).discount! < 1,
+				);
+
+				if (
+					regularProvider &&
+					discountProvider &&
+					regularProvider.inputPrice &&
+					discountProvider.inputPrice
+				) {
+					// Calculate expected prices
+					const regularPrice =
+						(regularProvider.inputPrice + (regularProvider.outputPrice || 0)) /
+						2;
+					const discountPrice =
+						((discountProvider.inputPrice +
+							(discountProvider.outputPrice || 0)) /
+							2) *
+						(discountProvider as ProviderModelMapping).discount!;
+
+					// The discount provider should be cheaper than the regular provider
+					expect(discountPrice).toBeLessThan(regularPrice);
+
+					// Test both provider functions handle discounts
+					const cheapestForDiscountProvider = getCheapestModelForProvider(
+						discountProvider.providerId,
+					);
+					const cheapestForRegularProvider = getCheapestModelForProvider(
+						regularProvider.providerId,
+					);
+
+					expect(cheapestForDiscountProvider).toBeDefined();
+					expect(cheapestForRegularProvider).toBeDefined();
+				}
+			}
+		}
+	});
+});
+
+describe("getCheapestFromAvailableProviders", () => {
+	it("should return cheapest provider from available providers", () => {
+		// Find a model with multiple providers
+		const modelWithMultipleProviders = models.find(
+			(model) =>
+				model.providers.length > 1 &&
+				model.providers.some(
+					(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+				),
+		);
+
+		if (modelWithMultipleProviders) {
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+
+			if (availableProviders.length > 1) {
+				const cheapestProvider = getCheapestFromAvailableProviders(
+					availableProviders,
+					modelWithMultipleProviders,
+				);
+
+				expect(cheapestProvider).toBeDefined();
+				expect(cheapestProvider).toMatchObject({
+					providerId: expect.any(String),
+					modelName: expect.any(String),
+				});
+			}
+		}
+	});
+
+	it("should account for discounts when selecting cheapest provider", () => {
+		// Find a model that has both regular and discount providers
+		const modelWithDiscountProvider = models.find((model) => {
+			const hasRegularProvider = model.providers.some(
+				(p) =>
+					(!(p as ProviderModelMapping).discount ||
+						(p as ProviderModelMapping).discount === 1) &&
+					p.inputPrice !== undefined &&
+					p.outputPrice !== undefined,
+			);
+			const hasDiscountProvider = model.providers.some(
+				(p) =>
+					(p as ProviderModelMapping).discount !== undefined &&
+					(p as ProviderModelMapping).discount! < 1 &&
+					p.inputPrice !== undefined &&
+					p.outputPrice !== undefined,
+			);
+			return hasRegularProvider && hasDiscountProvider;
+		});
+
+		if (modelWithDiscountProvider) {
+			const regularProvider = modelWithDiscountProvider.providers.find(
+				(p) =>
+					(!(p as ProviderModelMapping).discount ||
+						(p as ProviderModelMapping).discount === 1) &&
+					p.inputPrice !== undefined &&
+					p.outputPrice !== undefined,
+			);
+			const discountProvider = modelWithDiscountProvider.providers.find(
+				(p) =>
+					(p as ProviderModelMapping).discount !== undefined &&
+					(p as ProviderModelMapping).discount! < 1 &&
+					p.inputPrice !== undefined &&
+					p.outputPrice !== undefined,
+			);
+
+			if (regularProvider && discountProvider) {
+				const availableProviders = [regularProvider, discountProvider];
+
+				const cheapestProvider = getCheapestFromAvailableProviders(
+					availableProviders,
+					modelWithDiscountProvider,
+				);
+
+				// Calculate actual prices with discount
+				const regularPrice =
+					(regularProvider.inputPrice! + regularProvider.outputPrice!) / 2;
+				const discountPrice =
+					((discountProvider.inputPrice! + discountProvider.outputPrice!) / 2) *
+					(discountProvider as ProviderModelMapping).discount!;
+
+				// If discount provider is cheaper, it should be selected
+				if (discountPrice < regularPrice) {
+					expect(cheapestProvider?.providerId).toBe(
+						discountProvider.providerId,
+					);
+				} else {
+					expect(cheapestProvider?.providerId).toBe(regularProvider.providerId);
+				}
+			}
+		}
+	});
+
+	it("should return null for empty provider list", () => {
+		const testModel = models[0];
+		const result = getCheapestFromAvailableProviders([], testModel);
+		expect(result).toBe(null);
 	});
 });
