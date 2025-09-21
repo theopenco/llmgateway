@@ -4,7 +4,6 @@ import { z } from "zod";
 import { consumeFromQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
 	db,
-	cdb,
 	log,
 	organization,
 	eq,
@@ -108,7 +107,7 @@ async function processAutoTopUp(): Promise<void> {
 	}
 
 	try {
-		const orgsNeedingTopUp = await cdb.query.organization.findMany({
+		const orgsNeedingTopUp = await db.query.organization.findMany({
 			where: {
 				autoTopUpEnabled: {
 					eq: true,
@@ -126,7 +125,7 @@ async function processAutoTopUp(): Promise<void> {
 		for (const org of filteredOrgs) {
 			try {
 				// Check if there's a recent pending or failed auto top-up transaction
-				const recentTransaction = await cdb.query.transaction.findFirst({
+				const recentTransaction = await db.query.transaction.findFirst({
 					where: {
 						organizationId: {
 							eq: org.id,
@@ -161,7 +160,7 @@ async function processAutoTopUp(): Promise<void> {
 					}
 				}
 
-				const defaultPaymentMethod = await cdb.query.paymentMethod.findFirst({
+				const defaultPaymentMethod = await db.query.paymentMethod.findFirst({
 					where: {
 						organizationId: {
 							eq: org.id,
@@ -182,7 +181,7 @@ async function processAutoTopUp(): Promise<void> {
 				const topUpAmount = Number(org.autoTopUpAmount || "10");
 
 				// Get the first user associated with this organization for email metadata
-				const orgUser = await cdb.query.userOrganization.findFirst({
+				const orgUser = await db.query.userOrganization.findFirst({
 					where: {
 						organizationId: {
 							eq: org.id,
@@ -207,7 +206,7 @@ async function processAutoTopUp(): Promise<void> {
 				});
 
 				// Insert pending transaction before creating payment intent
-				const pendingTransaction = await cdb
+				const pendingTransaction = await db
 					.insert(tables.transaction)
 					.values({
 						organizationId: org.id,
@@ -245,7 +244,7 @@ async function processAutoTopUp(): Promise<void> {
 					});
 
 					// Update transaction with Stripe payment intent ID
-					await cdb
+					await db
 						.update(tables.transaction)
 						.set({
 							stripePaymentIntentId: paymentIntent.id,
@@ -283,7 +282,7 @@ async function processAutoTopUp(): Promise<void> {
 							: new Error(String(stripeError)),
 					);
 					// Mark transaction as failed
-					await cdb
+					await db
 						.update(tables.transaction)
 						.set({
 							status: "failed",
@@ -310,7 +309,7 @@ export async function batchProcessLogs(): Promise<void> {
 	}
 
 	try {
-		await cdb.transaction(async (tx) => {
+		await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
 			const rows = await tx
 				.select({
@@ -454,7 +453,7 @@ export async function processLogQueue(): Promise<void> {
 			| Omit<LogInsertData, "messages" | "content">
 		)[] = await Promise.all(
 			logData.map(async (data) => {
-				const organization = await cdb.query.organization.findFirst({
+				const organization = await db.query.organization.findFirst({
 					where: {
 						id: {
 							eq: data.organizationId,
@@ -477,7 +476,7 @@ export async function processLogQueue(): Promise<void> {
 
 		// Insert logs without processing credits or API key usage - they will be processed in batches
 		// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
-		await cdb.insert(log).values(processedLogData as LogInsertData[]);
+		await db.insert(log).values(processedLogData as LogInsertData[]);
 	} catch (error) {
 		logger.error(
 			"Error processing log message",
