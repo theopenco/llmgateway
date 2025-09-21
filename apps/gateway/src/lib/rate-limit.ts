@@ -1,5 +1,5 @@
 import { redisClient } from "@llmgateway/cache";
-import { getOrganization } from "@llmgateway/db";
+import { cdb as db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import type { ModelDefinition } from "@llmgateway/models";
@@ -38,8 +38,14 @@ function getRateLimitKey(organizationId: string, model: string): string {
  */
 async function hasElevatedLimits(organizationId: string): Promise<boolean> {
 	try {
-		const org = await getOrganization(organizationId);
-		return org && parseFloat(org.credits || "0") > 0;
+		const org = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: organizationId,
+				},
+			},
+		});
+		return Boolean(org && parseFloat(org.credits || "0") > 0);
 	} catch (error) {
 		logger.error(
 			"Error checking organization credits for rate limiting:",

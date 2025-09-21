@@ -14,7 +14,13 @@ vi.mock("@llmgateway/cache", () => ({
 }));
 
 vi.mock("@llmgateway/db", () => ({
-	getOrganization: vi.fn(),
+	cdb: {
+		query: {
+			organization: {
+				findFirst: vi.fn(),
+			},
+		},
+	},
 }));
 
 vi.mock("@llmgateway/logger", () => ({
@@ -28,7 +34,7 @@ vi.mock("@llmgateway/logger", () => ({
 const mockCache = await import("@llmgateway/cache");
 const mockDb = await import("@llmgateway/db");
 const redis = mockCache.redisClient;
-const { getOrganization } = mockDb;
+const { cdb } = mockDb;
 
 describe("Rate Limiting", () => {
 	beforeEach(() => {
@@ -72,8 +78,25 @@ describe("Rate Limiting", () => {
 		it("should apply base rate limits for orgs with 0 credits", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(getOrganization).mockResolvedValue({
+			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+				id: "org-1",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: "Test Org",
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
 				credits: "0",
+				autoTopUpEnabled: false,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				plan: "free" as const,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+				trialStartDate: null,
+				trialEndDate: null,
+				isTrialActive: false,
+				retentionLevel: "retain" as const,
+				status: "active" as const,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(0);
@@ -93,8 +116,25 @@ describe("Rate Limiting", () => {
 		it("should apply elevated rate limits for orgs with credits > 0", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(getOrganization).mockResolvedValue({
+			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+				id: "org-1",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: "Test Org",
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
 				credits: "10.50",
+				autoTopUpEnabled: false,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				plan: "free" as const,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+				trialStartDate: null,
+				trialEndDate: null,
+				isTrialActive: false,
+				retentionLevel: "retain" as const,
+				status: "active" as const,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // Under elevated limit (20)
@@ -111,8 +151,25 @@ describe("Rate Limiting", () => {
 		it("should block requests when base rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(getOrganization).mockResolvedValue({
+			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+				id: "org-1",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: "Test Org",
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
 				credits: "0",
+				autoTopUpEnabled: false,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				plan: "free" as const,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+				trialStartDate: null,
+				trialEndDate: null,
+				isTrialActive: false,
+				retentionLevel: "retain" as const,
+				status: "active" as const,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // At limit (5)
@@ -137,8 +194,25 @@ describe("Rate Limiting", () => {
 		it("should block requests when elevated rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(getOrganization).mockResolvedValue({
+			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+				id: "org-1",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: "Test Org",
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
 				credits: "10.50",
+				autoTopUpEnabled: false,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				plan: "free" as const,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+				trialStartDate: null,
+				trialEndDate: null,
+				isTrialActive: false,
+				retentionLevel: "retain" as const,
+				status: "active" as const,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(20); // At elevated limit (20)
@@ -163,8 +237,25 @@ describe("Rate Limiting", () => {
 		it("should allow requests on Redis errors", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(getOrganization).mockResolvedValue({
+			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+				id: "org-1",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: "Test Org",
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
 				credits: "0",
+				autoTopUpEnabled: false,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				plan: "free" as const,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+				trialStartDate: null,
+				trialEndDate: null,
+				isTrialActive: false,
+				retentionLevel: "retain" as const,
+				status: "active" as const,
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(
 				new Error("Redis error"),

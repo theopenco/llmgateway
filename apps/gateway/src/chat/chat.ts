@@ -18,11 +18,6 @@ import {
 } from "@llmgateway/cache";
 import {
 	cdb as db,
-	checkCustomProviderExists,
-	getCustomProviderKey,
-	getOrganization,
-	getProject,
-	getProviderKey,
 	isCachingEnabled,
 	type InferSelectModel,
 	shortid,
@@ -630,7 +625,13 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Get the project to determine mode for routing decisions
-	const project = await getProject(apiKey.projectId);
+	const project = await db.query.project.findFirst({
+		where: {
+			id: {
+				eq: apiKey.projectId,
+			},
+		},
+	});
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -659,7 +660,13 @@ chat.openapi(completions, async (c) => {
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
 	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
-		const organization = await getOrganization(project.organizationId);
+		const organization = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: project.organizationId,
+				},
+			},
+		});
 		if (!organization) {
 			throw new HTTPException(500, { message: "Could not find organization" });
 		}
@@ -673,11 +680,23 @@ chat.openapi(completions, async (c) => {
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderExists = await checkCustomProviderExists(
-			project.organizationId,
-			customProviderName,
-		);
-		if (!customProviderExists) {
+		const customProviderKey = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					eq: "active",
+				},
+				organizationId: {
+					eq: project.organizationId,
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: customProviderName,
+				},
+			},
+		});
+		if (!customProviderKey) {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
 			});
@@ -1020,7 +1039,13 @@ chat.openapi(completions, async (c) => {
 		const isPaidMode = process.env.PAID_MODE === "true";
 
 		if (isHosted && isPaidMode) {
-			const organization = await getOrganization(project.organizationId);
+			const organization = await db.query.organization.findFirst({
+				where: {
+					id: {
+						eq: project.organizationId,
+					},
+				},
+			});
 
 			if (!organization) {
 				throw new HTTPException(500, {
@@ -1038,12 +1063,36 @@ chat.openapi(completions, async (c) => {
 
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await getCustomProviderKey(
-				project.organizationId,
-				customProviderName,
-			);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: "custom",
+					},
+					name: {
+						eq: customProviderName,
+					},
+				},
+			});
 		} else {
-			providerKey = await getProviderKey(project.organizationId, usedProvider);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: usedProvider,
+					},
+				},
+			});
 		}
 
 		if (!providerKey) {
@@ -1059,7 +1108,13 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check if the organization has enough credits using cached helper function
-		const organization = await getOrganization(project.organizationId);
+		const organization = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: project.organizationId,
+				},
+			},
+		});
 
 		if (!organization) {
 			throw new HTTPException(500, {
@@ -1067,7 +1122,10 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (organization.credits <= 0 && !(modelInfo as ModelDefinition).free) {
+		if (
+			parseFloat(organization.credits || "0") <= 0 &&
+			!(modelInfo as ModelDefinition).free
+		) {
 			throw new HTTPException(402, {
 				message: "Organization has insufficient credits",
 			});
@@ -1077,12 +1135,36 @@ chat.openapi(completions, async (c) => {
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await getCustomProviderKey(
-				project.organizationId,
-				customProviderName,
-			);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: "custom",
+					},
+					name: {
+						eq: customProviderName,
+					},
+				},
+			});
 		} else {
-			providerKey = await getProviderKey(project.organizationId, usedProvider);
+			providerKey = await db.query.providerKey.findFirst({
+				where: {
+					status: {
+						eq: "active",
+					},
+					organizationId: {
+						eq: project.organizationId,
+					},
+					provider: {
+						eq: usedProvider,
+					},
+				},
+			});
 		}
 
 		if (providerKey) {
@@ -1091,7 +1173,13 @@ chat.openapi(completions, async (c) => {
 			const isPaidMode = process.env.PAID_MODE === "true";
 
 			if (isHosted && isPaidMode) {
-				const organization = await getOrganization(project.organizationId);
+				const organization = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: project.organizationId,
+						},
+					},
+				});
 
 				if (!organization) {
 					throw new HTTPException(500, {
@@ -1110,7 +1198,13 @@ chat.openapi(completions, async (c) => {
 			usedToken = providerKey.token;
 		} else {
 			// No API key available, fall back to credits - no pro plan required
-			const organization = await getOrganization(project.organizationId);
+			const organization = await db.query.organization.findFirst({
+				where: {
+					id: {
+						eq: project.organizationId,
+					},
+				},
+			});
 
 			if (!organization) {
 				throw new HTTPException(500, {
@@ -1118,7 +1212,10 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			if (organization.credits <= 0 && !(modelInfo as ModelDefinition).free) {
+			if (
+				parseFloat(organization.credits || "0") <= 0 &&
+				!(modelInfo as ModelDefinition).free
+			) {
 				throw new HTTPException(402, {
 					message:
 						"No API key set for provider and organization has insufficient credits",

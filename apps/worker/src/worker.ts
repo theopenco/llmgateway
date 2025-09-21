@@ -3,8 +3,7 @@ import { z } from "zod";
 
 import { consumeFromQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
-	db,
-	getOrganization,
+	cdb as db,
 	log,
 	organization,
 	eq,
@@ -454,7 +453,13 @@ export async function processLogQueue(): Promise<void> {
 			| Omit<LogInsertData, "messages" | "content">
 		)[] = await Promise.all(
 			logData.map(async (data) => {
-				const organization = await getOrganization(data.organizationId);
+				const organization = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: data.organizationId,
+						},
+					},
+				});
 
 				if (organization?.retentionLevel === "none") {
 					const {
