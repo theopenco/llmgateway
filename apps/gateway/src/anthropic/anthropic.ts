@@ -18,6 +18,11 @@ const anthropicMessageSchema = z.object({
 				z.object({
 					type: z.literal("text"),
 					text: z.string(),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+						})
+						.optional(),
 				}),
 				z.object({
 					type: z.literal("image"),
@@ -91,6 +96,11 @@ const anthropicRequestSchema = z.object({
 				z.object({
 					type: z.literal("text"),
 					text: z.string(),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+						})
+						.optional(),
 				}),
 			),
 		])
@@ -184,7 +194,7 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
-	// console.log("Raw Anthropic request:", JSON.stringify(rawRequest, null, 2));
+	console.log("Raw Anthropic request:", JSON.stringify(rawRequest, null, 2));
 
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);

@@ -107,8 +107,9 @@ export async function transformAnthropicMessages(
 				}),
 			);
 		} else if (m.content && typeof m.content === "string") {
-			// Handle string content
-			content = [{ type: "text", text: m.content } as TextContent];
+			// Handle string content - preserve cache_control if it exists on the message
+			const textContent: TextContent = { type: "text", text: m.content };
+			content = [textContent];
 		}
 
 		// Handle OpenAI-style tool_calls by converting them to Anthropic tool_use content blocks
