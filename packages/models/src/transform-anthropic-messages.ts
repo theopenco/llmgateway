@@ -18,8 +18,16 @@ import {
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
 	isProd = false,
+	provider?: string,
+	model?: string,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
+
+	// Determine if we should apply cache_control for long prompts
+	// Apply for anthropic provider, or for routeway-discount provider with claude models
+	const shouldApplyCacheControl =
+		provider === "anthropic" ||
+		(provider === "routeway-discount" && model?.startsWith("claude-"));
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();
@@ -105,7 +113,8 @@ export async function transformAnthropicMessages(
 					}
 					if (isTextContent(part) && part.text && !part.cache_control) {
 						// Automatically add cache_control for long text blocks
-						const shouldCache = part.text.length >= 1024 * 4; // Rough token estimation
+						const shouldCache =
+							shouldApplyCacheControl && part.text.length >= 1024 * 4; // Rough token estimation
 						if (shouldCache) {
 							return {
 								...part,
@@ -118,7 +127,8 @@ export async function transformAnthropicMessages(
 			);
 		} else if (m.content && typeof m.content === "string") {
 			// Handle string content - automatically add cache_control for long prompts (1024+ tokens)
-			const shouldCache = m.content.length >= 1024 * 4; // Rough token estimation: 1 token ≈ 4 chars
+			const shouldCache =
+				shouldApplyCacheControl && m.content.length >= 1024 * 4; // Rough token estimation: 1 token ≈ 4 chars
 			const textContent: TextContent = {
 				type: "text",
 				text: m.content,
