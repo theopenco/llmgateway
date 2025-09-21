@@ -155,6 +155,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "only",
 				providerId: "anthropic",
 				modelName: "claude-sonnet-4-20250514",
 				inputPrice: 3.0 / 1e6,
