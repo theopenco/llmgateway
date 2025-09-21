@@ -194,7 +194,7 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
-	console.log("Raw Anthropic request:", JSON.stringify(rawRequest, null, 2));
+	// console.log("Raw Anthropic request:", JSON.stringify(rawRequest, null, 2));
 
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
