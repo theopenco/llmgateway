@@ -9,6 +9,7 @@ import {
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
+import { closeCachedDatabase } from "./lib/cached-db.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
@@ -71,9 +72,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		await redisClient.quit();
 		logger.info("Redis connection closed");
 
-		logger.info("Closing database connection");
-		await closeDatabase();
-		logger.info("Database connection closed");
+		logger.info("Closing database connections");
+		await Promise.all([closeDatabase(), closeCachedDatabase()]);
+		logger.info("Database connections closed");
 
 		// Shutdown instrumentation last to ensure all spans are flushed
 		if (sdk) {

@@ -1,7 +1,8 @@
 import { HTTPException } from "hono/http-exception";
 
-import { db } from "@llmgateway/db";
 import { models, type ModelDefinition } from "@llmgateway/models";
+
+import { cachedDb as db } from "./cached-db.js";
 
 export interface IamRule {
 	id: string;
