@@ -11,6 +11,7 @@ interface CacheConfig {
 	pxat?: number;
 	keepTtl?: boolean;
 	hexOptions?: "NX" | "nx" | "XX" | "xx" | "GT" | "gt" | "LT" | "lt";
+	tags?: string[]; // Tags for cache invalidation
 }
 
 export class RedisCache extends Cache {
@@ -98,8 +99,16 @@ export class RedisCache extends Cache {
 				pipeline.expire(tableKeysSet, ttl + 60);
 			}
 
-			// If this is a tag-based cache entry, handle tag indexing
-			if (isTag) {
+			// Handle tag indexing - either from config.tags or legacy isTag parameter
+			if (config?.tags && config.tags.length > 0) {
+				// Modern approach: use tags from config
+				for (const tag of config.tags) {
+					const tagKeysSet = this.tagPrefix + tag;
+					pipeline.sadd(tagKeysSet, cacheKey);
+					pipeline.expire(tagKeysSet, ttl + 60);
+				}
+			} else if (isTag) {
+				// Legacy approach: treat the hashedQuery as a tag
 				const tagKeysSet = this.tagPrefix + hashedQuery;
 				pipeline.sadd(tagKeysSet, cacheKey);
 				pipeline.expire(tagKeysSet, ttl + 60);
@@ -108,6 +117,8 @@ export class RedisCache extends Cache {
 			await pipeline.exec();
 			logger.debug(`Cached query result for key: ${hashedQuery}`, {
 				tables,
+				tags: config?.tags,
+				isTag,
 				ttl,
 			});
 		} catch (error) {
