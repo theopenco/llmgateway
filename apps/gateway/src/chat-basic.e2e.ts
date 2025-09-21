@@ -13,7 +13,11 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
 
+import { models } from "@llmgateway/models";
+
 import { app } from "./app.js";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
@@ -28,7 +32,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 	test.each(testModels)(
 		"completions $model",
 		getTestOptions(),
-		async ({ model }) => {
+		async ({ model, originalModel }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -77,6 +81,49 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			// expect(log.inputCost).not.toBeNull();
 			// expect(log.outputCost).not.toBeNull();
 			// expect(log.cost).not.toBeNull();
+
+			const originalModelProviderMapping = models
+				.find((m) => m.id === originalModel)
+				?.providers.find(
+					(p) => p.providerId === log.usedProvider,
+				) as ProviderModelMapping;
+			console.log(
+				"originalModelProviderMapping",
+				originalModel,
+				log.usedProvider,
+				originalModelProviderMapping.cachedInputPrice,
+			);
+			if (originalModelProviderMapping.cachedInputPrice) {
+				// for models that support cached input cost, to the same request and check that cachedInputCost is greater than 0
+				const secondRequestId = generateTestRequestId();
+				const secondRes = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": secondRequestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: model,
+						messages: [
+							{
+								role: "system",
+								content: "You are a helpful assistant.",
+							},
+							{
+								role: "user",
+								content: "Hello, just reply 'OK'!",
+							},
+						],
+					}),
+				});
+				const secondJson = await secondRes.json();
+				if (logMode) {
+					console.log("second response:", JSON.stringify(secondJson, null, 2));
+				}
+				const secondLog = await validateLogByRequestId(secondRequestId);
+				expect(secondLog.cachedInputCost).toBeGreaterThan(0);
+			}
 		},
 	);
 
