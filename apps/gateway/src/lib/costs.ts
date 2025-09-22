@@ -1,7 +1,12 @@
 import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
-import { type Model, type ModelDefinition, models } from "@llmgateway/models";
+import {
+	type Model,
+	type ModelDefinition,
+	models,
+	type ToolCall,
+} from "@llmgateway/models";
 
 // Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {
@@ -27,7 +32,7 @@ export function calculateCosts(
 		messages?: ChatMessage[];
 		prompt?: string;
 		completion?: string;
-		toolResults?: any[];
+		toolResults?: ToolCall[];
 	},
 ) {
 	// Find the model info - try both base model name and provider model name

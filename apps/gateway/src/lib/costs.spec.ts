@@ -201,6 +201,7 @@ describe("calculateCosts", () => {
 			toolResults: [
 				{
 					id: "call_1",
+					type: "function",
 					function: {
 						name: "get_weather",
 						arguments: '{"location": "San Francisco"}',
@@ -208,6 +209,7 @@ describe("calculateCosts", () => {
 				},
 				{
 					id: "call_2",
+					type: "function",
 					function: {
 						name: "get_temperature",
 						arguments: '{"location": "New York", "units": "celsius"}',
@@ -230,10 +232,11 @@ describe("calculateCosts", () => {
 			prompt: "What's the weather like?",
 			completion: "Here's the weather:",
 			toolResults: [
-				{ id: "call_1" }, // Missing function data
-				{ id: "call_2", function: {} }, // Missing name and arguments
+				{ id: "call_1", type: "function" } as any, // Missing function data
+				{ id: "call_2", type: "function", function: {} as any }, // Missing name and arguments
 				{
 					id: "call_3",
+					type: "function",
 					function: {
 						name: "get_weather",
 						arguments: '{"location": "Paris"}',
