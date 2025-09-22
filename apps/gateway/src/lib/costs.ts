@@ -1,7 +1,12 @@
 import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
-import { type Model, type ModelDefinition, models } from "@llmgateway/models";
+import {
+	type Model,
+	type ModelDefinition,
+	models,
+	type ToolCall,
+} from "@llmgateway/models";
 
 // Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {
@@ -27,6 +32,7 @@ export function calculateCosts(
 		messages?: ChatMessage[];
 		prompt?: string;
 		completion?: string;
+		toolResults?: ToolCall[];
 	},
 ) {
 	// Find the model info - try both base model name and provider model name
@@ -89,20 +95,39 @@ export function calculateCosts(
 		}
 
 		// Calculate completion tokens
-		if (!completionTokens && fullOutput && fullOutput.completion) {
-			try {
-				calculatedCompletionTokens = encode(
-					JSON.stringify(fullOutput.completion),
-				).length;
-			} catch (error) {
-				// If encoding fails, leave as null
-				logger.error(`Failed to encode completion text: ${error}`);
+		if (!completionTokens && fullOutput) {
+			let completionText = "";
+
+			// Include main completion content
+			if (fullOutput.completion) {
+				completionText += fullOutput.completion;
+			}
+
+			// Include tool results if available
+			if (fullOutput.toolResults && Array.isArray(fullOutput.toolResults)) {
+				for (const toolResult of fullOutput.toolResults) {
+					if (toolResult.function?.name) {
+						completionText += toolResult.function.name;
+					}
+					if (toolResult.function?.arguments) {
+						completionText += JSON.stringify(toolResult.function.arguments);
+					}
+				}
+			}
+
+			if (completionText) {
+				try {
+					calculatedCompletionTokens = encode(completionText).length;
+				} catch (error) {
+					// If encoding fails, leave as null
+					logger.error(`Failed to encode completion text: ${error}`);
+				}
 			}
 		}
 	}
 
-	// If we still don't have token counts, return null costs
-	if (!calculatedPromptTokens || !calculatedCompletionTokens) {
+	// If we don't have prompt tokens, we can't calculate any costs
+	if (!calculatedPromptTokens) {
 		return {
 			inputCost: null,
 			outputCost: null,
@@ -115,6 +140,11 @@ export function calculateCosts(
 			estimatedCost: isEstimated,
 			discount: undefined,
 		};
+	}
+
+	// Set completion tokens to 0 if not available (but still calculate input costs)
+	if (!calculatedCompletionTokens) {
+		calculatedCompletionTokens = 0;
 	}
 
 	// Find the provider-specific pricing

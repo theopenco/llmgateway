@@ -38,7 +38,7 @@ export interface HealthResponse {
 }
 
 export class HealthChecker {
-	constructor(private dependencies: HealthCheckDependencies) {}
+	public constructor(private dependencies: HealthCheckDependencies) {}
 
 	private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 		const timeoutPromise = new Promise<T>((_, reject) => {
@@ -50,7 +50,7 @@ export class HealthChecker {
 		return Promise.race([promise, timeoutPromise]);
 	}
 
-	async performHealthChecks(
+	public async performHealthChecks(
 		options: HealthCheckOptions = {},
 	): Promise<HealthCheckResult> {
 		const { skipChecks = [], timeoutMs = 5000 } = options;
@@ -136,7 +136,7 @@ export class HealthChecker {
 		return health;
 	}
 
-	createHealthResponse(
+	public createHealthResponse(
 		health: HealthCheckResult,
 		version?: string,
 	): { response: HealthResponse; statusCode: number } {

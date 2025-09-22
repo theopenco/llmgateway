@@ -23,16 +23,16 @@ export class RedisCache extends Cache {
 	private readonly defaultTtl = 300; // 5 minutes in seconds
 	private readonly batchSize = 500; // Max keys to process in one batch
 
-	constructor(redisClient: Redis) {
+	public constructor(redisClient: Redis) {
 		super();
 		this.redisClient = redisClient;
 	}
 
-	strategy(): "all" {
+	public strategy(): "all" {
 		return "all";
 	}
 
-	async get(
+	public async get(
 		key: string,
 		tables: string[],
 		isTag: boolean,
@@ -68,7 +68,7 @@ export class RedisCache extends Cache {
 		}
 	}
 
-	async put(
+	public async put(
 		hashedQuery: string,
 		response: any,
 		tables: string[],
@@ -129,7 +129,7 @@ export class RedisCache extends Cache {
 		}
 	}
 
-	async onMutate(params: MutationOption): Promise<void> {
+	public async onMutate(params: MutationOption): Promise<void> {
 		try {
 			const tables = this.normalizeTables(params.tables);
 			const tags = this.normalizeTags(params.tags);

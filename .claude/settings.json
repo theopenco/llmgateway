@@ -1,4 +1,7 @@
 {
+	"permissions": {
+		"deny": ["Read(**/dist/**)"]
+	},
 	"hooks": {
 		"Stop": [
 			{

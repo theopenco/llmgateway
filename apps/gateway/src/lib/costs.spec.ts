@@ -171,4 +171,83 @@ describe("calculateCosts", () => {
 
 		expect(result.discount).toBeUndefined(); // Should not include discount field when discount is 1
 	});
+
+	it("should calculate input costs even when output tokens are zero", () => {
+		const result = calculateCosts("gpt-4", "openai", 100, 0, null);
+
+		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
+		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003
+		expect(result.totalCost).toBeCloseTo(0.001); // 0.001 + 0
+		expect(result.promptTokens).toBe(100);
+		expect(result.completionTokens).toBe(0);
+		expect(result.estimatedCost).toBe(false);
+	});
+
+	it("should calculate input costs when completion tokens are null but prompt tokens exist", () => {
+		const result = calculateCosts("gpt-4", "openai", 100, null, null);
+
+		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
+		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003 (completion tokens set to 0)
+		expect(result.totalCost).toBeCloseTo(0.001); // 0.001 + 0
+		expect(result.promptTokens).toBe(100);
+		expect(result.completionTokens).toBe(0); // Should default to 0
+		expect(result.estimatedCost).toBe(false);
+	});
+
+	it("should include tool results in completion token estimation", () => {
+		const result = calculateCosts("gpt-4", "openai", null, null, null, {
+			prompt: "What's the weather like?",
+			completion: "", // Empty completion
+			toolResults: [
+				{
+					id: "call_1",
+					type: "function",
+					function: {
+						name: "get_weather",
+						arguments: '{"location": "San Francisco"}',
+					},
+				},
+				{
+					id: "call_2",
+					type: "function",
+					function: {
+						name: "get_temperature",
+						arguments: '{"location": "New York", "units": "celsius"}',
+					},
+				},
+			],
+		});
+
+		// Should calculate tokens for tool calls even with empty completion
+		expect(result.promptTokens).toBeGreaterThan(0);
+		expect(result.completionTokens).toBeGreaterThan(0); // Should include tool call tokens
+		expect(result.inputCost).toBeGreaterThan(0);
+		expect(result.outputCost).toBeGreaterThan(0); // Should have cost from tool calls
+		expect(result.totalCost).toBeGreaterThan(0);
+		expect(result.estimatedCost).toBe(true);
+	});
+
+	it("should handle tool results with missing function data gracefully", () => {
+		const result = calculateCosts("gpt-4", "openai", null, null, null, {
+			prompt: "What's the weather like?",
+			completion: "Here's the weather:",
+			toolResults: [
+				{ id: "call_1", type: "function" } as any, // Missing function data
+				{ id: "call_2", type: "function", function: {} as any }, // Missing name and arguments
+				{
+					id: "call_3",
+					type: "function",
+					function: {
+						name: "get_weather",
+						arguments: '{"location": "Paris"}',
+					},
+				},
+			],
+		});
+
+		// Should still work with partial tool result data
+		expect(result.promptTokens).toBeGreaterThan(0);
+		expect(result.completionTokens).toBeGreaterThan(0);
+		expect(result.estimatedCost).toBe(true);
+	});
 });
