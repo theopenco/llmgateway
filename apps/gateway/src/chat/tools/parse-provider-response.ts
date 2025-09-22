@@ -10,7 +10,6 @@ export function parseProviderResponse(
 	usedProvider: Provider,
 	json: any,
 	messages: any[] = [],
-	usedModel?: string,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -285,33 +284,11 @@ export function parseProviderResponse(
 					}
 				}
 
-				// Special handling for routeway-discount claude models (use Anthropic-style parsing)
-				if (
-					usedProvider === "routeway-discount" &&
-					usedModel?.startsWith("claude-")
-				) {
-					// Use Anthropic-style token parsing for claude models
-					if (json.usage) {
-						const inputTokens = json.usage.input_tokens || 0;
-						const cacheCreationTokens =
-							json.usage.cache_creation_input_tokens || 0;
-						const cacheReadTokens = json.usage.cache_read_input_tokens || 0;
-
-						// Total prompt tokens = non-cached + cache creation + cache read
-						promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
-						completionTokens = json.usage.output_tokens || null;
-						reasoningTokens = json.usage.reasoning_output_tokens || null;
-						// Cached tokens are the tokens read from cache (discount applies to these)
-						cachedTokens = cacheReadTokens || null;
-					}
-				} else {
-					// Standard OpenAI-style token parsing
-					promptTokens = json.usage?.prompt_tokens || null;
-					completionTokens = json.usage?.completion_tokens || null;
-					reasoningTokens = json.usage?.reasoning_tokens || null;
-					cachedTokens =
-						json.usage?.prompt_tokens_details?.cached_tokens || null;
-				}
+				// Standard OpenAI-style token parsing
+				promptTokens = json.usage?.prompt_tokens || null;
+				completionTokens = json.usage?.completion_tokens || null;
+				reasoningTokens = json.usage?.reasoning_tokens || null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
 				totalTokens =
 					json.usage?.total_tokens ||
 					(promptTokens !== null && completionTokens !== null
