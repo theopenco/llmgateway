@@ -1,0 +1,8 @@
+{
+	"watch": ["src"],
+	"ext": "ts,tsx,js,jsx,json",
+	"ignore": ["src/**/*.spec.ts", "src/**/*.test.ts", "node_modules", "dist"],
+	"env": {
+		"NODE_ENV": "development"
+	}
+}
