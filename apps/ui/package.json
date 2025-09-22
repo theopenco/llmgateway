@@ -19,7 +19,7 @@
 		"@content-collections/core": "0.11.1",
 		"@content-collections/next": "0.2.1",
 		"@hey-api/client-fetch": "0.13.1",
-		"@hookform/resolvers": "5.1.1",
+		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@radix-ui/react-accordion": "1.2.12",
