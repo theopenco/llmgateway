@@ -88,7 +88,7 @@ export function HeroCompare({ content }: HeroCompareProps) {
 					<div className="h-[80rem] -translate-y-[350px] absolute left-0 top-0 w-56 -rotate-45 bg-[radial-gradient(50%_50%_at_50%_50%,hsla(0,0%,85%,.04)_0,hsla(0,0%,45%,.02)_80%,transparent_100%)]" />
 				</div>
 				<section>
-					<div className="relative pt-24 md:pt-36 pb-24">
+					<div className="relative pt-24 pb-10 md:pt-36 md:pb-24">
 						<div
 							aria-hidden
 							className="absolute inset-0 -z-10 size-full [background:radial-gradient(125%_125%_at_50%_100%,transparent_0%,var(--background)_75%)]"
@@ -96,10 +96,10 @@ export function HeroCompare({ content }: HeroCompareProps) {
 						<div className="mx-auto max-w-7xl px-6">
 							<div className="text-center sm:mx-auto lg:mr-auto lg:mt-0">
 								<AnimatedGroup variants={transitionVariants}>
-									<h1 className="mt-8 max-w-4xl mx-auto text-balance text-6xl md:text-7xl lg:mt-16 xl:text-[5.25rem]">
+									<h1 className="mt-8 max-w-4xl mx-auto text-balance text-2xl md:text-7xl lg:mt-16 xl:text-[5.25rem]">
 										{heroContent.heading}
 									</h1>
-									<p className="mx-auto mt-8 max-w-2xl text-balance text-lg text-muted-foreground">
+									<p className="mx-auto mt-8 max-w-2xl text-balance text-sm md:text-lg text-muted-foreground">
 										{heroContent.description}
 									</p>
 
