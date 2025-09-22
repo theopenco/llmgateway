@@ -103,7 +103,7 @@ export const anthropicModels = [
 		name: "Claude 3.5 Sonnet (2024-10-22)",
 		family: "anthropic",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-10-22T00:00:00Z"),
 		providers: [
 			{
 				providerId: "anthropic",
