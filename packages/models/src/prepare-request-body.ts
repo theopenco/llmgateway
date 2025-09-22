@@ -231,13 +231,20 @@ export async function prepareRequestBody(
 
 			// Add cache_control for claude models while keeping OpenAI format
 			if (usedModel.startsWith("claude-")) {
+				// Track cache_control usage to limit to maximum of 4 blocks
+				let cacheControlCount = 0;
+				const maxCacheControlBlocks = 4;
+
 				requestBody.messages = processedMessages.map((message: any) => {
 					if (Array.isArray(message.content)) {
 						// Handle array content - add cache_control to long text blocks
 						const updatedContent = message.content.map((part: any) => {
 							if (part.type === "text" && part.text && !part.cache_control) {
-								const shouldCache = part.text.length >= 1024 * 4; // Rough token estimation
+								const shouldCache =
+									part.text.length >= 1024 * 4 && // Rough token estimation
+									cacheControlCount < maxCacheControlBlocks;
 								if (shouldCache) {
+									cacheControlCount++;
 									return {
 										...part,
 										cache_control: { type: "ephemeral" },
@@ -252,8 +259,11 @@ export async function prepareRequestBody(
 						};
 					} else if (typeof message.content === "string") {
 						// Handle string content - add cache_control for long prompts
-						const shouldCache = message.content.length >= 1024 * 4; // Rough token estimation
+						const shouldCache =
+							message.content.length >= 1024 * 4 && // Rough token estimation
+							cacheControlCount < maxCacheControlBlocks;
 						if (shouldCache) {
+							cacheControlCount++;
 							return {
 								...message,
 								content: [
