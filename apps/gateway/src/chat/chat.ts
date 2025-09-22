@@ -1436,6 +1436,7 @@ chat.openapi(completions, async (c) => {
 					requestCost: 0,
 					cost: 0,
 					estimatedCost: false,
+					discount: null,
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
@@ -1529,6 +1530,7 @@ chat.openapi(completions, async (c) => {
 					requestCost: 0,
 					cost: 0,
 					estimatedCost: false,
+					discount: null,
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
 				});
@@ -1742,6 +1744,7 @@ chat.openapi(completions, async (c) => {
 						errorDetails: null,
 						cachedInputCost: null,
 						requestCost: null,
+						discount: null,
 						cached: false,
 						toolResults: null,
 					});
@@ -1871,6 +1874,7 @@ chat.openapi(completions, async (c) => {
 					},
 					cachedInputCost: null,
 					requestCost: null,
+					discount: null,
 					cached: false,
 					toolResults: null,
 				});
@@ -2724,6 +2728,7 @@ chat.openapi(completions, async (c) => {
 					requestCost: costs.requestCost,
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
+					discount: costs.discount,
 					cached: false,
 					tools,
 					toolResults: streamingToolCalls,
@@ -2848,6 +2853,7 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
+			discount: null,
 			cached: false,
 			toolResults: null,
 		});
@@ -2950,6 +2956,7 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
+			discount: null,
 			cached: false,
 			toolResults: null,
 		});
@@ -3113,6 +3120,7 @@ chat.openapi(completions, async (c) => {
 		requestCost: costs.requestCost,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
+		discount: costs.discount,
 		cached: false,
 		tools,
 		toolResults,

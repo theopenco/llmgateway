@@ -44,6 +44,10 @@ export interface ProviderModelMapping {
 	 */
 	requestPrice?: number;
 	/**
+	 * Discount multiplier (0-1), where 0.5 = 50% off
+	 */
+	discount?: number;
+	/**
 	 * Maximum context window size in tokens
 	 */
 	contextSize?: number;

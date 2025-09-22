@@ -1,5 +1,6 @@
 import { models } from "./models.js";
 
+import type { ProviderModelMapping } from "./models.js";
 import type { ProviderId } from "./providers.js";
 
 /**
@@ -29,8 +30,9 @@ export function getCheapestModelForProvider(
 	let lowestPrice = Number.MAX_VALUE;
 
 	for (const { provider: providerInfo } of availableModels) {
+		const discount = (providerInfo as ProviderModelMapping).discount ?? 1;
 		const totalPrice =
-			(providerInfo.inputPrice! + providerInfo.outputPrice!) / 2;
+			((providerInfo.inputPrice! + providerInfo.outputPrice!) / 2) * discount;
 		if (totalPrice < lowestPrice) {
 			lowestPrice = totalPrice;
 			cheapestModel = providerInfo.modelName;

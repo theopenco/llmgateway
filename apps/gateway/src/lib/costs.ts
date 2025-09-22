@@ -49,6 +49,7 @@ export function calculateCosts(
 			completionTokens,
 			cachedTokens,
 			estimatedCost: false,
+			discount: undefined,
 		};
 	}
 
@@ -112,6 +113,7 @@ export function calculateCosts(
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
 			estimatedCost: isEstimated,
+			discount: undefined,
 		};
 	}
 
@@ -131,6 +133,7 @@ export function calculateCosts(
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
 			estimatedCost: isEstimated,
+			discount: undefined,
 		};
 	}
 
@@ -138,6 +141,7 @@ export function calculateCosts(
 	const outputPrice = providerInfo.outputPrice || 0;
 	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
+	const discount = providerInfo.discount || 1;
 
 	// Calculate input cost accounting for cached tokens
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
@@ -146,10 +150,12 @@ export function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
-	const inputCost = uncachedPromptTokens * inputPrice;
-	const outputCost = calculatedCompletionTokens * outputPrice;
-	const cachedInputCost = cachedTokens ? cachedTokens * cachedInputPrice : 0;
-	const requestCost = requestPrice;
+	const inputCost = uncachedPromptTokens * inputPrice * discount;
+	const outputCost = calculatedCompletionTokens * outputPrice * discount;
+	const cachedInputCost = cachedTokens
+		? cachedTokens * cachedInputPrice * discount
+		: 0;
+	const requestCost = requestPrice * discount;
 	const totalCost = inputCost + outputCost + cachedInputCost + requestCost;
 
 	return {
@@ -162,5 +168,6 @@ export function calculateCosts(
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		estimatedCost: isEstimated,
+		discount: discount !== 1 ? discount : undefined,
 	};
 }

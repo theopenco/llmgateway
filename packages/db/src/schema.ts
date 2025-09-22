@@ -321,71 +321,84 @@ export const providerKey = pgTable(
 	],
 );
 
-export const log = pgTable("log", {
-	id: text().primaryKey().notNull().$defaultFn(shortid),
-	requestId: text().notNull(),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	organizationId: text().notNull(),
-	projectId: text().notNull(),
-	apiKeyId: text().notNull(),
-	duration: integer().notNull(),
-	timeToFirstToken: integer(),
-	timeToFirstReasoningToken: integer(),
-	requestedModel: text().notNull(),
-	requestedProvider: text(),
-	usedModel: text().notNull(),
-	usedModelMapping: text(),
-	usedProvider: text().notNull(),
-	responseSize: integer().notNull(),
-	content: text(),
-	reasoningContent: text(),
-	tools: json().$type<z.infer<typeof tools>>(),
-	toolChoice: json().$type<z.infer<typeof toolChoice>>(),
-	toolResults: json().$type<z.infer<typeof toolResults>>(),
-	finishReason: text(),
-	unifiedFinishReason: text(),
-	promptTokens: decimal(),
-	completionTokens: decimal(),
-	totalTokens: decimal(),
-	reasoningTokens: decimal(),
-	cachedTokens: decimal(),
-	messages: json(),
-	temperature: real(),
-	maxTokens: integer(),
-	topP: real(),
-	frequencyPenalty: real(),
-	presencePenalty: real(),
-	reasoningEffort: text(),
-	hasError: boolean().default(false),
-	errorDetails: json().$type<z.infer<typeof errorDetails>>(),
-	cost: real(),
-	inputCost: real(),
-	outputCost: real(),
-	cachedInputCost: real(),
-	requestCost: real(),
-	estimatedCost: boolean().default(false),
-	canceled: boolean().default(false),
-	streamed: boolean().default(false),
-	cached: boolean().default(false),
-	mode: text({
-		enum: ["api-keys", "credits", "hybrid"],
-	}).notNull(),
-	usedMode: text({
-		enum: ["api-keys", "credits"],
-	}).notNull(),
-	source: text(),
-	customHeaders: json().$type<{ [key: string]: string }>(),
-	processedAt: timestamp(),
-	rawRequest: jsonb(),
-	rawResponse: jsonb(),
-	upstreamRequest: jsonb(),
-	upstreamResponse: jsonb(),
-	traceId: text(),
-});
+export const log = pgTable(
+	"log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		requestId: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		apiKeyId: text().notNull(),
+		duration: integer().notNull(),
+		timeToFirstToken: integer(),
+		timeToFirstReasoningToken: integer(),
+		requestedModel: text().notNull(),
+		requestedProvider: text(),
+		usedModel: text().notNull(),
+		usedModelMapping: text(),
+		usedProvider: text().notNull(),
+		responseSize: integer().notNull(),
+		content: text(),
+		reasoningContent: text(),
+		tools: json().$type<z.infer<typeof tools>>(),
+		toolChoice: json().$type<z.infer<typeof toolChoice>>(),
+		toolResults: json().$type<z.infer<typeof toolResults>>(),
+		finishReason: text(),
+		unifiedFinishReason: text(),
+		promptTokens: decimal(),
+		completionTokens: decimal(),
+		totalTokens: decimal(),
+		reasoningTokens: decimal(),
+		cachedTokens: decimal(),
+		messages: json(),
+		temperature: real(),
+		maxTokens: integer(),
+		topP: real(),
+		frequencyPenalty: real(),
+		presencePenalty: real(),
+		reasoningEffort: text(),
+		hasError: boolean().default(false),
+		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
+		cost: real(),
+		inputCost: real(),
+		outputCost: real(),
+		cachedInputCost: real(),
+		requestCost: real(),
+		estimatedCost: boolean().default(false),
+		discount: real(),
+		canceled: boolean().default(false),
+		streamed: boolean().default(false),
+		cached: boolean().default(false),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		source: text(),
+		customHeaders: json().$type<{ [key: string]: string }>(),
+		processedAt: timestamp(),
+		rawRequest: jsonb(),
+		rawResponse: jsonb(),
+		upstreamRequest: jsonb(),
+		upstreamResponse: jsonb(),
+		traceId: text(),
+	},
+	(table) => [
+		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+		// Index for worker stats queries: WHERE createdAt >= ? AND createdAt < ? GROUP BY usedModel, usedProvider
+		index("log_created_at_used_model_used_provider_idx").on(
+			table.createdAt,
+			table.usedModel,
+			table.usedProvider,
+		),
+	],
+);
 
 export const passkey = pgTable(
 	"passkey",
@@ -515,66 +528,74 @@ export const installation = pgTable("installation", {
 	type: text().notNull(),
 });
 
-export const provider = pgTable("provider", {
-	id: text().primaryKey(),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	name: text().notNull(),
-	description: text().notNull(),
-	streaming: boolean(),
-	cancellation: boolean(),
-	jsonOutput: boolean(),
-	color: text(),
-	website: text(),
-	announcement: text(),
-	status: text({
-		enum: ["active", "inactive"],
-	})
-		.notNull()
-		.default("active"),
-	logsCount: integer().notNull().default(0),
-	errorsCount: integer().notNull().default(0),
-	clientErrorsCount: integer().notNull().default(0),
-	gatewayErrorsCount: integer().notNull().default(0),
-	upstreamErrorsCount: integer().notNull().default(0),
-	cachedCount: integer().notNull().default(0),
-	avgTimeToFirstToken: real(),
-	avgTimeToFirstReasoningToken: real(),
-	statsUpdatedAt: timestamp(),
-});
+export const provider = pgTable(
+	"provider",
+	{
+		id: text().primaryKey(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		description: text().notNull(),
+		streaming: boolean(),
+		cancellation: boolean(),
+		jsonOutput: boolean(),
+		color: text(),
+		website: text(),
+		announcement: text(),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		avgTimeToFirstToken: real(),
+		avgTimeToFirstReasoningToken: real(),
+		statsUpdatedAt: timestamp(),
+	},
+	(table) => [index("provider_status_idx").on(table.status)],
+);
 
-export const model = pgTable("model", {
-	id: text().primaryKey(),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	name: text(),
-	family: text().notNull(),
-	jsonOutput: boolean(),
-	free: boolean(),
-	deprecatedAt: timestamp(),
-	deactivatedAt: timestamp(),
-	output: json().$type<string[]>(),
-	status: text({
-		enum: ["active", "inactive"],
-	})
-		.notNull()
-		.default("active"),
-	logsCount: integer().notNull().default(0),
-	errorsCount: integer().notNull().default(0),
-	clientErrorsCount: integer().notNull().default(0),
-	gatewayErrorsCount: integer().notNull().default(0),
-	upstreamErrorsCount: integer().notNull().default(0),
-	cachedCount: integer().notNull().default(0),
-	avgTimeToFirstToken: real(),
-	avgTimeToFirstReasoningToken: real(),
-	statsUpdatedAt: timestamp(),
-});
+export const model = pgTable(
+	"model",
+	{
+		id: text().primaryKey(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text(),
+		family: text().notNull(),
+		jsonOutput: boolean(),
+		free: boolean(),
+		deprecatedAt: timestamp(),
+		deactivatedAt: timestamp(),
+		output: json().$type<string[]>(),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		avgTimeToFirstToken: real(),
+		avgTimeToFirstReasoningToken: real(),
+		statsUpdatedAt: timestamp(),
+	},
+	(table) => [index("model_status_idx").on(table.status)],
+);
 
 export const modelProviderMapping = pgTable(
 	"model_provider_mapping",
@@ -623,7 +644,10 @@ export const modelProviderMapping = pgTable(
 		avgTimeToFirstReasoningToken: real(),
 		statsUpdatedAt: timestamp(),
 	},
-	(table) => [unique().on(table.modelId, table.providerId)],
+	(table) => [
+		unique().on(table.modelId, table.providerId),
+		index("model_provider_mapping_status_idx").on(table.status),
+	],
 );
 
 export const modelProviderMappingHistory = pgTable(
@@ -658,6 +682,20 @@ export const modelProviderMappingHistory = pgTable(
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
 		unique().on(table.modelProviderMappingId, table.minuteTimestamp),
+		// Index for ORDER BY minuteTimestamp DESC queries
+		index("model_provider_mapping_history_minute_timestamp_idx").on(
+			table.minuteTimestamp,
+		),
+		// Composite index for aggregation queries by providerId
+		index("model_provider_mapping_history_minute_timestamp_provider_id_idx").on(
+			table.minuteTimestamp,
+			table.providerId,
+		),
+		// Composite index for aggregation queries by modelId
+		index("model_provider_mapping_history_minute_timestamp_model_id_idx").on(
+			table.minuteTimestamp,
+			table.modelId,
+		),
 	],
 );
 
@@ -691,5 +729,7 @@ export const modelHistory = pgTable(
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
 		unique().on(table.modelId, table.minuteTimestamp),
+		// Index for ORDER BY minuteTimestamp DESC queries
+		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
 	],
 );

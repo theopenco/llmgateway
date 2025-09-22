@@ -50,7 +50,12 @@ export async function validateModelAccess(
 	for (const rule of iamRules) {
 		const result = await evaluateRule(rule, modelDef, requestedProvider);
 		if (!result.allowed) {
-			return result;
+			return {
+				allowed: false,
+				reason:
+					result.reason +
+					` Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer. (Rule ID: ${rule.id})`,
+			};
 		}
 	}
 

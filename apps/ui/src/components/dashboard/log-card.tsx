@@ -285,6 +285,16 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div className="font-medium">
 									{log.cost ? `$${log.cost.toFixed(6)}` : "$0"}
 								</div>
+								{log.discount && log.discount !== 1 && (
+									<>
+										<div className="text-muted-foreground">
+											Discount Applied
+										</div>
+										<div className="font-medium text-green-600">
+											{((1 - log.discount) * 100).toFixed(0)}% off
+										</div>
+									</>
+								)}
 							</div>
 						</div>
 						<div className="space-y-2">
