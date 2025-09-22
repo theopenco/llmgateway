@@ -1,4 +1,21 @@
 import {
+	Message,
+	MessageAvatar,
+	MessageContent,
+} from "@/components/ai-elements/message";
+import type {
+	UIDataTypes,
+	UITools,
+	UIMessage,
+	FileUIPart,
+	ChatRequestOptions,
+	ChatStatus,
+} from "ai";
+import { Avatar, AvatarFallback } from "@radix-ui/react-avatar";
+import { useUser } from "@/hooks/useUser";
+import { Bot, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
 	Conversation,
 	ConversationContent,
 	ConversationEmptyState,
@@ -18,47 +35,13 @@ import {
 	PromptInputToolbar,
 	PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
-import {
-	Message,
-	MessageAvatar,
-	MessageContent,
-} from "@/components/ai-elements/message";
-import type {
-	UIDataTypes,
-	UITools,
-	UIMessage,
-	FileUIPart,
-	ChatRequestOptions,
-	ChatStatus,
-} from "ai";
+import { toast } from "sonner";
 
 type ChatUIProps = {
-	messages: UIMessage<unknown, UIDataTypes, UITools>[];
+	messages: UIMessage[];
 	supportsImages: boolean;
 	sendMessage: (
-		message?:
-			| (Omit<UIMessage<unknown, UIDataTypes, UITools>, "id" | "role"> & {
-					id?: string | undefined;
-					role?: "system" | "user" | "assistant" | undefined;
-			  } & {
-					text?: never;
-					files?: never;
-					messageId?: string;
-			  })
-			| {
-					text: string;
-					files?: FileList | FileUIPart[];
-					metadata?: unknown;
-					parts?: never;
-					messageId?: string;
-			  }
-			| {
-					files: FileList | FileUIPart[];
-					metadata?: unknown;
-					parts?: never;
-					messageId?: string;
-			  }
-			| undefined,
+		message: UIMessage,
 		options?: ChatRequestOptions,
 	) => Promise<void>;
 	userApiKey: string | null;
@@ -67,6 +50,17 @@ type ChatUIProps = {
 	setText: (text: string) => void;
 	status: ChatStatus;
 	stop: () => void;
+	onUserMessage?: (
+		content: string,
+		images?: Array<{
+			type: "image_url";
+			image_url: {
+				url: string;
+			};
+		}>,
+	) => Promise<void>;
+	isLoading?: boolean;
+	error?: string | null;
 };
 
 export const ChatUI = ({
@@ -79,7 +73,12 @@ export const ChatUI = ({
 	setText,
 	status,
 	stop,
+	onUserMessage,
+	isLoading = false,
+	error = null,
 }: ChatUIProps) => {
+	const { user } = useUser();
+
 	return (
 		<div className="flex flex-col flex-1 px-4">
 			<div className="flex-1 overflow-hidden">
@@ -88,36 +87,12 @@ export const ChatUI = ({
 						{messages.length === 0 ? (
 							<ConversationEmptyState description="Start chatting with any model. Add images too." />
 						) : (
-							messages.map((m: any) => (
+							messages.map((m) => (
 								<Message key={m.id} from={m.role}>
-									<MessageAvatar
-										src={m.role === "user" ? "/file.svg" : "/globe.svg"}
-									/>
-									<MessageContent>
-										{m.parts.map((p: any, i: number) => {
-											if (p.type === "text") return <div key={i}>{p.text}</div>;
-											if (p.type === "image" && p.image) {
-												return (
-													<img
-														key={i}
-														src={p.image.url ?? ""}
-														alt={p.image.alt ?? "image"}
-														className="max-w-xs rounded"
-													/>
-												);
-											}
-											if (p.type === "file" && p.url) {
-												return (
-													<a
-														key={i}
-														href={p.url}
-														className="underline"
-														target="_blank"
-														rel="noreferrer"
-													>
-														{p.filename ?? "file"}
-													</a>
-												);
+									<MessageContent variant="flat">
+										{m.parts.map((p, i) => {
+											if (p.type === "text") {
+												return <div key={i}>{p.text}</div>;
 											}
 											return null;
 										})}
@@ -130,45 +105,42 @@ export const ChatUI = ({
 			</div>
 
 			<div className="flex-shrink-0">
+				{error && (
+					<Alert variant="destructive" className="mb-4">
+						<AlertCircle className="h-4 w-4" />
+						<AlertDescription>{error}</AlertDescription>
+					</Alert>
+				)}
 				<PromptInput
 					accept={supportsImages ? "image/*" : undefined}
 					multiple
 					globalDrop
+					aria-disabled={isLoading || status === "streaming"}
 					onSubmit={async (message) => {
-						const inputText = message.text ?? text;
-						const files = message.files ?? [];
-						const parts: any[] = [];
-						if (inputText?.trim())
-							parts.push({ type: "text", text: inputText });
-						if (files.length > 0) {
-							const dataUrls = await Promise.all(
-								files.map(async (f: any) => {
-									if (!f.url) return null;
-									try {
-										const res = await fetch(f.url);
-										const blob = await res.blob();
-										const reader = new FileReader();
-										const p = new Promise<string>((resolve) => {
-											reader.onloadend = () => resolve(String(reader.result));
-										});
-										reader.readAsDataURL(blob);
-										const dataUrl = await p;
-										return {
-											type: "image",
-											image: { url: dataUrl, alt: f.filename },
-										};
-									} catch {
-										return null;
-									}
-								}),
+						if (isLoading || status === "streaming") return;
+
+						try {
+							const textContent = message.text ?? "";
+							if (onUserMessage) {
+								await onUserMessage(textContent);
+							}
+							sendMessage(
+								{
+									id: crypto.randomUUID(),
+									role: "user",
+									parts: [{ type: "text", text: textContent }],
+								},
+								{
+									body: {
+										apiKey: userApiKey,
+										model: selectedModel,
+									},
+								},
 							);
-							for (const d of dataUrls) if (d) parts.push(d);
+							setText("");
+						} catch (error) {
+							toast.error("Could not send message after failing to save it.");
 						}
-						if (parts.length === 0) return;
-						sendMessage({ role: "user", parts } as any, {
-							body: { apiKey: userApiKey, model: selectedModel },
-						});
-						setText("");
 					}}
 				>
 					<PromptInputBody>
@@ -195,7 +167,7 @@ export const ChatUI = ({
 										Stop
 									</PromptInputButton>
 								) : null}
-								<PromptInputSubmit status={status} />
+								<PromptInputSubmit status={status} disabled={isLoading} />
 							</div>
 						</PromptInputToolbar>
 					</PromptInputBody>

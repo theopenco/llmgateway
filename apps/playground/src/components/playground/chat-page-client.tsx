@@ -1,21 +1,15 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
-import { useEffect, useMemo, useState } from "react";
+import { useChat, type UIMessage } from "@ai-sdk/react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
-
 import { Message } from "@/components/ai-elements/message";
-
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
-
-import { useAppConfig } from "@/lib/config";
 import { useUser } from "@/hooks/useUser";
 import { useApiKey } from "@/hooks/useApiKey";
-import { useApi } from "@/lib/fetch-client";
-import { useQueryClient } from "@tanstack/react-query";
 import {
 	useAddMessage,
 	useChats,
@@ -25,6 +19,7 @@ import {
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatUI } from "./chat-ui";
+import { DefaultChatTransport } from "ai";
 
 type ComboboxModel = {
 	id: string; // providerId/modelName (value sent to API)
@@ -64,19 +59,6 @@ function mapModels(
 	return entries;
 }
 
-export interface Message {
-	id: string;
-	role: "user" | "assistant" | "system";
-	content: string | null;
-	timestamp: Date;
-	images?: Array<{
-		type: "image_url";
-		image_url: {
-			url: string;
-		};
-	}>;
-}
-
 export default function ChatPageClient({
 	models,
 	providers,
@@ -84,13 +66,10 @@ export default function ChatPageClient({
 	models: ModelDefinition[];
 	providers: ProviderDefinition[];
 }) {
-	const config = useAppConfig();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { userApiKey, isLoaded: isApiKeyLoaded } = useApiKey();
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const api = useApi();
-	const queryClient = useQueryClient();
 
 	const mapped = useMemo(
 		() => mapModels(models, providers),
@@ -104,17 +83,55 @@ export default function ChatPageClient({
 	};
 
 	const [selectedModel, setSelectedModel] = useState(getInitialModel());
-
-	const [initialMessages, setInitialMessages] = useState<Message[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+	const chatIdRef = useRef(currentChatId);
+
+	const { messages, setMessages, sendMessage, status, stop } = useChat({
+		onError: (e) => {
+			setError(e.message);
+		},
+		onFinish: async ({ message }) => {
+			const chatId = chatIdRef.current;
+			if (!chatId) return;
+			await addMessage.mutateAsync({
+				params: { path: { id: chatId } },
+				body: {
+					role: "assistant",
+					content: message.parts
+						.filter((p) => p.type === "text")
+						.map((p) => p.text)
+						.join(""),
+				},
+			});
+		},
+	});
+
+	useEffect(() => {
+		chatIdRef.current = currentChatId;
+	}, [currentChatId]);
 
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
 	const { data: currentChatData } = useDataChat(currentChatId ?? "");
 	useChats();
+
+	useEffect(() => {
+		if (currentChatData?.messages) {
+			setMessages(
+				currentChatData.messages.map((msg) => ({
+					id: msg.id,
+					role: msg.role,
+					content: msg.content ?? "",
+					parts: [{ type: "text", text: msg.content ?? "" }],
+				})),
+			);
+		} else {
+			setMessages([]);
+		}
+	}, [currentChatData, setMessages]);
 
 	const [showApiKeyManager, setShowApiKeyManager] = useState(false);
 
@@ -127,60 +144,9 @@ export default function ChatPageClient({
 		}
 	}, [isApiKeyLoaded, userApiKey, showAuthDialog]);
 
-	useEffect(() => {
-		if (currentChatData?.messages) {
-			const chatMessages: Message[] = currentChatData.messages.map((msg) => ({
-				id: msg.id,
-				role: msg.role,
-				content: msg.content,
-				timestamp: new Date(msg.createdAt),
-				images: msg.images
-					? (() => {
-							try {
-								return JSON.parse(msg.images);
-							} catch (error) {
-								console.warn("Failed to parse images JSON:", msg.images, error);
-								return undefined;
-							}
-						})()
-					: undefined,
-			}));
-
-			// Preserve images from existing local messages when reloading from database
-			setInitialMessages((prevMessages) => {
-				const updatedMessages = chatMessages.map((dbMsg) => {
-					// Try to match by ID first, then by content and role as fallback
-					let existingMsg = prevMessages.find((m) => m.id === dbMsg.id);
-
-					if (!existingMsg) {
-						// If no ID match, try to find by content and role (for cases where DB assigns new IDs)
-						existingMsg = prevMessages.find(
-							(m) =>
-								m.content === dbMsg.content &&
-								m.role === dbMsg.role &&
-								m.images &&
-								m.images.length > 0, // Only match if the local message has images
-						);
-					}
-
-					return {
-						...dbMsg,
-						// Preserve images if they exist in the local state
-						...(existingMsg?.images ? { images: existingMsg.images } : {}),
-					};
-				});
-
-				return updatedMessages;
-			});
-		} else if (currentChatData !== undefined) {
-			// Chat exists but has no messages, clear the message state
-			setInitialMessages([]);
-		}
-	}, [currentChatData]);
-
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
-		if (currentChatId) {
-			return currentChatId;
+		if (chatIdRef.current) {
+			return chatIdRef.current;
 		}
 
 		try {
@@ -196,6 +162,7 @@ export default function ChatPageClient({
 			});
 			const newChatId = chatData.chat.id;
 			setCurrentChatId(newChatId);
+			chatIdRef.current = newChatId; // Manually update the ref
 			return newChatId;
 		} catch (error) {
 			console.error("Failed to create chat:", error);
@@ -204,23 +171,56 @@ export default function ChatPageClient({
 		}
 	};
 
+	const handleUserMessage = async (content: string) => {
+		setError(null);
+		setIsLoading(true);
+
+		try {
+			const chatId = await ensureCurrentChat(content);
+
+			await addMessage.mutateAsync({
+				params: { path: { id: chatId } },
+				body: { role: "user", content },
+			});
+		} catch (error) {
+			setError(
+				error instanceof Error ? error.message : "An unknown error occurred.",
+			);
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
 	const clearMessages = () => {
-		setInitialMessages([]);
 		setCurrentChatId(null);
 		setError(null);
 	};
 
 	const handleNewChat = async () => {
-		setInitialMessages([]);
-		setCurrentChatId(null);
+		setIsLoading(true);
 		setError(null);
+		try {
+			setCurrentChatId(null);
+			setMessages([]);
+		} catch (error) {
+			console.error("Failed to create new chat:", error);
+			setError("Failed to create new chat. Please try again.");
+		} finally {
+			setIsLoading(false);
+		}
 	};
 
 	const handleChatSelect = (chatId: string) => {
-		setCurrentChatId(chatId);
+		setIsLoading(true);
 		setError(null);
-		// Clear messages immediately to avoid showing stale data while loading
-		setInitialMessages([]);
+		try {
+			setCurrentChatId(chatId);
+		} catch (error) {
+			console.error("Failed to select chat:", error);
+			setError("Failed to load chat. Please try again.");
+		} finally {
+			setIsLoading(false);
+		}
 	};
 
 	// keep URL in sync with selected model
@@ -233,36 +233,12 @@ export default function ChatPageClient({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
-	const addLocalMessage = (message: Omit<Message, "id" | "timestamp">) => {
-		const newMessage: Message = {
-			...message,
-			id: Date.now().toString(),
-			timestamp: new Date(),
-		};
-		setInitialMessages((prev) => [...prev, newMessage]);
-		return newMessage;
-	};
-
-	const { messages, sendMessage, status, stop } = useChat({
-		id: currentChatId ?? "",
-		// initialMessages: initialMessages,
-		onError: (error) => {
-			setError(error.message);
-		},
-		onFinish: () => {
-			setIsLoading(false);
-		},
-	});
 	const [text, setText] = useState("");
 
 	const supportsImages = useMemo(() => {
 		const model = availableModels.find((m) => m.id === selectedModel);
 		return !!model?.vision;
 	}, [availableModels, selectedModel]);
-
-	// Theme handled by ThemeToggle from @ui via next-themes
-
-	// const [showApiKeyManager, setShowApiKeyManager] = useState(false);
 
 	return (
 		<SidebarProvider>
@@ -273,6 +249,7 @@ export default function ChatPageClient({
 					currentChatId={currentChatId || undefined}
 					clearMessages={clearMessages}
 					userApiKey={userApiKey}
+					isLoading={isLoading}
 				/>
 				<div className="flex flex-1 flex-col w-full">
 					<ChatHeader
@@ -292,6 +269,9 @@ export default function ChatPageClient({
 						setText={setText}
 						status={status}
 						stop={stop}
+						onUserMessage={handleUserMessage}
+						isLoading={isLoading}
+						error={error}
 					/>
 				</div>
 			</div>

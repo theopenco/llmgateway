@@ -56,7 +56,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const api = useApi();
 
-	const { data, isLoading, error } = api.useQuery(
+	const { data, isLoading } = api.useQuery(
 		"get",
 		"/activity",
 		{
@@ -84,11 +84,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	};
 
 	const activityData = data?.activity || [];
-
-	// Show error state if API query failed
-	if (error) {
-		console.error("Failed to fetch activity data:", error);
-	}
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) || 0;

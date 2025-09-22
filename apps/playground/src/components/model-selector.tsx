@@ -397,7 +397,11 @@ export function ModelSelector({
 					<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent className="w-[600px] p-0">
+			<PopoverContent
+				className="w-[600px] p-0"
+				style={{ zIndex: 99999 }}
+				sideOffset={4}
+			>
 				<div className="flex">
 					{/* Main content */}
 					<div className="flex-1">
@@ -422,7 +426,12 @@ export function ModelSelector({
 											<Filter className="h-4 w-4" />
 										</Button>
 									</PopoverTrigger>
-									<PopoverContent className="w-80" side="right" align="start">
+									<PopoverContent
+										className="w-80"
+										style={{ zIndex: 100000 }}
+										side="right"
+										align="start"
+									>
 										<div className="space-y-4">
 											<div className="flex items-center justify-between">
 												<h4 className="font-medium">Filters</h4>

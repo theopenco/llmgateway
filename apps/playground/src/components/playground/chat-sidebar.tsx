@@ -8,6 +8,7 @@ import {
 	Trash2,
 	LogOutIcon,
 	MoreVerticalIcon,
+	Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -21,7 +22,6 @@ import {
 	type Chat,
 } from "@/hooks/useChats";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ interface ChatSidebarProps {
 	userApiKey: string | null;
 	clearMessages: () => void;
 	className?: string;
+	isLoading?: boolean;
 }
 
 export function ChatSidebar({
@@ -61,6 +62,7 @@ export function ChatSidebar({
 	userApiKey,
 	clearMessages,
 	className,
+	isLoading: isPageLoading = false,
 }: ChatSidebarProps) {
 	const queryClient = useQueryClient();
 	const router = useRouter();
@@ -69,7 +71,7 @@ export function ChatSidebar({
 	const { signOut } = useAuth();
 
 	// Use real chat data from API
-	const { data: chatsData, isLoading } = useChats();
+	const { data: chatsData, isLoading: isChatsLoading } = useChats();
 	const deleteChat = useDeleteChat();
 	const updateChat = useUpdateChat();
 
@@ -80,13 +82,6 @@ export function ChatSidebar({
 
 	const logout = async () => {
 		posthog.reset();
-
-		// Clear last used project cookies before signing out
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch (error) {
-			console.error("Failed to clear last used project cookies:", error);
-		}
 
 		await signOut({
 			fetchOptions: {
@@ -214,6 +209,7 @@ export function ChatSidebar({
 								onClick={() => onChatSelect?.(chat.id)}
 								className="w-full justify-start gap-3 group relative pr-10 py-6"
 								type="button"
+								disabled={isPageLoading}
 							>
 								<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
 								{editingId === chat.id ? (
@@ -292,17 +288,29 @@ export function ChatSidebar({
 		);
 	};
 
-	if (isLoading) {
+	if (isChatsLoading) {
 		return (
-			<Sidebar className="border-r md:w-[200px] lg:w-[260px]">
-				<SidebarHeader className="p-4 border-b">
-					<Button
-						onClick={onNewChat}
-						className="w-full justify-start gap-2 bg-primary hover:bg-primary/90"
-					>
-						<Plus className="h-4 w-4" />
-						New Chat
-					</Button>
+			<Sidebar className={className}>
+				<SidebarHeader>
+					<div className="flex flex-col items-center gap-4 mb-4">
+						<Link
+							href="/"
+							className="flex self-start items-center gap-2 my-2"
+							prefetch={true}
+						>
+							<Logo className="h-10 w-10" />
+							<h1 className="text-xl font-semibold">LLM Gateway</h1>
+						</Link>
+						<Button
+							variant="outline"
+							className="w-full flex items-center gap-2"
+							onClick={onNewChat}
+							disabled
+						>
+							<Loader2 className="h-4 w-4 animate-spin" />
+							New Chat
+						</Button>
+					</div>
 				</SidebarHeader>
 				<SidebarContent className="px-2 py-4">
 					<div className="flex items-center justify-center py-8">
@@ -331,8 +339,13 @@ export function ChatSidebar({
 						variant="outline"
 						className="w-full flex items-center gap-2"
 						onClick={onNewChat}
+						disabled={isPageLoading}
 					>
-						<Plus className="h-4 w-4" />
+						{isPageLoading ? (
+							<Loader2 className="h-4 w-4 animate-spin" />
+						) : (
+							<Plus className="h-4 w-4" />
+						)}
 						New Chat
 					</Button>
 				</div>
@@ -344,7 +357,7 @@ export function ChatSidebar({
 					{renderChatGroup("Last 7 days", chatGroups.lastWeek)}
 					{renderChatGroup("Older", chatGroups.older)}
 
-					{chats.length === 0 && (
+					{chats.length === 0 && !isChatsLoading && (
 						<div className="flex flex-col items-center justify-center py-8 text-center">
 							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
@@ -360,22 +373,30 @@ export function ChatSidebar({
 
 			<SidebarFooter className="border-t">
 				<div className="flex items-center justify-between p-4 pt-0">
-					<div className="flex items-center gap-3">
+					<div className="flex items-center gap-3 flex-1">
 						<Avatar className="border-border h-9 w-9 border">
-							<AvatarFallback className="bg-muted">AU</AvatarFallback>
+							<AvatarFallback className="bg-muted">
+								{user?.name?.slice(0, 2) || "AU"}
+							</AvatarFallback>
 						</Avatar>
-						<div className="text-sm">
-							<div className="flex items-center gap-2 font-medium">
+						<div className="text-sm flex-1 min-w-0">
+							<div className="flex items-center gap-2 font-medium truncate">
 								{user?.name}
-								<LogOutIcon
-									className="cursor-pointer"
-									size={14}
-									onClick={logout}
-								/>
 							</div>
-							<div className="text-xs text-muted-foreground">{user?.email}</div>
+							<div className="text-xs text-muted-foreground truncate">
+								{user?.email}
+							</div>
 						</div>
 					</div>
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={logout}
+						className="p-2 h-auto ml-2"
+						title="Sign out"
+					>
+						<LogOutIcon className="h-4 w-4" />
+					</Button>
 				</div>
 			</SidebarFooter>
 		</Sidebar>

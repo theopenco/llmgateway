@@ -6,6 +6,7 @@ import Footer from "@/components/landing/footer";
 import { Graph } from "@/components/landing/graph";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { PricingPlans } from "@/components/landing/pricing-plans";
+import { Testimonials } from "@/components/landing/testimonials";
 
 export default function Home() {
 	return (
@@ -15,6 +16,7 @@ export default function Home() {
 			<Graph />
 			<CodeExample />
 			<PricingPlans />
+			<Testimonials />
 			<Faq />
 			<CallToAction />
 			<Footer />

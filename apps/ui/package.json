@@ -68,6 +68,7 @@
 		"react": "^19.1.1",
 		"react-dom": "^19.1.1",
 		"react-hook-form": "7.60.0",
+		"react-tweet": "3.2.2",
 		"recharts": "^2.15.2",
 		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.2.0",

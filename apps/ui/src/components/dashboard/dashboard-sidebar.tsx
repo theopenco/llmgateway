@@ -377,8 +377,6 @@ function ToolsResourcesSection({
 	isMobile: boolean;
 	toggleSidebar: () => void;
 }) {
-	const { buildUrl } = useDashboardNavigation();
-
 	return (
 		<SidebarGroup>
 			<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
@@ -390,7 +388,7 @@ function ToolsResourcesSection({
 						<SidebarMenuItem key={item.href}>
 							{item.internal ? (
 								<Link
-									href={buildUrl(item.href)}
+									href={item.href}
 									className={cn(
 										"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
 										isActive(item.href)
@@ -688,7 +686,7 @@ export function DashboardSidebar({
 	const toolsResources = useMemo(
 		() => [
 			{
-				href: "models",
+				href: "/models",
 				label: "Supported Models",
 				icon: MessageSquare,
 				internal: true,
