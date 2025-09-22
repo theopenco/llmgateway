@@ -1,7 +1,7 @@
 kind: Environment
-name: bunnyshell-test
+name: main
 type: primary
-urlHandle: piveif
+urlHandle: llmg
 components:
   - kind: Application
     name: api
@@ -39,6 +39,14 @@ components:
         timeout: 10s
         interval: 30s
         retries: 3
+      deploy:
+        resources:
+          limits:
+            cpus: "0.2"
+            memory: 256M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
       ports:
         - "4002:80"
       restart: unless-stopped
@@ -71,6 +79,14 @@ components:
         timeout: 10s
         interval: 30s
         retries: 3
+      deploy:
+        resources:
+          limits:
+            cpus: "0.2"
+            memory: 256M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
       ports:
         - "3005:80"
       restart: unless-stopped
@@ -89,17 +105,18 @@ components:
         dockerfile: infra/split.dockerfile
         target: gateway
       environment:
-        NODE_ENV: production
-        PORT: "80"
+        ANTHROPIC_API_KEY: ""
         DATABASE_URL: "postgres://postgres:llmgateway_dev_password@postgres:5432/llmgateway"
+        GOOGLE_AI_STUDIO_API_KEY: ""
+        INFERENCE_NET_API_KEY: ""
+        NODE_ENV: production
+        OPENAI_API_KEY: ""
+        PORT: "80"
         REDIS_HOST: redis
         REDIS_PASSWORD: redis_dev_password
         REDIS_PORT: "6379"
-        # LLM Provider API Keys
-        OPENAI_API_KEY: ""
-        GOOGLE_AI_STUDIO_API_KEY: ""
-        INFERENCE_NET_API_KEY: ""
-        ANTHROPIC_API_KEY: ""
+        TOGETHER_AI_API_KEY: ""
+        VERTEX_API_KEY: ""
       healthcheck:
         test:
           - CMD
@@ -111,6 +128,14 @@ components:
         timeout: 10s
         interval: 30s
         retries: 3
+      deploy:
+        resources:
+          limits:
+            cpus: "0.1"
+            memory: 128M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
       ports:
         - "4001:80"
       restart: unless-stopped
@@ -132,6 +157,14 @@ components:
         timeout: 5s
         interval: 10s
         retries: 5
+      deploy:
+        resources:
+          limits:
+            cpus: "0.1"
+            memory: 128M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
       image: "postgres:17-alpine"
       ports:
         - "5432:5432"
@@ -159,6 +192,14 @@ components:
         timeout: 3s
         interval: 10s
         retries: 5
+      deploy:
+        resources:
+          limits:
+            cpus: "0.1"
+            memory: 128M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
       image: "redis:8-alpine"
       ports:
         - "6379:6379"
@@ -197,6 +238,14 @@ components:
         timeout: 10s
         interval: 30s
         retries: 3
+      deploy:
+        resources:
+          limits:
+            cpus: "0.2"
+            memory: 256M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
       ports:
         - "3002:80"
       restart: unless-stopped
