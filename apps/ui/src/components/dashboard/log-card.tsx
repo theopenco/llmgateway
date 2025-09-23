@@ -211,6 +211,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										<div>{log.reasoningTokens}</div>
 									</>
 								)}
+								{log.timeToFirstToken && (
+									<>
+										<div className="text-muted-foreground">
+											Time to First Token
+										</div>
+										<div>{formatDuration(log.timeToFirstToken)}</div>
+									</>
+								)}
+								{log.timeToFirstReasoningToken && (
+									<>
+										<div className="text-muted-foreground">
+											Time to First Reasoning Token
+										</div>
+										<div>{formatDuration(log.timeToFirstReasoningToken)}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">
 									Original Finish Reason
 								</div>
