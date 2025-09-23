@@ -264,6 +264,7 @@ export const alibabaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				stability: "unstable",
 			},
 		],
 		jsonOutput: true,
