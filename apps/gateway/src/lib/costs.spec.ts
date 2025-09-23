@@ -219,11 +219,11 @@ describe("calculateCosts", () => {
 		});
 
 		// Should calculate tokens for tool calls even with empty completion
-		expect(result.promptTokens).toBeGreaterThan(0);
-		expect(result.completionTokens).toBeGreaterThan(0); // Should include tool call tokens
-		expect(result.inputCost).toBeGreaterThan(0);
-		expect(result.outputCost).toBeGreaterThan(0); // Should have cost from tool calls
-		expect(result.totalCost).toBeGreaterThan(0);
+		expect(result.promptTokens).toBeGreaterThan(3);
+		expect(result.completionTokens).toBeGreaterThan(10); // Should include tool call tokens
+		expect(result.inputCost).toBeGreaterThan(0.000001);
+		expect(result.outputCost).toBeGreaterThan(0.00001); // Should have cost from tool calls
+		expect(result.totalCost).toBeGreaterThan(0.00001);
 		expect(result.estimatedCost).toBe(true);
 	});
 
