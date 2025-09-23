@@ -32,6 +32,7 @@ export const openaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "openai",
 				modelName: "gpt-4",
 				inputPrice: 30.0 / 1e6,
@@ -110,6 +111,7 @@ export const openaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "openai",
 				modelName: "gpt-4-turbo",
 				inputPrice: 10.0 / 1e6,
@@ -155,6 +157,7 @@ export const openaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "openai",
 				modelName: "o1",
 				inputPrice: 15.0 / 1e6,

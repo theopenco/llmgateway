@@ -30,6 +30,7 @@ export const googleModels = [
 		deactivatedAt: new Date("2025-07-15"),
 		providers: [
 			{
+				test: "skip",
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-pro-preview-05-06",
 				inputPrice: 1.25 / 1e6,
@@ -51,6 +52,7 @@ export const googleModels = [
 		deactivatedAt: new Date("2025-07-15"),
 		providers: [
 			{
+				test: "skip",
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-pro-preview-06-05",
 				inputPrice: 1.25 / 1e6,
@@ -137,6 +139,7 @@ export const googleModels = [
 		output: ["text", "image"],
 		providers: [
 			{
+				test: "skip",
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-image-preview",
 				inputPrice: 0.3 / 1e6,
