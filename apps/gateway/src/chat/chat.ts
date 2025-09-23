@@ -200,7 +200,7 @@ const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["low", "medium", "high"])
+		.enum(["minimal", "low", "medium", "high"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))
@@ -374,9 +374,11 @@ chat.openapi(completions, async (c) => {
 		stream,
 		tools,
 		tool_choice,
-		reasoning_effort,
 		free_models_only,
 	} = validationResult.data;
+
+	// Extract reasoning_effort as mutable variable for auto-routing modification
+	let reasoning_effort = validationResult.data.reasoning_effort;
 
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
@@ -1018,6 +1020,27 @@ chat.openapi(completions, async (c) => {
 	// Create the model mapping values according to new schema
 	const usedModelMapping = usedModel; // Store the original provider model name
 	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
+
+	// Auto-set reasoning_effort for auto-routing when model supports reasoning
+	if (
+		requestedModel === "auto" &&
+		reasoning_effort === undefined &&
+		finalModelInfo
+	) {
+		// Check if the selected model supports reasoning
+		const selectedModelSupportsReasoning = finalModelInfo.providers.some(
+			(provider) => (provider as ProviderModelMapping).reasoning === true,
+		);
+
+		if (selectedModelSupportsReasoning) {
+			// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
+			if (baseModelName.startsWith("gpt-5")) {
+				reasoning_effort = "minimal";
+			} else {
+				reasoning_effort = "low";
+			}
+		}
+	}
 
 	let url: string | undefined;
 

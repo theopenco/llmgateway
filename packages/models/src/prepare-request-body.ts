@@ -48,7 +48,7 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd = false,
 ): Promise<ProviderRequestBody> {
