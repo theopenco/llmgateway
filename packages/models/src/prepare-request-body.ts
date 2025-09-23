@@ -218,8 +218,11 @@ export async function prepareRequestBody(
 				};
 			}
 			if (response_format) {
-				// Override json_object to json for routeway-discount
-				if (response_format.type === "json_object") {
+				// Override json_object to json for routeway-discount only for claude models
+				if (
+					response_format.type === "json_object" &&
+					usedModel.startsWith("claude-")
+				) {
 					requestBody.response_format = {
 						...response_format,
 						type: "json",

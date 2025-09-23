@@ -28,5 +28,8 @@ export function getTestOptions(
 export function getConcurrentTestOptions(opts?: {
 	completions?: boolean;
 }): TestOptions {
-	return { concurrent: true, ...getTestOptions(opts) };
+	return {
+		concurrent: process.env.CONCURRENT_TESTS !== "false",
+		...getTestOptions(opts),
+	};
 }
