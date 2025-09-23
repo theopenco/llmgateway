@@ -59,7 +59,9 @@ export const deepseekModels = [
 				modelName: "deepseek-reasoner",
 				inputPrice: 0.55 / 1e6,
 				outputPrice: 2.19 / 1e6,
-				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
+				discount: process.env.ROUTEWAY_PAID_DISCOUNT
+					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
+					: undefined,
 				requestPrice: 0,
 				contextSize: 64000,
 				maxOutput: undefined,
@@ -167,7 +169,9 @@ export const deepseekModels = [
 				inputPrice: 0.56 / 1e6,
 				outputPrice: 1.68 / 1e6,
 				cachedInputPrice: 0.07 / 1e6,
-				discount: parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT || "1"),
+				discount: process.env.ROUTEWAY_PAID_DISCOUNT
+					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
+					: undefined,
 				requestPrice: 0,
 				contextSize: 128000,
 				maxOutput: undefined,
