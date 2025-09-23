@@ -1,6 +1,6 @@
-import { models } from "@/models.js";
+import { models } from "./models.js";
 
-import type { ProviderModelMapping } from "@/models.js";
+import type { ProviderModelMapping } from "./models.js";
 import type { TestOptions } from "vitest";
 
 /**
