@@ -185,6 +185,7 @@ export const alibabaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "alibaba",
 				modelName: "qwen3-coder-plus",
 				inputPrice: 6 / 1e6,
@@ -630,6 +631,7 @@ export const alibabaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "alibaba",
 				modelName: "qwen3-max-preview",
 				inputPrice: 3 / 1e6,

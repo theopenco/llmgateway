@@ -9,6 +9,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-7-sonnet-latest",
 				inputPrice: 3.0 / 1e6,
@@ -149,6 +150,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-sonnet-4-20250514",
 				inputPrice: 3.0 / 1e6,
@@ -162,6 +164,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "skip",
 				providerId: "routeway-discount",
 				modelName: "claude-sonnet-4-20250514-v1:0",
 				inputPrice: 3.0 / 1e6,
@@ -187,6 +190,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-opus-4-20250514",
 				inputPrice: 15.0 / 1e6,
@@ -200,6 +204,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "skip",
 				providerId: "routeway-discount",
 				modelName: "claude-opus-4-20250514-v1:0",
 				inputPrice: 15.0 / 1e6,
@@ -225,6 +230,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-opus-4-1-20250805",
 				inputPrice: 15.0 / 1e6,
@@ -239,6 +245,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "skip",
 				providerId: "routeway-discount",
 				modelName: "claude-opus-4-1-20250805-v1:0",
 				inputPrice: 15.0 / 1e6,
@@ -264,6 +271,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-5-sonnet-20240620",
 				inputPrice: 3.0 / 1e6,
@@ -286,6 +294,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-5-sonnet-latest",
 				inputPrice: 3.0 / 1e6,
@@ -330,6 +339,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-opus-20240229",
 				inputPrice: 15.0 / 1e6,

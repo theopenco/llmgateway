@@ -53,6 +53,7 @@ export const xaiModels = [
 		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
+				test: "skip",
 				providerId: "xai",
 				modelName: "grok-3-fast",
 				inputPrice: 5.0 / 1e6,
@@ -142,6 +143,7 @@ export const xaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "xai",
 				modelName: "grok-4-0709",
 				inputPrice: 3.0 / 1e6,

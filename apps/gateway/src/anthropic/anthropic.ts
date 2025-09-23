@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 
@@ -471,249 +472,248 @@ anthropic.openapi(messages, async (c) => {
 
 	// Handle streaming response
 	if (anthropicRequest.stream) {
-		return new Response("Not implemented yet, sorry!", { status: 501 });
-		// return streamSSE(c, async (stream) => {
-		// 	if (!response.body) {
-		// 		throw new HTTPException(500, { message: "No response body" });
-		// 	}
-		//
-		// 	const reader = response.body.getReader();
-		// 	const decoder = new TextDecoder();
-		//
-		// 	let buffer = "";
-		// 	let messageId = "";
-		// 	let model = "";
-		// 	let contentBlocks: Array<{
-		// 		type: string;
-		// 		text?: string;
-		// 		id?: string;
-		// 		name?: string;
-		// 		input?: string;
-		// 	}> = [];
-		// 	let usage = { input_tokens: 0, output_tokens: 0 };
-		// 	let currentTextBlockIndex: number | null = null;
-		// 	const toolCallBlockIndex = new Map<number, number>();
-		//
-		// 	try {
-		// 		while (true) {
-		// 			const { done, value } = await reader.read();
-		// 			if (done) {
-		// 				break;
-		// 			}
-		//
-		// 			buffer += decoder.decode(value, { stream: true });
-		// 			const lines = buffer.split("\n");
-		// 			buffer = lines.pop() || "";
-		//
-		// 			for (const line of lines) {
-		// 				if (line.startsWith("data: ")) {
-		// 					const data = line.slice(6).trim();
-		// 					if (data === "[DONE]") {
-		// 						// Send final Anthropic streaming event
-		// 						await stream.writeSSE({
-		// 							data: JSON.stringify({
-		// 								type: "message_stop",
-		// 							}),
-		// 							event: "message_stop",
-		// 						});
-		// 						return;
-		// 					}
-		//
-		// 					// Skip empty data lines
-		// 					if (!data) {
-		// 						continue;
-		// 					}
-		//
-		// 					try {
-		// 						const chunk = JSON.parse(data);
-		//
-		// 						if (!messageId && chunk.id) {
-		// 							messageId = chunk.id;
-		// 							model = chunk.model || anthropicRequest.model;
-		//
-		// 							// Send message_start event
-		// 							await stream.writeSSE({
-		// 								data: JSON.stringify({
-		// 									type: "message_start",
-		// 									message: {
-		// 										id: messageId,
-		// 										type: "message",
-		// 										role: "assistant",
-		// 										model: model,
-		// 										content: [],
-		// 										stop_reason: null,
-		// 										stop_sequence: null,
-		// 										usage: { input_tokens: 0, output_tokens: 0 },
-		// 									},
-		// 								}),
-		// 								event: "message_start",
-		// 							});
-		// 						}
-		//
-		// 						const choice = chunk.choices?.[0];
-		// 						if (!choice) {
-		// 							continue;
-		// 						}
-		//
-		// 						const delta = choice.delta;
-		// 						if (!delta) {
-		// 							continue;
-		// 						}
-		//
-		// 						// Handle content delta
-		// 						if (delta.content) {
-		// 							// Find or create a text block
-		// 							if (currentTextBlockIndex === null) {
-		// 								// Look for existing text block (search from end)
-		// 								let lastTextBlockIndex = -1;
-		// 								for (let i = contentBlocks.length - 1; i >= 0; i--) {
-		// 									if (contentBlocks[i].type === "text") {
-		// 										lastTextBlockIndex = i;
-		// 										break;
-		// 									}
-		// 								}
-		//
-		// 								if (lastTextBlockIndex !== -1) {
-		// 									currentTextBlockIndex = lastTextBlockIndex;
-		// 								} else {
-		// 									// Create new text block
-		// 									currentTextBlockIndex = contentBlocks.length;
-		// 									contentBlocks.push({ type: "text", text: "" });
-		// 									// Send content_block_start event
-		// 									await stream.writeSSE({
-		// 										data: JSON.stringify({
-		// 											type: "content_block_start",
-		// 											index: currentTextBlockIndex,
-		// 											content_block: { type: "text", text: "" },
-		// 										}),
-		// 										event: "content_block_start",
-		// 									});
-		// 								}
-		// 							}
-		//
-		// 							const textBlock = contentBlocks[currentTextBlockIndex];
-		// 							if (textBlock && textBlock.text !== undefined) {
-		// 								textBlock.text += delta.content;
-		// 							}
-		//
-		// 							// Send content_block_delta event
-		// 							await stream.writeSSE({
-		// 								data: JSON.stringify({
-		// 									type: "content_block_delta",
-		// 									index: currentTextBlockIndex,
-		// 									delta: { type: "text_delta", text: delta.content },
-		// 								}),
-		// 								event: "content_block_delta",
-		// 							});
-		// 						}
-		//
-		// 						// Handle tool calls
-		// 						if (delta.tool_calls) {
-		// 							for (const toolCall of delta.tool_calls) {
-		// 								if (toolCall.index === undefined) {
-		// 									continue;
-		// 								}
-		//
-		// 								let blockIndex = toolCallBlockIndex.get(toolCall.index);
-		// 								if (blockIndex === undefined) {
-		// 									blockIndex = contentBlocks.length;
-		// 									toolCallBlockIndex.set(toolCall.index, blockIndex);
-		// 									const id = toolCall.id || `tool_${toolCall.index}`;
-		// 									const name = toolCall.function?.name || "";
-		// 									contentBlocks.push({
-		// 										type: "tool_use",
-		// 										id,
-		// 										name,
-		// 										input: "",
-		// 									});
-		//
-		// 									await stream.writeSSE({
-		// 										data: JSON.stringify({
-		// 											type: "content_block_start",
-		// 											index: blockIndex,
-		// 											content_block: {
-		// 												type: "tool_use",
-		// 												id,
-		// 												name,
-		// 												input: {},
-		// 											},
-		// 										}),
-		// 										event: "content_block_start",
-		// 									});
-		// 								}
-		//
-		// 								if (toolCall.function?.arguments) {
-		// 									const toolBlock = contentBlocks[blockIndex] as {
-		// 										type: "tool_use";
-		// 										id: string;
-		// 										name: string;
-		// 										input: string;
-		// 									};
-		// 									toolBlock.input += toolCall.function.arguments;
-		//
-		// 									await stream.writeSSE({
-		// 										data: JSON.stringify({
-		// 											type: "content_block_delta",
-		// 											index: blockIndex,
-		// 											delta: {
-		// 												type: "input_json_delta",
-		// 												partial_json: toolCall.function.arguments,
-		// 											},
-		// 										}),
-		// 										event: "content_block_delta",
-		// 									});
-		// 								}
-		// 							}
-		// 						}
-		//
-		// 						// Handle finish_reason
-		// 						if (choice.finish_reason) {
-		// 							// Send content_block_stop events
-		// 							for (let i = 0; i < contentBlocks.length; i++) {
-		// 								await stream.writeSSE({
-		// 									data: JSON.stringify({
-		// 										type: "content_block_stop",
-		// 										index: i,
-		// 									}),
-		// 									event: "content_block_stop",
-		// 								});
-		// 							}
-		//
-		// 							// Update usage if available
-		// 							if (chunk.usage) {
-		// 								usage = {
-		// 									input_tokens: chunk.usage.prompt_tokens || 0,
-		// 									output_tokens: chunk.usage.completion_tokens || 0,
-		// 								};
-		// 							}
-		//
-		// 							// Send message_delta with usage
-		// 							await stream.writeSSE({
-		// 								data: JSON.stringify({
-		// 									type: "message_delta",
-		// 									delta: {
-		// 										stop_reason: determineStopReason(choice.finish_reason),
-		// 										stop_sequence: null,
-		// 									},
-		// 									usage: usage,
-		// 								}),
-		// 								event: "message_delta",
-		// 							});
-		// 						}
-		// 					} catch {
-		// 						// Ignore parsing errors for individual chunks
-		// 					}
-		// 				}
-		// 			}
-		// 		}
-		// 	} catch (error) {
-		// 		throw new HTTPException(500, {
-		// 			message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
-		// 		});
-		// 	} finally {
-		// 		reader.releaseLock();
-		// 	}
-		// });
+		return streamSSE(c, async (stream) => {
+			if (!response.body) {
+				throw new HTTPException(500, { message: "No response body" });
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+
+			let buffer = "";
+			let messageId = "";
+			let model = "";
+			let contentBlocks: Array<{
+				type: string;
+				text?: string;
+				id?: string;
+				name?: string;
+				input?: string;
+			}> = [];
+			let usage = { input_tokens: 0, output_tokens: 0 };
+			let currentTextBlockIndex: number | null = null;
+			const toolCallBlockIndex = new Map<number, number>();
+
+			try {
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) {
+						break;
+					}
+
+					buffer += decoder.decode(value, { stream: true });
+					const lines = buffer.split("\n");
+					buffer = lines.pop() || "";
+
+					for (const line of lines) {
+						if (line.startsWith("data: ")) {
+							const data = line.slice(6).trim();
+							if (data === "[DONE]") {
+								// Send final Anthropic streaming event
+								await stream.writeSSE({
+									data: JSON.stringify({
+										type: "message_stop",
+									}),
+									event: "message_stop",
+								});
+								return;
+							}
+
+							// Skip empty data lines
+							if (!data) {
+								continue;
+							}
+
+							try {
+								const chunk = JSON.parse(data);
+
+								if (!messageId && chunk.id) {
+									messageId = chunk.id;
+									model = chunk.model || anthropicRequest.model;
+
+									// Send message_start event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_start",
+											message: {
+												id: messageId,
+												type: "message",
+												role: "assistant",
+												model: model,
+												content: [],
+												stop_reason: null,
+												stop_sequence: null,
+												usage: { input_tokens: 0, output_tokens: 0 },
+											},
+										}),
+										event: "message_start",
+									});
+								}
+
+								const choice = chunk.choices?.[0];
+								if (!choice) {
+									continue;
+								}
+
+								const delta = choice.delta;
+								if (!delta) {
+									continue;
+								}
+
+								// Handle content delta
+								if (delta.content) {
+									// Find or create a text block
+									if (currentTextBlockIndex === null) {
+										// Look for existing text block (search from end)
+										let lastTextBlockIndex = -1;
+										for (let i = contentBlocks.length - 1; i >= 0; i--) {
+											if (contentBlocks[i].type === "text") {
+												lastTextBlockIndex = i;
+												break;
+											}
+										}
+
+										if (lastTextBlockIndex !== -1) {
+											currentTextBlockIndex = lastTextBlockIndex;
+										} else {
+											// Create new text block
+											currentTextBlockIndex = contentBlocks.length;
+											contentBlocks.push({ type: "text", text: "" });
+											// Send content_block_start event
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_start",
+													index: currentTextBlockIndex,
+													content_block: { type: "text", text: "" },
+												}),
+												event: "content_block_start",
+											});
+										}
+									}
+
+									const textBlock = contentBlocks[currentTextBlockIndex];
+									if (textBlock && textBlock.text !== undefined) {
+										textBlock.text += delta.content;
+									}
+
+									// Send content_block_delta event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: currentTextBlockIndex,
+											delta: { type: "text_delta", text: delta.content },
+										}),
+										event: "content_block_delta",
+									});
+								}
+
+								// Handle tool calls
+								if (delta.tool_calls) {
+									for (const toolCall of delta.tool_calls) {
+										if (toolCall.index === undefined) {
+											continue;
+										}
+
+										let blockIndex = toolCallBlockIndex.get(toolCall.index);
+										if (blockIndex === undefined) {
+											blockIndex = contentBlocks.length;
+											toolCallBlockIndex.set(toolCall.index, blockIndex);
+											const id = toolCall.id || `tool_${toolCall.index}`;
+											const name = toolCall.function?.name || "";
+											contentBlocks.push({
+												type: "tool_use",
+												id,
+												name,
+												input: "",
+											});
+
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_start",
+													index: blockIndex,
+													content_block: {
+														type: "tool_use",
+														id,
+														name,
+														input: {},
+													},
+												}),
+												event: "content_block_start",
+											});
+										}
+
+										if (toolCall.function?.arguments) {
+											const toolBlock = contentBlocks[blockIndex] as {
+												type: "tool_use";
+												id: string;
+												name: string;
+												input: string;
+											};
+											toolBlock.input += toolCall.function.arguments;
+
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_delta",
+													index: blockIndex,
+													delta: {
+														type: "input_json_delta",
+														partial_json: toolCall.function.arguments,
+													},
+												}),
+												event: "content_block_delta",
+											});
+										}
+									}
+								}
+
+								// Handle finish_reason
+								if (choice.finish_reason) {
+									// Send content_block_stop events
+									for (let i = 0; i < contentBlocks.length; i++) {
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: i,
+											}),
+											event: "content_block_stop",
+										});
+									}
+
+									// Update usage if available
+									if (chunk.usage) {
+										usage = {
+											input_tokens: chunk.usage.prompt_tokens || 0,
+											output_tokens: chunk.usage.completion_tokens || 0,
+										};
+									}
+
+									// Send message_delta with usage
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_delta",
+											delta: {
+												stop_reason: determineStopReason(choice.finish_reason),
+												stop_sequence: null,
+											},
+											usage: usage,
+										}),
+										event: "message_delta",
+									});
+								}
+							} catch {
+								// Ignore parsing errors for individual chunks
+							}
+						}
+					}
+				}
+			} catch (error) {
+				throw new HTTPException(500, {
+					message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+				});
+			} finally {
+				reader.releaseLock();
+			}
+		});
 	}
 
 	// Handle non-streaming response
