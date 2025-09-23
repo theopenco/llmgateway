@@ -213,7 +213,7 @@ activity.openapi(getActivity, async (c) => {
 	// Create a map to organize model breakdowns by date
 	const modelBreakdownByDate = new Map<
 		string,
-		(typeof modelUsageSchema._type)[]
+		z.infer<typeof modelUsageSchema>[]
 	>();
 	for (const breakdown of modelBreakdowns) {
 		if (!modelBreakdownByDate.has(breakdown.date)) {
