@@ -1,10 +1,9 @@
 "use client";
 
-import { useChat, type UIMessage } from "@ai-sdk/react";
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useChat } from "@ai-sdk/react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
-import { Message } from "@/components/ai-elements/message";
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
@@ -19,53 +18,18 @@ import {
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatUI } from "./chat-ui";
-import { DefaultChatTransport } from "ai";
+import { mapModels } from "@/lib/mapmodels";
+import { ComboboxModel } from "@/lib/types";
 
-type ComboboxModel = {
-	id: string; // providerId/modelName (value sent to API)
-	name?: string; // Friendly model name
-	provider?: string; // Provider display name
-	providerId?: string; // Provider id
-	family?: string; // Model family for icon fallback
-	context?: number;
-	inputPrice?: number;
-	outputPrice?: number;
-	vision?: boolean;
-	tools?: boolean;
+type ChatPageClientProps = {
+	models: ModelDefinition[];
+	providers: ProviderDefinition[];
 };
-
-function mapModels(
-	models: readonly ModelDefinition[],
-	providers: readonly ProviderDefinition[],
-): ComboboxModel[] {
-	const entries: ComboboxModel[] = [];
-	for (const m of models) {
-		for (const p of m.providers) {
-			const providerInfo = providers.find((pr) => pr.id === p.providerId);
-			entries.push({
-				id: `${p.providerId}/${p.modelName}`,
-				name: m.name ?? m.id,
-				provider: providerInfo?.name ?? p.providerId,
-				providerId: p.providerId,
-				family: m.family,
-				context: p.contextSize,
-				inputPrice: p.inputPrice,
-				outputPrice: p.outputPrice,
-				vision: p.vision,
-				tools: p.tools,
-			});
-		}
-	}
-	return entries;
-}
 
 export default function ChatPageClient({
 	models,
 	providers,
-}: {
-	models: ModelDefinition[];
-	providers: ProviderDefinition[];
-}) {
+}: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const { userApiKey, isLoaded: isApiKeyLoaded } = useApiKey();
 	const router = useRouter();
@@ -136,7 +100,7 @@ export default function ChatPageClient({
 	const [showApiKeyManager, setShowApiKeyManager] = useState(false);
 
 	const isAuthenticated = !isUserLoading && !!user;
-	const showAuthDialog = !isUserLoading && !user;
+	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	useEffect(() => {
 		if (isApiKeyLoaded && !userApiKey && !showAuthDialog) {

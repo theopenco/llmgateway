@@ -5,7 +5,7 @@ import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 import nodemailer from "nodemailer";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
@@ -598,11 +598,27 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 							organizationId: organization.id,
 						});
 
-						// Create a default project
-						await tx.insert(tables.project).values({
-							name: "Default Project",
-							organizationId: organization.id,
-							mode: "hybrid",
+						// Create a default project with credits mode for better conversion
+						const [project] = await tx
+							.insert(tables.project)
+							.values({
+								name: "Default Project",
+								organizationId: organization.id,
+								mode: "credits",
+							})
+							.returning();
+
+						// Auto-create an API key for the playground to use
+						// Generate a token with a prefix for better identification
+						const prefix =
+							process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+						const token = prefix + shortid(40);
+
+						await tx.insert(tables.apiKey).values({
+							projectId: project.id,
+							token: token,
+							description: "Auto-generated playground key",
+							usageLimit: null, // No limit for playground key
 						});
 					});
 				}

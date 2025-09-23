@@ -1,19 +1,7 @@
-import {
-	Message,
-	MessageAvatar,
-	MessageContent,
-} from "@/components/ai-elements/message";
-import type {
-	UIDataTypes,
-	UITools,
-	UIMessage,
-	FileUIPart,
-	ChatRequestOptions,
-	ChatStatus,
-} from "ai";
-import { Avatar, AvatarFallback } from "@radix-ui/react-avatar";
+import { Message, MessageContent } from "@/components/ai-elements/message";
+import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 import { useUser } from "@/hooks/useUser";
-import { Bot, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
 	Conversation,
@@ -36,6 +24,8 @@ import {
 	PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
 import { toast } from "sonner";
+import { Response } from "@/components/ai-elements/response";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 
 type ChatUIProps = {
 	messages: UIMessage[];
@@ -63,6 +53,19 @@ type ChatUIProps = {
 	error?: string | null;
 };
 
+const suggestions = [
+	"Write a Python script to analyze CSV data and create visualizations",
+	"Create a compelling elevator pitch for a sustainable fashion startup",
+	"Explain quantum computing like I'm 12 years old",
+	"Design a 7-day workout plan for busy professionals",
+	"Write a short mystery story in exactly 100 words",
+	"Debug this React component and suggest performance improvements",
+	"Plan the perfect weekend in Tokyo for first-time visitors",
+	"Generate creative Instagram captions for a coffee shop",
+	"Analyze the pros and cons of different programming languages",
+	"Create a meal prep plan for someone with a nut allergy",
+];
+
 export const ChatUI = ({
 	messages,
 	supportsImages,
@@ -85,20 +88,40 @@ export const ChatUI = ({
 				<Conversation>
 					<ConversationContent>
 						{messages.length === 0 ? (
-							<ConversationEmptyState description="Start chatting with any model. Add images too." />
+							<div className="max-w-4xl mx-auto">
+								<Suggestions>
+									{suggestions.map((suggestion) => (
+										<Suggestion
+											key={suggestion}
+											onClick={() => setText(suggestion)}
+											suggestion={suggestion}
+										/>
+									))}
+								</Suggestions>
+								<ConversationEmptyState description="Start chatting with any model from any provider." />
+							</div>
 						) : (
-							messages.map((m) => (
-								<Message key={m.id} from={m.role}>
-									<MessageContent variant="flat">
-										{m.parts.map((p, i) => {
-											if (p.type === "text") {
-												return <div key={i}>{p.text}</div>;
-											}
-											return null;
-										})}
-									</MessageContent>
-								</Message>
-							))
+							messages.map((m) =>
+								m.role === "assistant" ? (
+									<Response key={m.id}>
+										{m.parts
+											.filter((p) => p.type === "text")
+											.map((p) => p.text)
+											.join("")}
+									</Response>
+								) : (
+									<Message key={m.id} from={m.role}>
+										<MessageContent variant="flat">
+											{m.parts.map((p, i) => {
+												if (p.type === "text") {
+													return <div key={i}>{p.text}</div>;
+												}
+												return null;
+											})}
+										</MessageContent>
+									</Message>
+								),
+							)
 						)}
 					</ConversationContent>
 				</Conversation>

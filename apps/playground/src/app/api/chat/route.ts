@@ -2,7 +2,7 @@ import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
 import { streamText, UIMessage, convertToModelMessages } from "ai";
 
-export const maxDuration = 30;
+export const maxDuration = 300; // 5 minutes
 
 type ChatRequestBody = {
 	messages: UIMessage[];

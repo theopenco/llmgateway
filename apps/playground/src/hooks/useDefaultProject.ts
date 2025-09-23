@@ -5,21 +5,25 @@ export function useDefaultProject() {
 
 	const { data: orgsData, isError: orgsError } = api.useQuery("get", "/orgs");
 
-	if (orgsError || !orgsData?.organizations?.length) {
-		return { data: null, isError: true };
-	}
-
-	const defaultOrg = orgsData.organizations[0];
+	const defaultOrg = orgsData?.organizations?.[0];
 
 	const { data: projectsData, isError: projectsError } = api.useQuery(
 		"get",
 		"/orgs/{id}/projects",
 		{
 			params: {
-				path: { id: defaultOrg.id },
+				path: { id: defaultOrg?.id || "" },
 			},
 		},
+		{
+			enabled: !!defaultOrg?.id,
+		},
 	);
+
+	// Handle error cases and return data
+	if (orgsError || !orgsData?.organizations?.length) {
+		return { data: null, isError: true };
+	}
 
 	if (projectsError || !projectsData?.projects?.length) {
 		return { data: null, isError: true };

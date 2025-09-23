@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/sidebar";
 import { toast } from "sonner";
 import { Logo } from "@/components/ui/logo";
+import { CreditsDisplay } from "@/components/credits/credits-display";
+import { useOrganization } from "@/hooks/useOrganization";
 
 interface ChatSidebarProps {
 	currentChatId?: string;
@@ -69,6 +71,7 @@ export function ChatSidebar({
 	const posthog = usePostHog();
 	const { user } = useUser();
 	const { signOut } = useAuth();
+	const { organization, isLoading: isOrgLoading } = useOrganization();
 
 	// Use real chat data from API
 	const { data: chatsData, isLoading: isChatsLoading } = useChats();
@@ -319,6 +322,12 @@ export function ChatSidebar({
 						</div>
 					</div>
 				</SidebarContent>
+				<SidebarFooter className="border-t">
+					<CreditsDisplay
+						organization={organization}
+						isLoading={isOrgLoading}
+					/>
+				</SidebarFooter>
 			</Sidebar>
 		);
 	}
@@ -372,6 +381,7 @@ export function ChatSidebar({
 			</SidebarContent>
 
 			<SidebarFooter className="border-t">
+				<CreditsDisplay organization={organization} isLoading={isOrgLoading} />
 				<div className="flex items-center justify-between p-4 pt-0">
 					<div className="flex items-center gap-3 flex-1">
 						<Avatar className="border-border h-9 w-9 border">
