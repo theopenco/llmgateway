@@ -245,4 +245,149 @@ describe("activity endpoint", () => {
 		const res = await app.request("/activity?days=7");
 		expect(res.status).toBe(401);
 	});
+
+	test("GET /activity should correctly aggregate token counts", async () => {
+		// Clear existing logs and insert test data with known values
+		await db.delete(tables.log);
+
+		const today = new Date();
+		const yesterday = new Date(today);
+		yesterday.setDate(yesterday.getDate() - 1);
+
+		await db.insert(tables.log).values([
+			{
+				id: "token-test-1",
+				requestId: "token-test-1",
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "100",
+				completionTokens: "200",
+				totalTokens: "300",
+				cost: 0.1,
+				inputCost: 0.05,
+				outputCost: 0.05,
+				requestCost: 0,
+				messages: JSON.stringify([{ role: "user", content: "Test" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			},
+			{
+				id: "token-test-2",
+				requestId: "token-test-2",
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 1500,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1500,
+				promptTokens: "150",
+				completionTokens: "250",
+				totalTokens: "400",
+				cost: 0.15,
+				inputCost: 0.07,
+				outputCost: 0.08,
+				requestCost: 0,
+				messages: JSON.stringify([{ role: "user", content: "Test2" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			},
+			{
+				id: "token-test-3",
+				requestId: "token-test-3",
+				createdAt: yesterday,
+				updatedAt: yesterday,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 2000,
+				requestedModel: "claude-3-sonnet",
+				requestedProvider: "anthropic",
+				usedModel: "claude-3-sonnet",
+				usedProvider: "anthropic",
+				responseSize: 2000,
+				promptTokens: "300",
+				completionTokens: "500",
+				totalTokens: "800",
+				cost: 0.25,
+				inputCost: 0.1,
+				outputCost: 0.15,
+				requestCost: 0,
+				messages: JSON.stringify([{ role: "user", content: "Test3" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			},
+		]);
+
+		const res = await app.request("/activity?days=7", {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+
+		// Verify the response structure
+		expect(Array.isArray(data.activity)).toBe(true);
+		expect(data.activity.length).toBeGreaterThan(0);
+
+		// Calculate totals from the response
+		const totalRequests = data.activity.reduce(
+			(sum: number, day: any) => sum + day.requestCount,
+			0,
+		);
+		const totalTokens = data.activity.reduce(
+			(sum: number, day: any) => sum + day.totalTokens,
+			0,
+		);
+		const totalInputTokens = data.activity.reduce(
+			(sum: number, day: any) => sum + day.inputTokens,
+			0,
+		);
+		const totalOutputTokens = data.activity.reduce(
+			(sum: number, day: any) => sum + day.outputTokens,
+			0,
+		);
+		const totalCost = data.activity.reduce(
+			(sum: number, day: any) => sum + day.cost,
+			0,
+		);
+
+		// Verify correct aggregation
+		expect(totalRequests).toBe(3);
+		expect(totalTokens).toBe(1500); // 300 + 400 + 800
+		expect(totalInputTokens).toBe(550); // 100 + 150 + 300
+		expect(totalOutputTokens).toBe(950); // 200 + 250 + 500
+		expect(totalCost).toBeCloseTo(0.5, 2); // 0.10 + 0.15 + 0.25
+
+		// Verify individual days
+		const todayData = data.activity.find((day: any) => day.requestCount === 2);
+		const yesterdayData = data.activity.find(
+			(day: any) => day.requestCount === 1,
+		);
+
+		expect(todayData).toBeDefined();
+		expect(todayData.totalTokens).toBe(700); // 300 + 400
+		expect(todayData.inputTokens).toBe(250); // 100 + 150
+		expect(todayData.outputTokens).toBe(450); // 200 + 250
+
+		expect(yesterdayData).toBeDefined();
+		expect(yesterdayData.totalTokens).toBe(800);
+		expect(yesterdayData.inputTokens).toBe(300);
+		expect(yesterdayData.outputTokens).toBe(500);
+	});
 });

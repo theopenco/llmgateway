@@ -222,34 +222,44 @@ activity.openapi(getActivity, async (c) => {
 		modelBreakdownByDate.get(breakdown.date)!.push({
 			id: breakdown.usedModel || "unknown",
 			provider: breakdown.usedProvider || "unknown",
-			requestCount: breakdown.requestCount,
-			inputTokens: breakdown.inputTokens,
-			outputTokens: breakdown.outputTokens,
-			totalTokens: breakdown.totalTokens,
-			cost: breakdown.cost,
+			requestCount: Number(breakdown.requestCount),
+			inputTokens: Number(breakdown.inputTokens),
+			outputTokens: Number(breakdown.outputTokens),
+			totalTokens: Number(breakdown.totalTokens),
+			cost: Number(breakdown.cost),
 		});
 	}
 
 	// Process daily aggregates and add calculated fields
 	const activityData = dailyAggregates.map((day) => {
-		const errorRate =
-			day.requestCount > 0 ? (day.errorCount / day.requestCount) * 100 : 0;
-		const cacheRate =
-			day.requestCount > 0 ? (day.cacheCount / day.requestCount) * 100 : 0;
+		// Convert database strings to numbers
+		const requestCount = Number(day.requestCount);
+		const inputTokens = Number(day.inputTokens);
+		const outputTokens = Number(day.outputTokens);
+		const totalTokens = Number(day.totalTokens);
+		const cost = Number(day.cost);
+		const inputCost = Number(day.inputCost);
+		const outputCost = Number(day.outputCost);
+		const requestCost = Number(day.requestCost);
+		const errorCount = Number(day.errorCount);
+		const cacheCount = Number(day.cacheCount);
+
+		const errorRate = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
+		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
 
 		return {
 			date: day.date,
-			requestCount: day.requestCount,
-			inputTokens: day.inputTokens,
-			outputTokens: day.outputTokens,
-			totalTokens: day.totalTokens,
-			cost: day.cost,
-			inputCost: day.inputCost,
-			outputCost: day.outputCost,
-			requestCost: day.requestCost,
-			errorCount: day.errorCount,
+			requestCount,
+			inputTokens,
+			outputTokens,
+			totalTokens,
+			cost,
+			inputCost,
+			outputCost,
+			requestCost,
+			errorCount,
 			errorRate,
-			cacheCount: day.cacheCount,
+			cacheCount,
 			cacheRate,
 			modelBreakdown: modelBreakdownByDate.get(day.date) || [],
 		};
