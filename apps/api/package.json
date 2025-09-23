@@ -30,7 +30,7 @@
 		"bcrypt-ts": "7.0.0",
 		"better-auth": "1.2.7",
 		"dotenv": "16.5.0",
-		"drizzle-zod": "0.7.1",
+		"drizzle-zod": "0.8.3",
 		"gateway": "workspace:*",
 		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
