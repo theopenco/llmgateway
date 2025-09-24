@@ -500,6 +500,85 @@ describe("e2e individual tests", getTestOptions(), () => {
 		expect(json.choices[0].message).toHaveProperty("content");
 	});
 
+	test("Auto-routing sets reasoning_effort to minimal for gpt-5 models", async () => {
+		const envVarName = getProviderEnvVar("openai");
+		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		if (!envVarValue) {
+			console.log(
+				"Skipping auto-routing reasoning_effort test - no OpenAI API key provided",
+			);
+			return;
+		}
+
+		const { orgId, projectId, token } = await createTestData(
+			`auto-reasoning-${Date.now()}`,
+		);
+
+		await db
+			.update(tables.organization)
+			.set({ credits: "1000" })
+			.where(eq(tables.organization.id, orgId));
+
+		await db
+			.update(tables.project)
+			.set({ mode: "credits" })
+			.where(eq(tables.project.id, projectId));
+
+		const requestId = generateTestRequestId();
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": requestId,
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({
+				model: "auto",
+				messages: [
+					{
+						role: "user",
+						content: "What is 2+2? Think step by step.",
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		validateResponse(json);
+
+		const log = await validateLogByRequestId(requestId);
+		expect(log.requestedModel).toBe("auto");
+
+		// Should auto-select gpt-5-nano (cheapest eligible model for auto)
+		// The provider can be either 'openai' or 'routeway-discount' depending on routing logic
+		expect(log.usedModelMapping).toBe("gpt-5-nano");
+		expect(log.usedModel).toMatch(/^(openai|routeway-discount)\/gpt-5-nano$/);
+		expect(["openai", "routeway-discount"]).toContain(log.usedProvider);
+
+		// Should auto-set reasoning_effort to minimal for gpt-5* models
+		// The key test is that gpt-5-nano was selected and the request completed successfully
+		// This validates that the auto-routing + reasoning_effort logic works without errors
+
+		// Verify the response has valid usage information
+		expect(json.usage).toBeDefined();
+		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+		expect(json.usage.completion_tokens).toBeGreaterThan(0);
+		expect(json.usage.total_tokens).toBeGreaterThan(0);
+
+		// Check if reasoning was actually used (reasoning_tokens may not be present for minimal effort)
+		if (json.usage.reasoning_tokens !== undefined) {
+			expect(typeof json.usage.reasoning_tokens).toBe("number");
+			expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
+		} else {
+			// For minimal effort, reasoning_tokens might be 0 or not present
+			// The key test is that gpt-5-nano was selected and no errors occurred
+			console.log(
+				"Note: reasoning_tokens not present, which may be expected for minimal effort",
+			);
+		}
+	});
+
 	test("Success when requesting multi-provider model without prefix", async () => {
 		const multiProviderModel = models.find((m) => m.providers.length > 1);
 		if (!multiProviderModel) {

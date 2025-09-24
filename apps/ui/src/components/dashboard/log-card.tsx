@@ -179,6 +179,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Duration</div>
 								<div>{formatDuration(log.duration ?? 0)}</div>
+								{log.timeToFirstToken && (
+									<>
+										<div className="text-muted-foreground">
+											Time to First Token
+										</div>
+										<div>{formatDuration(log.timeToFirstToken)}</div>
+									</>
+								)}
+								{log.timeToFirstReasoningToken && (
+									<>
+										<div className="text-muted-foreground">
+											Time to First Reasoning Token
+										</div>
+										<div>{formatDuration(log.timeToFirstReasoningToken)}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Response Size</div>
 								<div>
 									{log.responseSize ? (

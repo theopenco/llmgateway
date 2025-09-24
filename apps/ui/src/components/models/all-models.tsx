@@ -20,6 +20,7 @@ import {
 	ImagePlus,
 	AlertTriangle,
 	ExternalLink,
+	Percent,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -126,6 +127,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			reasoning: searchParams.get("reasoning") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			free: searchParams.get("free") === "true",
+			discounted: searchParams.get("discounted") === "true",
 		},
 		selectedProvider: searchParams.get("provider") || "all",
 		inputPrice: {
@@ -221,6 +223,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				return false;
 			}
 			if (filters.capabilities.free && !model.free) {
+				return false;
+			}
+			if (
+				filters.capabilities.discounted &&
+				!model.providerDetails.some((p) => p.provider.discount)
+			) {
 				return false;
 			}
 
@@ -448,11 +456,27 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		}
 	};
 
-	const formatPrice = (price: number | undefined) => {
+	const formatPrice = (price: number | undefined, discount?: number) => {
 		if (price === undefined) {
 			return "—";
 		}
-		return `$${(price * 1e6).toFixed(2)}`;
+		const originalPrice = (price * 1e6).toFixed(2);
+		if (discount) {
+			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
+			return (
+				<div className="flex flex-col justify-items-center">
+					<div className="flex items-center gap-1">
+						<span className="line-through text-muted-foreground text-xs">
+							${originalPrice}
+						</span>
+						<span className="text-green-600 font-semibold">
+							${discountedPrice}
+						</span>
+					</div>
+				</div>
+			);
+		}
+		return `$${originalPrice}`;
 	};
 
 	const getCapabilityIcons = (provider: ProviderModelMapping, model?: any) => {
@@ -505,6 +529,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				reasoning: false,
 				imageGeneration: false,
 				free: false,
+				discounted: false,
 			},
 			selectedProvider: "all",
 			inputPrice: { min: "", max: "" },
@@ -521,6 +546,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			tools: undefined,
 			reasoning: undefined,
 			free: undefined,
+			discounted: undefined,
 			provider: undefined,
 			inputPriceMin: undefined,
 			inputPriceMax: undefined,
@@ -590,6 +616,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									label: "Free",
 									icon: Gift,
 									color: "text-emerald-500",
+								},
+								{
+									key: "discounted",
+									label: "Discounted",
+									icon: Percent,
+									color: "text-red-500",
 								},
 							].map(({ key, label, icon: Icon, color }) => (
 								<div key={key} className="flex items-center space-x-2">
@@ -949,7 +981,21 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												key={provider.providerId}
 												className="text-sm font-mono"
 											>
-												{formatPrice(provider.inputPrice)}/M
+												{typeof formatPrice(
+													provider.inputPrice,
+													provider.discount,
+												) === "string" ? (
+													formatPrice(provider.inputPrice, provider.discount) +
+													"/M"
+												) : (
+													<div className="flex gap-1 flex-row justify-center">
+														{formatPrice(
+															provider.inputPrice,
+															provider.discount,
+														)}
+														<span className="text-muted-foreground">/M</span>
+													</div>
+												)}
 											</div>
 										))}
 									</div>
@@ -962,7 +1008,21 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												key={provider.providerId}
 												className="text-sm font-mono"
 											>
-												{formatPrice(provider.outputPrice)}/M
+												{typeof formatPrice(
+													provider.outputPrice,
+													provider.discount,
+												) === "string" ? (
+													formatPrice(provider.outputPrice, provider.discount) +
+													"/M"
+												) : (
+													<div className="flex gap-1 flex-row justify-center">
+														{formatPrice(
+															provider.outputPrice,
+															provider.discount,
+														)}
+														<span className="text-muted-foreground">/M</span>
+													</div>
+												)}
 											</div>
 										))}
 									</div>
@@ -1172,11 +1232,44 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									{model.providerDetails.map(({ provider }) => (
 										<div
 											key={provider.providerId}
-											className="text-muted-foreground text-xs"
+											className="text-muted-foreground text-xs space-y-1"
 										>
-											In: {formatPrice(provider.inputPrice)}/M
-											<br />
-											Out: {formatPrice(provider.outputPrice)}/M
+											<div>
+												In:{" "}
+												{typeof formatPrice(
+													provider.inputPrice,
+													provider.discount,
+												) === "string" ? (
+													formatPrice(provider.inputPrice, provider.discount) +
+													"/M"
+												) : (
+													<span className="inline-block">
+														{formatPrice(
+															provider.inputPrice,
+															provider.discount,
+														)}
+														<span>/M</span>
+													</span>
+												)}
+											</div>
+											<div>
+												Out:{" "}
+												{typeof formatPrice(
+													provider.outputPrice,
+													provider.discount,
+												) === "string" ? (
+													formatPrice(provider.outputPrice, provider.discount) +
+													"/M"
+												) : (
+													<span className="inline-block">
+														{formatPrice(
+															provider.outputPrice,
+															provider.discount,
+														)}
+														<span>/M</span>
+													</span>
+												)}
+											</div>
 										</div>
 									))}
 								</div>

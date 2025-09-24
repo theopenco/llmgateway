@@ -183,14 +183,14 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "low" | "medium" | "high";
+	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 }
 
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIMessage[];
 	reasoning: {
-		effort: "low" | "medium" | "high";
+		effort: "minimal" | "low" | "medium" | "high";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -285,7 +285,7 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAITool[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 ) => Promise<ProviderRequestBody>;

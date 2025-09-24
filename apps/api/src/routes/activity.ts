@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { db } from "@llmgateway/db";
+import { db, sql, tables, inArray, and, gte, lte } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -127,115 +127,142 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// Query logs for all projects in range
-	const rawLogs = await db.query.log.findMany({
-		where: {
-			projectId: { in: projectIds },
-			createdAt: {
-				gte: startDate,
-				lte: endDate,
-			},
-		},
-	});
+	// Query daily aggregated data using database-level aggregation
+	const dailyAggregates = await db
+		.select({
+			date: sql<string>`DATE(${tables.log.createdAt})`.as("date"),
+			requestCount: sql<number>`COUNT(*)`.as("requestCount"),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.promptTokens} AS NUMERIC)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.completionTokens} AS NUMERIC)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
+			inputCost: sql<number>`COALESCE(SUM(${tables.log.inputCost}), 0)`.as(
+				"inputCost",
+			),
+			outputCost: sql<number>`COALESCE(SUM(${tables.log.outputCost}), 0)`.as(
+				"outputCost",
+			),
+			requestCost: sql<number>`COALESCE(SUM(${tables.log.requestCost}), 0)`.as(
+				"requestCost",
+			),
+			errorCount:
+				sql<number>`SUM(CASE WHEN ${tables.log.hasError} = true THEN 1 ELSE 0 END)`.as(
+					"errorCount",
+				),
+			cacheCount:
+				sql<number>`SUM(CASE WHEN ${tables.log.cached} = true THEN 1 ELSE 0 END)`.as(
+					"cacheCount",
+				),
+		})
+		.from(tables.log)
+		.where(
+			and(
+				inArray(tables.log.projectId, projectIds),
+				gte(tables.log.createdAt, startDate),
+				lte(tables.log.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.log.createdAt})`)
+		.orderBy(sql`DATE(${tables.log.createdAt}) ASC`);
 
-	// Process the raw logs to create the activity response
-	const activityMap = new Map<string, typeof dailyActivitySchema._type>();
-	// Map to track model breakdown aggregation per day: dateStr -> modelKey -> aggregated data
-	const modelBreakdownMap = new Map<
+	// Query model breakdown data using database-level aggregation
+	const modelBreakdowns = await db
+		.select({
+			date: sql<string>`DATE(${tables.log.createdAt})`.as("date"),
+			usedModel: tables.log.usedModel,
+			usedProvider: tables.log.usedProvider,
+			requestCount: sql<number>`COUNT(*)`.as("requestCount"),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.promptTokens} AS NUMERIC)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.completionTokens} AS NUMERIC)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
+		})
+		.from(tables.log)
+		.where(
+			and(
+				inArray(tables.log.projectId, projectIds),
+				gte(tables.log.createdAt, startDate),
+				lte(tables.log.createdAt, endDate),
+			),
+		)
+		.groupBy(
+			sql`DATE(${tables.log.createdAt}), ${tables.log.usedModel}, ${tables.log.usedProvider}`,
+		)
+		.orderBy(
+			sql`DATE(${tables.log.createdAt}) ASC, ${tables.log.usedModel} ASC`,
+		);
+
+	// Create a map to organize model breakdowns by date
+	const modelBreakdownByDate = new Map<
 		string,
-		Map<string, typeof modelUsageSchema._type>
+		z.infer<typeof modelUsageSchema>[]
 	>();
-
-	for (const log of rawLogs) {
-		const promptTokens = Number(log.promptTokens || 0);
-		const completionTokens = Number(log.completionTokens || 0);
-		const totalTokens = Number(log.totalTokens || 0);
-		const requestCount = 1;
-		const totalCost = Number(log.cost || 0);
-		const inputCost = Number(log.inputCost || 0);
-		const outputCost = Number(log.outputCost || 0);
-		const requestCost = Number(log.requestCost || 0);
-
-		const dateStr = log.createdAt.toISOString().split("T")[0];
-
-		// Create or update the day entry
-		if (!activityMap.has(dateStr)) {
-			activityMap.set(dateStr, {
-				date: dateStr,
-				requestCount: 0,
-				inputTokens: 0,
-				outputTokens: 0,
-				totalTokens: 0,
-				cost: 0,
-				inputCost: 0,
-				outputCost: 0,
-				requestCost: 0,
-				errorCount: 0,
-				errorRate: 0,
-				cacheCount: 0,
-				cacheRate: 0,
-				modelBreakdown: [],
-			});
-			modelBreakdownMap.set(dateStr, new Map());
+	for (const breakdown of modelBreakdowns) {
+		if (!modelBreakdownByDate.has(breakdown.date)) {
+			modelBreakdownByDate.set(breakdown.date, []);
 		}
-
-		const dayData = activityMap.get(dateStr)!;
-		const dayModelMap = modelBreakdownMap.get(dateStr)!;
-
-		// Update the day totals
-		dayData.requestCount += requestCount;
-		dayData.inputTokens += promptTokens;
-		dayData.outputTokens += completionTokens;
-		dayData.totalTokens += totalTokens;
-		dayData.cost += totalCost;
-		dayData.inputCost += inputCost;
-		dayData.outputCost += outputCost;
-		dayData.requestCost += requestCost;
-		dayData.errorCount += log.hasError ? 1 : 0;
-		dayData.cacheCount += log.cached ? 1 : 0;
-		dayData.errorRate =
-			dayData.requestCount > 0
-				? (dayData.errorCount / dayData.requestCount) * 100
-				: 0;
-		dayData.cacheRate =
-			dayData.requestCount > 0
-				? (dayData.cacheCount / dayData.requestCount) * 100
-				: 0;
-
-		// Aggregate model breakdown data
-		const model = log.usedModel || "unknown";
-		const provider = log.usedProvider || "unknown";
-		const modelKey = `${model}:${provider}`;
-
-		if (!dayModelMap.has(modelKey)) {
-			dayModelMap.set(modelKey, {
-				id: model,
-				provider,
-				requestCount: 0,
-				inputTokens: 0,
-				outputTokens: 0,
-				totalTokens: 0,
-				cost: 0,
-			});
-		}
-
-		const modelData = dayModelMap.get(modelKey)!;
-		modelData.requestCount += requestCount;
-		modelData.inputTokens += promptTokens;
-		modelData.outputTokens += completionTokens;
-		modelData.totalTokens += totalTokens;
-		modelData.cost += totalCost;
+		modelBreakdownByDate.get(breakdown.date)!.push({
+			id: breakdown.usedModel || "unknown",
+			provider: breakdown.usedProvider || "unknown",
+			requestCount: Number(breakdown.requestCount),
+			inputTokens: Number(breakdown.inputTokens),
+			outputTokens: Number(breakdown.outputTokens),
+			totalTokens: Number(breakdown.totalTokens),
+			cost: Number(breakdown.cost),
+		});
 	}
 
-	// Convert aggregated model data to arrays
-	for (const [dateStr, dayModelMap] of modelBreakdownMap) {
-		const dayData = activityMap.get(dateStr)!;
-		dayData.modelBreakdown = Array.from(dayModelMap.values());
-	}
+	// Process daily aggregates and add calculated fields
+	const activityData = dailyAggregates.map((day) => {
+		// Convert database strings to numbers
+		const requestCount = Number(day.requestCount);
+		const inputTokens = Number(day.inputTokens);
+		const outputTokens = Number(day.outputTokens);
+		const totalTokens = Number(day.totalTokens);
+		const cost = Number(day.cost);
+		const inputCost = Number(day.inputCost);
+		const outputCost = Number(day.outputCost);
+		const requestCost = Number(day.requestCost);
+		const errorCount = Number(day.errorCount);
+		const cacheCount = Number(day.cacheCount);
 
-	// Convert the map to an array and sort by date
-	const activityData = Array.from(activityMap.values()).sort((a, b) => {
-		return new Date(a.date).getTime() - new Date(b.date).getTime();
+		const errorRate = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
+		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
+
+		return {
+			date: day.date,
+			requestCount,
+			inputTokens,
+			outputTokens,
+			totalTokens,
+			cost,
+			inputCost,
+			outputCost,
+			requestCost,
+			errorCount,
+			errorRate,
+			cacheCount,
+			cacheRate,
+			modelBreakdown: modelBreakdownByDate.get(day.date) || [],
+		};
 	});
 
 	return c.json({

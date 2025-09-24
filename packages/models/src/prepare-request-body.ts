@@ -48,7 +48,7 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd = false,
 ): Promise<ProviderRequestBody> {
@@ -77,14 +77,14 @@ export async function prepareRequestBody(
 		requestBody.tool_choice = tool_choice;
 	}
 
+	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
+	if (usedModel.startsWith("gpt-5")) {
+		// eslint-disable-next-line no-param-reassign
+		temperature = 1;
+	}
+
 	switch (usedProvider) {
 		case "openai": {
-			// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
-			let effectiveTemperature = temperature;
-			if (usedModel.startsWith("gpt-5")) {
-				effectiveTemperature = 1;
-			}
-
 			// Check if messages contain existing tool calls or tool results
 			// If so, use Chat Completions API instead of Responses API
 			const hasExistingToolCalls = messages.some(
@@ -131,8 +131,8 @@ export async function prepareRequestBody(
 				}
 
 				// Add optional parameters if they are provided
-				if (effectiveTemperature !== undefined) {
-					responsesBody.temperature = effectiveTemperature;
+				if (temperature !== undefined) {
+					responsesBody.temperature = temperature;
 				}
 				if (max_tokens !== undefined) {
 					responsesBody.max_output_tokens = max_tokens;
@@ -151,8 +151,8 @@ export async function prepareRequestBody(
 				}
 
 				// Add optional parameters if they are provided
-				if (effectiveTemperature !== undefined) {
-					requestBody.temperature = effectiveTemperature;
+				if (temperature !== undefined) {
+					requestBody.temperature = temperature;
 				}
 				if (max_tokens !== undefined) {
 					// GPT-5 models use max_completion_tokens instead of max_tokens
@@ -218,8 +218,11 @@ export async function prepareRequestBody(
 				};
 			}
 			if (response_format) {
-				// Override json_object to json for routeway-discount
-				if (response_format.type === "json_object") {
+				// Override json_object to json for routeway-discount only for claude models
+				if (
+					response_format.type === "json_object" &&
+					usedModel.startsWith("claude-")
+				) {
 					requestBody.response_format = {
 						...response_format,
 						type: "json",

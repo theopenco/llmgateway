@@ -1,6 +1,6 @@
-import { models } from "@/models.js";
+import { models } from "./models.js";
 
-import type { ProviderModelMapping } from "@/models.js";
+import type { ProviderModelMapping } from "./models.js";
 import type { TestOptions } from "vitest";
 
 /**
@@ -28,5 +28,8 @@ export function getTestOptions(
 export function getConcurrentTestOptions(opts?: {
 	completions?: boolean;
 }): TestOptions {
-	return { concurrent: true, ...getTestOptions(opts) };
+	return {
+		concurrent: process.env.CONCURRENT_TESTS !== "false",
+		...getTestOptions(opts),
+	};
 }
