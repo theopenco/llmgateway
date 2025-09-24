@@ -141,11 +141,22 @@ export default async function ModelPage({ params }: PageProps) {
 								{(() => {
 									const inputPrices = modelProviders
 										.filter((p) => p.inputPrice)
-										.map((p) => (p.inputPrice! * 1e6).toFixed(2))
-										.map(Number);
-									return inputPrices.length > 0
-										? `$${Math.min(...inputPrices)}/M`
-										: "Free";
+										.map((p) => ({
+											price:
+												p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1),
+											originalPrice: p.inputPrice! * 1e6,
+											discount: p.discount,
+										}));
+									if (inputPrices.length === 0) {
+										return "Free";
+									}
+									const minPrice = Math.min(...inputPrices.map((p) => p.price));
+									const minPriceItem = inputPrices.find(
+										(p) => p.price === minPrice,
+									);
+									return minPriceItem?.discount
+										? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
+										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								input tokens
 							</div>
@@ -154,11 +165,26 @@ export default async function ModelPage({ params }: PageProps) {
 								{(() => {
 									const outputPrices = modelProviders
 										.filter((p) => p.outputPrice)
-										.map((p) => (p.outputPrice! * 1e6).toFixed(2))
-										.map(Number);
-									return outputPrices.length > 0
-										? `$${Math.min(...outputPrices)}/M`
-										: "Free";
+										.map((p) => ({
+											price:
+												p.outputPrice! *
+												1e6 *
+												(p.discount ? 1 - p.discount : 1),
+											originalPrice: p.outputPrice! * 1e6,
+											discount: p.discount,
+										}));
+									if (outputPrices.length === 0) {
+										return "Free";
+									}
+									const minPrice = Math.min(
+										...outputPrices.map((p) => p.price),
+									);
+									const minPriceItem = outputPrices.find(
+										(p) => p.price === minPrice,
+									);
+									return minPriceItem?.discount
+										? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
+										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								output tokens
 							</div>
