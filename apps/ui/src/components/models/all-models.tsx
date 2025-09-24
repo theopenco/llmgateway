@@ -464,7 +464,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		if (discount) {
 			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
 			return (
-				<div className="flex flex-col">
+				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">
 						<span className="line-through text-muted-foreground text-xs">
 							${originalPrice}
@@ -472,9 +472,6 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 						<span className="text-green-600 font-semibold">
 							${discountedPrice}
 						</span>
-					</div>
-					<div className="text-xs text-green-600">
-						-{(discount * 100).toFixed(0)}% off
 					</div>
 				</div>
 			);
@@ -991,7 +988,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 													formatPrice(provider.inputPrice, provider.discount) +
 													"/M"
 												) : (
-													<div>
+													<div className="flex gap-1 flex-row justify-center">
 														{formatPrice(
 															provider.inputPrice,
 															provider.discount,
@@ -1018,7 +1015,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 													formatPrice(provider.outputPrice, provider.discount) +
 													"/M"
 												) : (
-													<div>
+													<div className="flex gap-1 flex-row justify-center">
 														{formatPrice(
 															provider.outputPrice,
 															provider.discount,
