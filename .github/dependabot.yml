@@ -2,11 +2,15 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
+    cooldown:
+      default-days: 5
     schedule:
       interval: "daily"
 
   - package-ecosystem: "docker"
     directory: "/"
+    cooldown:
+      default-days: 5
     schedule:
       interval: "monthly"
 
@@ -14,6 +18,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 5
     groups:
       abinnovision:
         patterns:

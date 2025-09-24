@@ -19,7 +19,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
-import { models, providers } from "@llmgateway/models";
+import { providers } from "@llmgateway/models";
 
 import type { Log } from "@llmgateway/db";
 
@@ -72,6 +72,16 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 	);
 
 	const api = useApi();
+
+	// Fetch unique models for the current project
+	const { data: uniqueModels } = api.useQuery("get", "/logs/unique-models", {
+		params: {
+			query: projectId ? { projectId } : {},
+		},
+		enabled: !!projectId,
+		refetchOnWindowFocus: false,
+		staleTime: 10 * 60 * 1000, // 10 minutes
+	});
 	const scrollPositionRef = useRef<number>(0);
 	const isFilteringRef = useRef<boolean>(false);
 
@@ -301,9 +311,9 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All models</SelectItem>
-						{models.map((m) => (
-							<SelectItem key={m.id} value={m.id}>
-								{m.id}
+						{(uniqueModels?.models || []).map((modelName) => (
+							<SelectItem key={modelName} value={modelName}>
+								{modelName}
 							</SelectItem>
 						))}
 					</SelectContent>

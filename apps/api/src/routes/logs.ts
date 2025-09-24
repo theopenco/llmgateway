@@ -366,9 +366,11 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter
+	// Add model filter - match the model name part after the slash
 	if (model) {
-		whereConditions.push(eq(tables.log.usedModel, model));
+		whereConditions.push(
+			sql`SPLIT_PART(${tables.log.usedModel}, '/', 2) = ${model}`,
+		);
 	}
 
 	// Add provider filter
@@ -501,5 +503,149 @@ logs.openapi(get, async (c) => {
 			hasMore,
 			limit,
 		},
+	});
+});
+
+const uniqueModelsGet = createRoute({
+	method: "get",
+	path: "/unique-models",
+	request: {
+		query: z.object({
+			projectId: z.string().optional().openapi({
+				description: "Filter models by project ID",
+			}),
+			orgId: z.string().optional().openapi({
+				description: "Filter models by organization ID",
+			}),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						models: z.array(z.string()).openapi({
+							description:
+								"Array of unique model names (extracted from provider/model)",
+						}),
+					}),
+				},
+			},
+			description: "Unique models response.",
+		},
+	},
+});
+
+logs.openapi(uniqueModelsGet, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const query = c.req.valid("query");
+	const { projectId, orgId } = query;
+
+	// Find all organizations the user belongs to
+	const userOrganizations = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!userOrganizations.length) {
+		return c.json({
+			models: [],
+		});
+	}
+
+	// Get all organizations the user is a member of
+	const organizationIds = userOrganizations
+		.filter((uo) => uo.organization?.status !== "deleted")
+		.map((uo) => uo.organizationId);
+
+	// If org filter is provided, check if user has access to it
+	if (orgId && !organizationIds.includes(orgId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this organization",
+		});
+	}
+
+	// Get all projects associated with the user's organizations
+	const projectsQuery: any = {
+		where: {
+			organizationId: {
+				in: orgId ? [orgId] : organizationIds,
+			},
+			status: {
+				ne: "deleted",
+			},
+		},
+	};
+
+	// If projectId is provided, check if it belongs to user's organizations
+	if (projectId) {
+		projectsQuery.where.id = projectId;
+	}
+
+	const projects = await db.query.project.findMany(projectsQuery);
+
+	if (!projects.length) {
+		return c.json({
+			models: [],
+		});
+	}
+
+	const projectIds = projects.map((project) => project.id);
+
+	// If projectId is provided but not found in user's projects, deny access
+	if (projectId && !projectIds.includes(projectId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	// Build where conditions
+	const whereConditions = [];
+	if (projectId) {
+		whereConditions.push(eq(tables.log.projectId, projectId));
+	} else {
+		whereConditions.push(inArray(tables.log.projectId, projectIds));
+	}
+
+	// Execute query to get distinct usedModel values
+	const finalWhereClause =
+		whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+	let dbQuery = db
+		.selectDistinct({ usedModel: tables.log.usedModel })
+		.from(tables.log);
+
+	if (finalWhereClause) {
+		// @ts-ignore
+		dbQuery = dbQuery.where(finalWhereClause);
+	}
+
+	const uniqueUsedModels = await dbQuery;
+
+	// Extract model names (part after the slash) from usedModel field
+	const modelNames = uniqueUsedModels
+		.map((row) => {
+			const usedModel = row.usedModel;
+			const slashIndex = usedModel.indexOf("/");
+			return slashIndex !== -1
+				? usedModel.substring(slashIndex + 1)
+				: usedModel;
+		})
+		.filter((model, index, array) => array.indexOf(model) === index) // Remove duplicates
+		.sort();
+
+	return c.json({
+		models: modelNames,
 	});
 });
