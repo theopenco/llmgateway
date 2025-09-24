@@ -76,6 +76,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/playground/package.json ./apps/playground/
 COPY apps/ui/package.json ./apps/ui/
 COPY apps/worker/package.json ./apps/worker/
 COPY packages/db/package.json ./packages/db/
