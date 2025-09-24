@@ -18,7 +18,7 @@ image:
 docker run -d \
   --name llmgateway \
   --restart unless-stopped \
-  -p 3002:3002 -p 3005:3005 -p 4001:4001 -p 4002:4002 \
+  -p 3002:3002 -p 3003:3003 -p 3005:3005 -p 4001:4001 -p 4002:4002 \
   -v ~/llmgateway_data:/var/lib/postgresql/data \
   -e AUTH_SECRET=your-secret-key-here \
   ghcr.io/theopenco/llmgateway-unified:latest

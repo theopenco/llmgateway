@@ -9,6 +9,7 @@ services:
     restart: unless-stopped
     ports:
       - "3002:3002" # UI
+      - "3003:3003" # Playground
       - "3005:3005" # Docs
       - "4001:4001" # Gateway
       - "4002:4002" # API
