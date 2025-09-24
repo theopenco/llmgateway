@@ -35,6 +35,33 @@ export interface paths {
                                     connected: boolean;
                                     error?: string;
                                 };
+                                redis: {
+                                    connected: boolean;
+                                    error?: string;
+                                };
+                            };
+                        };
+                    };
+                };
+                /** @description Service unavailable - Redis or database connection failed. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            version: string;
+                            health: {
+                                status: string;
+                                database: {
+                                    connected: boolean;
+                                    error?: string;
+                                };
+                                redis: {
+                                    connected: boolean;
+                                    error?: string;
+                                };
                             };
                         };
                     };
@@ -596,6 +623,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/logs/unique-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    projectId?: string;
+                    orgId?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Unique models response. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Array of unique model names (extracted from provider/model) */
+                            models: string[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activity": {
         parameters: {
             query?: never;
@@ -677,7 +745,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description List of API keys. */
+                /** @description List of API keys with plan limits. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -694,8 +762,31 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                iamRules?: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                                 maskedToken: string;
                             }[];
+                            planLimits?: {
+                                currentCount: number;
+                                maxKeys: number;
+                                /** @enum {string} */
+                                plan: "free" | "pro";
+                            };
                         };
                     };
                 };
@@ -736,6 +827,23 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                iamRules?: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                                 token: string;
                             };
                         };
@@ -843,6 +951,23 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                iamRules?: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                                 maskedToken: string;
                             };
                         };
@@ -922,6 +1047,23 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                iamRules?: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                                 maskedToken: string;
                             };
                         };
@@ -946,6 +1088,225 @@ export interface paths {
                     content: {
                         "application/json": {
                             message: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/keys/api/{id}/iam": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of IAM rules for the API key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleValue: {
+                            models?: string[];
+                            providers?: string[];
+                            /** @enum {string} */
+                            pricingType?: "free" | "paid";
+                            maxInputPrice?: number;
+                            maxOutputPrice?: number;
+                        };
+                        /**
+                         * @default active
+                         * @enum {string}
+                         */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description IAM rule created successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            rule: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/keys/api/{id}/iam/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description IAM rule deleted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleValue?: {
+                            models?: string[];
+                            providers?: string[];
+                            /** @enum {string} */
+                            pricingType?: "free" | "paid";
+                            maxInputPrice?: number;
+                            maxOutputPrice?: number;
+                        };
+                        /**
+                         * @default active
+                         * @enum {string}
+                         */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description IAM rule updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            rule: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            };
                         };
                     };
                 };

@@ -67,7 +67,6 @@
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3",
-		"@llmgateway/models": "workspace:*",
 		"@tailwindcss/postcss": "^4",
 		"@tanstack/react-query-devtools": "5.84.1",
 		"@types/node": "^20",
