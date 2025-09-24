@@ -154,6 +154,19 @@ ENV PORT=80
 ENV NODE_ENV=production
 CMD ["./node_modules/.bin/next", "start"]
 
+FROM runtime AS playgroud
+WORKDIR /app/temp
+COPY --from=builder /app/apps ./apps
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playgroud --prod deploy ../dist/playgroud
+RUN rm -rf /app/temp
+WORKDIR /app/dist/playgroud
+EXPOSE 80
+ENV PORT=80
+ENV NODE_ENV=production
+CMD ["./node_modules/.bin/next", "start"]
+
 FROM runtime AS worker
 WORKDIR /app/temp
 COPY --from=builder /app/apps ./apps

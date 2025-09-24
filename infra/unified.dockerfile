@@ -138,6 +138,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm --filter=api --prod deploy /app/services/api && \
     pnpm --filter=gateway --prod deploy /app/services/gateway && \
     pnpm --filter=worker --prod deploy /app/services/worker && \
+    pnpm --filter=playground --prod deploy /app/services/playground && \
     pnpm --filter=ui --prod deploy /app/services/ui && \
     pnpm --filter=docs --prod deploy /app/services/docs
 
