@@ -25,9 +25,7 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -149,9 +147,7 @@ export const googleModels = [
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
 				cachedInputPrice: 0.075 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -187,9 +183,7 @@ export const googleModels = [
 				inputPrice: 0.1 / 1e6,
 				outputPrice: 0.4 / 1e6,
 				cachedInputPrice: 0.025 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,

@@ -370,9 +370,7 @@ export const openaiModels = [
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
 				cachedInputPrice: 0.125 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 400000,
 				maxOutput: 128000,
@@ -430,9 +428,7 @@ export const openaiModels = [
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 2 / 1e6,
 				cachedInputPrice: 0.025 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 400000,
 				maxOutput: 128000,
@@ -490,9 +486,7 @@ export const openaiModels = [
 				inputPrice: 0.05 / 1e6,
 				outputPrice: 0.4 / 1e6,
 				cachedInputPrice: 0.005 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 400000,
 				maxOutput: 128000,

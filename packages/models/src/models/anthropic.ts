@@ -50,9 +50,7 @@ export const anthropicModels = [
 				inputPrice: 0.8 / 1e6,
 				outputPrice: 4.0 / 1e6,
 				cachedInputPrice: 0.08 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 8192,
@@ -89,9 +87,7 @@ export const anthropicModels = [
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 8192,
@@ -174,9 +170,7 @@ export const anthropicModels = [
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: undefined,
@@ -216,9 +210,7 @@ export const anthropicModels = [
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,
 				cachedInputPrice: 1.5 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: undefined,
@@ -259,9 +251,7 @@ export const anthropicModels = [
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,
 				cachedInputPrice: 1.5 / 1e6,
-				discount: process.env.ROUTEWAY_PAID_DISCOUNT
-					? parseFloat(process.env.ROUTEWAY_PAID_DISCOUNT)
-					: undefined,
+				discount: 0.5,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 32000,
