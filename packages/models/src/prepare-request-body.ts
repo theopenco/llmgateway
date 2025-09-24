@@ -187,20 +187,41 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
+			// Get the provider mapping to check supported parameters
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === "zai",
+			) as ProviderModelMapping | undefined;
+			const supportedParams = providerMapping?.supportedParameters;
+
+			// Add optional parameters if they are provided and supported
+			if (
+				temperature !== undefined &&
+				(!supportedParams || supportedParams.includes("temperature"))
+			) {
 				requestBody.temperature = temperature;
 			}
-			if (max_tokens !== undefined) {
+			if (
+				max_tokens !== undefined &&
+				(!supportedParams || supportedParams.includes("max_tokens"))
+			) {
 				requestBody.max_tokens = max_tokens;
 			}
-			if (top_p !== undefined) {
+			if (
+				top_p !== undefined &&
+				(!supportedParams || supportedParams.includes("top_p"))
+			) {
 				requestBody.top_p = top_p;
 			}
-			if (frequency_penalty !== undefined) {
+			if (
+				frequency_penalty !== undefined &&
+				(!supportedParams || supportedParams.includes("frequency_penalty"))
+			) {
 				requestBody.frequency_penalty = frequency_penalty;
 			}
-			if (presence_penalty !== undefined) {
+			if (
+				presence_penalty !== undefined &&
+				(!supportedParams || supportedParams.includes("presence_penalty"))
+			) {
 				requestBody.presence_penalty = presence_penalty;
 			}
 			// ZAI/GLM models use 'thinking' parameter for reasoning instead of 'reasoning_effort'
