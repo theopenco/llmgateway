@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { usePostHog } from "posthog-js/react";
+import { toast } from "sonner";
 
 import { useDefaultProject } from "@/hooks/useDefaultProject";
-import { toast } from "sonner";
 import { useApi } from "@/lib/fetch-client";
 
 export function useCreateApiKey() {

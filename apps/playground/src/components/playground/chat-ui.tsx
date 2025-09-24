@@ -1,22 +1,20 @@
-import { Message, MessageContent } from "@/components/ai-elements/message";
-import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 // import { useUser } from "@/hooks/useUser";
 import { AlertCircle, RefreshCcw, Copy } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "sonner";
+
 import { Actions, Action } from "@/components/ai-elements/actions";
 import {
 	Conversation,
 	ConversationContent,
 	ConversationEmptyState,
 } from "@/components/ai-elements/conversation";
+import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
 	PromptInput,
 	PromptInputActionAddAttachments,
 	PromptInputActionMenu,
 	PromptInputActionMenuContent,
 	PromptInputActionMenuTrigger,
-	PromptInputAttachments,
-	PromptInputAttachment,
 	PromptInputBody,
 	PromptInputButton,
 	PromptInputTextarea,
@@ -24,11 +22,13 @@ import {
 	PromptInputToolbar,
 	PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
-import { toast } from "sonner";
 import { Response } from "@/components/ai-elements/response";
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
-type ChatUIProps = {
+import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
+
+interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
 	sendMessage: (
@@ -53,7 +53,7 @@ type ChatUIProps = {
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
-};
+}
 
 const suggestions = [
 	"Write a Python script to analyze CSV data and create visualizations",
@@ -178,11 +178,15 @@ export const ChatUI = ({
 					globalDrop
 					aria-disabled={isLoading || status === "streaming"}
 					onSubmit={async (message) => {
-						if (isLoading || status === "streaming") return;
+						if (isLoading || status === "streaming") {
+							return;
+						}
 
 						try {
 							const textContent = message.text ?? "";
-							if (!textContent.trim()) return;
+							if (!textContent.trim()) {
+								return;
+							}
 
 							setText(""); // Clear input immediately
 

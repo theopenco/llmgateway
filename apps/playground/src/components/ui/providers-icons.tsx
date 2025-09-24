@@ -405,11 +405,15 @@ export const getProviderIcon = (
 	family?: string,
 ): React.FC<React.SVGProps<SVGSVGElement>> | null => {
 	const exact = ProviderIcons[provider as ProviderIconKey];
-	if (exact) return exact;
+	if (exact) {
+		return exact;
+	}
 	const normalized = provider
 		?.toLowerCase()
 		.replace(/[^a-z0-9]/g, "-") as ProviderIconKey;
-	if (ProviderIcons[normalized]) return ProviderIcons[normalized];
+	if (ProviderIcons[normalized]) {
+		return ProviderIcons[normalized];
+	}
 	const famKey = family ? FAMILY_TO_PROVIDER[family.toLowerCase()] : undefined;
 	return famKey ? ProviderIcons[famKey] : null;
 };

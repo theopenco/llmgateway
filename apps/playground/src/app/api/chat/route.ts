@@ -1,21 +1,22 @@
+import { streamText, type UIMessage, convertToModelMessages } from "ai";
+
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
-import { streamText, UIMessage, convertToModelMessages } from "ai";
+
+import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
 
 export const maxDuration = 300; // 5 minutes
 
-type ChatRequestBody = {
+interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: LLMGatewayChatModelId;
 	apiKey?: string;
-};
+}
 
 export async function POST(req: Request) {
 	const body = await req.json();
 	const { messages, model, apiKey }: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
-		console.error("Invalid messages:", messages);
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
 			status: 400,
 		});
@@ -26,7 +27,6 @@ export async function POST(req: Request) {
 
 	const finalApiKey = apiKey ?? headerApiKey;
 	if (!finalApiKey) {
-		console.error("No API key provided in body or headers");
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
 			status: 400,
 		});
@@ -53,8 +53,7 @@ export async function POST(req: Request) {
 		});
 
 		return result.toUIMessageStreamResponse();
-	} catch (error) {
-		console.error("LLM Gateway error:", error);
+	} catch {
 		return new Response(
 			JSON.stringify({ error: "LLM Gateway request failed" }),
 			{

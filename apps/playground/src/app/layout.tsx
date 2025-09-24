@@ -1,3 +1,13 @@
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { Providers } from "@/components/providers";
+import { getConfig } from "@/lib/config-server";
+
+import "./globals.css";
+
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
+
 const geistSans = Geist({
 	variable: "--font-geist-sans",
 	subsets: ["latin"],
@@ -7,15 +17,6 @@ const geistMono = Geist_Mono({
 	variable: "--font-geist-mono",
 	subsets: ["latin"],
 });
-
-import "./globals.css";
-
-import { Providers } from "@/components/providers";
-import { getConfig } from "@/lib/config-server";
-import { Geist, Geist_Mono } from "next/font/google";
-
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export const metadata: Metadata = {
 		description: "Chat with your favorite LLM models through LLM Gateway.",
 		images: ["/opengraph.png?v=1"],
 		type: "website",
-		url: "https://llmgateway.io",
+		url: "https://chat.llmgateway.io",
 	},
 	twitter: {
 		card: "summary_large_image",

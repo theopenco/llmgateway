@@ -1,6 +1,6 @@
-import type React from "react";
-
 import { cn } from "@/lib/utils";
+
+import type React from "react";
 
 // Anthropic Icon
 export const AnthropicIcon: React.FC<React.SVGProps<SVGSVGElement>> = (

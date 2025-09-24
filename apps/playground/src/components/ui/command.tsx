@@ -1,7 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
+import * as React from "react";
+
 import { cn } from "@/lib/utils";
 
 const Command = React.forwardRef<
@@ -23,6 +24,7 @@ const CommandInput = React.forwardRef<
 	React.ElementRef<typeof CommandPrimitive.Input>,
 	React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
+	// eslint-disable-next-line react/no-unknown-property
 	<div className="flex items-center border-b px-2 w-full" cmdk-input-wrapper="">
 		<CommandPrimitive.Input
 			ref={ref}

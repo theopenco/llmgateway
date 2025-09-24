@@ -4,9 +4,10 @@ import {
 	useElements,
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
-import type { Stripe } from "@stripe/stripe-js";
+import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,11 +22,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
-import { useOrganization } from "@/hooks/useOrganization";
-import { useQueryClient } from "@tanstack/react-query";
 
 import type React from "react";
 
@@ -381,8 +380,7 @@ function PaymentStep({
 			} else {
 				await onSuccess();
 			}
-		} catch (error) {
-			console.error("Payment error:", error);
+		} catch {
 			toast.error("Payment Failed", {
 				description: "An error occurred while processing your payment.",
 			});
@@ -593,8 +591,7 @@ function ConfirmPaymentStep({
 		try {
 			await topUpMutation({ body: { amount, paymentMethodId } });
 			await onSuccess();
-		} catch (error) {
-			console.error("Payment error:", error);
+		} catch {
 			toast.error("Payment Failed", {
 				description: "An error occurred while processing your payment.",
 			});

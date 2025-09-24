@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import createFetchClient from "openapi-fetch";
+import { toast } from "sonner";
 
 import { getConfig } from "./config-server";
 
@@ -86,8 +87,8 @@ export async function fetchServerData<T>(
 		}
 
 		return response.data ?? null;
-	} catch (error) {
-		console.error(`Server API error for ${method} ${path}:`, error);
+	} catch {
+		toast.error(`Server API error for ${method} ${path}`);
 		return null;
 	}
 }

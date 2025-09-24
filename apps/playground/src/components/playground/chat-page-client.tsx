@@ -1,13 +1,15 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
+import { useEffect, useMemo, useState, useRef } from "react";
+
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
 import { AuthDialog } from "@/components/playground/auth-dialog";
+import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
-import { useUser } from "@/hooks/useUser";
+import { ChatUI } from "@/components/playground/chat-ui";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { useApiKey } from "@/hooks/useApiKey";
 import {
 	useAddMessage,
@@ -15,16 +17,16 @@ import {
 	useCreateChat,
 	useDataChat,
 } from "@/hooks/useChats";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { ChatHeader } from "@/components/playground/chat-header";
-import { ChatUI } from "./chat-ui";
+import { useUser } from "@/hooks/useUser";
 import { mapModels } from "@/lib/mapmodels";
-import { ComboboxModel } from "@/lib/types";
 
-type ChatPageClientProps = {
+import type { ComboboxModel } from "@/lib/types";
+import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
+
+interface ChatPageClientProps {
 	models: ModelDefinition[];
 	providers: ProviderDefinition[];
-};
+}
 
 export default function ChatPageClient({
 	models,
@@ -59,7 +61,9 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				const chatId = chatIdRef.current;
-				if (!chatId) return;
+				if (!chatId) {
+					return;
+				}
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
 					body: {
@@ -130,7 +134,6 @@ export default function ChatPageClient({
 			chatIdRef.current = newChatId; // Manually update the ref
 			return newChatId;
 		} catch (error) {
-			console.error("Failed to create chat:", error);
 			setError("Failed to create a new chat. Please try again.");
 			throw error;
 		}
@@ -167,8 +170,7 @@ export default function ChatPageClient({
 		try {
 			setCurrentChatId(null);
 			setMessages([]);
-		} catch (error) {
-			console.error("Failed to create new chat:", error);
+		} catch {
 			setError("Failed to create new chat. Please try again.");
 		} finally {
 			setIsLoading(false);
@@ -180,8 +182,7 @@ export default function ChatPageClient({
 		setError(null);
 		try {
 			setCurrentChatId(chatId);
-		} catch (error) {
-			console.error("Failed to select chat:", error);
+		} catch {
 			setError("Failed to load chat. Please try again.");
 		} finally {
 			setIsLoading(false);
@@ -191,8 +192,11 @@ export default function ChatPageClient({
 	// keep URL in sync with selected model
 	useEffect(() => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
-		if (selectedModel) params.set("model", selectedModel);
-		else params.delete("model");
+		if (selectedModel) {
+			params.set("model", selectedModel);
+		} else {
+			params.delete("model");
+		}
 		const qs = params.toString();
 		router.replace(qs ? `?${qs}` : "");
 		// eslint-disable-next-line react-hooks/exhaustive-deps

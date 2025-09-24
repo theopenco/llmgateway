@@ -24,6 +24,7 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { getModelStreamingSupport } from "@llmgateway/models";
+import { toast } from "sonner";
 
 export interface Message {
 	id: string;
@@ -188,7 +189,6 @@ export function PlaygroundClient() {
 			setCurrentChatId(newChatId);
 			return newChatId;
 		} catch (error) {
-			console.error("Failed to create chat:", error);
 			setError("Failed to create a new chat. Please try again.");
 			throw error;
 		}
@@ -368,7 +368,7 @@ export function PlaygroundClient() {
 							queryClient.invalidateQueries({ queryKey });
 						}
 					} catch (error) {
-						console.error("Failed to save assistant message:", error);
+						toast.error("Failed to save assistant message");
 					}
 				}
 			} else {
@@ -408,14 +408,14 @@ export function PlaygroundClient() {
 							queryClient.invalidateQueries({ queryKey });
 						}
 					} catch (error) {
-						console.error("Failed to save assistant message:", error);
+						toast.error("Failed to save assistant message");
 					}
 				}
 			}
 
 			setError(null);
 		} catch (error) {
-			console.error("Error sending message:", error);
+			toast.error("Error sending message");
 			if (error instanceof Error && !error.message.includes("HTTP")) {
 				setError("Failed to send message. Please try again.");
 			}

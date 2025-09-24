@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-
 import { toast } from "sonner";
+
 import { useApi } from "@/lib/fetch-client";
 
 export interface Chat {

@@ -25,6 +25,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/lib/components/sidebar";
+import { toast } from "sonner";
 
 // Menu items.
 const items = [
@@ -58,7 +59,7 @@ export function AppSidebar() {
 		try {
 			await clearLastUsedProjectCookiesAction();
 		} catch (error) {
-			console.error("Failed to clear last used project cookies:", error);
+			toast.error("Failed to clear last used project cookies");
 		}
 
 		await signOut({

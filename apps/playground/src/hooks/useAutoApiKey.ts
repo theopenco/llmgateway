@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { useApi } from "@/lib/fetch-client";
-import { useDefaultProject } from "@/hooks/useDefaultProject";
+
 import { useApiKey } from "@/hooks/useApiKey";
+import { useDefaultProject } from "@/hooks/useDefaultProject";
+import { useApi } from "@/lib/fetch-client";
 
 /**
  * Hook that automatically fetches and sets API key for new users

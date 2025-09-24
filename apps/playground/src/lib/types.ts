@@ -36,7 +36,7 @@ export interface ApiKey {
 	}>;
 }
 
-export type ComboboxModel = {
+export interface ComboboxModel {
 	id: string; // providerId/modelName (value sent to API)
 	name?: string; // Friendly model name
 	provider?: string; // Provider display name
@@ -47,4 +47,4 @@ export type ComboboxModel = {
 	outputPrice?: number;
 	vision?: boolean;
 	tools?: boolean;
-};
+}

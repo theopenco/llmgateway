@@ -1,17 +1,19 @@
-import { ThemeToggle } from "@/components/landing/theme-toggle";
-import { ModelSelector } from "@/components/model-selector";
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
 import { Key } from "lucide-react";
 
-type ChatHeaderProps = {
+import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { ModelSelector } from "@/components/model-selector";
+import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+
+import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
+
+interface ChatHeaderProps {
 	models: ModelDefinition[];
 	providers: ProviderDefinition[];
 	selectedModel: string;
 	onManageApiKey: () => void;
 	setSelectedModel: (model: string) => void;
-};
+}
 
 export const ChatHeader = ({
 	models,

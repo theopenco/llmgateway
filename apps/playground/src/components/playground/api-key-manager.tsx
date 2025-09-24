@@ -2,10 +2,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Key, AlertCircle, Eye, EyeOff, Trash2, Copy } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
+import { toast } from "sonner";
 import { z } from "zod";
 
-import { useApiKey } from "@/hooks/useApiKey";
-import { useCreateApiKey } from "@/hooks/useCreateApiKey";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,9 +25,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "sonner";
-import { useAppConfig } from "@/lib/config";
+import { useApiKey } from "@/hooks/useApiKey";
 import { useAutoApiKey } from "@/hooks/useAutoApiKey";
+import { useCreateApiKey } from "@/hooks/useCreateApiKey";
+import { useAppConfig } from "@/lib/config";
 
 const apiKeySchema = z.object({
 	apiKey: z
@@ -178,8 +178,7 @@ export function ApiKeyManager({
 			});
 
 			if (!testResponse.ok) {
-				const errorText = await testResponse.text();
-				console.error("API key validation failed:", errorText);
+				// const errorText = await testResponse.text();
 
 				if (testResponse.status === 400) {
 					throw new Error(

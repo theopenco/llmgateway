@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import {
 	Check,
 	ChevronsUpDown,
@@ -8,8 +7,12 @@ import {
 	ExternalLink,
 	Filter,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import * as React from "react";
+
+import { getProviderIcon } from "@/components/provider-icons";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Command,
 	CommandEmpty,
@@ -19,27 +22,26 @@ import {
 	CommandList,
 } from "@/components/ui/command";
 import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
-import {
 	HoverCard,
 	HoverCardContent,
 	HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { getProviderIcon } from "@/components/provider-icons";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import {
 	formatPrice,
 	formatContextSize,
 	getProviderForModel,
 	getModelCapabilities,
 } from "@/lib/model-utils";
-import { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
+import { cn } from "@/lib/utils";
+
+import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 interface ModelSelectorProps {
 	models: ModelDefinition[];
@@ -54,6 +56,193 @@ interface FilterState {
 	capabilities: string[];
 	priceRange: "free" | "low" | "medium" | "high" | "all";
 }
+
+const ModelItem = ({
+	model,
+	providers,
+}: {
+	model: ModelDefinition;
+	providers: ProviderDefinition[];
+}) => {
+	const provider = getProviderForModel(model, providers);
+	const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
+	const capabilities = getModelCapabilities(model);
+	const primaryProvider = model.providers[0];
+
+	return (
+		<div className="flex items-center justify-between w-full">
+			<div className="flex items-center gap-2">
+				{ProviderIcon && <ProviderIcon className="h-6 w-6 flex-shrink-0" />}
+				<div className="flex flex-col">
+					<span className="font-medium">{model.name}</span>
+					<span className="text-xs text-muted-foreground">
+						{provider?.name}
+					</span>
+				</div>
+			</div>
+
+			<HoverCard>
+				<HoverCardTrigger asChild>
+					<Button variant="ghost" size="sm" className="p-0 hover:bg-muted/50">
+						<Info className="h-3 w-3" />
+					</Button>
+				</HoverCardTrigger>
+				<HoverCardContent className="w-96" side="right" align="start">
+					<div className="space-y-4">
+						<div className="flex items-start justify-between">
+							<div className="flex items-center gap-3">
+								{ProviderIcon && (
+									<div
+										className="p-2 rounded-lg"
+										style={{ backgroundColor: `${provider?.color}15` }}
+									>
+										<ProviderIcon className="h-6 w-6" />
+									</div>
+								)}
+								<div>
+									<h4 className="font-semibold text-base">{model.name}</h4>
+									<p className="text-sm text-muted-foreground">
+										{provider?.name}
+									</p>
+									<p className="text-xs text-muted-foreground capitalize">
+										{model.family} family
+									</p>
+								</div>
+							</div>
+							{provider?.website && (
+								<Button variant="ghost" size="sm" asChild>
+									<a
+										href={provider.website}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="h-8 w-8 p-0"
+									>
+										<ExternalLink className="h-3 w-3" />
+									</a>
+								</Button>
+							)}
+						</div>
+
+						{provider?.description && (
+							<>
+								<p className="text-sm text-muted-foreground leading-relaxed">
+									{provider.description}
+								</p>
+								<Separator />
+							</>
+						)}
+
+						<div className="space-y-3">
+							<h5 className="font-medium text-sm">Pricing & Limits</h5>
+							<div className="grid grid-cols-2 gap-3">
+								<div className="space-y-1">
+									<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+										Input
+									</span>
+									<p className="text-sm font-mono">
+										{formatPrice(primaryProvider?.inputPrice)}
+									</p>
+								</div>
+								<div className="space-y-1">
+									<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+										Output
+									</span>
+									<p className="text-sm font-mono">
+										{formatPrice(primaryProvider?.outputPrice)}
+									</p>
+								</div>
+								<div className="space-y-1">
+									<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+										Context
+									</span>
+									<p className="text-sm font-mono">
+										{formatContextSize(primaryProvider?.contextSize)}
+									</p>
+								</div>
+								<div className="space-y-1">
+									<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+										Max Output
+									</span>
+									<p className="text-sm font-mono">
+										{formatContextSize(primaryProvider?.maxOutput)}
+									</p>
+								</div>
+							</div>
+
+							{primaryProvider?.cachedInputPrice && (
+								<div className="pt-2 border-t border-dashed">
+									<div className="space-y-1">
+										<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+											Cached Input
+										</span>
+										<p className="text-sm font-mono text-green-600 dark:text-green-400">
+											{formatPrice(primaryProvider.cachedInputPrice)}
+										</p>
+									</div>
+								</div>
+							)}
+						</div>
+
+						<Separator />
+
+						{capabilities.length > 0 && (
+							<div className="space-y-2">
+								<h5 className="font-medium text-sm">Capabilities</h5>
+								<div className="flex flex-wrap gap-1.5">
+									{capabilities.map((capability) => (
+										<Badge
+											key={capability}
+											variant="secondary"
+											className="text-xs px-2 py-1"
+										>
+											{capability}
+										</Badge>
+									))}
+								</div>
+							</div>
+						)}
+
+						{provider?.announcement && (
+							<div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+								<div className="flex items-start gap-2">
+									<div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
+									<p className="text-sm text-blue-700 dark:text-blue-300 leading-relaxed">
+										{provider.announcement}
+									</p>
+								</div>
+							</div>
+						)}
+
+						<div className="pt-2 border-t border-dashed">
+							<div className="flex items-center justify-between text-xs text-muted-foreground">
+								<div className="flex items-center gap-3">
+									{provider?.streaming && (
+										<span className="flex items-center gap-1">
+											<div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+											Streaming
+										</span>
+									)}
+									{provider?.cancellation && (
+										<span className="flex items-center gap-1">
+											<div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+											Cancellation
+										</span>
+									)}
+									{provider?.jsonOutput && (
+										<span className="flex items-center gap-1">
+											<div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+											JSON
+										</span>
+									)}
+								</div>
+							</div>
+						</div>
+					</div>
+				</HoverCardContent>
+			</HoverCard>
+		</div>
+	);
+};
 
 export function ModelSelector({
 	models,
@@ -177,187 +366,6 @@ export function ModelSelector({
 		filters.providers.length > 0 ||
 		filters.capabilities.length > 0 ||
 		filters.priceRange !== "all";
-
-	const ModelItem = ({ model }: { model: ModelDefinition }) => {
-		const provider = getProviderForModel(model, providers);
-		const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
-		const capabilities = getModelCapabilities(model);
-		const primaryProvider = model.providers[0];
-
-		return (
-			<div className="flex items-center justify-between w-full">
-				<div className="flex items-center gap-2">
-					{ProviderIcon && <ProviderIcon className="h-6 w-6 flex-shrink-0" />}
-					<div className="flex flex-col">
-						<span className="font-medium">{model.name}</span>
-						<span className="text-xs text-muted-foreground">
-							{provider?.name}
-						</span>
-					</div>
-				</div>
-
-				<HoverCard>
-					<HoverCardTrigger asChild>
-						<Button variant="ghost" size="sm" className="p-0 hover:bg-muted/50">
-							<Info className="h-3 w-3" />
-						</Button>
-					</HoverCardTrigger>
-					<HoverCardContent className="w-96" side="right" align="start">
-						<div className="space-y-4">
-							<div className="flex items-start justify-between">
-								<div className="flex items-center gap-3">
-									{ProviderIcon && (
-										<div
-											className="p-2 rounded-lg"
-											style={{ backgroundColor: `${provider?.color}15` }}
-										>
-											<ProviderIcon className="h-6 w-6" />
-										</div>
-									)}
-									<div>
-										<h4 className="font-semibold text-base">{model.name}</h4>
-										<p className="text-sm text-muted-foreground">
-											{provider?.name}
-										</p>
-										<p className="text-xs text-muted-foreground capitalize">
-											{model.family} family
-										</p>
-									</div>
-								</div>
-								{provider?.website && (
-									<Button variant="ghost" size="sm" asChild>
-										<a
-											href={provider.website}
-											target="_blank"
-											rel="noopener noreferrer"
-											className="h-8 w-8 p-0"
-										>
-											<ExternalLink className="h-3 w-3" />
-										</a>
-									</Button>
-								)}
-							</div>
-
-							{provider?.description && (
-								<>
-									<p className="text-sm text-muted-foreground leading-relaxed">
-										{provider.description}
-									</p>
-									<Separator />
-								</>
-							)}
-
-							<div className="space-y-3">
-								<h5 className="font-medium text-sm">Pricing & Limits</h5>
-								<div className="grid grid-cols-2 gap-3">
-									<div className="space-y-1">
-										<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-											Input
-										</span>
-										<p className="text-sm font-mono">
-											{formatPrice(primaryProvider?.inputPrice)}
-										</p>
-									</div>
-									<div className="space-y-1">
-										<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-											Output
-										</span>
-										<p className="text-sm font-mono">
-											{formatPrice(primaryProvider?.outputPrice)}
-										</p>
-									</div>
-									<div className="space-y-1">
-										<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-											Context
-										</span>
-										<p className="text-sm font-mono">
-											{formatContextSize(primaryProvider?.contextSize)}
-										</p>
-									</div>
-									<div className="space-y-1">
-										<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-											Max Output
-										</span>
-										<p className="text-sm font-mono">
-											{formatContextSize(primaryProvider?.maxOutput)}
-										</p>
-									</div>
-								</div>
-
-								{primaryProvider?.cachedInputPrice && (
-									<div className="pt-2 border-t border-dashed">
-										<div className="space-y-1">
-											<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-												Cached Input
-											</span>
-											<p className="text-sm font-mono text-green-600 dark:text-green-400">
-												{formatPrice(primaryProvider.cachedInputPrice)}
-											</p>
-										</div>
-									</div>
-								)}
-							</div>
-
-							<Separator />
-
-							{capabilities.length > 0 && (
-								<div className="space-y-2">
-									<h5 className="font-medium text-sm">Capabilities</h5>
-									<div className="flex flex-wrap gap-1.5">
-										{capabilities.map((capability) => (
-											<Badge
-												key={capability}
-												variant="secondary"
-												className="text-xs px-2 py-1"
-											>
-												{capability}
-											</Badge>
-										))}
-									</div>
-								</div>
-							)}
-
-							{provider?.announcement && (
-								<div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-									<div className="flex items-start gap-2">
-										<div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
-										<p className="text-sm text-blue-700 dark:text-blue-300 leading-relaxed">
-											{provider.announcement}
-										</p>
-									</div>
-								</div>
-							)}
-
-							<div className="pt-2 border-t border-dashed">
-								<div className="flex items-center justify-between text-xs text-muted-foreground">
-									<div className="flex items-center gap-3">
-										{provider?.streaming && (
-											<span className="flex items-center gap-1">
-												<div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-												Streaming
-											</span>
-										)}
-										{provider?.cancellation && (
-											<span className="flex items-center gap-1">
-												<div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-												Cancellation
-											</span>
-										)}
-										{provider?.jsonOutput && (
-											<span className="flex items-center gap-1">
-												<div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-												JSON
-											</span>
-										)}
-									</div>
-								</div>
-							</div>
-						</div>
-					</HoverCardContent>
-				</HoverCard>
-			</div>
-		);
-	};
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
@@ -597,7 +605,7 @@ export function ModelSelector({
 													value === model.id ? "opacity-100" : "opacity-0",
 												)}
 											/>
-											<ModelItem model={model} />
+											<ModelItem model={model} providers={providers} />
 										</CommandItem>
 									))}
 								</CommandGroup>

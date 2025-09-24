@@ -14,16 +14,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
+import { toast } from "sonner";
 
-import {
-	useChats,
-	useDeleteChat,
-	useUpdateChat,
-	type Chat,
-} from "@/hooks/useChats";
-import { useUser } from "@/hooks/useUser";
-import { useAuth } from "@/lib/auth-client";
+import { CreditsDisplay } from "@/components/credits/credits-display";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -32,6 +27,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Logo } from "@/components/ui/logo";
 import {
 	Sidebar,
 	SidebarContent,
@@ -42,11 +38,15 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { toast } from "sonner";
-import { Logo } from "@/components/ui/logo";
-import { CreditsDisplay } from "@/components/credits/credits-display";
+import {
+	useChats,
+	useDeleteChat,
+	useUpdateChat,
+	type Chat,
+} from "@/hooks/useChats";
 import { useOrganization } from "@/hooks/useOrganization";
-import { Badge } from "@/components/ui/badge";
+import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@/lib/auth-client";
 
 interface ChatSidebarProps {
 	currentChatId?: string;
