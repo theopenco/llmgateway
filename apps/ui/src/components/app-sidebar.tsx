@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ChevronUp, Settings, User2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
+import { toast } from "sonner";
 
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
@@ -25,7 +26,6 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/lib/components/sidebar";
-import { toast } from "sonner";
 
 // Menu items.
 const items = [
@@ -58,7 +58,7 @@ export function AppSidebar() {
 		// Clear last used project cookies before signing out
 		try {
 			await clearLastUsedProjectCookiesAction();
-		} catch (error) {
+		} catch {
 			toast.error("Failed to clear last used project cookies");
 		}
 

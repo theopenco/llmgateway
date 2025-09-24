@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
 import { AuthDialog } from "@/components/playground/auth-dialog";
@@ -24,7 +25,6 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { getModelStreamingSupport } from "@llmgateway/models";
-import { toast } from "sonner";
 
 export interface Message {
 	id: string;
@@ -367,7 +367,7 @@ export function PlaygroundClient() {
 							}).queryKey;
 							queryClient.invalidateQueries({ queryKey });
 						}
-					} catch (error) {
+					} catch {
 						toast.error("Failed to save assistant message");
 					}
 				}
@@ -407,7 +407,7 @@ export function PlaygroundClient() {
 							}).queryKey;
 							queryClient.invalidateQueries({ queryKey });
 						}
-					} catch (error) {
+					} catch {
 						toast.error("Failed to save assistant message");
 					}
 				}
