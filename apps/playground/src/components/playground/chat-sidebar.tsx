@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { Logo } from "@/components/ui/logo";
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { useOrganization } from "@/hooks/useOrganization";
+import { Badge } from "@/components/ui/badge";
 
 interface ChatSidebarProps {
 	currentChatId?: string;
@@ -303,6 +304,7 @@ export function ChatSidebar({
 						>
 							<Logo className="h-10 w-10" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
+							<Badge>Chat</Badge>
 						</Link>
 						<Button
 							variant="outline"
@@ -343,6 +345,7 @@ export function ChatSidebar({
 					>
 						<Logo className="h-10 w-10" />
 						<h1 className="text-xl font-semibold">LLM Gateway</h1>
+						<Badge>Chat</Badge>
 					</Link>
 					<Button
 						variant="outline"

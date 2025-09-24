@@ -52,25 +52,26 @@ export default function ChatPageClient({
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const chatIdRef = useRef(currentChatId);
 
-	const { messages, setMessages, sendMessage, status, stop } = useChat({
-		onError: (e) => {
-			setError(e.message);
-		},
-		onFinish: async ({ message }) => {
-			const chatId = chatIdRef.current;
-			if (!chatId) return;
-			await addMessage.mutateAsync({
-				params: { path: { id: chatId } },
-				body: {
-					role: "assistant",
-					content: message.parts
-						.filter((p) => p.type === "text")
-						.map((p) => p.text)
-						.join(""),
-				},
-			});
-		},
-	});
+	const { messages, setMessages, sendMessage, status, stop, regenerate } =
+		useChat({
+			onError: (e) => {
+				setError(e.message);
+			},
+			onFinish: async ({ message }) => {
+				const chatId = chatIdRef.current;
+				if (!chatId) return;
+				await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: {
+						role: "assistant",
+						content: message.parts
+							.filter((p) => p.type === "text")
+							.map((p) => p.text)
+							.join(""),
+					},
+				});
+			},
+		});
 
 	useEffect(() => {
 		chatIdRef.current = currentChatId;
@@ -215,28 +216,33 @@ export default function ChatPageClient({
 					userApiKey={userApiKey}
 					isLoading={isLoading}
 				/>
-				<div className="flex flex-1 flex-col w-full">
-					<ChatHeader
-						models={models}
-						providers={providers}
-						selectedModel={selectedModel}
-						onManageApiKey={() => setShowApiKeyManager(true)}
-						setSelectedModel={setSelectedModel}
-					/>
-					<ChatUI
-						messages={messages}
-						supportsImages={supportsImages}
-						sendMessage={sendMessage}
-						userApiKey={userApiKey}
-						selectedModel={selectedModel}
-						text={text}
-						setText={setText}
-						status={status}
-						stop={stop}
-						onUserMessage={handleUserMessage}
-						isLoading={isLoading}
-						error={error}
-					/>
+				<div className="flex flex-1 flex-col w-full h-full">
+					<div className="flex-shrink-0">
+						<ChatHeader
+							models={models}
+							providers={providers}
+							selectedModel={selectedModel}
+							onManageApiKey={() => setShowApiKeyManager(true)}
+							setSelectedModel={setSelectedModel}
+						/>
+					</div>
+					<div className="flex-1 overflow-hidden">
+						<ChatUI
+							messages={messages}
+							supportsImages={supportsImages}
+							sendMessage={sendMessage}
+							userApiKey={userApiKey}
+							selectedModel={selectedModel}
+							text={text}
+							setText={setText}
+							status={status}
+							stop={stop}
+							regenerate={regenerate}
+							onUserMessage={handleUserMessage}
+							isLoading={isLoading}
+							error={error}
+						/>
+					</div>
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} />

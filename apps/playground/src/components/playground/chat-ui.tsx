@@ -1,8 +1,9 @@
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
-import { useUser } from "@/hooks/useUser";
-import { AlertCircle } from "lucide-react";
+// import { useUser } from "@/hooks/useUser";
+import { AlertCircle, RefreshCcw, Copy } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Actions, Action } from "@/components/ai-elements/actions";
 import {
 	Conversation,
 	ConversationContent,
@@ -40,6 +41,7 @@ type ChatUIProps = {
 	setText: (text: string) => void;
 	status: ChatStatus;
 	stop: () => void;
+	regenerate: () => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -76,15 +78,16 @@ export const ChatUI = ({
 	setText,
 	status,
 	stop,
+	regenerate,
 	onUserMessage,
 	isLoading = false,
 	error = null,
 }: ChatUIProps) => {
-	const { user } = useUser();
+	// const { user } = useUser();
 
 	return (
-		<div className="flex flex-col flex-1 px-4">
-			<div className="flex-1 overflow-hidden">
+		<div className="flex flex-col h-full">
+			<div className="flex-1 overflow-y-auto px-4">
 				<Conversation>
 					<ConversationContent>
 						{messages.length === 0 ? (
@@ -101,33 +104,68 @@ export const ChatUI = ({
 								<ConversationEmptyState description="Start chatting with any model from any provider." />
 							</div>
 						) : (
-							messages.map((m) =>
-								m.role === "assistant" ? (
-									<Response key={m.id}>
-										{m.parts
-											.filter((p) => p.type === "text")
-											.map((p) => p.text)
-											.join("")}
-									</Response>
-								) : (
-									<Message key={m.id} from={m.role}>
-										<MessageContent variant="flat">
-											{m.parts.map((p, i) => {
-												if (p.type === "text") {
-													return <div key={i}>{p.text}</div>;
-												}
-												return null;
-											})}
-										</MessageContent>
-									</Message>
-								),
-							)
+							messages.map((m, messageIndex) => {
+								const isLastMessage = messageIndex === messages.length - 1;
+
+								if (m.role === "assistant") {
+									const textContent = m.parts
+										.filter((p) => p.type === "text")
+										.map((p) => p.text)
+										.join("");
+
+									return (
+										<div key={m.id}>
+											<Response>{textContent}</Response>
+											{isLastMessage && (
+												<Actions className="mt-2">
+													<Action
+														onClick={() => regenerate()}
+														label="Retry"
+														tooltip="Regenerate response"
+													>
+														<RefreshCcw className="size-3" />
+													</Action>
+													<Action
+														onClick={async () => {
+															try {
+																await navigator.clipboard.writeText(
+																	textContent,
+																);
+																toast.success("Copied to clipboard");
+															} catch {
+																toast.error("Failed to copy to clipboard");
+															}
+														}}
+														label="Copy"
+														tooltip="Copy to clipboard"
+													>
+														<Copy className="size-3" />
+													</Action>
+												</Actions>
+											)}
+										</div>
+									);
+								} else {
+									return (
+										<Message key={m.id} from={m.role}>
+											<MessageContent variant="flat">
+												{m.parts.map((p, i) => {
+													if (p.type === "text") {
+														return <div key={i}>{p.text}</div>;
+													}
+													return null;
+												})}
+											</MessageContent>
+										</Message>
+									);
+								}
+							})
 						)}
 					</ConversationContent>
 				</Conversation>
 			</div>
 
-			<div className="flex-shrink-0">
+			<div className="flex-shrink-0 px-4 pb-4">
 				{error && (
 					<Alert variant="destructive" className="mb-4">
 						<AlertCircle className="h-4 w-4" />
@@ -144,9 +182,11 @@ export const ChatUI = ({
 
 						try {
 							const textContent = message.text ?? "";
-							if (onUserMessage) {
-								await onUserMessage(textContent);
-							}
+							if (!textContent.trim()) return;
+
+							setText(""); // Clear input immediately
+
+							// Call sendMessage which will handle adding the user message and API request
 							sendMessage(
 								{
 									id: crypto.randomUUID(),
@@ -160,9 +200,15 @@ export const ChatUI = ({
 									},
 								},
 							);
-							setText("");
-						} catch (error) {
-							toast.error("Could not send message after failing to save it.");
+
+							// Then save to database in the background
+							if (onUserMessage) {
+								onUserMessage(textContent).catch((error) => {
+									toast.error(`Failed to save message to database: ${error}`);
+								});
+							}
+						} catch {
+							toast.error("Could not send message.");
 						}
 					}}
 				>
@@ -172,9 +218,9 @@ export const ChatUI = ({
 							value={text}
 							onChange={(e) => setText(e.currentTarget.value)}
 						/>
-						<PromptInputAttachments>
+						{/* <PromptInputAttachments>
 							{(file: any) => <PromptInputAttachment data={file} />}
-						</PromptInputAttachments>
+						</PromptInputAttachments> */}
 						<PromptInputToolbar>
 							<PromptInputTools>
 								<PromptInputActionMenu>
