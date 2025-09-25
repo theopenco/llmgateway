@@ -6,6 +6,8 @@ jobs:
   autofix:
     runs-on: ubuntu-latest
 
+    if: ${{ github.actor == 'steebchen' || github.actor == 'smakosh' }}
+
     steps:
       - name: Autofix
         uses: steebchen/actions/autofix@v0.14.1
