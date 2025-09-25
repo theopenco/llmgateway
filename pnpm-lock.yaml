@@ -3,6 +3,7 @@ lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
+  injectWorkspacePackages: true
 
 importers:
 
@@ -393,7 +394,7 @@ importers:
         version: 5.0.44(zod@3.25.75)
       api:
         specifier: workspace:*
-        version: link:../api
+        version: file:apps/api(@types/node@20.19.14)(@types/pg@8.15.5)(drizzle-orm@1.0.0-beta.1-fd5d1e8(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.3))(gel@2.1.0)(openapi-types@12.1.3)
       better-auth:
         specifier: 1.2.7
         version: 1.2.7
@@ -2293,6 +2294,24 @@ packages:
     peerDependencies:
       ai: ^5.0.0-beta.12
       zod: ^3.24.1 || ^v4
+
+  '@llmgateway/cache@file:packages/cache':
+    resolution: {directory: packages/cache, type: directory}
+
+  '@llmgateway/db@file:packages/db':
+    resolution: {directory: packages/db, type: directory}
+
+  '@llmgateway/instrumentation@file:packages/instrumentation':
+    resolution: {directory: packages/instrumentation, type: directory}
+
+  '@llmgateway/logger@file:packages/logger':
+    resolution: {directory: packages/logger, type: directory}
+
+  '@llmgateway/models@file:packages/models':
+    resolution: {directory: packages/models, type: directory}
+
+  '@llmgateway/shared@file:packages/shared':
+    resolution: {directory: packages/shared, type: directory}
 
   '@mdx-js/mdx@3.1.0':
     resolution: {integrity: sha512-/QxEhPAvGwbQmy1Px8F899L5Uc2KZ6JtXwlCgJmjSTBedwOZkByYcBG4GceIGPXRDsmfxhHazuS+hlOShRLeDw==}
@@ -4862,6 +4881,9 @@ packages:
     resolution: {integrity: sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw==}
     engines: {node: '>= 8'}
 
+  api@file:apps/api:
+    resolution: {directory: apps/api, type: directory}
+
   argparse@1.0.10:
     resolution: {integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==}
 
@@ -6477,6 +6499,9 @@ packages:
 
   functions-have-names@1.2.3:
     resolution: {integrity: sha512-xckBUXyTIqT97tq2x2AMb+g163b5JFysYk0x4qxNFwbfQkmNZoiRHb6sPzI9/QV33WeuvVYBUIiD4NzNIyqaRQ==}
+
+  gateway@file:apps/gateway:
+    resolution: {directory: apps/gateway, type: directory}
 
   gaxios@6.7.1:
     resolution: {integrity: sha512-LDODD4TMYx7XXdpwxAVRAIAuB0bzv0s+ywFonY46k126qzQHT9ygyoa9tncmOiQmmDrik65UYsEkv3lbfqQ3yQ==}
@@ -9284,6 +9309,9 @@ packages:
   wordwrap@1.0.0:
     resolution: {integrity: sha512-gvVzJFlPycKc5dZN4yPkP8w7Dc37BtP1yczEneOb4uq34pXZcvrtRTmWV8W+Ume+XCxKgbjM+nevkyFPMybd4Q==}
 
+  worker@file:apps/worker:
+    resolution: {directory: apps/worker, type: directory}
+
   wrap-ansi@7.0.0:
     resolution: {integrity: sha512-YVGIj2kamLSTxw6NsZjoBxfSwsn0ycdesmc4p+Q21c5zPuZ1pl+NfxVdxPtdHvmNVOQ6XSYG4AUtyt/Fi7D16Q==}
     engines: {node: '>=10'}
@@ -10807,6 +10835,81 @@ snapshots:
   '@llmgateway/ai-sdk-provider@2.1.0(ai@5.0.44(zod@3.25.75))(zod@3.25.75)':
     dependencies:
       ai: 5.0.44(zod@3.25.75)
+      zod: 3.25.75
+
+  '@llmgateway/cache@file:packages/cache':
+    dependencies:
+      '@llmgateway/logger': file:packages/logger
+      ioredis: 5.7.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@llmgateway/db@file:packages/db(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)':
+    dependencies:
+      '@llmgateway/cache': file:packages/cache
+      '@llmgateway/logger': file:packages/logger
+      drizzle-orm: 1.0.0-beta.1-57a367f(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(pg@8.16.3)
+      nanoid: 5.1.5
+      pg: 8.16.3
+      zod: 3.25.75
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+
+  '@llmgateway/instrumentation@file:packages/instrumentation':
+    dependencies:
+      '@google-cloud/opentelemetry-cloud-trace-exporter': 3.0.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))(@opentelemetry/resources@2.1.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.1.0(@opentelemetry/api@1.9.0))
+      '@google-cloud/opentelemetry-cloud-trace-propagator': 0.21.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))
+      '@llmgateway/logger': file:packages/logger
+      '@opentelemetry/api': 1.9.0
+      '@opentelemetry/auto-instrumentations-node': 0.64.1(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.1.0(@opentelemetry/api@1.9.0))
+      '@opentelemetry/core': 2.1.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/resources': 2.1.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/sdk-node': 0.205.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/sdk-trace-base': 2.1.0(@opentelemetry/api@1.9.0)
+      hono: 4.9.7
+    transitivePeerDependencies:
+      - encoding
+      - supports-color
+
+  '@llmgateway/logger@file:packages/logger':
+    dependencies:
+      '@opentelemetry/api': 1.9.0
+      pino: 9.9.0
+      pino-pretty: 13.1.1
+
+  '@llmgateway/models@file:packages/models':
+    dependencies:
+      '@llmgateway/logger': file:packages/logger
+
+  '@llmgateway/shared@file:packages/shared':
+    dependencies:
       zod: 3.25.75
 
   '@mdx-js/mdx@3.1.0(acorn@8.15.0)':
@@ -14251,6 +14354,76 @@ snapshots:
       normalize-path: 3.0.0
       picomatch: 2.3.1
 
+  api@file:apps/api(@types/node@20.19.14)(@types/pg@8.15.5)(drizzle-orm@1.0.0-beta.1-fd5d1e8(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.3))(gel@2.1.0)(openapi-types@12.1.3):
+    dependencies:
+      '@hono/node-server': 1.19.0(hono@4.9.7)
+      '@hono/swagger-ui': 0.5.1(hono@4.9.7)
+      '@hono/zod-openapi': 0.19.8(hono@4.9.7)(zod@3.25.75)
+      '@hono/zod-validator': 0.7.2(hono@4.9.7)(zod@3.25.75)
+      '@llmgateway/db': file:packages/db(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)
+      '@llmgateway/instrumentation': file:packages/instrumentation
+      '@llmgateway/logger': file:packages/logger
+      '@llmgateway/models': file:packages/models
+      '@llmgateway/shared': file:packages/shared
+      '@opentelemetry/api': 1.9.0
+      '@opentelemetry/sdk-node': 0.205.0(@opentelemetry/api@1.9.0)
+      bcrypt-ts: 7.0.0
+      better-auth: 1.2.7
+      dotenv: 16.5.0
+      drizzle-zod: 0.8.3(drizzle-orm@1.0.0-beta.1-fd5d1e8(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.27.6)(pg@8.16.3))(zod@3.25.75)
+      gateway: file:apps/gateway(@types/node@20.19.14)(@types/pg@8.15.5)(gel@2.1.0)(openapi-types@12.1.3)
+      hono: 4.9.7
+      hono-openapi: 0.4.8(@hono/zod-validator@0.7.2(hono@4.9.7)(zod@3.25.75))(hono@4.9.7)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
+      ioredis: 5.7.0
+      nodemailer: 7.0.5
+      openai: 5.19.1(zod@3.25.75)
+      posthog-node: 5.8.2
+      stripe: 18.1.1(@types/node@20.19.14)
+      zod: 3.25.75
+      zod-openapi: 4.2.4(zod@3.25.75)
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@hono/arktype-validator'
+      - '@hono/effect-validator'
+      - '@hono/typebox-validator'
+      - '@hono/valibot-validator'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@sinclair/typebox'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/node'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@valibot/to-json-schema'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - arktype
+      - better-sqlite3
+      - bun-types
+      - drizzle-orm
+      - effect
+      - encoding
+      - expo-sqlite
+      - gel
+      - mysql2
+      - openapi-types
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+      - valibot
+      - ws
+
   argparse@1.0.10:
     dependencies:
       sprintf-js: 1.0.3
@@ -16032,6 +16205,70 @@ snapshots:
       is-callable: 1.2.7
 
   functions-have-names@1.2.3: {}
+
+  gateway@file:apps/gateway(@types/node@20.19.14)(@types/pg@8.15.5)(gel@2.1.0)(openapi-types@12.1.3):
+    dependencies:
+      '@hono/node-server': 1.19.0(hono@4.9.7)
+      '@hono/swagger-ui': 0.5.1(hono@4.9.7)
+      '@hono/zod-openapi': 0.19.8(hono@4.9.7)(zod@3.25.75)
+      '@hono/zod-validator': 0.7.2(hono@4.9.7)(zod@3.25.75)
+      '@llmgateway/cache': file:packages/cache
+      '@llmgateway/db': file:packages/db(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)
+      '@llmgateway/instrumentation': file:packages/instrumentation
+      '@llmgateway/logger': file:packages/logger
+      '@llmgateway/models': file:packages/models
+      '@llmgateway/shared': file:packages/shared
+      '@opentelemetry/api': 1.9.0
+      '@opentelemetry/sdk-node': 0.205.0(@opentelemetry/api@1.9.0)
+      dotenv: 16.5.0
+      gpt-tokenizer: 3.0.1
+      hono: 4.9.7
+      hono-openapi: 0.4.8(@hono/zod-validator@0.7.2(hono@4.9.7)(zod@3.25.75))(hono@4.9.7)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
+      ioredis: 5.6.1
+      redis: 5.8.2
+      worker: file:apps/worker(@opentelemetry/api@1.9.0)(@types/node@20.19.14)(@types/pg@8.15.5)(gel@2.1.0)
+      zod: 3.25.75
+      zod-openapi: 4.2.4(zod@3.25.75)
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@hono/arktype-validator'
+      - '@hono/effect-validator'
+      - '@hono/typebox-validator'
+      - '@hono/valibot-validator'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@sinclair/typebox'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/node'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@valibot/to-json-schema'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - arktype
+      - better-sqlite3
+      - bun-types
+      - effect
+      - encoding
+      - expo-sqlite
+      - gel
+      - mysql2
+      - openapi-types
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+      - valibot
 
   gaxios@6.7.1:
     dependencies:
@@ -18884,6 +19121,12 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
+  stripe@18.1.1(@types/node@20.19.14):
+    dependencies:
+      qs: 6.14.0
+    optionalDependencies:
+      '@types/node': 20.19.14
+
   stripe@18.1.1(@types/node@24.3.3):
     dependencies:
       qs: 6.14.0
@@ -19518,6 +19761,46 @@ snapshots:
   word-wrap@1.2.5: {}
 
   wordwrap@1.0.0: {}
+
+  worker@file:apps/worker(@opentelemetry/api@1.9.0)(@types/node@20.19.14)(@types/pg@8.15.5)(gel@2.1.0):
+    dependencies:
+      '@llmgateway/cache': file:packages/cache
+      '@llmgateway/db': file:packages/db(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)
+      '@llmgateway/logger': file:packages/logger
+      '@llmgateway/models': file:packages/models
+      '@llmgateway/shared': file:packages/shared
+      stripe: 18.1.1(@types/node@20.19.14)
+      zod: 3.25.75
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/node'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
 
   wrap-ansi@7.0.0:
     dependencies:
