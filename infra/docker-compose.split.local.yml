@@ -133,7 +133,7 @@ services:
     container_name: llmgateway-playground
     restart: unless-stopped
     ports:
-      - "${UI_PORT:-3003}:80"
+      - "${PLAYGROUND_PORT:-3003}:80"
     healthcheck:
       test:
         [
