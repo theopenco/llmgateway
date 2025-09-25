@@ -1,13 +1,14 @@
-// import { useUser } from "@/hooks/useUser";
+"use client";
 import { AlertCircle, RefreshCcw, Copy } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
 import {
 	Conversation,
 	ConversationContent,
-	ConversationEmptyState,
 } from "@/components/ai-elements/conversation";
+import { Loader } from "@/components/ai-elements/loader";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
 	PromptInput,
@@ -22,9 +23,21 @@ import {
 	PromptInputToolbar,
 	PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
+import {
+	Reasoning,
+	ReasoningContent,
+	ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import {
+	Tool,
+	ToolContent,
+	ToolHeader,
+	ToolOutput,
+	ToolInput,
+} from "@/components/ai-elements/tool";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
@@ -68,6 +81,28 @@ const suggestions = [
 	"Create a meal prep plan for someone with a nut allergy",
 ];
 
+const heroSuggestionGroups = {
+	Create: suggestions,
+	Explore: [
+		"What are trending AI research topics right now?",
+		"Summarize the latest news about TypeScript",
+		"Find interesting datasets for a side project",
+		"Suggest tech blogs to follow for frontend performance",
+	],
+	Code: [
+		"Refactor this React component for readability",
+		"Write unit tests for a Node.js service",
+		"Explain how to debounce an input in React",
+		"Show an example of a Zod schema with refinement",
+	],
+	Learn: [
+		"Teach me Rust ownership like I'm new to systems programming",
+		"Create a 7‑day plan to learn SQL",
+		"Explain OAuth vs. OIDC with diagrams",
+		"How does vector search work?",
+	],
+};
+
 export const ChatUI = ({
 	messages,
 	supportsImages,
@@ -83,25 +118,47 @@ export const ChatUI = ({
 	isLoading = false,
 	error = null,
 }: ChatUIProps) => {
-	// const { user } = useUser();
-
+	const [activeGroup, setActiveGroup] =
+		useState<keyof typeof heroSuggestionGroups>("Create");
 	return (
 		<div className="flex flex-col h-full">
 			<div className="flex-1 overflow-y-auto px-4">
 				<Conversation>
 					<ConversationContent>
 						{messages.length === 0 ? (
-							<div className="max-w-4xl mx-auto">
-								<Suggestions>
-									{suggestions.map((suggestion) => (
-										<Suggestion
-											key={suggestion}
-											onClick={() => setText(suggestion)}
-											suggestion={suggestion}
-										/>
+							<div className="max-w-3xl mx-auto py-10">
+								<div className="mb-6 text-center">
+									<h2 className="text-3xl font-semibold tracking-tight">
+										How can I help you?
+									</h2>
+								</div>
+								<div className="mb-6 flex justify-center gap-2">
+									{Object.keys(heroSuggestionGroups).map((key) => (
+										<Button
+											key={key}
+											size="sm"
+											variant={activeGroup === key ? "default" : "secondary"}
+											onClick={() =>
+												setActiveGroup(key as keyof typeof heroSuggestionGroups)
+											}
+											className="rounded-full"
+										>
+											{key}
+										</Button>
 									))}
-								</Suggestions>
-								<ConversationEmptyState description="Start chatting with any model from any provider." />
+								</div>
+								<div className="space-y-2">
+									{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
+										<button
+											key={s}
+											type="button"
+											onClick={() => setText(s)}
+											className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+										>
+											{s}
+										</button>
+									))}
+								</div>
 							</div>
 						) : (
 							messages.map((m, messageIndex) => {
@@ -112,10 +169,50 @@ export const ChatUI = ({
 										.filter((p) => p.type === "text")
 										.map((p) => p.text)
 										.join("");
+									const toolParts = m.parts.filter(
+										(p) => p.type === "dynamic-tool",
+									) as any[];
+									const reasoningContent = m.parts
+										.filter((p) => p.type === "reasoning")
+										.map((p) => p.text)
+										.join("");
 
 									return (
 										<div key={m.id}>
-											<Response>{textContent}</Response>
+											{reasoningContent ? (
+												<Reasoning
+													className="w-full"
+													isStreaming={
+														status === "streaming" &&
+														m.id === messages.at(-1)?.id
+													}
+												>
+													<ReasoningTrigger />
+													<ReasoningContent>
+														{reasoningContent}
+													</ReasoningContent>
+												</Reasoning>
+											) : null}
+
+											{textContent ? <Response>{textContent}</Response> : null}
+											{isLastMessage &&
+												(status === "submitted" || status === "streaming") && (
+													<Loader />
+												)}
+
+											{toolParts.map((tool) => (
+												<Tool key={tool.toolCallId}>
+													<ToolHeader type={tool.type} state={tool.state} />
+													<ToolContent>
+														<ToolInput input={tool.input} />
+														<ToolOutput
+															errorText={tool.errorText}
+															output={tool.output}
+														/>
+													</ToolContent>
+												</Tool>
+											))}
+
 											{isLastMessage && (
 												<Actions className="mt-2">
 													<Action
@@ -156,6 +253,10 @@ export const ChatUI = ({
 													return null;
 												})}
 											</MessageContent>
+											{isLastMessage &&
+												(status === "submitted" || status === "streaming") && (
+													<Loader />
+												)}
 										</Message>
 									);
 								}
@@ -240,7 +341,10 @@ export const ChatUI = ({
 										Stop
 									</PromptInputButton>
 								) : null}
-								<PromptInputSubmit status={status} disabled={isLoading} />
+								<PromptInputSubmit
+									status={status === "streaming" ? "streaming" : "ready"}
+									disabled={isLoading}
+								/>
 							</div>
 						</PromptInputToolbar>
 					</PromptInputBody>

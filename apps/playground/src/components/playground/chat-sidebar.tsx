@@ -46,6 +46,7 @@ import {
 } from "@/hooks/useChats";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
+import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
 interface ChatSidebarProps {
@@ -87,14 +88,21 @@ export function ChatSidebar({
 	const logout = async () => {
 		posthog.reset();
 
+		// Clear last used project cookies before signing out
+		try {
+			await clearLastUsedProjectCookiesAction();
+		} catch {
+			toast.error("Failed to clear last used project cookies");
+		}
+
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {
 					queryClient.clear();
 					router.push(
 						process.env.NODE_ENV === "development"
-							? "http://localhost:3002/login"
-							: "https://llmgateway.io/login",
+							? "http://localhost:3003/login"
+							: "https://chat.llmgateway.io/login",
 					);
 				},
 			},

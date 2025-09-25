@@ -1,8 +1,15 @@
-import { streamText, type UIMessage, convertToModelMessages } from "ai";
+// import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+	streamText,
+	type UIMessage,
+	convertToModelMessages,
+	// experimental_createMCPClient,
+} from "ai";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
 import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
+// import type { experimental_MCPClient } from "ai";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -12,9 +19,30 @@ interface ChatRequestBody {
 	apiKey?: string;
 }
 
+// let githubMCP: experimental_MCPClient | null = null;
+// let tools: any | null = null;
+
 export async function POST(req: Request) {
 	const body = await req.json();
 	const { messages, model, apiKey }: ChatRequestBody = body;
+
+	// if (!githubMCP) {
+	// 	const transport = new StreamableHTTPClientTransport(
+	// 		new URL("https://api.githubcopilot.com/mcp"),
+	// 		{
+	// 			requestInit: {
+	// 				method: "POST",
+	// 				headers: {
+	// 					Authorization: `Bearer ${githubToken}`,
+	// 				},
+	// 			},
+	// 		},
+	// 	);
+	// 	githubMCP = await experimental_createMCPClient({ transport });
+	// 	if (!tools) {
+	// 		tools = await githubMCP.tools();
+	// 	}
+	// }
 
 	if (!messages || !Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
@@ -50,9 +78,12 @@ export async function POST(req: Request) {
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
 			messages: convertToModelMessages(messages),
+			// tools,
 		});
 
-		return result.toUIMessageStreamResponse();
+		return result.toUIMessageStreamResponse({
+			sendReasoning: true,
+		});
 	} catch {
 		return new Response(
 			JSON.stringify({ error: "LLM Gateway request failed" }),
