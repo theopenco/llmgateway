@@ -23,7 +23,7 @@ services:
       - UI_URL=${UI_URL:-http://localhost:3002}
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://localhost:4002}
-      - ORIGIN_URL=${ORIGIN_URL:-http://localhost:3002}
+      - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
 
       # Authentication
