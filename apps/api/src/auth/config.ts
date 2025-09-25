@@ -5,14 +5,14 @@ import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 import nodemailer from "nodemailer";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 const apiUrl = process.env.API_URL || "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
 const uiUrl = process.env.UI_URL || "http://localhost:3002";
 const originUrls =
-	process.env.ORIGIN_URL || "http://localhost:3002,http://localhost:4002";
+	process.env.ORIGIN_URLS || "http://localhost:3002,http://localhost:4002";
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
 const smtpUser = process.env.SMTP_USER;
@@ -598,11 +598,27 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 							organizationId: organization.id,
 						});
 
-						// Create a default project
-						await tx.insert(tables.project).values({
-							name: "Default Project",
-							organizationId: organization.id,
-							mode: "hybrid",
+						// Create a default project with credits mode for better conversion
+						const [project] = await tx
+							.insert(tables.project)
+							.values({
+								name: "Default Project",
+								organizationId: organization.id,
+								mode: "credits",
+							})
+							.returning();
+
+						// Auto-create an API key for the playground to use
+						// Generate a token with a prefix for better identification
+						const prefix =
+							process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+						const token = prefix + shortid(40);
+
+						await tx.insert(tables.apiKey).values({
+							projectId: project.id,
+							token: token,
+							description: "Auto-generated playground key",
+							usageLimit: null, // No limit for playground key
 						});
 					});
 				}

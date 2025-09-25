@@ -76,6 +76,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/playground/package.json ./apps/playground/
 COPY apps/ui/package.json ./apps/ui/
 COPY apps/worker/package.json ./apps/worker/
 COPY packages/db/package.json ./packages/db/
@@ -148,6 +149,19 @@ COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui --prod deploy ../dist/ui
 RUN rm -rf /app/temp
 WORKDIR /app/dist/ui
+EXPOSE 80
+ENV PORT=80
+ENV NODE_ENV=production
+CMD ["./node_modules/.bin/next", "start"]
+
+FROM runtime AS playground
+WORKDIR /app/temp
+COPY --from=builder /app/apps ./apps
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/.npmrc /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground --prod deploy ../dist/playground
+RUN rm -rf /app/temp
+WORKDIR /app/dist/playground
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production

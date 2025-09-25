@@ -2,13 +2,13 @@
 
 import { Loader2, Info } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
 import { Input } from "@/lib/components/input";
 import { ScrollArea } from "@/lib/components/scroll-area";
-import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 
 import { ApiKeyManager } from "./playground/api-key-manager";
@@ -68,15 +68,17 @@ export function Chat() {
 				{ role: "assistant", content: data.content },
 			]);
 		} catch (error) {
-			console.error("Chat error:", error);
+			toast.error("Chat Error");
 
 			// Show user-friendly error message
 			const errorMessage =
 				error instanceof Error ? error.message : "An unexpected error occurred";
-			toast({
-				title: "Chat Error",
+			toast.error("Chat Error", {
 				description: errorMessage,
-				variant: "destructive",
+				style: {
+					backgroundColor: "var(--destructive)",
+					color: "var(--destructive-foreground)",
+				},
 			});
 
 			// Remove the user message that failed to get a response

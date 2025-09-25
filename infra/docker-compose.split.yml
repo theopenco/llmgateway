@@ -72,7 +72,7 @@ services:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
       - UI_URL=${UI_URL:-http://localhost:3002}
       - API_URL=${API_URL:-http://localhost:4002}
-      - ORIGIN_URL=${ORIGIN_URL:-http://localhost:3002}
+      - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002}
       - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
       - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
@@ -81,13 +81,43 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
 
-  # UI Service (Static files served via Nginx)
+  # UI Service
   ui:
     image: ghcr.io/theopenco/llmgateway-ui:latest
     container_name: llmgateway-ui
     restart: unless-stopped
     ports:
       - "${UI_PORT:-3002}:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - API_URL=${API_URL:-http://localhost:4002}
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
+      - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - POSTHOG_KEY=${POSTHOG_KEY}
+
+  # Playground Service
+  playground:
+    image: ghcr.io/theopenco/llmgateway-playground:latest
+    container_name: llmgateway-playground
+    restart: unless-stopped
+    ports:
+      - "${PLAYGROUND_PORT:-3003}:80"
     healthcheck:
       test:
         [

@@ -41,7 +41,10 @@ app.use("*", tracingMiddleware);
 app.use(
 	"*",
 	cors({
-		origin: process.env.UI_URL || "http://localhost:3002",
+		origin: process.env.ORIGIN_URLS?.split(",") || [
+			"http://localhost:3002",
+			"http://localhost:3003",
+		],
 		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
 		exposeHeaders: ["Content-Length"],

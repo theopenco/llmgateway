@@ -8,13 +8,14 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Array of apps to test
-APPS=("api" "gateway" "ui" "docs")
+APPS=("api" "gateway" "playground" "ui" "docs")
 
 # Ports for each app
 declare -A APP_PORTS
 APP_PORTS["api"]=4002
 APP_PORTS["gateway"]=4001
 APP_PORTS["ui"]=3002
+APP_PORTS["playground"]=3003
 APP_PORTS["docs"]=3005
 
 rm -rf dist/

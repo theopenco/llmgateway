@@ -105,6 +105,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/gateway/package.json ./apps/gateway/
+COPY apps/playground/package.json ./apps/playground/
 COPY apps/ui/package.json ./apps/ui/
 COPY apps/worker/package.json ./apps/worker/
 COPY packages/db/package.json ./packages/db/
@@ -137,6 +138,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm --filter=api --prod deploy /app/services/api && \
     pnpm --filter=gateway --prod deploy /app/services/gateway && \
     pnpm --filter=worker --prod deploy /app/services/worker && \
+    pnpm --filter=playground --prod deploy /app/services/playground && \
     pnpm --filter=ui --prod deploy /app/services/ui && \
     pnpm --filter=docs --prod deploy /app/services/docs
 
@@ -163,7 +165,7 @@ COPY infra/start.sh /start.sh
 RUN chmod +x /start.sh
 
 # Expose ports
-EXPOSE 3002 3005 4001 4002 5432 6379
+EXPOSE 3002 3003 3005 4001 4002 5432 6379
 
 # Set environment variables
 ENV NODE_ENV=production

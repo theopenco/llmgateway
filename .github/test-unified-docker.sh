@@ -18,9 +18,10 @@ STARTUP_TIMEOUT=120
 
 # Array of endpoints for testing
 declare -A APP_ENDPOINTS
-APP_ENDPOINTS["api"]="http://localhost:4002/"
-APP_ENDPOINTS["gateway"]="http://localhost:4001/"
+APP_ENDPOINTS["api"]="http://localhost:4002"
+APP_ENDPOINTS["gateway"]="http://localhost:4001"
 APP_ENDPOINTS["ui"]="http://localhost:3002"
+APP_ENDPOINTS["playground"]="http://localhost:3002"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
 
 # Array to store test results
@@ -44,23 +45,23 @@ wait_for_service() {
   local service_name="$1"
   local endpoint="$2"
   local timeout="$3"
-  
+
   echo -e "${YELLOW}Waiting for $service_name to be healthy...${NC}"
-  
+
   local count=0
   local max_attempts=$((timeout / 5))
-  
+
   while [ $count -lt $max_attempts ]; do
     if curl -f -s "$endpoint" > /dev/null 2>&1; then
       echo -e "${GREEN}✓ $service_name is healthy${NC}"
       return 0
     fi
-    
+
     echo "Waiting for $service_name... (attempt $((count + 1))/$max_attempts)"
     sleep 5
     count=$((count + 1))
   done
-  
+
   echo -e "${RED}✗ $service_name failed to become healthy within $timeout seconds${NC}"
   return 1
 }
@@ -69,12 +70,12 @@ wait_for_service() {
 test_service() {
   local app="$1"
   local endpoint="$2"
-  
+
   echo -e "${YELLOW}Testing $app endpoint: $endpoint${NC}"
-  
+
   # Test endpoint
   local response_code=$(curl -s -o /dev/null -w "%{http_code}" "$endpoint" || echo "000")
-  
+
   if [ "$response_code" = "200" ] || [ "$response_code" = "301" ] || [ "$response_code" = "302" ]; then
     echo -e "${GREEN}✓ $app endpoint test passed (HTTP $response_code)${NC}"
     RESULTS["$app"]="PASS"

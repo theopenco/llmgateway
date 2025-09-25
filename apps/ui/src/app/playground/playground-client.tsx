@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 import { ApiKeyManager } from "@/components/playground/api-key-manager";
 import { AuthDialog } from "@/components/playground/auth-dialog";
@@ -188,7 +189,6 @@ export function PlaygroundClient() {
 			setCurrentChatId(newChatId);
 			return newChatId;
 		} catch (error) {
-			console.error("Failed to create chat:", error);
 			setError("Failed to create a new chat. Please try again.");
 			throw error;
 		}
@@ -367,8 +367,8 @@ export function PlaygroundClient() {
 							}).queryKey;
 							queryClient.invalidateQueries({ queryKey });
 						}
-					} catch (error) {
-						console.error("Failed to save assistant message:", error);
+					} catch {
+						toast.error("Failed to save assistant message");
 					}
 				}
 			} else {
@@ -407,15 +407,15 @@ export function PlaygroundClient() {
 							}).queryKey;
 							queryClient.invalidateQueries({ queryKey });
 						}
-					} catch (error) {
-						console.error("Failed to save assistant message:", error);
+					} catch {
+						toast.error("Failed to save assistant message");
 					}
 				}
 			}
 
 			setError(null);
 		} catch (error) {
-			console.error("Error sending message:", error);
+			toast.error("Error sending message");
 			if (error instanceof Error && !error.message.includes("HTTP")) {
 				setError("Failed to send message. Please try again.");
 			}

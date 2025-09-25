@@ -14,7 +14,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-- `pnpm dev` - Start all development servers (UI on :3002, API on :4002, Gateway on :4001, Docs on :3005)
+- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, API on :4002, Gateway on :4001, Docs on :3005)
 - `pnpm build` - Build all applications for production
 - `pnpm clean` - Clean build artifacts and cache directories
 
@@ -134,9 +134,10 @@ NOTE: these commands can only be run in the root directory of the repository, no
 ### Service URLs (Development)
 
 - UI: http://localhost:3002
+- Playground: http://localhost:3003
+- Docs: http://localhost:3005
 - API: http://localhost:4002
 - Gateway: http://localhost:4001
-- Docs: http://localhost:3005
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 
