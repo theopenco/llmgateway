@@ -18,7 +18,7 @@ components:
         COOKIE_DOMAIN: .bunnyenv.com
         DATABASE_URL: "postgres://postgres:llmgateway_dev_password@postgres:5432/llmgateway"
         NODE_ENV: production
-        ORIGIN_URL: "https://ui-{{env.base_domain}}"
+        ORIGIN_URLS: "https://ui-{{env.base_domain}}"
         PASSKEY_RP_ID: localhost
         PASSKEY_RP_NAME: LLMGateway
         PORT: "80"

@@ -12,7 +12,7 @@ const apiUrl = process.env.API_URL || "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
 const uiUrl = process.env.UI_URL || "http://localhost:3002";
 const originUrls =
-	process.env.ORIGIN_URL || "http://localhost:3002,http://localhost:4002";
+	process.env.ORIGIN_URLS || "http://localhost:3002,http://localhost:4002";
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
 const smtpUser = process.env.SMTP_USER;
