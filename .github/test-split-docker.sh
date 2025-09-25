@@ -104,7 +104,7 @@ services:
     image: $IMAGE_PREFIX-ui:$IMAGE_TAG
     build: null
 
-	playground:
+  playground:
     image: $IMAGE_PREFIX-playground:$IMAGE_TAG
     build: null
 
