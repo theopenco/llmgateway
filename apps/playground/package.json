@@ -79,7 +79,7 @@
 		"@types/react-syntax-highlighter": "15.5.13",
 		"eslint": "^9",
 		"eslint-config-next": "15.5.3",
-		"openapi-typescript": "7.8.0",
+		"openapi-typescript": "7.9.1",
 		"tailwindcss": "^4",
 		"tw-animate-css": "1.3.8",
 		"typescript": "^5",
