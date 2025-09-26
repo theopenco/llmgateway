@@ -194,6 +194,28 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-2.5-flash-lite-preview-09-2025",
+		name: "Gemini 2.5 Flash Lite Preview (09-2025)",
+		family: "google",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				modelName: "gemini-2.5-flash-lite-preview-09-2025",
+				inputPrice: 0.1 / 1e6,
+				outputPrice: 0.4 / 1e6,
+				cachedInputPrice: 0.025 / 1e6,
+				requestPrice: 0,
+				contextSize: 1000000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: true,
+			},
+		],
+	},
+	{
 		id: "gemini-2.5-flash-image-preview",
 		name: "Gemini 2.5 Flash Image Preview",
 		aliases: ["nano banana"],
