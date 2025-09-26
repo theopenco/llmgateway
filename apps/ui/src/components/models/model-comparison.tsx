@@ -31,8 +31,10 @@ import {
 	type StabilityLevel,
 } from "@llmgateway/models";
 
-const DEFAULT_LEFT_MODEL = "gpt-4o";
-const DEFAULT_RIGHT_MODEL = "claude-3-7-sonnet";
+type ModelId = (typeof models)[number]["id"];
+
+const DEFAULT_LEFT_MODEL = "gpt-4o" as ModelId;
+const DEFAULT_RIGHT_MODEL = "claude-3-7-sonnet" as ModelId;
 
 const providerMap = new Map(
 	providerDefinitions.map((provider) => [provider.id, provider]),
@@ -225,7 +227,10 @@ function getPricingSummary(
 	};
 }
 
-function collectModelDetail(modelId: string): ModelDetail | undefined {
+function collectModelDetail(modelId?: ModelId): ModelDetail | undefined {
+	if (!modelId) {
+		return undefined;
+	}
 	const model = modelMap.get(modelId) as ModelDefinition | undefined;
 
 	if (!model) {
@@ -455,15 +460,18 @@ function renderRowValue(
 }
 
 export function ModelComparison() {
-	const [leftModelId, setLeftModelId] = useState<string>(
-		modelMap.has(DEFAULT_LEFT_MODEL)
-			? DEFAULT_LEFT_MODEL
-			: (models[0]?.id ?? ""),
+	const fallbackLeftModel = modelMap.has(DEFAULT_LEFT_MODEL)
+		? DEFAULT_LEFT_MODEL
+		: (models[0]?.id as ModelId | undefined);
+	const fallbackRightModel = modelMap.has(DEFAULT_RIGHT_MODEL)
+		? DEFAULT_RIGHT_MODEL
+		: (models[1]?.id as ModelId | undefined);
+
+	const [leftModelId, setLeftModelId] = useState<ModelId | undefined>(
+		fallbackLeftModel,
 	);
-	const [rightModelId, setRightModelId] = useState<string>(
-		modelMap.has(DEFAULT_RIGHT_MODEL)
-			? DEFAULT_RIGHT_MODEL
-			: (models[1]?.id ?? ""),
+	const [rightModelId, setRightModelId] = useState<ModelId | undefined>(
+		fallbackRightModel,
 	);
 
 	const leftModel = useMemo(
@@ -507,8 +515,8 @@ export function ModelComparison() {
 								Model A
 							</div>
 							<ModelSelector
-								selectedModel={leftModelId}
-								onModelSelect={(value) => setLeftModelId(value)}
+								selectedModel={leftModelId ?? ""}
+								onModelSelect={(value) => setLeftModelId(value as ModelId)}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -516,8 +524,8 @@ export function ModelComparison() {
 								Model B
 							</div>
 							<ModelSelector
-								selectedModel={rightModelId}
-								onModelSelect={(value) => setRightModelId(value)}
+								selectedModel={rightModelId ?? ""}
+								onModelSelect={(value) => setRightModelId(value as ModelId)}
 							/>
 						</div>
 					</div>
