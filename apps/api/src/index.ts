@@ -41,7 +41,7 @@ app.use("*", tracingMiddleware);
 app.use(
 	"*",
 	cors({
-		origin: process.env.UI_URL || [
+		origin: process.env.ORIGIN_URLS?.split(",") || [
 			"http://localhost:3002",
 			"http://localhost:3003",
 		],

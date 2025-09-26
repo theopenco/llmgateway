@@ -1326,6 +1326,7 @@ chat.openapi(completions, async (c) => {
 
 	if (cachingEnabled) {
 		const cachePayload = {
+			provider: usedProvider,
 			model: usedModel,
 			messages,
 			temperature,
