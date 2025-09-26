@@ -28,7 +28,7 @@
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.205.0",
 		"bcrypt-ts": "7.0.0",
-		"better-auth": "1.2.7",
+		"better-auth": "1.2.10",
 		"dotenv": "16.5.0",
 		"drizzle-zod": "0.8.3",
 		"gateway": "workspace:*",
