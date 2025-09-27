@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { ModelSelector } from "@/components/playground/model-selector";
 import { Badge } from "@/lib/components/badge";
@@ -41,6 +42,14 @@ const providerMap = new Map(
 );
 
 const modelMap = new Map(models.map((model) => [model.id, model]));
+
+function toModelId(value: string | null): ModelId | undefined {
+	if (!value) {
+		return undefined;
+	}
+
+	return modelMap.has(value as ModelId) ? (value as ModelId) : undefined;
+}
 
 type PriceField =
 	| "inputPrice"
@@ -460,6 +469,11 @@ function renderRowValue(
 }
 
 export function ModelComparison() {
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const searchParamsString = searchParams.toString();
+
 	const fallbackLeftModel = modelMap.has(DEFAULT_LEFT_MODEL)
 		? DEFAULT_LEFT_MODEL
 		: (models[0]?.id as ModelId | undefined);
@@ -467,12 +481,63 @@ export function ModelComparison() {
 		? DEFAULT_RIGHT_MODEL
 		: (models[1]?.id as ModelId | undefined);
 
+	const queryLeft = toModelId(searchParams.get("left"));
+	const queryRight = toModelId(searchParams.get("right"));
+
 	const [leftModelId, setLeftModelId] = useState<ModelId | undefined>(
-		fallbackLeftModel,
+		queryLeft ?? fallbackLeftModel,
 	);
 	const [rightModelId, setRightModelId] = useState<ModelId | undefined>(
-		fallbackRightModel,
+		queryRight ?? fallbackRightModel,
 	);
+
+	useEffect(() => {
+		const nextLeft = queryLeft ?? fallbackLeftModel;
+		if (nextLeft !== leftModelId) {
+			setLeftModelId(nextLeft);
+		}
+	}, [queryLeft, fallbackLeftModel, leftModelId]);
+
+	useEffect(() => {
+		const nextRight = queryRight ?? fallbackRightModel;
+		if (nextRight !== rightModelId) {
+			setRightModelId(nextRight);
+		}
+	}, [queryRight, fallbackRightModel, rightModelId]);
+
+	useEffect(() => {
+		const params = new URLSearchParams(searchParamsString);
+		const currentLeft = params.get("left");
+		const currentRight = params.get("right");
+		let changed = false;
+
+		if (leftModelId) {
+			if (currentLeft !== leftModelId) {
+				params.set("left", leftModelId);
+				changed = true;
+			}
+		} else if (currentLeft) {
+			params.delete("left");
+			changed = true;
+		}
+
+		if (rightModelId) {
+			if (currentRight !== rightModelId) {
+				params.set("right", rightModelId);
+				changed = true;
+			}
+		} else if (currentRight) {
+			params.delete("right");
+			changed = true;
+		}
+
+		if (!changed) {
+			return;
+		}
+
+		const next = params.toString();
+		router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+	}, [leftModelId, rightModelId, router, pathname, searchParamsString]);
 
 	const leftModel = useMemo(
 		() => collectModelDetail(leftModelId),
@@ -516,7 +581,9 @@ export function ModelComparison() {
 							</div>
 							<ModelSelector
 								selectedModel={leftModelId ?? ""}
-								onModelSelect={(value) => setLeftModelId(value as ModelId)}
+								onModelSelect={(value) =>
+									setLeftModelId(toModelId(value) ?? fallbackLeftModel)
+								}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -525,7 +592,9 @@ export function ModelComparison() {
 							</div>
 							<ModelSelector
 								selectedModel={rightModelId ?? ""}
-								onModelSelect={(value) => setRightModelId(value as ModelId)}
+								onModelSelect={(value) =>
+									setRightModelId(toModelId(value) ?? fallbackRightModel)
+								}
 							/>
 						</div>
 					</div>
