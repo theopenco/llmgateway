@@ -116,17 +116,10 @@ ENV ASDF_DATA_DIR=${ASDF_DIR}
 # Set working directory and configure PATH to include tool directories
 WORKDIR /app
 
-# Create a startup script that sets the PATH dynamically
-RUN echo '#!/bin/bash' > /usr/local/bin/asdf-env.sh && \
-    echo 'NODEJS_VERSION=$(grep "^nodejs " /.tool-versions | cut -d" " -f2)' >> /usr/local/bin/asdf-env.sh && \
-    echo 'PNPM_VERSION=$(grep "^pnpm " /.tool-versions | cut -d" " -f2)' >> /usr/local/bin/asdf-env.sh && \
-    echo 'export PATH="/root/.asdf/installs/nodejs/${NODEJS_VERSION}/bin:/root/.asdf/installs/pnpm/${PNPM_VERSION}/bin:/root/.asdf/bin:$PATH"' >> /usr/local/bin/asdf-env.sh && \
-    echo 'exec "$@"' >> /usr/local/bin/asdf-env.sh && \
-    chmod +x /usr/local/bin/asdf-env.sh
+# Configure PATH to use asdf shims
+ENV PATH="${ASDF_DIR}/bin:${ASDF_DIR}/shims:$PATH"
 
-ENV PATH=/root/.asdf/bin:$PATH
-
-ENTRYPOINT ["/tini", "--", "/usr/local/bin/asdf-env.sh"]
+ENTRYPOINT ["/tini", "--"]
 
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
