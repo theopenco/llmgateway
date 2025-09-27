@@ -27,7 +27,7 @@ RUN ARCH=$(uname -m) && \
     wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
     mkdir -p $ASDF_DIR && \
     tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
-    rm /tmp/asdf.tar.gz \
+    rm /tmp/asdf.tar.gz
 
 # Create app directory
 WORKDIR /app
