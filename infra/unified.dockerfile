@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     git \
     cmake \
+ \
     && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y --no-install-recommends \
@@ -45,53 +46,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory and copy .tool-versions
+# Install asdf version manager
+ENV ASDF_VERSION=v0.18.0
+ENV ASDF_DIR=/root/.asdf
+ENV ASDF_DATA_DIR=${ASDF_DIR}
+
+ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
+
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
+    wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
+    mkdir -p $ASDF_DIR && \
+    tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
+    rm /tmp/asdf.tar.gz
+
 WORKDIR /app
+
 COPY .tool-versions ./
 
-# Install Node.js and pnpm based on .tool-versions
-RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
-    PNPM_VERSION=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2) && \
-    ARCH=$(uname -m) && \
-    echo "Installing Node.js v${NODE_VERSION} and pnpm v${PNPM_VERSION} for ${ARCH}" && \
-    \
-    # Map architecture names for Node.js official builds
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        NODE_ARCH="arm64"; \
-    elif [ "$ARCH" = "x86_64" ]; then \
-        NODE_ARCH="x64"; \
-    else \
-        echo "Unsupported architecture: ${ARCH}" && exit 1; \
-    fi && \
-    \
-    # Download and install official Node.js glibc build
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o node-official.tar.xz && \
-    tar -xJf node-official.tar.xz --strip-components=1 -C /usr/local && \
-    rm node-official.tar.xz && \
-    \
-    # Install pnpm
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-arm64" -o /usr/local/bin/pnpm; \
-    else \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-x64" -o /usr/local/bin/pnpm; \
-    fi && \
-    chmod +x /usr/local/bin/pnpm && \
-    \
+# Install asdf plugins and tools
+RUN asdf plugin add nodejs && \
+    asdf plugin add pnpm && \
+    asdf install && \
+    asdf reshim && \
     # Verify installations
     echo "Final versions installed:" && \
     node -v && \
-    pnpm -v && \
-    \
-    # verify that node -v matches .tool-versions nodejs version
-    if [ "$(node -v)" != "v${NODE_VERSION}" ]; then \
-        echo "Node.js version mismatch"; \
-        exit 1; \
-    fi && \
-    # verify that pnpm -v matches .tool-versions pnpm version
-    if [ "$(pnpm -v)" != "${PNPM_VERSION}" ]; then \
-        echo "pnpm version mismatch"; \
-        exit 1; \
-    fi
+    pnpm -v
 
 # Copy package files
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
@@ -114,6 +96,7 @@ COPY . .
 # Install all dependencies, build, then prune to production only
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     --mount=type=cache,target=/app/.turbo \
+    . "$ASDF_DIR/asdf.sh" && \
     pnpm install --frozen-lockfile && \
     pnpm build && \
     # Remove all dev dependencies after build

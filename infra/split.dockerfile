@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     ca-certificates \
     tini \
+    wget \
+    git \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/bin/tini --version
 
@@ -19,49 +21,29 @@ WORKDIR /app
 # Copy .tool-versions to get Node.js and pnpm versions
 COPY .tool-versions ./
 
-# Install Node.js and pnpm based on .tool-versions
-RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
-    PNPM_VERSION=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2) && \
-    ARCH=$(uname -m) && \
-    echo "Installing Node.js v${NODE_VERSION} and pnpm v${PNPM_VERSION} for ${ARCH}" && \
-    \
-    # Map architecture names for Node.js official builds
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        NODE_ARCH="arm64"; \
-    elif [ "$ARCH" = "x86_64" ]; then \
-        NODE_ARCH="x64"; \
-    else \
-        echo "Unsupported architecture: ${ARCH}" && exit 1; \
-    fi && \
-    \
-    # Download and install official Node.js glibc build
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o node-official.tar.xz && \
-    tar -xJf node-official.tar.xz --strip-components=1 -C /usr/local && \
-    rm node-official.tar.xz && \
-    \
-    # Install pnpm
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-arm64" -o /usr/local/bin/pnpm; \
-    else \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-x64" -o /usr/local/bin/pnpm; \
-    fi && \
-    chmod +x /usr/local/bin/pnpm && \
-    \
+# Install asdf version manager
+ENV ASDF_VERSION=v0.18.0
+ENV ASDF_DIR=/root/.asdf
+ENV ASDF_DATA_DIR=${ASDF_DIR}
+ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
+
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
+    wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
+    mkdir -p $ASDF_DIR && \
+    tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
+    rm /tmp/asdf.tar.gz
+
+# Install asdf plugins and tools
+RUN asdf plugin add nodejs && \
+    asdf plugin add pnpm && \
+    asdf install && \
+    asdf reshim && \
     # Verify installations
     echo "Final versions installed:" && \
     node -v && \
-    pnpm -v && \
-    \
-    # verify that node -v matches .tool-versions nodejs version
-    if [ "$(node -v)" != "v${NODE_VERSION}" ]; then \
-        echo "Node.js version mismatch"; \
-        exit 1; \
-    fi && \
-    # verify that pnpm -v matches .tool-versions pnpm version
-    if [ "$(pnpm -v)" != "${PNPM_VERSION}" ]; then \
-        echo "pnpm version mismatch"; \
-        exit 1; \
-    fi
+    pnpm -v
 
 # verify that pnpm store path
 RUN STORE_PATH="/root/.local/share/pnpm/store" && \
@@ -124,13 +106,20 @@ FROM debian:12-slim AS runtime
 # Install base runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends bash && rm -rf /var/lib/apt/lists/*
 
-# copy nodejs, pnpm, and tini from base-builder stage
-COPY --from=base-builder /usr/local/bin/node /usr/local/bin/node
-COPY --from=base-builder /usr/local/bin/pnpm /usr/local/bin/pnpm
+# copy asdf, nodejs, pnpm, and tini from base-builder stage
+COPY --from=base-builder /root/.asdf /root/.asdf
 COPY --from=base-builder /usr/bin/tini /tini
+COPY --from=base-builder /app/.tool-versions ./.tool-versions
+ENV ASDF_DIR=/root/.asdf
+ENV ASDF_DATA_DIR=${ASDF_DIR}
+ENV PATH="/usr/local/bin:${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
 
-# Verify installations
-RUN node -v && pnpm -v
+# Set working directory and create symlinks to actual binaries
+WORKDIR /app
+RUN NODE_PATH=$(find /root/.asdf -name node -type f -path "*/bin/node" | head -1) && \
+    PNPM_PATH=$(find /root/.asdf -name pnpm.cjs -type f -path "*/pnpm/*/bin/*" | head -1) && \
+    ln -sf "$NODE_PATH" /usr/local/bin/node && \
+    ln -sf "$PNPM_PATH" /usr/local/bin/pnpm
 
 ENTRYPOINT ["/tini", "--"]
 
