@@ -117,7 +117,7 @@ ENV ASDF_DATA_DIR=${ASDF_DIR}
 WORKDIR /app
 
 # Configure PATH to use asdf shims
-ENV PATH="${ASDF_DIR}/bin:${ASDF_DIR}/shims:$PATH"
+ENV PATH="${ASDF_DIR}:${ASDF_DIR}/shims:$PATH"
 
 ENTRYPOINT ["/tini", "--"]
 
@@ -135,6 +135,8 @@ WORKDIR /app
 COPY --from=api-prep /app/api-dist ./
 # copy migrations files for API service to run migrations at runtime
 COPY --from=api-builder /app/packages/db/migrations ./migrations
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -150,6 +152,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gatewa
 FROM runtime AS gateway
 WORKDIR /app
 COPY --from=gateway-prep /app/gateway-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -164,6 +168,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui --p
 FROM runtime AS ui
 WORKDIR /app
 COPY --from=ui-prep /app/ui-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -178,6 +184,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playgr
 FROM runtime AS playground
 WORKDIR /app
 COPY --from=playground-prep /app/playground-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -192,6 +200,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker
 FROM runtime AS worker
 WORKDIR /app
 COPY --from=worker-prep /app/worker-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 ENV NODE_ENV=production
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 
@@ -204,6 +214,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs -
 FROM runtime AS docs
 WORKDIR /app
 COPY --from=docs-prep /app/docs-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
