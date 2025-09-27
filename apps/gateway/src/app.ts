@@ -4,6 +4,7 @@ import "dotenv/config";
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import { logger as honoLogger } from "hono/logger";
 import { z } from "zod";
 
 import { redisClient } from "@llmgateway/cache";
@@ -49,7 +50,7 @@ export const config = {
 
 export const app = new OpenAPIHono<ServerTypes>();
 
-// Add tracing middleware first
+app.use("*", honoLogger());
 app.use("*", tracingMiddleware);
 
 // Middleware to check for application/json content type on POST requests
