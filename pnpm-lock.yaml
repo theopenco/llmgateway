@@ -130,8 +130,8 @@ importers:
         specifier: 7.0.0
         version: 7.0.0
       better-auth:
-        specifier: 1.2.7
-        version: 1.2.7
+        specifier: 1.2.10
+        version: 1.2.10
       dotenv:
         specifier: 16.5.0
         version: 16.5.0
@@ -14348,7 +14348,7 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/sdk-node': 0.205.0(@opentelemetry/api@1.9.0)
       bcrypt-ts: 7.0.0
-      better-auth: 1.2.7
+      better-auth: 1.2.10
       dotenv: 16.5.0
       drizzle-zod: 0.8.3(drizzle-orm@1.0.0-beta.1-fd5d1e8(@opentelemetry/api@1.9.0)(@types/pg@8.15.5)(gel@2.1.0)(kysely@0.28.7)(pg@8.16.3))(zod@3.25.75)
       gateway: file:apps/gateway(@types/node@20.19.14)(@types/pg@8.15.5)(gel@2.1.0)(openapi-types@12.1.3)
