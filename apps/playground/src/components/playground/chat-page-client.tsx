@@ -88,18 +88,21 @@ export default function ChatPageClient({
 	useChats();
 
 	useEffect(() => {
-		if (currentChatData?.messages) {
-			setMessages(
-				currentChatData.messages.map((msg) => ({
+		if (!currentChatData?.messages) {
+			return;
+		}
+
+		setMessages((prev) => {
+			if (prev.length === 0) {
+				return currentChatData.messages.map((msg) => ({
 					id: msg.id,
 					role: msg.role,
 					content: msg.content ?? "",
 					parts: [{ type: "text", text: msg.content ?? "" }],
-				})),
-			);
-		} else {
-			setMessages([]);
-		}
+				}));
+			}
+			return prev;
+		});
 	}, [currentChatData, setMessages]);
 
 	const [showApiKeyManager, setShowApiKeyManager] = useState(false);
@@ -181,6 +184,7 @@ export default function ChatPageClient({
 		setIsLoading(true);
 		setError(null);
 		try {
+			setMessages([]);
 			setCurrentChatId(chatId);
 		} catch {
 			setError("Failed to load chat. Please try again.");

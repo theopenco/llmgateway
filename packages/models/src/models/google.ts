@@ -265,7 +265,7 @@ export const googleModels = [
 		name: "Gemini 1.5 Pro",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-09-20"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -276,7 +276,7 @@ export const googleModels = [
 				contextSize: 1000000,
 				maxOutput: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],
@@ -286,7 +286,7 @@ export const googleModels = [
 		name: "Gemini 1.5 Flash",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-09-20"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -297,7 +297,7 @@ export const googleModels = [
 				contextSize: 1000000,
 				maxOutput: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],
@@ -307,7 +307,7 @@ export const googleModels = [
 		name: "Gemini 1.5 Flash 8B",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-09-20"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
