@@ -234,7 +234,7 @@ export default function ChatPageClient({
 							setSelectedModel={setSelectedModel}
 						/>
 					</div>
-					<div className="flex-1 overflow-hidden">
+					<div className="flex-1 overflow-hidden w-full md:w-2xl mx-auto">
 						<ChatUI
 							messages={messages}
 							supportsImages={supportsImages}
