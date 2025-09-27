@@ -42,31 +42,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cd / \
     && rm -rf /usr/src/redis* \
     && adduser --system --group --no-create-home redis \
-    && apt-get remove -y build-essential wget gnupg lsb-release dpkg-dev gcc g++ libc6-dev libssl-dev make cmake \
+    && \
+    # Install asdf version manager before cleanup
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
+    ASDF_VERSION=v0.18.0 && \
+    ASDF_DIR=/root/.asdf && \
+    wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
+    mkdir -p $ASDF_DIR && \
+    tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
+    rm /tmp/asdf.tar.gz && \
+    # Clean up after asdf installation
+    apt-get remove -y build-essential wget gnupg lsb-release dpkg-dev gcc g++ libc6-dev libssl-dev make cmake \
     && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install asdf version manager
+# Set asdf environment variables
 ENV ASDF_VERSION=v0.18.0
 ENV ASDF_DIR=/root/.asdf
 ENV ASDF_DATA_DIR=${ASDF_DIR}
 ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
-
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
-    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
-    wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
-    mkdir -p $ASDF_DIR && \
-    tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
-    rm /tmp/asdf.tar.gz
 
 WORKDIR /app
 
 COPY .tool-versions ./
 
 # Install asdf plugins and tools
-RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin add  {} && \
+RUN asdf plugin add nodejs && \
+    asdf plugin add pnpm && \
     asdf install && \
     asdf reshim && \
     # Verify installations
@@ -95,7 +100,6 @@ COPY . .
 # Install all dependencies, build, then prune to production only
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     --mount=type=cache,target=/app/.turbo \
-    . "$ASDF_DIR/asdf.sh" && \
     pnpm install --frozen-lockfile && \
     pnpm build && \
     # Remove all dev dependencies after build
