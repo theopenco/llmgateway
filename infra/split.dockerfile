@@ -112,16 +112,21 @@ COPY --from=base-builder /usr/bin/tini /tini
 COPY --from=base-builder /app/.tool-versions ./.tool-versions
 ENV ASDF_DIR=/root/.asdf
 ENV ASDF_DATA_DIR=${ASDF_DIR}
-ENV PATH="/usr/local/bin:${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
 
-# Set working directory and create symlinks to actual binaries
+# Set working directory and configure PATH to include tool directories
 WORKDIR /app
-RUN NODE_PATH=$(find /root/.asdf -name node -type f -path "*/bin/node" | head -1) && \
-    PNPM_PATH=$(find /root/.asdf -name pnpm.cjs -type f -path "*/pnpm/*/bin/*" | head -1) && \
-    ln -sf "$NODE_PATH" /usr/local/bin/node && \
-    ln -sf "$PNPM_PATH" /usr/local/bin/pnpm
 
-ENTRYPOINT ["/tini", "--"]
+# Create a startup script that sets the PATH dynamically
+RUN echo '#!/bin/bash' > /usr/local/bin/asdf-env.sh && \
+    echo 'NODEJS_VERSION=$(grep "^nodejs " /.tool-versions | cut -d" " -f2)' >> /usr/local/bin/asdf-env.sh && \
+    echo 'PNPM_VERSION=$(grep "^pnpm " /.tool-versions | cut -d" " -f2)' >> /usr/local/bin/asdf-env.sh && \
+    echo 'export PATH="/root/.asdf/installs/nodejs/${NODEJS_VERSION}/bin:/root/.asdf/installs/pnpm/${PNPM_VERSION}/bin:/root/.asdf/bin:$PATH"' >> /usr/local/bin/asdf-env.sh && \
+    echo 'exec "$@"' >> /usr/local/bin/asdf-env.sh && \
+    chmod +x /usr/local/bin/asdf-env.sh
+
+ENV PATH=/root/.asdf/bin:$PATH
+
+ENTRYPOINT ["/tini", "--", "/usr/local/bin/asdf-env.sh"]
 
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
