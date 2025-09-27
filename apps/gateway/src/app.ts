@@ -50,8 +50,14 @@ export const config = {
 
 export const app = new OpenAPIHono<ServerTypes>();
 
-const honoRequestLogger = honoLogger((message: string) => {
-	logger.info(message, { service: "gateway", source: "hono-logger" });
+const honoRequestLogger = honoLogger((message: string, ...args: any) => {
+	logger.info("request", {
+		kind: "request",
+		service: "gateway",
+		source: "hono-logger",
+		message,
+		args,
+	});
 });
 
 // Add tracing middleware first so instrumentation stays active for downstream handlers
