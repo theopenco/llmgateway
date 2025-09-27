@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev \
     libssl-dev \
     make \
+    wget \
     git \
     cmake \
  \
@@ -50,7 +51,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV ASDF_VERSION=v0.18.0
 ENV ASDF_DIR=/root/.asdf
 ENV ASDF_DATA_DIR=${ASDF_DIR}
-
 ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
 
 RUN ARCH=$(uname -m) && \
@@ -66,8 +66,7 @@ WORKDIR /app
 COPY .tool-versions ./
 
 # Install asdf plugins and tools
-RUN asdf plugin add nodejs && \
-    asdf plugin add pnpm && \
+RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin add  {} && \
     asdf install && \
     asdf reshim && \
     # Verify installations

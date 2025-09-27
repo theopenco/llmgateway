@@ -15,12 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/bin/tini --version
 
-# Create app directory
-WORKDIR /app
-
-# Copy .tool-versions to get Node.js and pnpm versions
-COPY .tool-versions ./
-
 # Install asdf version manager
 ENV ASDF_VERSION=v0.18.0
 ENV ASDF_DIR=/root/.asdf
@@ -33,7 +27,12 @@ RUN ARCH=$(uname -m) && \
     wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
     mkdir -p $ASDF_DIR && \
     tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
-    rm /tmp/asdf.tar.gz
+    rm /tmp/asdf.tar.gz \
+
+# Create app directory
+WORKDIR /app
+
+COPY .tool-versions ./
 
 # Install asdf plugins and tools
 RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin add  {} && \
