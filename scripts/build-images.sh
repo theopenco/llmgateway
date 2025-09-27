@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 REGISTRY="ghcr.io"
 REPOSITORY_BASE="theopenco/llmgateway"
 PLATFORMS=("linux/amd64" "linux/arm64")
-SPLIT_APPS=("api" "gateway" "ui" "docs")
+SPLIT_APPS=("api" "gateway" "playground" "ui" "docs")
 
 # Function to print colored output
 print_status() {
@@ -215,7 +215,7 @@ wait_for_builds() {
         fi
         rm -f "/tmp/build_result_unified"
     fi
-    
+
 
     # Return failure if any builds failed
     if [[ ${#failed_builds[@]} -gt 0 ]]; then
