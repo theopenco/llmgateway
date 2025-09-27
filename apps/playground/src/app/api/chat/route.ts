@@ -6,6 +6,8 @@ import {
 	// experimental_createMCPClient,
 } from "ai";
 
+import { getUser } from "@/lib/getUser";
+
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
 import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
@@ -23,6 +25,14 @@ interface ChatRequestBody {
 // let tools: any | null = null;
 
 export async function POST(req: Request) {
+	const user = await getUser();
+
+	if (!user) {
+		return new Response(JSON.stringify({ error: "Unauthorized" }), {
+			status: 401,
+		});
+	}
+
 	const body = await req.json();
 	const { messages, model, apiKey }: ChatRequestBody = body;
 
@@ -69,6 +79,12 @@ export async function POST(req: Request) {
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseUrl: gatewayUrl,
+		headers: {
+			"x-source": "chat.llmgateway.io",
+			"X-LLMGateway-User-ID": user.id,
+			"X-LLMGateway-User-Email": user.email,
+			"X-LLMGateway-User-Name": user.name,
+		},
 	});
 	const selectedModel = (model ??
 		headerModel ??

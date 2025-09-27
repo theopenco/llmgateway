@@ -122,6 +122,28 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-2.5-flash-preview-09-2025",
+		name: "Gemini 2.5 Flash Preview (09-2025)",
+		family: "google",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				modelName: "gemini-2.5-flash-preview-09-2025",
+				inputPrice: 0.3 / 1e6,
+				outputPrice: 2.5 / 1e6,
+				cachedInputPrice: 0.075 / 1e6,
+				requestPrice: 0,
+				contextSize: 1000000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: true,
+			},
+		],
+	},
+	{
 		id: "gemini-2.5-flash",
 		name: "Gemini 2.5 Flash",
 		family: "google",
@@ -194,6 +216,28 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-2.5-flash-lite-preview-09-2025",
+		name: "Gemini 2.5 Flash Lite Preview (09-2025)",
+		family: "google",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				modelName: "gemini-2.5-flash-lite-preview-09-2025",
+				inputPrice: 0.1 / 1e6,
+				outputPrice: 0.4 / 1e6,
+				cachedInputPrice: 0.025 / 1e6,
+				requestPrice: 0,
+				contextSize: 1000000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: true,
+			},
+		],
+	},
+	{
 		id: "gemini-2.5-flash-image-preview",
 		name: "Gemini 2.5 Flash Image Preview",
 		aliases: ["nano banana"],
@@ -243,7 +287,7 @@ export const googleModels = [
 		name: "Gemini 1.5 Pro",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-09-20"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -254,7 +298,7 @@ export const googleModels = [
 				contextSize: 1000000,
 				maxOutput: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],
@@ -264,7 +308,7 @@ export const googleModels = [
 		name: "Gemini 1.5 Flash",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-09-20"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
@@ -275,7 +319,7 @@ export const googleModels = [
 				contextSize: 1000000,
 				maxOutput: undefined,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 			},
 		],
@@ -285,7 +329,7 @@ export const googleModels = [
 		name: "Gemini 1.5 Flash 8B",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-09-20"),
 		providers: [
 			{
 				providerId: "google-ai-studio",
