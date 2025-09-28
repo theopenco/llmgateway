@@ -53,16 +53,16 @@ class LLMGatewayLogger {
 					},
 				},
 			}),
-			...(prettyPrint && {
-				transport: {
-					target: "pino-pretty",
-					options: {
-						colorize: true,
-						translateTime: "HH:MM:ss Z",
-						ignore: "pid,hostname",
-					},
-				},
-			}),
+			// ...(prettyPrint && {
+			// 	transport: {
+			// 		target: "pino-pretty",
+			// 		options: {
+			// 			colorize: true,
+			// 			translateTime: "HH:MM:ss Z",
+			// 			ignore: "pid,hostname",
+			// 		},
+			// 	},
+			// }),
 		});
 	}
 

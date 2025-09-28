@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     wget \
     git \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/bin/tini --version
 
@@ -41,7 +42,8 @@ RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin ad
     # Verify installations
     echo "Final versions installed:" && \
     node -v && \
-    pnpm -v
+    pnpm -v && \
+    bun -v
 
 # verify that pnpm store path
 RUN STORE_PATH="/root/.local/share/pnpm/store" && \
@@ -139,12 +141,14 @@ WORKDIR /app
 COPY --from=api-prep /app/api-dist ./
 # copy migrations files for API service to run migrations at runtime
 COPY --from=api-builder /app/packages/db/migrations ./migrations
+# copy the bun executable
+COPY --from=api-builder /app/apps/api/api-server ./api-server
 COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 ENV TELEMETRY_ACTIVE=true
-CMD ["node", "--enable-source-maps", "dist/serve.js"]
+CMD ["./api-server"]
 
 # Gateway preparation stage
 FROM gateway-builder AS gateway-prep
@@ -155,11 +159,13 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gatewa
 FROM runtime AS gateway
 WORKDIR /app
 COPY --from=gateway-prep /app/gateway-dist ./
+# copy the bun executable
+COPY --from=gateway-builder /app/apps/gateway/gateway-server ./gateway-server
 COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["node", "--enable-source-maps", "dist/serve.js"]
+CMD ["./gateway-server"]
 
 # UI runtime stage
 FROM runtime AS ui

@@ -8,12 +8,12 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && resolve-tspaths && pnpm run generate",
+		"build": "tsc && resolve-tspaths && pnpm run generate && bun build dist/serve.js --compile --minify --sourcemap --outfile api-server",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "node --enable-source-maps dist/serve.js"
+		"start": "./api-server"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",
