@@ -134,7 +134,7 @@ ENV APP_VERSION=$APP_VERSION
 FROM debian:12-slim AS api
 WORKDIR /app
 # Copy only the standalone executable
-COPY --from=api-builder /app/apps/api/api.out ./api.out
+COPY --from=api-builder /app/apps/api/dist/api.out ./api.out
 # copy migrations files for API service to run migrations at runtime
 COPY --from=api-builder /app/packages/db/migrations ./migrations
 EXPOSE 80
@@ -147,7 +147,7 @@ CMD ["./api.out"]
 FROM debian:12-slim AS gateway
 WORKDIR /app
 # Copy only the standalone executable
-COPY --from=gateway-builder /app/apps/gateway/gateway.out ./gateway.out
+COPY --from=gateway-builder /app/apps/gateway/dist/gateway.out ./gateway.out
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -191,7 +191,7 @@ CMD ["bun", "server.js"]
 FROM debian:12-slim AS worker
 WORKDIR /app
 # Copy only the standalone executable
-COPY --from=worker-builder /app/apps/worker/worker.out ./worker.out
+COPY --from=worker-builder /app/apps/worker/dist/worker.out ./worker.out
 ENV NODE_ENV=production
 CMD ["./worker.out"]
 

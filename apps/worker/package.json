@@ -16,7 +16,7 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && resolve-tspaths && NODE_ENV=production bun build src/index.ts --compile --minify --sourcemap --outfile worker.out",
+		"build": "tsc && resolve-tspaths && NODE_ENV=production bun build src/index.ts --compile --minify --sourcemap --outfile dist/worker.out",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"bun --watch dist/index.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check .",
