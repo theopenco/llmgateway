@@ -14,3 +14,4 @@ llmgateway_data
 .claude/settings.local.json
 http
 *.txt
+docker-compose-override-*.yml

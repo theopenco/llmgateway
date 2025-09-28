@@ -95,26 +95,20 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo \
     pnpm build && \
     # Remove all dev dependencies after build
-    pnpm prune --force --prod && \
-    # Copy standalone builds to correct locations for supervisord
-    # Create temporary directories and copy the entire standalone outputs which are self-contained
-    mkdir -p /tmp/ui-standalone /tmp/playground-standalone /tmp/docs-standalone && \
-    cp -r apps/ui/.next/standalone/* /tmp/ui-standalone/ && \
-    cp -r apps/playground/.next/standalone/* /tmp/playground-standalone/ && \
-    cp -r apps/docs/.next/standalone/* /tmp/docs-standalone/ && \
+    # (yes | pnpm prune --prod --ignore-scripts) && \
     # Copy static assets
-    mkdir -p /app/apps/ui/.next /app/apps/playground/.next /app/apps/docs/.next && \
-    cp -r apps/ui/.next/static /app/apps/ui/.next/ && \
-    cp -r apps/playground/.next/static /app/apps/playground/.next/ && \
-    cp -r apps/docs/.next/static /app/apps/docs/.next/ && \
-    # Copy public directories from original build (not from working directory to avoid self-copy)
-    test -d /tmp/ui-standalone/apps/ui/public && cp -r /tmp/ui-standalone/apps/ui/public /app/apps/ui/ || true && \
-    test -d /tmp/docs-standalone/apps/docs/public && cp -r /tmp/docs-standalone/apps/docs/public /app/apps/docs/ || true && \
-    test -d /tmp/playground-standalone/apps/playground/public && cp -r /tmp/playground-standalone/apps/playground/public /app/apps/playground/ || true && \
-    # Clean up temporary directories
-    rm -rf /tmp/ui-standalone /tmp/playground-standalone /tmp/docs-standalone && \
+#    cp -r apps/ui/.next/static apps/ui/.next/apps/ui/.next/static/ && \
+#    cp -r apps/playground/.next/static apps/playground/.next/apps/ui/.next/static/ && \
+#    cp -r apps/docs/.next/static apps/docs/.next/apps/ui/.next/static/ && \
+    # Copy public directories from standalone outputs
+#    cp -r apps/ui/public apps/ui/apps/ui/.next/ && \
+#    cp -r apps/playground/public apps/playground/apps/ui/.next/ && \
+#    cp -r apps/docs/public apps/docs/apps/ui/.next/ && \
     # Clean up package manager files
     rm -rf .pnpm-store
+
+RUN ls -lah /app/apps/ui
+RUN ls -lah /app/apps/ui/.next/standalone
 
 # Copy database init scripts
 COPY packages/db/init/ /docker-entrypoint-initdb.d/
@@ -137,14 +131,6 @@ RUN mkdir -p /var/log/supervisor /var/log/postgresql /run/postgresql && \
 
 # Configure Supervisor
 COPY infra/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# Update supervisord.conf to use the correct paths
-RUN sed -i 's|/app/services/ui|/app/apps/ui|g' /etc/supervisor/conf.d/supervisord.conf && \
-    sed -i 's|/app/services/playground|/app/apps/playground|g' /etc/supervisor/conf.d/supervisord.conf && \
-    sed -i 's|/app/services/docs|/app/apps/docs|g' /etc/supervisor/conf.d/supervisord.conf && \
-    sed -i 's|/app/services/api|/app/apps/api|g' /etc/supervisor/conf.d/supervisord.conf && \
-    sed -i 's|/app/services/gateway|/app/apps/gateway|g' /etc/supervisor/conf.d/supervisord.conf && \
-    sed -i 's|/app/services/worker|/app/apps/worker|g' /etc/supervisor/conf.d/supervisord.conf
 
 # Create startup script
 COPY infra/start.sh /start.sh
