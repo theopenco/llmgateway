@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1-labs
 FROM debian:12-slim
 
 # Install base dependencies and runtime requirements
@@ -22,8 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev \
     libssl-dev \
     make \
+    wget \
     git \
     cmake \
+ \
     && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y --no-install-recommends \
@@ -40,84 +43,59 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cd / \
     && rm -rf /usr/src/redis* \
     && adduser --system --group --no-create-home redis \
-    && apt-get remove -y build-essential wget gnupg lsb-release dpkg-dev gcc g++ libc6-dev libssl-dev make cmake \
+    && \
+    # Install asdf version manager before cleanup
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
+    ASDF_VERSION=v0.18.0 && \
+    ASDF_DIR=/root/.asdf && \
+    wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
+    mkdir -p $ASDF_DIR && \
+    tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
+    rm /tmp/asdf.tar.gz && \
+    # Clean up after asdf installation
+    apt-get remove -y build-essential wget gnupg lsb-release dpkg-dev gcc g++ libc6-dev libssl-dev make cmake \
     && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory and copy .tool-versions
+# Set asdf environment variables
+ENV ASDF_VERSION=v0.18.0
+ENV ASDF_DIR=/root/.asdf
+ENV ASDF_DATA_DIR=${ASDF_DIR}
+ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
+
 WORKDIR /app
+
 COPY .tool-versions ./
 
-# Install Node.js and pnpm based on .tool-versions
-RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
-    PNPM_VERSION=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2) && \
-    ARCH=$(uname -m) && \
-    echo "Installing Node.js v${NODE_VERSION} and pnpm v${PNPM_VERSION} for ${ARCH}" && \
-    \
-    # Map architecture names for Node.js official builds
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        NODE_ARCH="arm64"; \
-    elif [ "$ARCH" = "x86_64" ]; then \
-        NODE_ARCH="x64"; \
-    else \
-        echo "Unsupported architecture: ${ARCH}" && exit 1; \
-    fi && \
-    \
-    # Download and install official Node.js glibc build
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o node-official.tar.xz && \
-    tar -xJf node-official.tar.xz --strip-components=1 -C /usr/local && \
-    rm node-official.tar.xz && \
-    \
-    # Install pnpm
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-arm64" -o /usr/local/bin/pnpm; \
-    else \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-x64" -o /usr/local/bin/pnpm; \
-    fi && \
-    chmod +x /usr/local/bin/pnpm && \
-    \
+# Install asdf plugins and tools
+RUN asdf plugin add nodejs && \
+    asdf plugin add pnpm && \
+    asdf install && \
+    asdf reshim && \
     # Verify installations
     echo "Final versions installed:" && \
     node -v && \
-    pnpm -v && \
-    \
-    # verify that node -v matches .tool-versions nodejs version
-    if [ "$(node -v)" != "v${NODE_VERSION}" ]; then \
-        echo "Node.js version mismatch"; \
-        exit 1; \
-    fi && \
-    # verify that pnpm -v matches .tool-versions pnpm version
-    if [ "$(pnpm -v)" != "${PNPM_VERSION}" ]; then \
-        echo "pnpm version mismatch"; \
-        exit 1; \
-    fi
+    pnpm -v
 
 # Copy package files
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/docs/package.json ./apps/docs/
-COPY apps/gateway/package.json ./apps/gateway/
-COPY apps/playground/package.json ./apps/playground/
-COPY apps/ui/package.json ./apps/ui/
-COPY apps/worker/package.json ./apps/worker/
-COPY packages/db/package.json ./packages/db/
-COPY packages/models/package.json ./packages/models/
-COPY packages/logger/package.json ./packages/logger/
-COPY packages/cache/package.json ./packages/cache/
-COPY packages/instrumentation/package.json ./packages/instrumentation/
-COPY packages/shared/package.json ./packages/shared/
+COPY --parents packages/*/package.json .
+COPY --parents apps/*/package.json .
+
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 # Copy source code
 COPY . .
 
 # Install all dependencies, build, then prune to production only
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    --mount=type=cache,target=/app/.turbo \
-    pnpm install --frozen-lockfile && \
+RUN --mount=type=cache,target=/app/.turbo \
     pnpm build && \
     # Remove all dev dependencies after build
-    pnpm prune --prod && \
+    pnpm prune --force --prod && \
     # Clean up source files that are not needed at runtime
     find . -name "*.ts" -not -path "*/node_modules/*" -not -name "*.d.ts" -delete && \
     find . -name "*.tsx" -not -path "*/node_modules/*" -delete && \

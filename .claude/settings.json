@@ -1,6 +1,13 @@
 {
 	"permissions": {
-		"deny": ["Read(**/dist/**)"]
+		"deny": [
+			"Read(**/dist/**)",
+			"Read(**/.next/**)",
+			"Read(**/.next-dev/**)",
+			"Read(**/.content-collections/**)",
+			"Read(.conductor/**)",
+			"Read(.turbo/**)"
+		]
 	},
 	"hooks": {
 		"Stop": [

@@ -19,9 +19,9 @@
 		"build": "tsc && resolve-tspaths",
 		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",
-		"generate": "pnpm drizzle-kit generate --config drizzle.config.ts",
 		"lint": "eslint . && prettier --check .",
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
+		"migrations": "pnpm drizzle-kit generate --config drizzle.config.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
 		"seed": "node dist/seed.js"
 	},

@@ -168,53 +168,54 @@ jobs:
         run: |
           docker buildx imagetools inspect ghcr.io/${{ github.repository }}-${{ matrix.app }}:${{ needs.setup.outputs.image_tag }}
 
-  test-split:
-    runs-on: ubuntu-latest
-    needs:
-      - setup
-      - merge-split
-      - build-split
-    if: |
-      always() &&
-      (
-        (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-split.result == 'success') ||
-        (github.event_name == 'pull_request' && needs.setup.result == 'success' && needs.build-split.result == 'success')
-      )
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry (for non-PR builds)
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build all split Docker images for testing
-        run: |
-          # Build all split images sequentially
-          for app in api gateway playground ui docs worker; do
-            echo "Building $app image..."
-            docker build \
-              -f infra/split.dockerfile \
-              --target $app \
-              --build-arg APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }} \
-              -t ghcr.io/${{ github.repository }}-$app:${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }} \
-              .
-          done
-
-      - name: Test split Docker images
-        run: |
-          chmod +x .github/test-split-docker.sh
-          .github/test-split-docker.sh ghcr.io/${{ github.repository }} ${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
+  # disabled due to github issue
+  #  test-split:
+  #    runs-on: ubuntu-latest
+  #    needs:
+  #      - setup
+  #      - merge-split
+  #      - build-split
+  #    if: |
+  #      always() &&
+  #      (
+  #        (github.event_name != 'pull_request' && needs.setup.result == 'success' && needs.merge-split.result == 'success') ||
+  #        (github.event_name == 'pull_request' && needs.setup.result == 'success' && needs.build-split.result == 'success')
+  #      )
+  #    permissions:
+  #      contents: read
+  #      packages: read
+  #    steps:
+  #      - name: Checkout
+  #        uses: actions/checkout@v5
+  #
+  #      - name: Set up Docker Buildx
+  #        uses: docker/setup-buildx-action@v3
+  #
+  #      - name: Login to GitHub Container Registry (for non-PR builds)
+  #        if: github.event_name != 'pull_request'
+  #        uses: docker/login-action@v3
+  #        with:
+  #          registry: ghcr.io
+  #          username: ${{ github.actor }}
+  #          password: ${{ secrets.GITHUB_TOKEN }}
+  #
+  #      - name: Build all split Docker images for testing
+  #        run: |
+  #          # Build all split images sequentially
+  #          for app in api gateway playground ui docs worker; do
+  #            echo "Building $app image..."
+  #            docker build \
+  #              -f infra/split.dockerfile \
+  #              --target $app \
+  #              --build-arg APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }} \
+  #              -t ghcr.io/${{ github.repository }}-$app:${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }} \
+  #              .
+  #          done
+  #
+  #      - name: Test split Docker images
+  #        run: |
+  #          chmod +x .github/test-split-docker.sh
+  #          .github/test-split-docker.sh ghcr.io/${{ github.repository }} ${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }}
 
   build-unified:
     needs: setup

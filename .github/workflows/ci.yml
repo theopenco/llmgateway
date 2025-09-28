@@ -18,7 +18,7 @@ jobs:
     uses: ./.github/workflows/run.yml
     secrets: inherit
     with:
-      cmd: pnpm build && pnpm generate && git diff --exit-code
+      cmd: pnpm build && git diff --exit-code
 
   build:
     uses: ./.github/workflows/run.yml

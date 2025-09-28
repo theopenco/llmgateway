@@ -1,4 +1,4 @@
-# Base builder with Node.js and pnpm
+# syntax=docker/dockerfile:1-labs
 FROM debian:12-slim AS base-builder
 
 # Install base dependencies including tini for better caching
@@ -10,58 +10,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     ca-certificates \
     tini \
+    wget \
+    git \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/bin/tini --version
+
+# Install asdf version manager
+ENV ASDF_VERSION=v0.18.0
+ENV ASDF_DIR=/root/.asdf
+ENV ASDF_DATA_DIR=${ASDF_DIR}
+ENV PATH="${ASDF_DIR}:${ASDF_DATA_DIR}/shims:$PATH"
+
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
+    wget -q https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz -O /tmp/asdf.tar.gz && \
+    mkdir -p $ASDF_DIR && \
+    tar -xzf /tmp/asdf.tar.gz -C $ASDF_DIR && \
+    rm /tmp/asdf.tar.gz
 
 # Create app directory
 WORKDIR /app
 
-# Copy .tool-versions to get Node.js and pnpm versions
 COPY .tool-versions ./
 
-# Install Node.js and pnpm based on .tool-versions
-RUN NODE_VERSION=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2) && \
-    PNPM_VERSION=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2) && \
-    ARCH=$(uname -m) && \
-    echo "Installing Node.js v${NODE_VERSION} and pnpm v${PNPM_VERSION} for ${ARCH}" && \
-    \
-    # Map architecture names for Node.js official builds
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        NODE_ARCH="arm64"; \
-    elif [ "$ARCH" = "x86_64" ]; then \
-        NODE_ARCH="x64"; \
-    else \
-        echo "Unsupported architecture: ${ARCH}" && exit 1; \
-    fi && \
-    \
-    # Download and install official Node.js glibc build
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o node-official.tar.xz && \
-    tar -xJf node-official.tar.xz --strip-components=1 -C /usr/local && \
-    rm node-official.tar.xz && \
-    \
-    # Install pnpm
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-arm64" -o /usr/local/bin/pnpm; \
-    else \
-        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-x64" -o /usr/local/bin/pnpm; \
-    fi && \
-    chmod +x /usr/local/bin/pnpm && \
-    \
+# Install asdf plugins and tools
+RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin add  {} && \
+    asdf install && \
+    asdf reshim && \
     # Verify installations
     echo "Final versions installed:" && \
     node -v && \
-    pnpm -v && \
-    \
-    # verify that node -v matches .tool-versions nodejs version
-    if [ "$(node -v)" != "v${NODE_VERSION}" ]; then \
-        echo "Node.js version mismatch"; \
-        exit 1; \
-    fi && \
-    # verify that pnpm -v matches .tool-versions pnpm version
-    if [ "$(pnpm -v)" != "${PNPM_VERSION}" ]; then \
-        echo "pnpm version mismatch"; \
-        exit 1; \
-    fi
+    pnpm -v
 
 # verify that pnpm store path
 RUN STORE_PATH="/root/.local/share/pnpm/store" && \
@@ -71,66 +51,83 @@ RUN STORE_PATH="/root/.local/share/pnpm/store" && \
     fi && \
     echo "pnpm store path matches: ${STORE_PATH}"
 
-# Copy package files
-COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/docs/package.json ./apps/docs/
-COPY apps/gateway/package.json ./apps/gateway/
-COPY apps/playground/package.json ./apps/playground/
-COPY apps/ui/package.json ./apps/ui/
-COPY apps/worker/package.json ./apps/worker/
-COPY packages/db/package.json ./packages/db/
-COPY packages/models/package.json ./packages/models/
-COPY packages/logger/package.json ./packages/logger/
-COPY packages/cache/package.json ./packages/cache/
-COPY packages/instrumentation/package.json ./packages/instrumentation/
-COPY packages/shared/package.json ./packages/shared/
-
-# Copy source code
-COPY . .
-
 # Builder for API
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS api-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api... install --frozen-lockfile
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=api... build
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=api
 
 # Builder for Gateway
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS gateway-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway... install --frozen-lockfile
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=gateway... build
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=gateway
 
 # Builder for UI
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS ui-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui... install --frozen-lockfile
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=ui... build
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=ui
 
 # Builder for Playground
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS playground-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground... install --frozen-lockfile
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=playground... build
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=playground
 
 # Builder for Worker
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS worker-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker... install --frozen-lockfile
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=worker... build
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=worker
 
 # Builder for Docs
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS docs-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs... install --frozen-lockfile
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=docs... build
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=docs
 
 FROM debian:12-slim AS runtime
 
 # Install base runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends bash && rm -rf /var/lib/apt/lists/*
 
-# copy nodejs, pnpm, and tini from base-builder stage
-COPY --from=base-builder /usr/local/bin/node /usr/local/bin/node
-COPY --from=base-builder /usr/local/bin/pnpm /usr/local/bin/pnpm
+# copy asdf, nodejs, pnpm, and tini from base-builder stage
+COPY --from=base-builder /root/.asdf /root/.asdf
 COPY --from=base-builder /usr/bin/tini /tini
+COPY --from=base-builder /app/.tool-versions ./.tool-versions
+ENV ASDF_DIR=/root/.asdf
+ENV ASDF_DATA_DIR=${ASDF_DIR}
 
-# Verify installations
-RUN node -v && pnpm -v
+# Set working directory and configure PATH to include tool directories
+WORKDIR /app
+
+# Configure PATH to use asdf shims
+ENV PATH="${ASDF_DIR}:${ASDF_DIR}/shims:$PATH"
 
 ENTRYPOINT ["/tini", "--"]
 
@@ -148,6 +145,8 @@ WORKDIR /app
 COPY --from=api-prep /app/api-dist ./
 # copy migrations files for API service to run migrations at runtime
 COPY --from=api-builder /app/packages/db/migrations ./migrations
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -163,6 +162,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gatewa
 FROM runtime AS gateway
 WORKDIR /app
 COPY --from=gateway-prep /app/gateway-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -177,6 +178,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui --p
 FROM runtime AS ui
 WORKDIR /app
 COPY --from=ui-prep /app/ui-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -191,6 +194,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playgr
 FROM runtime AS playground
 WORKDIR /app
 COPY --from=playground-prep /app/playground-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
@@ -205,6 +210,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker
 FROM runtime AS worker
 WORKDIR /app
 COPY --from=worker-prep /app/worker-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 ENV NODE_ENV=production
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 
@@ -217,6 +224,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs -
 FROM runtime AS docs
 WORKDIR /app
 COPY --from=docs-prep /app/docs-dist ./
+# copy .tool-versions for asdf to work
+COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production

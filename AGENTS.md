@@ -22,11 +22,10 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-Always run `pnpm format` before committing code. Run `pnpm generate` if API routes were modified.
+Always run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
 
 - `pnpm format` - Format code and fix linting issues
 - `pnpm lint` - Check linting and formatting (without fixing)
-- `pnpm generate` - Regenerate OpenAPI schemas from API routes
 
 ### Testing
 
@@ -129,7 +128,6 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - Run `pnpm test:unit` and `pnpm test:e2e` after adding features
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
-- Run `pnpm generate` after API route changes to update OpenAPI schemas
 
 ### Service URLs (Development)
 
