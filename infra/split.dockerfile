@@ -168,7 +168,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/ui
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]
 
 # Playground runtime stage
 FROM runtime AS playground
@@ -185,7 +185,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/playground
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]
 
 # Worker runtime stage
 FROM debian:12-slim AS worker
@@ -210,4 +210,4 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/docs
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]

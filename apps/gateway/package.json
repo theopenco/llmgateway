@@ -14,7 +14,7 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "atsc && resolve-tspaths && pnpm run generate && NODE_ENV=production bun build src/serve.ts --compile --minify --sourcemap --outfile gateway.out",
+		"build": "tsc && resolve-tspaths && pnpm run generate && NODE_ENV=production bun build src/serve.ts --compile --minify --sourcemap --outfile gateway.out",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
 		"exec-dev": "resolve-tspaths && node dist/serve.js",
 		"format": "eslint --fix . && prettier --write .",
