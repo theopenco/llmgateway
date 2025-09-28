@@ -168,10 +168,6 @@ COPY --from=base-builder /app/.tool-versions ./
 
 # Copy the ENTIRE standalone output - this is self-contained
 COPY --from=ui-builder /app/apps/ui/.next/standalone/ ./
-# Copy static assets to the correct location
-COPY --from=ui-builder /app/apps/ui/.next/static ./apps/ui/.next/static
-# Copy public directory to the correct location
-COPY --from=ui-builder /app/apps/ui/public ./apps/ui/public
 
 EXPOSE 80
 ENV PORT=80
@@ -189,10 +185,6 @@ COPY --from=base-builder /app/.tool-versions ./
 
 # Copy the ENTIRE standalone output - this is self-contained
 COPY --from=playground-builder /app/apps/playground/.next/standalone/ ./
-# Copy static assets to the correct location
-COPY --from=playground-builder /app/apps/playground/.next/static ./apps/playground/.next/static
-# Copy public directory to the correct location
-COPY --from=playground-builder /app/apps/playground/public ./apps/playground/public
 
 EXPOSE 80
 ENV PORT=80
@@ -223,10 +215,6 @@ COPY --from=base-builder /app/.tool-versions ./
 
 # Copy the ENTIRE standalone output - this is self-contained
 COPY --from=docs-builder /app/apps/docs/.next/standalone/ ./
-# Copy static assets to the correct location
-COPY --from=docs-builder /app/apps/docs/.next/static ./apps/docs/.next/static
-# Copy public directory to the correct location
-COPY --from=docs-builder /app/apps/docs/public ./apps/docs/public
 
 EXPOSE 80
 ENV PORT=80

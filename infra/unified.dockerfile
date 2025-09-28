@@ -92,25 +92,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 COPY . .
 
 # Install all dependencies, build, then prune to production only
-RUN --mount=type=cache,target=/app/.turbo \
-    pnpm build && \
-    # Remove all dev dependencies after build
-    # (yes | pnpm prune --prod --ignore-scripts) && \
-    # Copy static assets to the correct location (same as in split.dockerfile)
-    # UI static assets
-    cp -r /app/apps/ui/.next/static /app/apps/ui/.next/standalone/apps/ui/.next/ && \
-    cp -r /app/apps/ui/public /app/apps/ui/.next/standalone/apps/ui/ && \
-    # Playground static assets
-    cp -r /app/apps/playground/.next/static /app/apps/playground/.next/standalone/apps/playground/.next/ && \
-    cp -r /app/apps/playground/public /app/apps/playground/.next/standalone/apps/playground/ && \
-    # Docs static assets
-    cp -r /app/apps/docs/.next/static /app/apps/docs/.next/standalone/apps/docs/.next/ && \
-    cp -r /app/apps/docs/public /app/apps/docs/.next/standalone/apps/docs/ && \
-    # Clean up package manager files
-    rm -rf .pnpm-store
-
-RUN ls -lah /app/apps/ui
-RUN ls -lah /app/apps/ui/.next/standalone
+RUN --mount=type=cache,target=/app/.turbo pnpm build
 
 # Copy database init scripts
 COPY packages/db/init/ /docker-entrypoint-initdb.d/
