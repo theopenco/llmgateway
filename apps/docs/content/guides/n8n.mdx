@@ -1,8 +1,11 @@
 ---
-title: Using LLM Gateway with n8n
+title: N8n Integration
 description: Connect n8n workflow automation to LLM Gateway for AI-powered workflows
 image: guides/n8n/overview.png
+icon: N8n
 ---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
 
 n8n is a powerful workflow automation tool that can be enhanced with AI capabilities through LLM Gateway. This guide shows how to integrate LLM Gateway into your n8n workflows.
 
@@ -18,7 +21,9 @@ n8n is a powerful workflow automation tool that can be enhanced with AI capabili
 
 The easiest way to use LLM Gateway with n8n is through the OpenAI node with custom configuration.
 
-### Step 1: Add OpenAI Credentials
+<Steps>
+<Step>
+### Add OpenAI Credentials
 
 1. In n8n, go to **Settings** → **Credentials**
 
@@ -35,7 +40,9 @@ The easiest way to use LLM Gateway with n8n is through the OpenAI node with cust
 
 ![n8n credentials](/guides/n8n/credential-3.png)
 
-### Step 2: Configure OpenAI Node
+</Step>
+<Step>
+### Configure OpenAI Node
 
 1. Add an **AI Agent** node to your workflow
 2. Add a **Chat Model** edge to the node
@@ -53,6 +60,14 @@ The easiest way to use LLM Gateway with n8n is through the OpenAI node with cust
 
 ![n8n credentials](/guides/n8n/model.png)
 
+</Step>
+
+<Step>
+### Test Workflow
+
 Finally, try running your workflow with a test prompt.
 
 ![n8n credentials](/guides/n8n/test.png)
+
+</Step>
+</Steps>

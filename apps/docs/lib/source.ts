@@ -3,6 +3,7 @@ import { createOpenAPI, attachFile } from "fumadocs-openapi/server";
 import { icons } from "lucide-react";
 import { createElement } from "react";
 
+import { customIcons } from "./custom-icons";
 import { docs } from "@/.source";
 
 export const source = loader({
@@ -12,6 +13,11 @@ export const source = loader({
 		}
 		if (icon in icons) {
 			return createElement(icons[icon as keyof typeof icons]);
+		}
+
+		if (icon in customIcons) {
+			const C = customIcons[icon];
+			return createElement(C);
 		}
 
 		return undefined;
