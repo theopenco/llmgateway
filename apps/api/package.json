@@ -8,7 +8,7 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc --noEmit && resolve-tspaths && pnpm run generate && NODE_ENV=production bun build src/serve.ts --compile --minify --sourcemap --outfile api.out",
+		"build": "atsc && resolve-tspaths && pnpm run generate && NODE_ENV=production bun build src/serve.ts --compile --minify --sourcemap --outfile api.out",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
