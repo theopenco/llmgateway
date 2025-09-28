@@ -41,7 +41,6 @@ RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin ad
     asdf reshim && \
     # Verify installations
     echo "Final versions installed:" && \
-    node -v && \
     pnpm -v && \
     bun -v
 

@@ -77,7 +77,6 @@ RUN asdf plugin add nodejs && \
     asdf reshim && \
     # Verify installations
     echo "Final versions installed:" && \
-    node -v && \
     pnpm -v
 
 # Copy package files
