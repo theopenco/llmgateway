@@ -831,6 +831,7 @@ importers:
       pino:
         specifier: ^9.4.0
         version: 9.9.0
+    devDependencies:
       pino-pretty:
         specifier: ^13.1.1
         version: 13.1.1
@@ -10631,7 +10632,6 @@ snapshots:
     dependencies:
       '@opentelemetry/api': 1.9.0
       pino: 9.9.0
-      pino-pretty: 13.1.1
 
   '@llmgateway/models@file:packages/models':
     dependencies:
