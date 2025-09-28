@@ -10,7 +10,7 @@ import { useCopyButton } from "fumadocs-ui/utils/use-copy-button";
 import { Check, ChevronDown, Copy, ExternalLinkIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Logo } from "@/components/logo";
+// import { Logo } from "@/components/logo";
 import { cn } from "@/lib/cn";
 
 const cache = new Map<string, string>();
@@ -137,18 +137,18 @@ export function ViewOptions({
 					</svg>
 				),
 			},
-			{
-				title: "Open in LLM Gateway",
-				href:
-					process.env.NODE_ENV === "development"
-						? `http://localhost:3003?${new URLSearchParams({
-								q,
-							})}`
-						: `https://llmgateway.io/chat?${new URLSearchParams({
-								q,
-							})}`,
-				icon: <Logo />,
-			},
+			// {
+			// 	title: "Open in LLM Gateway",
+			// 	href:
+			// 		process.env.NODE_ENV === "development"
+			// 			? `http://localhost:3003?${new URLSearchParams({
+			// 					q,
+			// 				})}`
+			// 			: `https://llmgateway.io/chat?${new URLSearchParams({
+			// 					q,
+			// 				})}`,
+			// 	icon: <Logo />,
+			// },
 		];
 	}, [githubUrl, markdownUrl]);
 
