@@ -6,8 +6,10 @@ import {
 	DocsTitle,
 } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
+import posthog from "posthog-js";
 
 import { ViewOptions } from "@/components/ai/page-actions";
+import { Feedback } from "@/components/feedback";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -54,10 +56,17 @@ export default async function Page(props: {
 	const MDXContent = page.data.body;
 
 	return (
-		<DocsPage toc={page.data.toc} full={page.data.full}>
+		<DocsPage
+			toc={page.data.toc}
+			full={page.data.full}
+			tableOfContent={{
+				style: "clerk",
+			}}
+			lastUpdate={new Date(page.data.lastModifiedTime)}
+		>
 			<div className="flex flex-row gap-2 items-center border-b pt-2 pb-6">
 				<ViewOptions
-					markdownUrl={`https://raw.githubusercontent.com/theopenco/llmgateway/refs/heads/main/apps/docs/content${page.url}.mdx`}
+					markdownUrl={`https://raw.githubusercontent.com/theopenco/llmgateway/refs/heads/main/apps/docs/content/${page.path}`}
 					githubUrl={`https://github.com/theopenco/llmgateway/blob/main/apps/docs/content/${page.path}`}
 				/>
 			</div>
@@ -71,6 +80,15 @@ export default async function Page(props: {
 					})}
 				/>
 			</DocsBody>
+			<Feedback
+				onRateAction={async (url, feedback) => {
+					"use server";
+					posthog.capture("on_rate_docs", feedback);
+					return {
+						githubUrl: `https://github.com/theopenco/llmgateway/blob/main/apps/docs/content${url}.mdx`,
+					};
+				}}
+			/>
 		</DocsPage>
 	);
 }

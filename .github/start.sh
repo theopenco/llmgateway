@@ -18,6 +18,13 @@ APP_PORTS["ui"]=3002
 APP_PORTS["playground"]=3003
 APP_PORTS["docs"]=3005
 
+# Health check routes for each app (optional)
+declare -A HEALTH_ROUTES
+HEALTH_ROUTES["docs"]="/v1_chat_completions"
+# Add more health check routes for other apps as needed
+# HEALTH_ROUTES["api"]="/health"
+# HEALTH_ROUTES["gateway"]="/health"
+
 rm -rf dist/
 
 # Array to store PIDs of started processes
@@ -54,6 +61,28 @@ is_port_in_use() {
   fi
 }
 
+# Function to perform health check on a specific route
+perform_health_check() {
+  local port=$1
+  local route=$2
+  local app=$3
+
+  if command -v curl &> /dev/null; then
+    echo -e "${YELLOW}Performing health check for $app at http://localhost:$port$route...${NC}"
+    response_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$port$route)
+    if [ "$response_code" == "200" ]; then
+      echo -e "${GREEN}Health check passed for $app (HTTP 200)${NC}"
+      return 0
+    else
+      echo -e "${RED}Health check failed for $app (HTTP $response_code)${NC}"
+      return 1
+    fi
+  else
+    echo -e "${YELLOW}curl not available, skipping health check for $app${NC}"
+    return 0
+  fi
+}
+
 # Function to wait for a port to be listening
 wait_for_port() {
   local port=$1
@@ -67,7 +96,19 @@ wait_for_port() {
   while true; do
     if is_port_in_use $port; then
       echo -e "${GREEN}$app is running on port $port${NC}"
-      return 0
+
+      # Perform health check if a route is defined for this app
+      if [ -n "${HEALTH_ROUTES[$app]}" ]; then
+        # Give the app a moment to fully initialize
+        sleep 2
+        if perform_health_check $port "${HEALTH_ROUTES[$app]}" $app; then
+          return 0
+        else
+          return 1
+        fi
+      else
+        return 0
+      fi
     fi
 
     sleep 1
