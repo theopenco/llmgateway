@@ -3,11 +3,11 @@
 	"private": true,
 	"license": "SEE LICENSE IN LICENSE",
 	"workspaces": [
-		"packages/*",
-		"apps/*"
+		"apps/*",
+		"packages/*"
 	],
 	"scripts": {
-		"build": "TURBO_TOKEN=turbotokenoss turbo run build 2>&1",
+		"build": "turbo run build 2>&1",
 		"clean": "find . -path \"./node_modules\" -prune -o \\( -type d -name \"dist\" -o -name \".turbo\" -o -name \".source\" -o -name \".vercel\" -o -name \".out\" -o -name \".vinxi\" -o -name \".next-dev\" -o -name \".next\" \\) -exec rm -rf {} +",
 		"clean:node_modules": "find . -type d -name \"node_modules\" -exec rm -rf {} +",
 		"dev": "turbo run dev",

@@ -52,7 +52,6 @@ RUN STORE_PATH="/root/.local/share/pnpm/store" && \
     echo "pnpm store path matches: ${STORE_PATH}"
 
 # Builder for API
-# syntax=docker/dockerfile:1-labs
 FROM base-builder AS api-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
@@ -62,7 +61,6 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=api
 
 # Builder for Gateway
-# syntax=docker/dockerfile:1-labs
 FROM base-builder AS gateway-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
@@ -72,7 +70,6 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=gateway
 
 # Builder for UI
-# syntax=docker/dockerfile:1-labs
 FROM base-builder AS ui-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
@@ -82,7 +79,6 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=ui
 
 # Builder for Playground
-# syntax=docker/dockerfile:1-labs
 FROM base-builder AS playground-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
@@ -92,7 +88,6 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=playground
 
 # Builder for Worker
-# syntax=docker/dockerfile:1-labs
 FROM base-builder AS worker-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
@@ -102,7 +97,6 @@ COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=worker
 
 # Builder for Docs
-# syntax=docker/dockerfile:1-labs
 FROM base-builder AS docs-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
@@ -231,7 +225,8 @@ COPY --from=base-builder /app/.tool-versions ./
 COPY --from=docs-builder /app/apps/docs/.next/standalone/ ./
 # Copy static assets to the correct location
 COPY --from=docs-builder /app/apps/docs/.next/static ./apps/docs/.next/static
-# Docs app doesn't have a public directory, so we skip it
+# Copy public directory to the correct location
+COPY --from=docs-builder /app/apps/docs/public ./apps/docs/public
 
 EXPOSE 80
 ENV PORT=80

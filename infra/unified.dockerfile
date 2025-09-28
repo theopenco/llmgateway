@@ -96,26 +96,23 @@ RUN --mount=type=cache,target=/app/.turbo \
     pnpm build && \
     # Remove all dev dependencies after build
     pnpm prune --force --prod && \
-    # Clean up source files that are not needed at runtime
-    find . -name "*.ts" -not -path "*/node_modules/*" -not -name "*.d.ts" -delete && \
-    find . -name "*.tsx" -not -path "*/node_modules/*" -delete && \
-    find . -name "*.map" -not -path "*/node_modules/*" -delete && \
-    find . -name ".turbo" -type d -exec rm -rf {} + 2>/dev/null || true && \
-    find . -name "tsconfig.tsbuildinfo" -delete && \
-    rm -rf apps/*/src packages/*/src && \
-    # Remove unnecessary Next.js cache and build files
-    rm -rf apps/*/.next/cache && \
     # Copy standalone builds to correct locations for supervisord
-    mkdir -p /app/apps/ui/standalone /app/apps/playground/standalone /app/apps/docs/standalone && \
-    cp -r apps/ui/.next/standalone/* /app/apps/ui/ && \
+    # Create temporary directories and copy the entire standalone outputs which are self-contained
+    mkdir -p /tmp/ui-standalone /tmp/playground-standalone /tmp/docs-standalone && \
+    cp -r apps/ui/.next/standalone/* /tmp/ui-standalone/ && \
+    cp -r apps/playground/.next/standalone/* /tmp/playground-standalone/ && \
+    cp -r apps/docs/.next/standalone/* /tmp/docs-standalone/ && \
+    # Copy static assets
+    mkdir -p /app/apps/ui/.next /app/apps/playground/.next /app/apps/docs/.next && \
     cp -r apps/ui/.next/static /app/apps/ui/.next/ && \
-    test -d apps/ui/public && cp -r apps/ui/public /app/apps/ui/ || true && \
-    cp -r apps/playground/.next/standalone/* /app/apps/playground/ && \
     cp -r apps/playground/.next/static /app/apps/playground/.next/ && \
-    test -d apps/playground/public && cp -r apps/playground/public /app/apps/playground/ || true && \
-    cp -r apps/docs/.next/standalone/* /app/apps/docs/ && \
     cp -r apps/docs/.next/static /app/apps/docs/.next/ && \
-    test -d apps/docs/public && cp -r apps/docs/public /app/apps/docs/ || true && \
+    # Copy public directories from original build (not from working directory to avoid self-copy)
+    test -d /tmp/ui-standalone/apps/ui/public && cp -r /tmp/ui-standalone/apps/ui/public /app/apps/ui/ || true && \
+    test -d /tmp/docs-standalone/apps/docs/public && cp -r /tmp/docs-standalone/apps/docs/public /app/apps/docs/ || true && \
+    test -d /tmp/playground-standalone/apps/playground/public && cp -r /tmp/playground-standalone/apps/playground/public /app/apps/playground/ || true && \
+    # Clean up temporary directories
+    rm -rf /tmp/ui-standalone /tmp/playground-standalone /tmp/docs-standalone && \
     # Clean up package manager files
     rm -rf .pnpm-store
 
