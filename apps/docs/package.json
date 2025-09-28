@@ -10,8 +10,7 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "fumadocs-mdx && next build && cp ../gateway/openapi.json .",
-		"build2": "fumadocs-mdx && tsc && next build && cp ../gateway/openapi.json .",
+		"build": "fumadocs-mdx && next build && cp ../gateway/openapi.json . && cp ./openapi.json ./.next/standalone/apps/docs/",
 		"dev": "next dev --turbo --port 3005",
 		"format": "eslint --fix . && prettier --write .",
 		"gen-docs": "node scripts/generate-docs.mjs",
