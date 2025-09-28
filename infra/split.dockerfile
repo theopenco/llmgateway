@@ -1,4 +1,4 @@
-# Base builder with Node.js and pnpm
+# syntax=docker/dockerfile:1-labs
 FROM debian:12-slim AS base-builder
 
 # Install base dependencies including tini for better caching
@@ -51,52 +51,64 @@ RUN STORE_PATH="/root/.local/share/pnpm/store" && \
     fi && \
     echo "pnpm store path matches: ${STORE_PATH}"
 
-# Copy package files
-COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/docs/package.json ./apps/docs/
-COPY apps/gateway/package.json ./apps/gateway/
-COPY apps/playground/package.json ./apps/playground/
-COPY apps/ui/package.json ./apps/ui/
-COPY apps/worker/package.json ./apps/worker/
-COPY packages/db/package.json ./packages/db/
-COPY packages/models/package.json ./packages/models/
-COPY packages/logger/package.json ./packages/logger/
-COPY packages/cache/package.json ./packages/cache/
-COPY packages/instrumentation/package.json ./packages/instrumentation/
-COPY packages/shared/package.json ./packages/shared/
-
-# Copy source code
-COPY . .
-
 # Builder for API
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS api-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api... install --frozen-lockfile
+COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm --filter=api... build
 
 # Builder for Gateway
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS gateway-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway... install --frozen-lockfile
+COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm --filter=gateway... build
 
 # Builder for UI
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS ui-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui... install --frozen-lockfile
+COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm --filter=ui... build
 
 # Builder for Playground
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS playground-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground... install --frozen-lockfile
+COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm --filter=playground... build
 
 # Builder for Worker
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS worker-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker... install --frozen-lockfile
+COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm --filter=worker... build
 
 # Builder for Docs
+# syntax=docker/dockerfile:1-labs
 FROM base-builder AS docs-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs... install --frozen-lockfile
+COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm --filter=docs... build
 
 FROM debian:12-slim AS runtime
