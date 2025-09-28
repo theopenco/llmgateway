@@ -187,18 +187,13 @@ ENV HOSTNAME="0.0.0.0"
 WORKDIR /app/apps/playground
 CMD ["node", "server.js"]
 
-# Worker preparation stage
-FROM worker-builder AS worker-prep
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker --prod deploy /app/worker-dist
-
 # Worker runtime stage
-FROM runtime AS worker
+FROM debian:12-slim AS worker
 WORKDIR /app
-COPY --from=worker-prep /app/worker-dist ./
-COPY --from=base-builder /app/.tool-versions ./
+# Copy only the standalone executable
+COPY --from=worker-builder /app/apps/worker/worker.out ./worker.out
 ENV NODE_ENV=production
-CMD ["node", "--enable-source-maps", "dist/index.js"]
+CMD ["./worker.out"]
 
 # Docs runtime stage
 FROM runtime AS docs

@@ -16,11 +16,11 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && resolve-tspaths",
+		"build": "tsc && resolve-tspaths && bun build dist/index.js --compile --minify --sourcemap --outfile worker.out",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/index.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check .",
-		"start": "node --enable-source-maps dist/index.js"
+		"start": "./worker.out"
 	},
 	"dependencies": {
 		"@llmgateway/cache": "workspace:*",
