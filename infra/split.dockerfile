@@ -59,7 +59,7 @@ COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=api... build
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=api
 
 # Builder for Gateway
 # syntax=docker/dockerfile:1-labs
@@ -69,7 +69,7 @@ COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=gateway... build
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=gateway
 
 # Builder for UI
 # syntax=docker/dockerfile:1-labs
@@ -79,7 +79,7 @@ COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=ui... build
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=ui
 
 # Builder for Playground
 # syntax=docker/dockerfile:1-labs
@@ -89,7 +89,7 @@ COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=playground... build
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=playground
 
 # Builder for Worker
 # syntax=docker/dockerfile:1-labs
@@ -99,7 +99,7 @@ COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=worker... build
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=worker
 
 # Builder for Docs
 # syntax=docker/dockerfile:1-labs
@@ -109,7 +109,7 @@ COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs... install --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,target=/app/.turbo pnpm --filter=docs... build
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=docs
 
 FROM debian:12-slim AS runtime
 
