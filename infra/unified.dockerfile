@@ -96,14 +96,10 @@ RUN --mount=type=cache,target=/app/.turbo \
     pnpm build && \
     # Remove all dev dependencies after build
     # (yes | pnpm prune --prod --ignore-scripts) && \
-    # Copy static assets
-#    cp -r apps/ui/.next/static apps/ui/.next/apps/ui/.next/static/ && \
-#    cp -r apps/playground/.next/static apps/playground/.next/apps/ui/.next/static/ && \
-#    cp -r apps/docs/.next/static apps/docs/.next/apps/ui/.next/static/ && \
+    # Copy static assets \
+    # TODO
     # Copy public directories from standalone outputs
-#    cp -r apps/ui/public apps/ui/apps/ui/.next/ && \
-#    cp -r apps/playground/public apps/playground/apps/ui/.next/ && \
-#    cp -r apps/docs/public apps/docs/apps/ui/.next/ && \
+    # TODO
     # Clean up package manager files
     rm -rf .pnpm-store
 
