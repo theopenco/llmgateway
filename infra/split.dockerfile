@@ -130,42 +130,28 @@ ENTRYPOINT ["/tini", "--"]
 ARG APP_VERSION
 ENV APP_VERSION=$APP_VERSION
 
-# API preparation stage
-FROM api-builder AS api-prep
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api --prod deploy /app/api-dist
-
 # API runtime stage
-FROM runtime AS api
+FROM debian:12-slim AS api
 WORKDIR /app
-COPY --from=api-prep /app/api-dist ./
+# Copy only the standalone executable
+COPY --from=api-builder /app/apps/api/api.out ./api.out
 # copy migrations files for API service to run migrations at runtime
 COPY --from=api-builder /app/packages/db/migrations ./migrations
-# copy the bun executable
-COPY --from=api-builder /app/apps/api/api-server ./api-server
-COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 ENV TELEMETRY_ACTIVE=true
-CMD ["./api-server"]
-
-# Gateway preparation stage
-FROM gateway-builder AS gateway-prep
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway --prod deploy /app/gateway-dist
+CMD ["./api.out"]
 
 # Gateway runtime stage
-FROM runtime AS gateway
+FROM debian:12-slim AS gateway
 WORKDIR /app
-COPY --from=gateway-prep /app/gateway-dist ./
-# copy the bun executable
-COPY --from=gateway-builder /app/apps/gateway/gateway-server ./gateway-server
-COPY --from=base-builder /app/.tool-versions ./
+# Copy only the standalone executable
+COPY --from=gateway-builder /app/apps/gateway/gateway.out ./gateway.out
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["./gateway-server"]
+CMD ["./gateway.out"]
 
 # UI runtime stage
 FROM runtime AS ui

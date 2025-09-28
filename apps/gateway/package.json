@@ -14,13 +14,13 @@
 		"openapi.json"
 	],
 	"scripts": {
-		"build": "tsc && resolve-tspaths && pnpm run generate && bun build dist/serve.js --compile --minify --sourcemap --outfile gateway-server",
+		"build": "tsc && resolve-tspaths && pnpm run generate && NODE_ENV=production bun build dist/serve.js --compile --minify --sourcemap --outfile gateway.out",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
 		"exec-dev": "resolve-tspaths && node dist/serve.js",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "./gateway-server"
+		"start": "./gateway.out"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",
