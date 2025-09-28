@@ -22,4 +22,4 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Compress PR images
-        uses: calibreapp/image-actions@main
+        uses: calibreapp/image-actions@1.4.1
