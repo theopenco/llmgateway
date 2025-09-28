@@ -21,7 +21,7 @@ declare -A APP_ENDPOINTS
 APP_ENDPOINTS["api"]="http://localhost:4002"
 APP_ENDPOINTS["gateway"]="http://localhost:4001"
 APP_ENDPOINTS["ui"]="http://localhost:3002"
-APP_ENDPOINTS["playground"]="http://localhost:3002"
+APP_ENDPOINTS["playground"]="http://localhost:3003"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
 
 # Health check routes for each app (optional)
