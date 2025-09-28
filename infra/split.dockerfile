@@ -145,7 +145,6 @@ WORKDIR /app
 COPY --from=api-prep /app/api-dist ./
 # copy migrations files for API service to run migrations at runtime
 COPY --from=api-builder /app/packages/db/migrations ./migrations
-# copy .tool-versions for asdf to work
 COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
@@ -162,44 +161,53 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gatewa
 FROM runtime AS gateway
 WORKDIR /app
 COPY --from=gateway-prep /app/gateway-dist ./
-# copy .tool-versions for asdf to work
 COPY --from=base-builder /app/.tool-versions ./
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 CMD ["node", "--enable-source-maps", "dist/serve.js"]
 
-# UI preparation stage
-FROM ui-builder AS ui-prep
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui --prod deploy /app/ui-dist
-
 # UI runtime stage
 FROM runtime AS ui
 WORKDIR /app
-COPY --from=ui-prep /app/ui-dist ./
-# copy .tool-versions for asdf to work
 COPY --from=base-builder /app/.tool-versions ./
+
+# Copy the ENTIRE standalone output - this is self-contained
+COPY --from=ui-builder /app/apps/ui/.next/standalone/ ./
+# Copy static assets to the correct location
+COPY --from=ui-builder /app/apps/ui/.next/static ./apps/ui/.next/static
+# Copy public directory to the correct location
+COPY --from=ui-builder /app/apps/ui/public ./apps/ui/public
+
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["./node_modules/.bin/next", "start"]
+ENV HOSTNAME="0.0.0.0"
 
-# Playground preparation stage
-FROM playground-builder AS playground-prep
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground --prod deploy /app/playground-dist
+# Set working directory to where server.js is located in Docker build
+WORKDIR /app/apps/ui
+CMD ["node", "server.js"]
 
 # Playground runtime stage
 FROM runtime AS playground
 WORKDIR /app
-COPY --from=playground-prep /app/playground-dist ./
-# copy .tool-versions for asdf to work
 COPY --from=base-builder /app/.tool-versions ./
+
+# Copy the ENTIRE standalone output - this is self-contained
+COPY --from=playground-builder /app/apps/playground/.next/standalone/ ./
+# Copy static assets to the correct location
+COPY --from=playground-builder /app/apps/playground/.next/static ./apps/playground/.next/static
+# Copy public directory to the correct location
+COPY --from=playground-builder /app/apps/playground/public ./apps/playground/public
+
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["./node_modules/.bin/next", "start"]
+ENV HOSTNAME="0.0.0.0"
+
+# Set working directory to where server.js is located in Docker build
+WORKDIR /app/apps/playground
+CMD ["node", "server.js"]
 
 # Worker preparation stage
 FROM worker-builder AS worker-prep
@@ -210,23 +218,26 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker
 FROM runtime AS worker
 WORKDIR /app
 COPY --from=worker-prep /app/worker-dist ./
-# copy .tool-versions for asdf to work
 COPY --from=base-builder /app/.tool-versions ./
 ENV NODE_ENV=production
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 
-# Docs preparation stage
-FROM docs-builder AS docs-prep
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs --prod deploy /app/docs-dist
-
 # Docs runtime stage
 FROM runtime AS docs
 WORKDIR /app
-COPY --from=docs-prep /app/docs-dist ./
-# copy .tool-versions for asdf to work
 COPY --from=base-builder /app/.tool-versions ./
+
+# Copy the ENTIRE standalone output - this is self-contained
+COPY --from=docs-builder /app/apps/docs/.next/standalone/ ./
+# Copy static assets to the correct location
+COPY --from=docs-builder /app/apps/docs/.next/static ./apps/docs/.next/static
+# Docs app doesn't have a public directory, so we skip it
+
 EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
-CMD ["./node_modules/.bin/next", "start", "-H", "0.0.0.0"]
+ENV HOSTNAME="0.0.0.0"
+
+# Set working directory to where server.js is located in Docker build
+WORKDIR /app/apps/docs
+CMD ["node", "server.js"]

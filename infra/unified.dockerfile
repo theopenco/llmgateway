@@ -105,6 +105,17 @@ RUN --mount=type=cache,target=/app/.turbo \
     rm -rf apps/*/src packages/*/src && \
     # Remove unnecessary Next.js cache and build files
     rm -rf apps/*/.next/cache && \
+    # Copy standalone builds to correct locations for supervisord
+    mkdir -p /app/apps/ui/standalone /app/apps/playground/standalone /app/apps/docs/standalone && \
+    cp -r apps/ui/.next/standalone/* /app/apps/ui/ && \
+    cp -r apps/ui/.next/static /app/apps/ui/.next/ && \
+    test -d apps/ui/public && cp -r apps/ui/public /app/apps/ui/ || true && \
+    cp -r apps/playground/.next/standalone/* /app/apps/playground/ && \
+    cp -r apps/playground/.next/static /app/apps/playground/.next/ && \
+    test -d apps/playground/public && cp -r apps/playground/public /app/apps/playground/ || true && \
+    cp -r apps/docs/.next/standalone/* /app/apps/docs/ && \
+    cp -r apps/docs/.next/static /app/apps/docs/.next/ && \
+    test -d apps/docs/public && cp -r apps/docs/public /app/apps/docs/ || true && \
     # Clean up package manager files
     rm -rf .pnpm-store
 
