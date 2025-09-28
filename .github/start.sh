@@ -25,8 +25,6 @@ HEALTH_ROUTES["docs"]="/v1_chat_completions"
 # HEALTH_ROUTES["api"]="/health"
 # HEALTH_ROUTES["gateway"]="/health"
 
-rm -rf dist/
-
 # Array to store PIDs of started processes
 declare -a PIDS
 
@@ -137,28 +135,9 @@ if [ "$1" == "--with-build" ]; then
   echo -e "${GREEN}Build completed successfully${NC}"
 fi
 
-# Step 2: Deploy each app to its respective dist directory
-echo -e "${YELLOW}Deploying apps to dist directories...${NC}"
-for app in "${APPS[@]}"; do
-  echo -e "${YELLOW}Deploying $app...${NC}"
-  pnpm --filter=$app --prod deploy dist/$app
-  if [ $? -ne 0 ]; then
-    echo -e "${RED}Deployment of $app failed${NC}"
-    RESULTS[$app]="DEPLOY_FAILED"
-    continue
-  fi
-  echo -e "${GREEN}Deployment of $app completed successfully${NC}"
-  RESULTS[$app]="DEPLOY_SUCCESS"
-done
-
-# Step 3: Start each app and verify it's running
+# Step 2: Start each app and verify it's running
 echo -e "${YELLOW}Starting apps and verifying they're running...${NC}"
 for app in "${APPS[@]}"; do
-  if [ "${RESULTS[$app]}" != "DEPLOY_SUCCESS" ]; then
-    echo -e "${YELLOW}Skipping $app as deployment failed${NC}"
-    continue
-  fi
-
   port=${APP_PORTS[$app]}
 
   # Check if port is already in use
@@ -170,8 +149,8 @@ for app in "${APPS[@]}"; do
 
   echo -e "${YELLOW}Starting $app on port $port...${NC}"
 
-  # Change to the app's dist directory, build it, and start it
-  cd dist/$app
+  # Change to the app's directory, build it, and start it
+  cd apps/$app
   PORT="${APP_PORTS[$app]}" pnpm start &
   app_pid=$!
   PIDS+=($app_pid)

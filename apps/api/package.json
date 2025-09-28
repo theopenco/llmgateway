@@ -13,7 +13,7 @@
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "./api.out"
+		"start": "./dist/api.out"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",

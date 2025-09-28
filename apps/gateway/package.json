@@ -20,7 +20,7 @@
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "./gateway.out"
+		"start": "./dist/gateway.out"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",

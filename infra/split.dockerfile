@@ -141,7 +141,7 @@ EXPOSE 80
 ENV PORT=80
 ENV NODE_ENV=production
 ENV TELEMETRY_ACTIVE=true
-CMD ["./api.out"]
+CMD ["./dist/api.out"]
 
 # Gateway runtime stage
 FROM debian:12-slim AS gateway
