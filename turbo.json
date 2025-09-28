@@ -30,11 +30,6 @@
 				"openapi.json"
 			]
 		},
-		"generate": {
-			"cache": false,
-			"dependsOn": ["build", "^generate"],
-			"outputs": ["openapi.json", "content/**", "migrations", "**/v1.d.ts"]
-		},
 		"dev": {
 			"persistent": true,
 			"cache": false
