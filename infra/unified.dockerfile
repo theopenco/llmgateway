@@ -71,8 +71,7 @@ WORKDIR /app
 COPY .tool-versions ./
 
 # Install asdf plugins and tools
-RUN asdf plugin add nodejs && \
-    asdf plugin add pnpm && \
+RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin add  {} && \
     asdf install && \
     asdf reshim && \
     # Verify installations
