@@ -20,6 +20,13 @@ APP_ENDPOINTS["ui"]="http://localhost:3002"
 APP_ENDPOINTS["playground"]="http://localhost:3002"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
 
+# Health check routes for each app (optional)
+declare -A HEALTH_ROUTES
+HEALTH_ROUTES["docs"]="/v1_chat_completions"
+# Add more health check routes for other apps as needed
+# HEALTH_ROUTES["api"]="/health"
+# HEALTH_ROUTES["gateway"]="/health"
+
 # Array to store test results
 declare -A RESULTS
 
@@ -36,6 +43,26 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Function to perform health check on a specific route
+perform_health_check() {
+  local endpoint="$1"
+  local route="$2"
+  local app="$3"
+
+  local full_url="${endpoint}${route}"
+  echo -e "${YELLOW}Performing health check for $app at $full_url...${NC}"
+
+  local response_code=$(curl -s -o /dev/null -w "%{http_code}" "$full_url" || echo "000")
+
+  if [ "$response_code" = "200" ]; then
+    echo -e "${GREEN}✓ Health check passed for $app (HTTP 200)${NC}"
+    return 0
+  else
+    echo -e "${RED}✗ Health check failed for $app (HTTP $response_code)${NC}"
+    return 1
+  fi
+}
+
 # Function to wait for service health
 wait_for_service() {
   local service_name="$1"
@@ -50,7 +77,19 @@ wait_for_service() {
   while [ $count -lt $max_attempts ]; do
     if curl -f -s "$endpoint" > /dev/null 2>&1; then
       echo -e "${GREEN}✓ $service_name is healthy${NC}"
-      return 0
+
+      # Perform health check if a route is defined for this app
+      if [ -n "${HEALTH_ROUTES[$service_name]}" ]; then
+        # Give the app a moment to fully initialize
+        sleep 2
+        if perform_health_check "$endpoint" "${HEALTH_ROUTES[$service_name]}" "$service_name"; then
+          return 0
+        else
+          return 1
+        fi
+      else
+        return 0
+      fi
     fi
 
     echo "Waiting for $service_name... (attempt $((count + 1))/$max_attempts)"
