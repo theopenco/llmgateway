@@ -20,6 +20,7 @@ jobs:
         run: |
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+          echo "bun_version=$(cat .tool-versions | grep 'bun' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -29,6 +30,10 @@ jobs:
         with:
           node-version: ${{ env.nodejs_version }}
           cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.bun_version }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
