@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "tsc && resolve-tspaths && pnpm run generate && NODE_ENV=production bun build src/serve.ts --compile --minify --sourcemap --outfile api.out",
-		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/serve.js\"",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"bun --watch dist/serve.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
