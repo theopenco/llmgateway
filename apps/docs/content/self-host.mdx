@@ -91,8 +91,8 @@ POSTGRES_PASSWORD=your_secure_password_here
 AUTH_SECRET=your-secret-key-here
 
 # LLM Provider API Keys (add the ones you need)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+LLM_OPENAI_API_KEY=sk-...
+LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ## Basic Management Commands
@@ -132,11 +132,8 @@ To build locally, you can use the \*.local.yml compose file in the `infra` direc
 You can set any of the following API keys:
 
 ```text
-OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
-GOOGLE_AI_STUDIO_API_KEY=
-INFERENCE_NET_API_KEY=
-TOGETHER_AI_API_KEY=
+LLM_OPENAI_API_KEY=
+LLM_ANTHROPIC_API_KEY=
 ```
 
 ## Next Steps

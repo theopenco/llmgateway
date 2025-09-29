@@ -50,9 +50,8 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
 
       # LLM Provider API Keys (add the ones you need)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GOOGLE_AI_STUDIO_API_KEY=${GOOGLE_AI_STUDIO_API_KEY:-}
+      - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY:-}
+      - LLM_ANTHROPIC_API_KEY=${LLM_ANTHROPIC_API_KEY:-}
 
 volumes:
   llmgateway_postgres:

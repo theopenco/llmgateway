@@ -105,7 +105,7 @@ components:
         dockerfile: infra/split.dockerfile
         target: gateway
       environment:
-        ANTHROPIC_API_KEY: ""
+        LLM_ANTHROPIC_API_KEY: ""
         DATABASE_URL: "postgres://postgres:llmgateway_dev_password@postgres:5432/llmgateway"
         GOOGLE_AI_STUDIO_API_KEY: ""
         INFERENCE_NET_API_KEY: ""
