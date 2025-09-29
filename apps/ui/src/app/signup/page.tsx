@@ -185,7 +185,11 @@ export default function Signup() {
 					onClick={async () => {
 						setIsLoading(true);
 						try {
-							const res = await signIn.social({ provider: "github" });
+							const res = await signIn.social({
+								provider: "github",
+								callbackURL:
+									location.protocol + "//" + location.host + "/dashboard",
+							});
 							if (res?.error) {
 								toast({
 									title: res.error.message || "Failed to sign up with GitHub",

@@ -378,8 +378,7 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 	}
 }
 
-// Base auth configuration (previously from @llmgateway/auth)
-const authConfig = {
+export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 	advanced: {
 		crossSubDomainCookies: {
 			enabled: true,
@@ -410,13 +409,6 @@ const authConfig = {
 		enabled: true,
 	},
 	baseURL: apiUrl || "http://localhost:4002",
-};
-
-export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
-	// Inherit all config from base auth
-	...authConfig,
-
-	// Add API-specific configurations
 	secret: process.env.AUTH_SECRET || "your-secret-key",
 	database: drizzleAdapter(db, {
 		provider: "pg",

@@ -17,7 +17,7 @@
 	],
 	"scripts": {
 		"build": "tsc && resolve-tspaths",
-		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon dist/index.js\"",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --env-file=../../.env dist/index.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check .",
 		"start": "node --enable-source-maps dist/index.js"
