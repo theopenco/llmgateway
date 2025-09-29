@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, Github } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -37,7 +37,7 @@ export default function Signup() {
 	const router = useRouter();
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
-	const { signUp } = useAuth();
+	const { signUp, signIn } = useAuth();
 
 	// Redirect to dashboard if already authenticated
 	useUser({
@@ -173,6 +173,40 @@ export default function Signup() {
 						</Button>
 					</form>
 				</Form>
+				<div className="relative">
+					<div className="absolute inset-0 flex items-center">
+						<span className="w-full border-t" />
+					</div>
+					<div className="relative flex justify-center text-xs uppercase">
+						<span className="bg-background px-2 text-muted-foreground">Or</span>
+					</div>
+				</div>
+				<Button
+					onClick={async () => {
+						setIsLoading(true);
+						try {
+							const res = await signIn.social({ provider: "github" });
+							if (res?.error) {
+								toast({
+									title: res.error.message || "Failed to sign up with GitHub",
+									variant: "destructive",
+								});
+							}
+						} finally {
+							setIsLoading(false);
+						}
+					}}
+					variant="outline"
+					className="w-full"
+					disabled={isLoading}
+				>
+					{isLoading ? (
+						<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+					) : (
+						<Github className="mr-2 h-4 w-4" />
+					)}
+					Sign up with GitHub
+				</Button>
 				<p className="px-8 text-center text-sm text-muted-foreground">
 					<Link
 						href="/login"

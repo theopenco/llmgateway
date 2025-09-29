@@ -428,6 +428,12 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 			passkey: tables.passkey,
 		},
 	}),
+	socialProviders: {
+		github: {
+			clientId: process.env.GITHUB_CLIENT_ID!,
+			clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+		},
+	},
 	emailVerification: isHosted
 		? {
 				sendOnSignUp: true,

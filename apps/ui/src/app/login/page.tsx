@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, KeySquare } from "lucide-react";
+import { Loader2, KeySquare, Github } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -197,19 +197,47 @@ export default function Login() {
 						<span className="bg-background px-2 text-muted-foreground">Or</span>
 					</div>
 				</div>
-				<Button
-					onClick={handlePasskeySignIn}
-					variant="outline"
-					className="w-full"
-					disabled={isLoading}
-				>
-					{isLoading ? (
-						<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-					) : (
-						<KeySquare className="mr-2 h-4 w-4" />
-					)}
-					Sign in with passkey
-				</Button>
+				<div className="grid grid-cols-1 gap-3">
+					<Button
+						onClick={async () => {
+							setIsLoading(true);
+							try {
+								const res = await signIn.social({ provider: "github" });
+								if (res?.error) {
+									toast({
+										title: res.error.message || "Failed to sign in with GitHub",
+										variant: "destructive",
+									});
+								}
+							} finally {
+								setIsLoading(false);
+							}
+						}}
+						variant="outline"
+						className="w-full"
+						disabled={isLoading}
+					>
+						{isLoading ? (
+							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+						) : (
+							<Github className="mr-2 h-4 w-4" />
+						)}
+						Sign in with GitHub
+					</Button>
+					<Button
+						onClick={handlePasskeySignIn}
+						variant="outline"
+						className="w-full"
+						disabled={isLoading}
+					>
+						{isLoading ? (
+							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+						) : (
+							<KeySquare className="mr-2 h-4 w-4" />
+						)}
+						Sign in with passkey
+					</Button>
+				</div>
 				<p className="px-8 text-center text-sm text-muted-foreground">
 					<Link
 						href="/signup"

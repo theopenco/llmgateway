@@ -30,6 +30,8 @@ services:
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
       - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
       - AUTH_SECRET=${AUTH_SECRET:-your-secret-key}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-your-github-client-id}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-your-github-client-secret}
 
       # Analytics (optional)
       - POSTHOG_KEY=${POSTHOG_KEY:-}
