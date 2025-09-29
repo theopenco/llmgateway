@@ -23,7 +23,7 @@
 		"resources/rate-limits",
 		"resources/...",
 		"---Guides---",
-		"guides/n8n",
+		"...guides",
 		"---References---",
 		"...(api)"
 	]
