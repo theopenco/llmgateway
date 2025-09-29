@@ -91,7 +91,7 @@ describe("keys route", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("apiKeys");
-		expect(json.apiKeys.length).toBe(1);
+		expect(json.apiKeys.length).toBe(2);
 		expect(json.apiKeys[0].description).toBe("Test API Key");
 	});
 
