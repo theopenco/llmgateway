@@ -92,7 +92,7 @@ describe("keys route", () => {
 		const json = await res.json();
 		expect(json).toHaveProperty("apiKeys");
 		expect(json.apiKeys.length).toBe(2);
-		expect(json.apiKeys[0].description).toBe("Test API Key");
+		expect(json.apiKeys[1].description).toBe("Test API Key");
 	});
 
 	test("PATCH /keys/api/{id}", async () => {
