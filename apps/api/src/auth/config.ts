@@ -561,67 +561,84 @@ export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
 			return;
 		}),
 		after: createAuthMiddleware(async (ctx) => {
-			// Check if this is a signup event
-			if (ctx.path.startsWith("/sign-up")) {
-				const newSession = ctx.context.newSession;
+			// Create default org/project for first-time sessions (email signup or first social sign-in)
+			const newSession = ctx.context.newSession;
+			if (!newSession?.user) {
+				return;
+			}
 
-				// If we have a new session with a user, create default org and project
-				if (newSession?.user) {
-					const userId = newSession.user.id;
+			const userId = newSession.user.id;
 
-					// Perform all DB operations in a single transaction for atomicity
-					await db.transaction(async (tx) => {
-						// For self-hosted installations, automatically verify the user's email
-						if (!isHosted) {
-							await tx
-								.update(tables.user)
-								.set({ emailVerified: true })
-								.where(eq(tables.user.id, userId));
+			// Check if the user already has any active organizations
+			const userOrganizations = await db.query.userOrganization.findMany({
+				where: {
+					userId,
+				},
+				with: {
+					organization: true,
+				},
+			});
 
-							logger.info("Automatically verified email for self-hosted user", {
-								userId,
-							});
-						}
+			const activeOrganizations = userOrganizations.filter(
+				(uo) => uo.organization?.status !== "deleted",
+			);
 
-						// Create a default organization
-						const [organization] = await tx
-							.insert(tables.organization)
-							.values({
-								name: "Default Organization",
-							})
-							.returning();
+			if (activeOrganizations.length > 0) {
+				// User already has an organization, nothing to do
+				return;
+			}
 
-						// Link user to organization
-						await tx.insert(tables.userOrganization).values({
-							userId,
-							organizationId: organization.id,
-						});
+			// Perform all DB operations in a single transaction for atomicity
+			await db.transaction(async (tx) => {
+				// For self-hosted installations, automatically verify the user's email
+				if (!isHosted) {
+					await tx
+						.update(tables.user)
+						.set({ emailVerified: true })
+						.where(eq(tables.user.id, userId));
 
-						// Create a default project with credits mode for better conversion
-						const [project] = await tx
-							.insert(tables.project)
-							.values({
-								name: "Default Project",
-								organizationId: organization.id,
-								mode: "credits",
-							})
-							.returning();
-
-						// Auto-create an API key for the playground to use
-						// Generate a token with a prefix for better identification
-						const prefix =
-							process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-						const token = prefix + shortid(40);
-
-						await tx.insert(tables.apiKey).values({
-							projectId: project.id,
-							token: token,
-							description: "Auto-generated playground key",
-							usageLimit: null, // No limit for playground key
-						});
+					logger.info("Automatically verified email for self-hosted user", {
+						userId,
 					});
 				}
-			}
+
+				// Create a default organization
+				const [organization] = await tx
+					.insert(tables.organization)
+					.values({
+						name: "Default Organization",
+					})
+					.returning();
+
+				// Link user to organization
+				await tx.insert(tables.userOrganization).values({
+					userId,
+					organizationId: organization.id,
+				});
+
+				// Create a default project with credits mode for better conversion
+				const [project] = await tx
+					.insert(tables.project)
+					.values({
+						name: "Default Project",
+						organizationId: organization.id,
+						mode: "credits",
+					})
+					.returning();
+
+				// Auto-create an API key for the playground to use
+				// Generate a token with a prefix for better identification
+				const prefix =
+					process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+				const token = prefix + shortid(40);
+
+				await tx.insert(tables.apiKey).values({
+					projectId: project.id,
+					token: token,
+					description: "Auto-generated playground key",
+					usageLimit: null, // No limit for playground key
+				});
+			});
 		}),
 	},
 });
