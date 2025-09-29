@@ -81,7 +81,7 @@ export default function Login() {
 						email: values.email,
 					});
 					toast.success("Login successful");
-					router.push("/dashboard");
+					router.push("/");
 				},
 				onError: (ctx) => {
 					toast.error(ctx.error.message || "An unknown error occurred", {
@@ -121,7 +121,7 @@ export default function Login() {
 			}
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast.success("Login successful");
-			router.push("/dashboard");
+			router.push("/");
 		} catch (error: unknown) {
 			toast.error(
 				(error as Error)?.message || "Failed to sign in with passkey",

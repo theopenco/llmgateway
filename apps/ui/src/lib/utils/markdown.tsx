@@ -4,6 +4,52 @@ import React from "react";
 import type { Language } from "prism-react-renderer";
 
 // Syntax highlighted pre component
+
+function normalizeLanguageName(rawLanguageName: string | undefined): Language {
+	if (!rawLanguageName) {
+		return "text";
+	}
+	const value = rawLanguageName.toLowerCase();
+
+	const aliasToLanguage: Record<string, Language> = {
+		js: "javascript",
+		javascript: "javascript",
+		mjs: "javascript",
+		cjs: "javascript",
+		ts: "typescript",
+		tsx: "tsx",
+		typescript: "typescript",
+		jsx: "jsx",
+		sh: "bash",
+		shell: "bash",
+		bash: "bash",
+		zsh: "bash",
+		yml: "yaml",
+		yaml: "yaml",
+		json: "json",
+		json5: "json",
+		html: "markup",
+		markup: "markup",
+		css: "css",
+		scss: "scss",
+		md: "markdown",
+		markdown: "markdown",
+		python: "python",
+		py: "python",
+		go: "go",
+		golang: "go",
+		java: "java",
+		c: "c",
+		cpp: "cpp",
+		rust: "rust",
+		sql: "sql",
+		docker: "docker",
+		dockerfile: "docker",
+	};
+
+	return aliasToLanguage[value] ?? "text";
+}
+
 const SyntaxHighlightedPre = ({
 	children,
 	...props
@@ -23,10 +69,24 @@ const SyntaxHighlightedPre = ({
 			code = childProps.children.trim();
 		}
 		if (childProps?.className) {
-			const match = childProps.className.match(/language-(\w+)/);
-			if (match) {
-				language = match[1] as Language;
+			const className = childProps.className;
+			let extracted: string | undefined;
+			const parts = className.split(/\s+/g);
+			for (const part of parts) {
+				const langPrefixMatch = part.match(
+					/^(?:language|lang)-([A-Za-z0-9_-]+)/,
+				);
+				if (langPrefixMatch) {
+					extracted = langPrefixMatch[1];
+					break;
+				}
 			}
+			if (!extracted) {
+				// Fallback: sometimes className may be just the language itself
+				const maybeSingle = parts.find((p) => /^[A-Za-z0-9_-]+$/.test(p));
+				extracted = maybeSingle;
+			}
+			language = normalizeLanguageName(extracted);
 		}
 	}
 
