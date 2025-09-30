@@ -18,7 +18,7 @@ import {
 	readAll,
 } from "./test-utils/test-helpers.js";
 
-describe("e2e individual tests", getTestOptions(), () => {
+describe("e2e individual tests", () => {
 	// Helper to create unique test data for each test to avoid conflicts
 	async function createTestData(testId: string) {
 		const userId = `user-${testId}`;
@@ -100,7 +100,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"JSON output mode error for unsupported model",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const envVarName = getProviderEnvVar("anthropic");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
@@ -140,7 +140,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"JSON output mode error when 'json' not mentioned in messages",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const envVarName = getProviderEnvVar("openai");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
@@ -197,7 +197,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"completions with llmgateway/auto in credits mode",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			// require all provider keys to be set
 			for (const provider of providers) {
@@ -264,7 +264,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"completions with bare 'auto' model and credits",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const { orgId, projectId, token } = await createTestData("bare-auto");
 
@@ -377,7 +377,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"Prompt tokens are never zero even when provider returns 0",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const { token } = await createTestData("zero-tokens");
 
@@ -428,7 +428,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"Prompt tokens are calculated for streaming when provider returns 0",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const { token } = await createTestData("zero-tokens-streaming");
 
@@ -468,7 +468,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"GPT-5-nano responses API parameter handling",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const envVarName = getProviderEnvVar("openai");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
@@ -530,7 +530,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"Auto-routing sets reasoning_effort to minimal for gpt-5 models",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const envVarName = getProviderEnvVar("openai");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
@@ -613,7 +613,7 @@ describe("e2e individual tests", getTestOptions(), () => {
 
 	test(
 		"Success when requesting multi-provider model without prefix",
-		getTestOptions(),
+		getTestOptions({ completions: false }),
 		async () => {
 			const multiProviderModel = models.find((m) => m.providers.length > 1);
 			if (!multiProviderModel) {

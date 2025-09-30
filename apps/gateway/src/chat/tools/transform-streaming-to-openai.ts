@@ -211,19 +211,32 @@ export function transformStreamingToOpenai(
 		}
 		case "google-ai-studio": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
-			const hasText = parts.some((part: any) => part.text);
+			const hasText = parts.some((part: any) => part.text && !part.thought);
+			const hasThought = parts.some((part: any) => part.thought && part.text);
 			const hasImages = parts.some((part: any) => part.inlineData);
 			const hasFunctionCalls = parts.some((part: any) => part.functionCall);
 
-			if (hasText || hasImages || hasFunctionCalls) {
+			if (hasText || hasThought || hasImages || hasFunctionCalls) {
 				const delta: StreamingDelta = {
 					role: "assistant",
 				};
 
-				// Add text content if present
+				// Add text content if present (excluding thoughts)
 				if (hasText) {
 					delta.content =
 						parts
+							.filter((part: any) => !part.thought)
+							.map((part: any) =>
+								typeof part.text === "string" ? part.text : "",
+							)
+							.join("") || "";
+				}
+
+				// Add thinking/reasoning content if present
+				if (hasThought) {
+					delta.reasoning_content =
+						parts
+							.filter((part: any) => part.thought)
 							.map((part: any) =>
 								typeof part.text === "string" ? part.text : "",
 							)
