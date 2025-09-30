@@ -98,199 +98,215 @@ describe("e2e individual tests", getTestOptions(), () => {
 		expect(json).toHaveProperty("usage.total_tokens");
 	}
 
-	test("JSON output mode error for unsupported model", async () => {
-		const envVarName = getProviderEnvVar("anthropic");
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		if (!envVarValue) {
-			console.log(
-				"Skipping JSON output error test - no Anthropic API key provided",
-			);
-			return;
-		}
-
-		const { token } = await createTestData("json-error");
-
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "anthropic/claude-3-5-sonnet-20241022",
-				messages: [
-					{
-						role: "user",
-						content: "Hello",
-					},
-				],
-				response_format: { type: "json_object" },
-			}),
-		});
-
-		expect(res.status).toBe(400);
-
-		const text = await res.text();
-		expect(text).toContain("does not support JSON output mode");
-	});
-
-	test("JSON output mode error when 'json' not mentioned in messages", async () => {
-		const envVarName = getProviderEnvVar("openai");
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		if (!envVarValue) {
-			console.log(
-				"Skipping JSON output client error test - no OpenAI API key provided",
-			);
-			return;
-		}
-
-		const { token } = await createTestData("json-missing");
-		const requestId = generateTestRequestId();
-
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-request-id": requestId,
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "gpt-4o-mini",
-				messages: [
-					{
-						role: "user",
-						content: "Hello, give me a greeting response",
-					},
-				],
-				response_format: { type: "json_object" },
-			}),
-		});
-
-		expect(res.status).toBe(400);
-
-		const json = await res.json();
-		expect(json).toHaveProperty("error");
-		expect(json.error).toHaveProperty("message");
-		expect(json.error.message).toContain("'messages' must contain");
-		expect(json.error.message).toContain("the word 'json'");
-		expect(json.error).toHaveProperty("type", "invalid_request_error");
-
-		const log = await waitForLogByRequestId(requestId);
-		expect(log.unifiedFinishReason).toBe("client_error");
-		expect(log.errorDetails).not.toBeNull();
-		expect(log.errorDetails).toHaveProperty("message");
-		expect((log.errorDetails as { message?: string })?.message).toContain(
-			"'messages' must contain",
-		);
-		expect((log.errorDetails as { message?: string })?.message).toContain(
-			"the word 'json'",
-		);
-	});
-
-	test("completions with llmgateway/auto in credits mode", async () => {
-		// require all provider keys to be set
-		for (const provider of providers) {
-			const envVarName = getProviderEnvVar(provider.id);
+	test(
+		"JSON output mode error for unsupported model",
+		getTestOptions(),
+		async () => {
+			const envVarName = getProviderEnvVar("anthropic");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
 			if (!envVarValue) {
 				console.log(
-					`Skipping llmgateway/auto in credits mode test - no API key provided for ${provider.id}`,
+					"Skipping JSON output error test - no Anthropic API key provided",
 				);
 				return;
 			}
-		}
 
-		const { orgId, projectId } = await createTestData("credits-auto");
+			const { token } = await createTestData("json-error");
 
-		await db
-			.update(tables.organization)
-			.set({ credits: "1000" })
-			.where(eq(tables.organization.id, orgId));
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-3-5-sonnet-20241022",
+					messages: [
+						{
+							role: "user",
+							content: "Hello",
+						},
+					],
+					response_format: { type: "json_object" },
+				}),
+			});
 
-		await db
-			.update(tables.project)
-			.set({ mode: "credits" })
-			.where(eq(tables.project.id, projectId));
+			expect(res.status).toBe(400);
 
-		const creditsToken = "credits-token-auto";
-		await db.insert(tables.apiKey).values({
-			id: "token-credits-auto",
-			token: creditsToken,
-			projectId: projectId,
-			description: "Test API Key for Credits",
-		});
+			const text = await res.text();
+			expect(text).toContain("does not support JSON output mode");
+		},
+	);
 
-		const requestId = generateTestRequestId();
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-request-id": requestId,
-				Authorization: `Bearer ${creditsToken}`,
-			},
-			body: JSON.stringify({
-				model: "llmgateway/auto",
-				messages: [
-					{
-						role: "user",
-						content: "Hello with llmgateway/auto in credits mode!",
-					},
-				],
-			}),
-		});
+	test(
+		"JSON output mode error when 'json' not mentioned in messages",
+		getTestOptions(),
+		async () => {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
+				console.log(
+					"Skipping JSON output client error test - no OpenAI API key provided",
+				);
+				return;
+			}
 
-		const json = await res.json();
-		console.log("response:", JSON.stringify(json, null, 2));
-		expect(res.status).toBe(200);
-		expect(json).toHaveProperty("choices.[0].message.content");
+			const { token } = await createTestData("json-missing");
+			const requestId = generateTestRequestId();
 
-		const log = await waitForLogByRequestId(requestId);
-		expect(log.requestedModel).toBe("auto");
-		expect(log.usedProvider).toBeTruthy();
-		expect(log.usedModel).toBeTruthy();
-	});
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [
+						{
+							role: "user",
+							content: "Hello, give me a greeting response",
+						},
+					],
+					response_format: { type: "json_object" },
+				}),
+			});
 
-	test("completions with bare 'auto' model and credits", async () => {
-		const { orgId, projectId, token } = await createTestData("bare-auto");
+			expect(res.status).toBe(400);
 
-		await db
-			.update(tables.organization)
-			.set({ credits: "1000" })
-			.where(eq(tables.organization.id, orgId));
+			const json = await res.json();
+			expect(json).toHaveProperty("error");
+			expect(json.error).toHaveProperty("message");
+			expect(json.error.message).toContain("'messages' must contain");
+			expect(json.error.message).toContain("the word 'json'");
+			expect(json.error).toHaveProperty("type", "invalid_request_error");
 
-		await db
-			.update(tables.project)
-			.set({ mode: "credits" })
-			.where(eq(tables.project.id, projectId));
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.unifiedFinishReason).toBe("client_error");
+			expect(log.errorDetails).not.toBeNull();
+			expect(log.errorDetails).toHaveProperty("message");
+			expect((log.errorDetails as { message?: string })?.message).toContain(
+				"'messages' must contain",
+			);
+			expect((log.errorDetails as { message?: string })?.message).toContain(
+				"the word 'json'",
+			);
+		},
+	);
 
-		const requestId = generateTestRequestId();
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-request-id": requestId,
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "auto",
-				messages: [
-					{
-						role: "user",
-						content: "Hello! This is an auto test.",
-					},
-				],
-			}),
-		});
+	test(
+		"completions with llmgateway/auto in credits mode",
+		getTestOptions(),
+		async () => {
+			// require all provider keys to be set
+			for (const provider of providers) {
+				const envVarName = getProviderEnvVar(provider.id);
+				const envVarValue = envVarName ? process.env[envVarName] : undefined;
+				if (!envVarValue) {
+					console.log(
+						`Skipping llmgateway/auto in credits mode test - no API key provided for ${provider.id}`,
+					);
+					return;
+				}
+			}
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		expect(json).toHaveProperty("choices.[0].message.content");
+			const { orgId, projectId } = await createTestData("credits-auto");
 
-		const log = await waitForLogByRequestId(requestId);
-		expect(log.requestedModel).toBe("auto");
-		expect(log.usedProvider).toBeTruthy();
-		expect(log.usedModel).toBeTruthy();
-	});
+			await db
+				.update(tables.organization)
+				.set({ credits: "1000" })
+				.where(eq(tables.organization.id, orgId));
+
+			await db
+				.update(tables.project)
+				.set({ mode: "credits" })
+				.where(eq(tables.project.id, projectId));
+
+			const creditsToken = "credits-token-auto";
+			await db.insert(tables.apiKey).values({
+				id: "token-credits-auto",
+				token: creditsToken,
+				projectId: projectId,
+				description: "Test API Key for Credits",
+			});
+
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${creditsToken}`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/auto",
+					messages: [
+						{
+							role: "user",
+							content: "Hello with llmgateway/auto in credits mode!",
+						},
+					],
+				}),
+			});
+
+			const json = await res.json();
+			console.log("response:", JSON.stringify(json, null, 2));
+			expect(res.status).toBe(200);
+			expect(json).toHaveProperty("choices.[0].message.content");
+
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.requestedModel).toBe("auto");
+			expect(log.usedProvider).toBeTruthy();
+			expect(log.usedModel).toBeTruthy();
+		},
+	);
+
+	test(
+		"completions with bare 'auto' model and credits",
+		getTestOptions(),
+		async () => {
+			const { orgId, projectId, token } = await createTestData("bare-auto");
+
+			await db
+				.update(tables.organization)
+				.set({ credits: "1000" })
+				.where(eq(tables.organization.id, orgId));
+
+			await db
+				.update(tables.project)
+				.set({ mode: "credits" })
+				.where(eq(tables.project.id, projectId));
+
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{
+							role: "user",
+							content: "Hello! This is an auto test.",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json).toHaveProperty("choices.[0].message.content");
+
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.requestedModel).toBe("auto");
+			expect(log.usedProvider).toBeTruthy();
+			expect(log.usedModel).toBeTruthy();
+		},
+	);
 
 	test.skip("/v1/chat/completions with bare 'custom' model", async () => {
 		const envVarName = getProviderEnvVar("openai");
@@ -359,260 +375,280 @@ describe("e2e individual tests", getTestOptions(), () => {
 		expect(log.usedModel).toBe("custom");
 	});
 
-	test("Prompt tokens are never zero even when provider returns 0", async () => {
-		const { token } = await createTestData("zero-tokens");
+	test(
+		"Prompt tokens are never zero even when provider returns 0",
+		getTestOptions(),
+		async () => {
+			const { token } = await createTestData("zero-tokens");
 
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "openai/gpt-4o-mini",
-				messages: [
-					{
-						role: "user",
-						content: "ZERO_TOKENS test message",
-					},
-				],
-			}),
-		});
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [
+						{
+							role: "user",
+							content: "ZERO_TOKENS test message",
+						},
+					],
+				}),
+			});
 
-		expect(res.status).toBe(200);
+			expect(res.status).toBe(200);
 
-		const json = await res.json();
+			const json = await res.json();
 
-		// Verify we have usage information
-		expect(json).toHaveProperty("usage");
-		expect(json.usage).toHaveProperty("prompt_tokens");
-		expect(json.usage).toHaveProperty("completion_tokens");
-		expect(json.usage).toHaveProperty("total_tokens");
+			// Verify we have usage information
+			expect(json).toHaveProperty("usage");
+			expect(json.usage).toHaveProperty("prompt_tokens");
+			expect(json.usage).toHaveProperty("completion_tokens");
+			expect(json.usage).toHaveProperty("total_tokens");
 
-		// Verify types are numbers
-		expect(typeof json.usage.prompt_tokens).toBe("number");
-		expect(typeof json.usage.completion_tokens).toBe("number");
-		expect(typeof json.usage.total_tokens).toBe("number");
+			// Verify types are numbers
+			expect(typeof json.usage.prompt_tokens).toBe("number");
+			expect(typeof json.usage.completion_tokens).toBe("number");
+			expect(typeof json.usage.total_tokens).toBe("number");
 
-		// Most importantly: prompt_tokens should never be 0, even if provider returns 0
-		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+			// Most importantly: prompt_tokens should never be 0, even if provider returns 0
+			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
 
-		// Completion tokens can be non-zero as set by mock
-		expect(json.usage.completion_tokens).toBeGreaterThan(0);
+			// Completion tokens can be non-zero as set by mock
+			expect(json.usage.completion_tokens).toBeGreaterThan(0);
 
-		// Total tokens should be at least as large as prompt tokens
-		expect(json.usage.total_tokens).toBeGreaterThanOrEqual(
-			json.usage.prompt_tokens,
-		);
-	});
-
-	test("Prompt tokens are calculated for streaming when provider returns 0", async () => {
-		const { token } = await createTestData("zero-tokens-streaming");
-
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "openai/gpt-4o-mini",
-				messages: [
-					{
-						role: "user",
-						content: "ZERO_TOKENS streaming test message",
-					},
-				],
-				stream: true,
-			}),
-		});
-
-		expect(res.status).toBe(200);
-
-		const result = await readAll(res.body);
-
-		// Find a usage chunk
-		const usageChunk = result.chunks.find((chunk: any) => chunk.usage);
-		expect(usageChunk).toBeDefined();
-
-		if (usageChunk) {
-			// Verify prompt tokens are calculated and greater than 0
-			expect(usageChunk.usage.prompt_tokens).toBeGreaterThan(0);
-			expect(typeof usageChunk.usage.prompt_tokens).toBe("number");
-		}
-	});
-
-	test("GPT-5-nano responses API parameter handling", async () => {
-		const envVarName = getProviderEnvVar("openai");
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		if (!envVarValue) {
-			console.log(
-				"Skipping GPT-5-nano responses API test - no OpenAI API key provided",
+			// Total tokens should be at least as large as prompt tokens
+			expect(json.usage.total_tokens).toBeGreaterThanOrEqual(
+				json.usage.prompt_tokens,
 			);
-			return;
-		}
+		},
+	);
 
-		const { token } = await createTestData("gpt5-nano");
-		const requestId = generateTestRequestId();
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-request-id": requestId,
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "openai/gpt-5-nano",
-				messages: [
-					{
-						role: "user",
-						content: "What is 2+2? Think step by step.",
-					},
-				],
-				max_tokens: 100,
-				reasoning_effort: "medium",
-			}),
-		});
+	test(
+		"Prompt tokens are calculated for streaming when provider returns 0",
+		getTestOptions(),
+		async () => {
+			const { token } = await createTestData("zero-tokens-streaming");
 
-		const json = await res.json();
-		if (logMode) {
-			console.log("GPT-5-nano response:", JSON.stringify(json, null, 2));
-		}
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [
+						{
+							role: "user",
+							content: "ZERO_TOKENS streaming test message",
+						},
+					],
+					stream: true,
+				}),
+			});
 
-		// Should succeed - no unsupported parameter error
-		expect(res.status).toBe(200);
-		validateResponse(json);
+			expect(res.status).toBe(200);
 
-		const log = await validateLogByRequestId(requestId);
-		expect(log.streamed).toBe(false);
-		expect(log.usedModel).toBe("openai/gpt-5-nano");
-		expect(log.usedModelMapping).toBe("gpt-5-nano");
-		expect(log.usedProvider).toBe("openai");
+			const result = await readAll(res.body);
 
-		// Verify it's a reasoning model response
-		expect(json).toHaveProperty("usage");
-		if (json.usage.reasoning_tokens !== undefined) {
-			expect(typeof json.usage.reasoning_tokens).toBe("number");
-			expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
-		}
+			// Find a usage chunk
+			const usageChunk = result.chunks.find((chunk: any) => chunk.usage);
+			expect(usageChunk).toBeDefined();
 
-		// Check for content - handle both string and object formats
-		expect(json.choices[0].message).toHaveProperty("content");
-	});
+			if (usageChunk) {
+				// Verify prompt tokens are calculated and greater than 0
+				expect(usageChunk.usage.prompt_tokens).toBeGreaterThan(0);
+				expect(typeof usageChunk.usage.prompt_tokens).toBe("number");
+			}
+		},
+	);
 
-	test("Auto-routing sets reasoning_effort to minimal for gpt-5 models", async () => {
-		const envVarName = getProviderEnvVar("openai");
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		if (!envVarValue) {
-			console.log(
-				"Skipping auto-routing reasoning_effort test - no OpenAI API key provided",
+	test(
+		"GPT-5-nano responses API parameter handling",
+		getTestOptions(),
+		async () => {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
+				console.log(
+					"Skipping GPT-5-nano responses API test - no OpenAI API key provided",
+				);
+				return;
+			}
+
+			const { token } = await createTestData("gpt5-nano");
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-5-nano",
+					messages: [
+						{
+							role: "user",
+							content: "What is 2+2? Think step by step.",
+						},
+					],
+					max_tokens: 100,
+					reasoning_effort: "medium",
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log("GPT-5-nano response:", JSON.stringify(json, null, 2));
+			}
+
+			// Should succeed - no unsupported parameter error
+			expect(res.status).toBe(200);
+			validateResponse(json);
+
+			const log = await validateLogByRequestId(requestId);
+			expect(log.streamed).toBe(false);
+			expect(log.usedModel).toBe("openai/gpt-5-nano");
+			expect(log.usedModelMapping).toBe("gpt-5-nano");
+			expect(log.usedProvider).toBe("openai");
+
+			// Verify it's a reasoning model response
+			expect(json).toHaveProperty("usage");
+			if (json.usage.reasoning_tokens !== undefined) {
+				expect(typeof json.usage.reasoning_tokens).toBe("number");
+				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
+			}
+
+			// Check for content - handle both string and object formats
+			expect(json.choices[0].message).toHaveProperty("content");
+		},
+	);
+
+	test(
+		"Auto-routing sets reasoning_effort to minimal for gpt-5 models",
+		getTestOptions(),
+		async () => {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
+				console.log(
+					"Skipping auto-routing reasoning_effort test - no OpenAI API key provided",
+				);
+				return;
+			}
+
+			const { orgId, projectId, token } = await createTestData(
+				`auto-reasoning-${Date.now()}`,
 			);
-			return;
-		}
 
-		const { orgId, projectId, token } = await createTestData(
-			`auto-reasoning-${Date.now()}`,
-		);
+			await db
+				.update(tables.organization)
+				.set({ credits: "1000" })
+				.where(eq(tables.organization.id, orgId));
 
-		await db
-			.update(tables.organization)
-			.set({ credits: "1000" })
-			.where(eq(tables.organization.id, orgId));
+			await db
+				.update(tables.project)
+				.set({ mode: "credits" })
+				.where(eq(tables.project.id, projectId));
 
-		await db
-			.update(tables.project)
-			.set({ mode: "credits" })
-			.where(eq(tables.project.id, projectId));
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{
+							role: "user",
+							content: "What is 2+2? Think step by step.",
+						},
+					],
+				}),
+			});
 
-		const requestId = generateTestRequestId();
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-request-id": requestId,
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: "auto",
-				messages: [
-					{
-						role: "user",
-						content: "What is 2+2? Think step by step.",
-					},
-				],
-			}),
-		});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			validateResponse(json);
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		validateResponse(json);
+			const log = await validateLogByRequestId(requestId);
+			expect(log.requestedModel).toBe("auto");
 
-		const log = await validateLogByRequestId(requestId);
-		expect(log.requestedModel).toBe("auto");
+			// Should auto-select gpt-5-nano (cheapest eligible model for auto)
+			// The provider can be either 'openai' or 'routeway-discount' depending on routing logic
+			expect(log.usedModelMapping).toBe("gpt-5-nano");
+			expect(log.usedModel).toMatch(/^(openai|routeway-discount)\/gpt-5-nano$/);
+			expect(["openai", "routeway-discount"]).toContain(log.usedProvider);
 
-		// Should auto-select gpt-5-nano (cheapest eligible model for auto)
-		// The provider can be either 'openai' or 'routeway-discount' depending on routing logic
-		expect(log.usedModelMapping).toBe("gpt-5-nano");
-		expect(log.usedModel).toMatch(/^(openai|routeway-discount)\/gpt-5-nano$/);
-		expect(["openai", "routeway-discount"]).toContain(log.usedProvider);
+			// Should auto-set reasoning_effort to minimal for gpt-5* models
+			// The key test is that gpt-5-nano was selected and the request completed successfully
+			// This validates that the auto-routing + reasoning_effort logic works without errors
 
-		// Should auto-set reasoning_effort to minimal for gpt-5* models
-		// The key test is that gpt-5-nano was selected and the request completed successfully
-		// This validates that the auto-routing + reasoning_effort logic works without errors
+			// Verify the response has valid usage information
+			expect(json.usage).toBeDefined();
+			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+			expect(json.usage.completion_tokens).toBeGreaterThan(0);
+			expect(json.usage.total_tokens).toBeGreaterThan(0);
 
-		// Verify the response has valid usage information
-		expect(json.usage).toBeDefined();
-		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
-		expect(json.usage.completion_tokens).toBeGreaterThan(0);
-		expect(json.usage.total_tokens).toBeGreaterThan(0);
+			// Check if reasoning was actually used (reasoning_tokens may not be present for minimal effort)
+			if (json.usage.reasoning_tokens !== undefined) {
+				expect(typeof json.usage.reasoning_tokens).toBe("number");
+				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
+			} else {
+				// For minimal effort, reasoning_tokens might be 0 or not present
+				// The key test is that gpt-5-nano was selected and no errors occurred
+				console.log(
+					"Note: reasoning_tokens not present, which may be expected for minimal effort",
+				);
+			}
+		},
+	);
 
-		// Check if reasoning was actually used (reasoning_tokens may not be present for minimal effort)
-		if (json.usage.reasoning_tokens !== undefined) {
-			expect(typeof json.usage.reasoning_tokens).toBe("number");
-			expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
-		} else {
-			// For minimal effort, reasoning_tokens might be 0 or not present
-			// The key test is that gpt-5-nano was selected and no errors occurred
-			console.log(
-				"Note: reasoning_tokens not present, which may be expected for minimal effort",
-			);
-		}
-	});
+	test(
+		"Success when requesting multi-provider model without prefix",
+		getTestOptions(),
+		async () => {
+			const multiProviderModel = models.find((m) => m.providers.length > 1);
+			if (!multiProviderModel) {
+				console.log(
+					"Skipping multi-provider test - no multi-provider models found",
+				);
+				return;
+			}
 
-	test("Success when requesting multi-provider model without prefix", async () => {
-		const multiProviderModel = models.find((m) => m.providers.length > 1);
-		if (!multiProviderModel) {
-			console.log(
-				"Skipping multi-provider test - no multi-provider models found",
-			);
-			return;
-		}
+			const { token } = await createTestData("multi-provider");
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: multiProviderModel.id,
+					messages: [
+						{
+							role: "user",
+							content: "Hello",
+						},
+					],
+				}),
+			});
 
-		const { token } = await createTestData("multi-provider");
-		const requestId = generateTestRequestId();
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-request-id": requestId,
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				model: multiProviderModel.id,
-				messages: [
-					{
-						role: "user",
-						content: "Hello",
-					},
-				],
-			}),
-		});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			validateResponse(json);
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		validateResponse(json);
-
-		const log = await validateLogByRequestId(requestId);
-		expect(log.streamed).toBe(false);
-	});
+			const log = await validateLogByRequestId(requestId);
+			expect(log.streamed).toBe(false);
+		},
+	);
 });

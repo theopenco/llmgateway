@@ -17,7 +17,7 @@ export function getTestOptions(
 		),
 	);
 	return process.env.CI || opts?.completions
-		? { retry: 3 }
+		? { retry: process.env.CI ? 3 : 0 }
 		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
 }
 
