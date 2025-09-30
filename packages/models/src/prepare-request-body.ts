@@ -492,6 +492,25 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.thinkingConfig = {
 					includeThoughts: true,
 				};
+
+				// Map reasoning_effort to thinking_budget
+				if (reasoning_effort !== undefined) {
+					const getThinkingBudget = (effort: string) => {
+						switch (effort) {
+							case "minimal":
+								return 512; // Minimum supported by most models
+							case "low":
+								return 2048;
+							case "high":
+								return 24576; // Maximum for Flash models
+							case "medium":
+							default:
+								return 8192; // Balanced default
+						}
+					};
+					requestBody.generationConfig.thinkingConfig.thinkingBudget =
+						getThinkingBudget(reasoning_effort);
+				}
 			}
 
 			break;

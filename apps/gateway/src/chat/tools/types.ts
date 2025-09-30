@@ -30,6 +30,7 @@ export interface ToolCall {
 export interface StreamingDelta {
 	role?: "assistant";
 	content?: string;
+	reasoning_content?: string;
 	images?: ImageObject[];
 	tool_calls?: ToolCall[];
 }

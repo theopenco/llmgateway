@@ -92,7 +92,8 @@ export function getProviderEndpoint(
 				url = "https://api.routeway.ai";
 				break;
 			case "routeway-discount":
-				url = process.env.ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
+				url =
+					process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
 				break;
 			case "custom":
 				if (!baseUrl) {

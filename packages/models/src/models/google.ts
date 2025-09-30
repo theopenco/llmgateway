@@ -19,6 +19,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				reasoning: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -32,6 +33,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				reasoning: true,
 			},
 		],
 	},
@@ -162,6 +164,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				reasoning: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -176,6 +179,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				reasoning: true,
 			},
 		],
 	},
