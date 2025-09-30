@@ -149,7 +149,6 @@ export const zaiModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "zai",
 				modelName: "glm-4.6",
 				inputPrice: 0.6 / 1e6,
