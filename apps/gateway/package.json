@@ -39,7 +39,7 @@
 		"gpt-tokenizer": "3.0.1",
 		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
-		"ioredis": "5.6.1",
+		"ioredis": "5.7.0",
 		"redis": "5.8.2",
 		"worker": "workspace:*",
 		"zod": "3.25.75",

@@ -23,7 +23,7 @@
 	},
 	"dependencies": {
 		"@llmgateway/logger": "workspace:*",
-		"ioredis": "^5.4.1"
+		"ioredis": "5.7.0"
 	},
 	"devDependencies": {
 		"@types/node": "^20.12.7"
