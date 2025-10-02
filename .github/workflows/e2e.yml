@@ -66,6 +66,7 @@ jobs:
           LLM_ALIBABA_API_KEY: ${{ secrets.ALIBABA_API_KEY }}
           LLM_NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
           LLM_Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
+          LLM_NANO_GPT_API_KEY: ${{ secrets.NANO_GPT_API_KEY }}
           LLM_ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}
           LLM_ROUTEWAY_DISCOUNT_API_KEY: ${{ secrets.ROUTEWAY_DISCOUNT_API_KEY }}
           LLM_ROUTEWAY_DISCOUNT_BASE_URL: ${{ secrets.ROUTEWAY_DISCOUNT_BASE_URL }}
