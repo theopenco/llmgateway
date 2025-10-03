@@ -141,7 +141,7 @@ fi
 echo -e "${YELLOW}Deploying apps to dist directories...${NC}"
 for app in "${APPS[@]}"; do
   echo -e "${YELLOW}Deploying $app...${NC}"
-  pnpm --filter=$app --prod deploy dist/$app
+  pnpm --filter=$app --prod deploy --legacy dist/$app
   if [ $? -ne 0 ]; then
     echo -e "${RED}Deployment of $app failed${NC}"
     RESULTS[$app]="DEPLOY_FAILED"
