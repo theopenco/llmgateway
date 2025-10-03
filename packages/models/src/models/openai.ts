@@ -309,7 +309,6 @@ export const openaiModels = [
 				reasoning: true,
 			},
 			{
-				test: "only",
 				providerId: "nanogpt",
 				modelName: "openai/gpt-oss-120b",
 				inputPrice: 0.05 / 1e6,
@@ -346,7 +345,6 @@ export const openaiModels = [
 				reasoning: true,
 			},
 			{
-				test: "only",
 				providerId: "nanogpt",
 				modelName: "openai/gpt-oss-20b",
 				inputPrice: 0.04 / 1e6,
