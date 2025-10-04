@@ -1,0 +1,29 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="e2e lite cache only " type="JavaScriptTestRunnerVitest">
+    <node-interpreter value="project" />
+    <vitest-package value="$PROJECT_DIR$/node_modules/vitest" />
+    <working-dir value="$PROJECT_DIR$" />
+    <vitest-options value=" -c vitest/vitest.e2e.config.mts --run --no-file-parallelism" />
+    <envs>
+      <env name="CONCURRENT_TESTS" value="false" />
+      <env name="CACHE_MODE" value="true" />
+      <env name="LOG_MODE" value="true" />
+      <env name="E2E_TEST" value="true" />
+      <env name="DATABASE_URL" value="postgres://postgres:pw@localhost:5432/test" />
+      <env name="AUTH_SECRET" value="asdf" />
+    </envs>
+    <scope-kind value="TEST_FILE" />
+    <test-file value="$PROJECT_DIR$/apps/gateway/src/chat-cache.e2e.ts" />
+    <method v="2">
+      <option name="NpmBeforeRunTask" enabled="true">
+        <package-json value="$PROJECT_DIR$/package.json" />
+        <command value="run" />
+        <scripts>
+          <script value="build:core" />
+        </scripts>
+        <node-interpreter value="project" />
+        <envs />
+      </option>
+    </method>
+  </configuration>
+</component>
