@@ -1,3 +1,4 @@
+import { instrumentDrizzle } from "@kubiks/otel-drizzle";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -10,8 +11,15 @@ const pool = new Pool({
 		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
 });
 
+const instrumentedPool = instrumentDrizzle(pool, {
+	dbSystem: "postgresql",
+	dbName: "llmgateway",
+	captureQueryText: true,
+	maxQueryTextLength: 1000,
+});
+
 export const db = drizzle({
-	client: pool,
+	client: instrumentedPool,
 	casing: "snake_case",
 	relations,
 });
