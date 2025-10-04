@@ -117,6 +117,9 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(true);
+			expect(log.content).toBeTruthy();
+			expect(log.content).not.toBeNull();
+			expect(typeof log.content).toBe("string");
 
 			// expect(log.cost).not.toBeNull();
 			// expect(log.cost).toBeGreaterThanOrEqual(0);
