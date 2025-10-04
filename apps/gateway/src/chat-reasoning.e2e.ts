@@ -21,8 +21,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 	beforeEach(beforeEachHook);
 
+	test("empty", () => {
+		expect(true).toBe(true);
+	});
+
 	test.each(reasoningModels)(
-		"reasoning $model",
+		"basic reasoning $model",
 		getTestOptions(),
 		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();

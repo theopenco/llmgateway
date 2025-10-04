@@ -26,7 +26,7 @@ export const anthropicModels = [
 			{
 				// test: "only",
 				providerId: "aws-bedrock",
-				modelName: "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+				modelName: "anthropic.claude-3-7-sonnet-20250219-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,

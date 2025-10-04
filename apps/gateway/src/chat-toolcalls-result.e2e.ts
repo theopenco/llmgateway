@@ -18,6 +18,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 	beforeEach(beforeEachHook);
 
+	test("empty", () => {
+		expect(true).toBe(true);
+	});
+
 	test.each(toolCallModels)(
 		"tool calls with result $model",
 		getTestOptions(),

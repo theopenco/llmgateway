@@ -21,6 +21,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 	beforeEach(beforeEachHook);
 
+	test("empty", () => {
+		expect(true).toBe(true);
+	});
+
 	test.each(streamingReasoningModels)(
 		"reasoning + streaming $model",
 		getTestOptions(),

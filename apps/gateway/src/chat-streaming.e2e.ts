@@ -19,6 +19,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 	beforeEach(beforeEachHook);
 
+	test("empty", () => {
+		expect(true).toBe(true);
+	});
+
 	test.each(streamingModels)(
 		"/v1/chat/completions streaming with $model",
 		getTestOptions(),

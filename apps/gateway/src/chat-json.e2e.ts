@@ -18,6 +18,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 	beforeEach(beforeEachHook);
 
+	test("empty", () => {
+		expect(true).toBe(true);
+	});
+
 	test.each(
 		testModels.filter((m) => {
 			const modelDef = models.find((mo) => m.originalModel === mo.id);
