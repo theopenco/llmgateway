@@ -24,7 +24,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				// test: "only",
+				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-3-7-sonnet-20250219-v1:0",
 				inputPrice: 3.0 / 1e6,
@@ -34,6 +34,7 @@ export const anthropicModels = [
 				contextSize: 200000,
 				maxOutput: 8192,
 				reasoning: true,
+				reasoningOutput: "omit",
 				streaming: true,
 				vision: false,
 				tools: true,

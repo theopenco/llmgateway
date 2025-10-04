@@ -2364,7 +2364,10 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract content for logging using helper function
-							const contentChunk = extractContent(data, usedProvider);
+							const contentChunk = extractContent(
+								transformedData,
+								usedProvider,
+							);
 							if (contentChunk) {
 								fullContent += contentChunk;
 
@@ -2377,7 +2380,7 @@ chat.openapi(completions, async (c) => {
 
 							// Extract reasoning content for logging using helper function
 							const reasoningContentChunk = extractReasoning(
-								data,
+								transformedData,
 								usedProvider,
 							);
 							if (reasoningContentChunk) {

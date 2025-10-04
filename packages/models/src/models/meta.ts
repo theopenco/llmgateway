@@ -222,7 +222,7 @@ export const metaModels = [
 				tools: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 	{
 		id: "llama-4-maverick-70b-instruct",
@@ -246,6 +246,6 @@ export const metaModels = [
 				tools: false,
 			},
 		],
-		jsonOutput: true,
+		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];
