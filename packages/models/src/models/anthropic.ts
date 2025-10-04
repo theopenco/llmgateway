@@ -222,7 +222,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+				modelName: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				requestPrice: 0,

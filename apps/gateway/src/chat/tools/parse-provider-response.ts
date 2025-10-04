@@ -23,6 +23,55 @@ export function parseProviderResponse(
 	let images: ImageObject[] = [];
 
 	switch (usedProvider) {
+		case "aws-bedrock": {
+			// AWS Bedrock Converse API format
+			// Response format: { output: { message: { content: [{text: "..."}], role: "assistant" }}, stopReason: "end_turn", usage: {...} }
+			const message = json.output?.message;
+			const contentBlocks = message?.content || [];
+
+			// Extract text content from content blocks
+			content =
+				contentBlocks
+					.filter((block: any) => block.text)
+					.map((block: any) => block.text)
+					.join("") || null;
+
+			// Map Bedrock stop reasons to OpenAI finish reasons
+			const stopReason = json.stopReason;
+			if (stopReason === "end_turn") {
+				finishReason = "stop";
+			} else if (stopReason === "max_tokens") {
+				finishReason = "length";
+			} else if (stopReason === "tool_use") {
+				finishReason = "tool_calls";
+			} else if (stopReason === "content_filtered") {
+				finishReason = "content_filter";
+			} else {
+				finishReason = "stop"; // default fallback
+			}
+
+			// Extract usage tokens
+			if (json.usage) {
+				promptTokens = json.usage.inputTokens || null;
+				completionTokens = json.usage.outputTokens || null;
+				totalTokens = json.usage.totalTokens || null;
+			}
+
+			// Extract tool calls if present
+			const toolUseBlocks = contentBlocks.filter((block: any) => block.toolUse);
+			if (toolUseBlocks.length > 0) {
+				toolResults = toolUseBlocks.map((block: any) => ({
+					id: block.toolUse.toolUseId,
+					type: "function",
+					function: {
+						name: block.toolUse.name,
+						arguments: JSON.stringify(block.toolUse.input),
+					},
+				}));
+			}
+
+			break;
+		}
 		case "anthropic": {
 			// Extract content and reasoning content from Anthropic response
 			const contentBlocks = json.content || [];

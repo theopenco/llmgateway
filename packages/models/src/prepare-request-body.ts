@@ -451,13 +451,18 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
 			// Transform messages to Bedrock format
+			// System messages need to be converted to user messages as Bedrock doesn't support system role
 			requestBody.messages = processedMessages.map((msg: any) => {
+				// Convert system messages to user messages
+				const role =
+					msg.role === "system" || msg.role === "user" ? "user" : "assistant";
+
 				const bedrockMessage: any = {
-					role: msg.role === "assistant" ? "assistant" : "user",
+					role: role,
 					content: [],
 				};
 
-				// Handle content based on type
+				// Handle content based on type - content must always be an array
 				if (typeof msg.content === "string") {
 					bedrockMessage.content.push({
 						text: msg.content,
