@@ -236,7 +236,7 @@ export const anthropicModels = [
 				discount: 0.5,
 			},
 			{
-				test: "only",
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: 3.0 / 1e6,

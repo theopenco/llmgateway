@@ -140,8 +140,9 @@ export function getProviderEndpoint(
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
+			const prefix = process.env.LLM_AWS_BEDROCK_REGION || "us.";
 			const endpoint = stream ? "converse-stream" : "converse";
-			return `${url}/model/us.${modelName}/${endpoint}`;
+			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
