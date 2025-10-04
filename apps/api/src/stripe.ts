@@ -511,7 +511,7 @@ async function handleSetupIntentSucceeded(
 	const organizationId = metadata?.organizationId;
 
 	if (!organizationId || !payment_method) {
-		logger.error(
+		logger.warn(
 			`Missing organizationId or payment_method in setupIntent: ${event.id} ${setupIntent.id}`,
 			{
 				hasOrganizationId: !!organizationId,

@@ -14,13 +14,28 @@ export function getCheapestModelForProvider(
 		.filter((model) => !model.deprecatedAt || new Date() <= model.deprecatedAt)
 		.map((model) => ({
 			model: model.id,
+			modelStability:
+				"stability" in model
+					? (model.stability as string | undefined)
+					: undefined,
 			provider: model.providers.find((p) => p.providerId === provider)!,
 		}))
 		.filter(
 			({ provider: providerInfo }) =>
 				providerInfo.inputPrice !== undefined &&
 				providerInfo.outputPrice !== undefined,
-		);
+		)
+		.filter(({ provider: providerInfo, modelStability }) => {
+			const providerStability =
+				"stability" in providerInfo
+					? (providerInfo.stability as string | undefined)
+					: undefined;
+			const effectiveStability = providerStability ?? modelStability;
+			return (
+				effectiveStability !== "unstable" &&
+				effectiveStability !== "experimental"
+			);
+		});
 
 	if (availableModels.length === 0) {
 		return null;
