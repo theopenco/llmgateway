@@ -32,7 +32,7 @@
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "2.2.0",
 		"@steebchen/commitlint-config": "^1.5.2",
-		"@steebchen/eslint-config": "^1.10.0",
+		"@steebchen/eslint-config": "^1.10.1",
 		"@steebchen/lint-base": "1.0.6",
 		"@steebchen/prettier-config": "^1.4.2",
 		"@types/node": "24.3.3",
