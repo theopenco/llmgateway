@@ -141,7 +141,7 @@ export function getProviderEndpoint(
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
 			const endpoint = stream ? "converse-stream" : "converse";
-			return `${url}/model/${modelName}/${endpoint}`;
+			return `${url}/model/us.${modelName}/${endpoint}`;
 		}
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API

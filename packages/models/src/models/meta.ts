@@ -142,7 +142,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "aws-bedrock",
-				modelName: "us.meta.llama3-70b-instruct-v1:0",
+				modelName: "meta.llama3-70b-instruct-v1:0",
 				inputPrice: 2.65 / 1e6,
 				outputPrice: 3.5 / 1e6,
 				requestPrice: 0,
