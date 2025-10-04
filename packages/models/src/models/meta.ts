@@ -149,6 +149,7 @@ export const metaModels = [
 				contextSize: 8192,
 				maxOutput: 2048,
 				streaming: true,
+				reasoningOutput: "omit",
 				vision: false,
 				tools: false,
 			},

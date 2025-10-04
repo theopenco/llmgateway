@@ -229,6 +229,7 @@ export const anthropicModels = [
 				contextSize: 200000,
 				maxOutput: 8192,
 				reasoning: true,
+				reasoningOutput: "omit",
 				streaming: true,
 				vision: false,
 				tools: true,
