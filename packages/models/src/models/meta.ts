@@ -141,6 +141,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-70b-instruct-v1:0",
 				inputPrice: 2.65 / 1e6,

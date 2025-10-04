@@ -23,6 +23,21 @@ export const anthropicModels = [
 				vision: false,
 				tools: true,
 			},
+			{
+				// test: "only",
+				providerId: "aws-bedrock",
+				modelName: "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				cachedInputPrice: 0.3 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 8192,
+				reasoning: true,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
 		],
 	},
 	{
@@ -221,6 +236,7 @@ export const anthropicModels = [
 				discount: 0.5,
 			},
 			{
+				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: 3.0 / 1e6,
@@ -385,6 +401,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-3-5-haiku-20241022-v1:0",
 				inputPrice: 0.8 / 1e6,

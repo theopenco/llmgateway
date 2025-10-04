@@ -451,29 +451,72 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
 			// Transform messages to Bedrock format
-			// System messages need to be converted to user messages as Bedrock doesn't support system role
 			requestBody.messages = processedMessages.map((msg: any) => {
-				// Convert system messages to user messages
+				// Map OpenAI roles to Bedrock roles
 				const role =
-					msg.role === "system" || msg.role === "user" ? "user" : "assistant";
+					msg.role === "system" || msg.role === "user" || msg.role === "tool"
+						? "user"
+						: "assistant";
 
 				const bedrockMessage: any = {
 					role: role,
 					content: [],
 				};
 
-				// Handle content based on type - content must always be an array
-				if (typeof msg.content === "string") {
+				// Handle tool results (from role: "tool")
+				if (msg.role === "tool") {
 					bedrockMessage.content.push({
-						text: msg.content,
+						toolResult: {
+							toolUseId: msg.tool_call_id,
+							content: [
+								{
+									text: msg.content || "",
+								},
+							],
+						},
 					});
+					return bedrockMessage;
+				}
+
+				// Handle assistant messages with tool calls
+				if (msg.role === "assistant" && msg.tool_calls) {
+					// Add text content if present
+					if (msg.content) {
+						bedrockMessage.content.push({
+							text: msg.content,
+						});
+					}
+
+					// Add tool use blocks
+					msg.tool_calls.forEach((toolCall: any) => {
+						bedrockMessage.content.push({
+							toolUse: {
+								toolUseId: toolCall.id,
+								name: toolCall.function.name,
+								input: JSON.parse(toolCall.function.arguments),
+							},
+						});
+					});
+
+					return bedrockMessage;
+				}
+
+				// Handle regular content (user/assistant messages)
+				if (typeof msg.content === "string") {
+					if (msg.content.trim()) {
+						bedrockMessage.content.push({
+							text: msg.content,
+						});
+					}
 				} else if (Array.isArray(msg.content)) {
 					// Handle multi-part content (text + images)
 					msg.content.forEach((part: any) => {
 						if (part.type === "text") {
-							bedrockMessage.content.push({
-								text: part.text,
-							});
+							if (part.text && part.text.trim()) {
+								bedrockMessage.content.push({
+									text: part.text,
+								});
+							}
 						} else if (part.type === "image_url") {
 							// Bedrock uses a different image format
 							// For now, skip images or handle them differently
@@ -484,6 +527,21 @@ export async function prepareRequestBody(
 
 				return bedrockMessage;
 			});
+
+			// Transform tools from OpenAI format to Bedrock format
+			if (tools && tools.length > 0) {
+				requestBody.toolConfig = {
+					tools: tools.map((tool: any) => ({
+						toolSpec: {
+							name: tool.function.name,
+							description: tool.function.description,
+							inputSchema: {
+								json: tool.function.parameters,
+							},
+						},
+					})),
+				};
+			}
 
 			// Add inferenceConfig for optional parameters
 			const inferenceConfig: any = {};

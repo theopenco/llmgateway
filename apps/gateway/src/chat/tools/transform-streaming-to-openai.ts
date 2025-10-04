@@ -543,8 +543,10 @@ export function transformStreamingToOpenai(
 		}
 		case "aws-bedrock": {
 			// AWS Bedrock Converse Stream API format
-			// Handle different event types from Bedrock streaming
-			if (data.contentBlockDelta?.delta?.text) {
+			// The event type is in __aws_event_type field added by the parser
+			const eventType = data.__aws_event_type;
+
+			if (eventType === "contentBlockDelta" && data.delta?.text) {
 				// Text content delta
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -555,16 +557,16 @@ export function transformStreamingToOpenai(
 						{
 							index: 0,
 							delta: {
-								content: data.contentBlockDelta.delta.text,
+								content: data.delta.text,
 								role: "assistant",
 							},
 							finish_reason: null,
 						},
 					],
 				};
-			} else if (data.contentBlockDelta?.delta?.toolUse) {
+			} else if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
 				// Tool use delta
-				const toolUse = data.contentBlockDelta.delta.toolUse;
+				const toolUse = data.delta.toolUse;
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -576,7 +578,7 @@ export function transformStreamingToOpenai(
 							delta: {
 								tool_calls: [
 									{
-										index: data.contentBlockDelta.contentBlockIndex || 0,
+										index: data.contentBlockIndex || 0,
 										id: toolUse.toolUseId,
 										type: "function",
 										function: {
@@ -591,9 +593,26 @@ export function transformStreamingToOpenai(
 						},
 					],
 				};
-			} else if (data.messageStop) {
+			} else if (eventType === "messageStart") {
+				// Message start - send initial chunk with role
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				};
+			} else if (eventType === "messageStop") {
 				// Message stop event with finish reason
-				const stopReason = data.messageStop.stopReason;
+				const stopReason = data.stopReason;
 				let finishReason = "stop";
 				if (stopReason === "max_tokens") {
 					finishReason = "length";
@@ -616,7 +635,7 @@ export function transformStreamingToOpenai(
 						},
 					],
 				};
-			} else if (data.metadata?.usage) {
+			} else if (eventType === "metadata" && data.usage) {
 				// Usage metadata event
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -631,13 +650,13 @@ export function transformStreamingToOpenai(
 						},
 					],
 					usage: {
-						prompt_tokens: data.metadata.usage.inputTokens || 0,
-						completion_tokens: data.metadata.usage.outputTokens || 0,
-						total_tokens: data.metadata.usage.totalTokens || 0,
+						prompt_tokens: data.usage.inputTokens || 0,
+						completion_tokens: data.usage.outputTokens || 0,
+						total_tokens: data.usage.totalTokens || 0,
 					},
 				};
 			} else {
-				// For other event types, return null to skip
+				// For other event types (e.g., contentBlockStop), return null to skip
 				transformedData = null;
 			}
 			break;
