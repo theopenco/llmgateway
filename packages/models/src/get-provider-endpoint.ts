@@ -95,6 +95,9 @@ export function getProviderEndpoint(
 				url =
 					process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
 				break;
+			case "nanogpt":
+				url = "https://nano-gpt.com/api";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -164,6 +167,7 @@ export function getProviderEndpoint(
 		case "nebius":
 		case "routeway":
 		case "routeway-discount":
+		case "nanogpt":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

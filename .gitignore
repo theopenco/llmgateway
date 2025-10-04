@@ -12,7 +12,7 @@ openapi.json
 .envrc
 llmgateway_data
 .claude/settings.local.json
-http
+*.http
 *.txt
 docker-compose-override-*.yml
 benchmark_results.json

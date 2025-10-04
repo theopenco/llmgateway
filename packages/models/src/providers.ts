@@ -234,6 +234,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "nanogpt",
+		name: "NanoGPT",
+		description: "NanoGPT offers a large selection of models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#10b981",
+		website: "https://nano-gpt.com",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

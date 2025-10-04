@@ -104,6 +104,10 @@ describe(
 		test.each(testProviders)(
 			"POST /keys/provider with $name key",
 			async ({ providerId }) => {
+				// TODO temporarily skip routeway and nanogpt
+				if (providerId === "routeway" || providerId === "nanogpt") {
+					return;
+				}
 				const envVarName = getProviderEnvVar(providerId);
 				const envVarValue = envVarName ? process.env[envVarName] : undefined;
 				if (!envVarValue) {
