@@ -406,6 +406,9 @@ chat.openapi(completions, async (c) => {
 	// Extract custom X-LLMGateway-* headers
 	const customHeaders = extractCustomHeaders(c);
 
+	// Store the original llmgateway model ID for logging purposes
+	const initialRequestedModel = modelInput;
+
 	let requestedModel: Model = modelInput as Model;
 	let requestedProvider: Provider | undefined;
 	let customProviderName: string | undefined;
@@ -1413,7 +1416,7 @@ chat.openapi(completions, async (c) => {
 					usedModelFormatted,
 					usedModelMapping,
 					usedProvider,
-					requestedModel,
+					initialRequestedModel,
 					requestedProvider,
 					messages,
 					temperature,
@@ -1504,7 +1507,7 @@ chat.openapi(completions, async (c) => {
 					usedModelFormatted,
 					usedModelMapping,
 					usedProvider,
-					requestedModel,
+					initialRequestedModel,
 					requestedProvider,
 					messages,
 					temperature,
@@ -1723,7 +1726,7 @@ chat.openapi(completions, async (c) => {
 						usedModelFormatted,
 						usedModelMapping,
 						usedProvider,
-						requestedModel,
+						initialRequestedModel,
 						requestedProvider,
 						messages,
 						temperature,
@@ -1849,7 +1852,7 @@ chat.openapi(completions, async (c) => {
 					usedModelFormatted,
 					usedModelMapping,
 					usedProvider,
-					requestedModel,
+					initialRequestedModel,
 					requestedProvider,
 					messages,
 					temperature,
@@ -2696,7 +2699,7 @@ chat.openapi(completions, async (c) => {
 					usedModelFormatted,
 					usedModelMapping,
 					usedProvider,
-					requestedModel,
+					initialRequestedModel,
 					requestedProvider,
 					messages,
 					temperature,
@@ -2844,7 +2847,7 @@ chat.openapi(completions, async (c) => {
 			usedModelFormatted,
 			usedModelMapping,
 			usedProvider,
-			requestedModel,
+			initialRequestedModel,
 			requestedProvider,
 			messages,
 			temperature,
@@ -2927,7 +2930,7 @@ chat.openapi(completions, async (c) => {
 			usedModelFormatted,
 			usedModelMapping,
 			usedProvider,
-			requestedModel,
+			initialRequestedModel,
 			requestedProvider,
 			messages,
 			temperature,
@@ -3015,7 +3018,7 @@ chat.openapi(completions, async (c) => {
 					code: finishReason,
 					requestedProvider,
 					usedProvider,
-					requestedModel,
+					requestedModel: initialRequestedModel,
 					usedModel,
 					responseText: errorResponseText,
 				},
@@ -3105,7 +3108,7 @@ chat.openapi(completions, async (c) => {
 		usedModelFormatted,
 		usedModelMapping,
 		usedProvider,
-		requestedModel,
+		initialRequestedModel,
 		requestedProvider,
 		messages,
 		temperature,
