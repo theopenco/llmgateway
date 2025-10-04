@@ -541,6 +541,107 @@ export function transformStreamingToOpenai(
 			}
 			break;
 		}
+		case "aws-bedrock": {
+			// AWS Bedrock Converse Stream API format
+			// Handle different event types from Bedrock streaming
+			if (data.contentBlockDelta?.delta?.text) {
+				// Text content delta
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								content: data.contentBlockDelta.delta.text,
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				};
+			} else if (data.contentBlockDelta?.delta?.toolUse) {
+				// Tool use delta
+				const toolUse = data.contentBlockDelta.delta.toolUse;
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								tool_calls: [
+									{
+										index: data.contentBlockDelta.contentBlockIndex || 0,
+										id: toolUse.toolUseId,
+										type: "function",
+										function: {
+											name: toolUse.name,
+											arguments: JSON.stringify(toolUse.input || {}),
+										},
+									},
+								],
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				};
+			} else if (data.messageStop) {
+				// Message stop event with finish reason
+				const stopReason = data.messageStop.stopReason;
+				let finishReason = "stop";
+				if (stopReason === "max_tokens") {
+					finishReason = "length";
+				} else if (stopReason === "tool_use") {
+					finishReason = "tool_calls";
+				} else if (stopReason === "content_filtered") {
+					finishReason = "content_filter";
+				}
+
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: finishReason,
+						},
+					],
+				};
+			} else if (data.metadata?.usage) {
+				// Usage metadata event
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: null,
+						},
+					],
+					usage: {
+						prompt_tokens: data.metadata.usage.inputTokens || 0,
+						completion_tokens: data.metadata.usage.outputTokens || 0,
+						total_tokens: data.metadata.usage.totalTokens || 0,
+					},
+				};
+			} else {
+				// For other event types, return null to skip
+				transformedData = null;
+			}
+			break;
+		}
 		// OpenAI and other providers that already use OpenAI format
 		default: {
 			transformedData = transformOpenaiStreaming(data, usedModel);

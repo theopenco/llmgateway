@@ -136,8 +136,10 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
-		case "aws-bedrock":
-			return `${url}/model/${modelName}/converse`;
+		case "aws-bedrock": {
+			const endpoint = stream ? "converse-stream" : "converse";
+			return `${url}/model/${modelName}/${endpoint}`;
+		}
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation
