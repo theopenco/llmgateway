@@ -179,6 +179,14 @@ export const testModels = filteredModels
 				continue;
 			}
 
+			// Filter by TEST_MODELS if specified
+			if (specifiedModels) {
+				const providerModelId = `${provider.providerId}/${model.id}`;
+				if (!specifiedModels.includes(providerModelId)) {
+					continue;
+				}
+			}
+
 			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS
 			if (provider.stability === "unstable" && !fullMode) {
 				// Allow if provider has test: "only"
@@ -226,6 +234,14 @@ export const providerModels = filteredModels
 			// Skip providers marked with test: "skip"
 			if (provider.test === "skip") {
 				continue;
+			}
+
+			// Filter by TEST_MODELS if specified
+			if (specifiedModels) {
+				const providerModelId = `${provider.providerId}/${model.id}`;
+				if (!specifiedModels.includes(providerModelId)) {
+					continue;
+				}
 			}
 
 			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS
