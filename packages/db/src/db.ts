@@ -15,7 +15,7 @@ const instrumentedPool = instrumentDrizzle(pool, {
 	dbSystem: "postgresql",
 	dbName: "llmgateway",
 	captureQueryText: true,
-	maxQueryTextLength: 1000,
+	maxQueryTextLength: 5000,
 });
 
 export const db = drizzle({

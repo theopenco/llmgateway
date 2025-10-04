@@ -131,7 +131,7 @@ ENV APP_VERSION=$APP_VERSION
 # API preparation stage
 FROM api-builder AS api-prep
 WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api --prod deploy /app/api-dist
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api --prod deploy --legacy /app/api-dist
 
 # API runtime stage
 FROM runtime AS api
@@ -149,7 +149,7 @@ CMD ["node", "--enable-source-maps", "dist/serve.js"]
 # Gateway preparation stage
 FROM gateway-builder AS gateway-prep
 WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway --prod deploy /app/gateway-dist
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway --prod deploy --legacy /app/gateway-dist
 
 # Gateway runtime stage
 FROM runtime AS gateway
@@ -198,7 +198,7 @@ CMD ["node", "server.js"]
 # Worker preparation stage
 FROM worker-builder AS worker-prep
 WORKDIR /app
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker --prod deploy /app/worker-dist
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker --prod deploy --legacy /app/worker-dist
 
 # Worker runtime stage
 FROM runtime AS worker
