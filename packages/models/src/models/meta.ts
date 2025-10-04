@@ -201,8 +201,8 @@ export const metaModels = [
 		jsonOutput: false,
 	},
 	{
-		id: "llama-4-scout-70b-instruct",
-		name: "Llama 4 Scout 70B Instruct",
+		id: "llama-4-scout-17b-instruct",
+		name: "Llama 4 Scout 17B Instruct",
 		family: "meta",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
@@ -224,8 +224,8 @@ export const metaModels = [
 		jsonOutput: false,
 	},
 	{
-		id: "llama-4-maverick-70b-instruct",
-		name: "Llama 4 Maverick 70B Instruct",
+		id: "llama-4-maverick-17b-instruct",
+		name: "Llama 4 Maverick 17B Instruct",
 		family: "meta",
 		deprecatedAt: undefined,
 		deactivatedAt: undefined,
