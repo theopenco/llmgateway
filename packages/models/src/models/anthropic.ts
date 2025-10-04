@@ -402,7 +402,6 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
-				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-3-5-haiku-20241022-v1:0",
 				inputPrice: 0.8 / 1e6,

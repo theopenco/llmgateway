@@ -208,7 +208,6 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama4-scout-17b-instruct-v1:0",
 				inputPrice: 0.17 / 1e6,
@@ -232,7 +231,6 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
-				test: "only",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama4-maverick-17b-instruct-v1:0",
 				inputPrice: 0.19 / 1e6,
