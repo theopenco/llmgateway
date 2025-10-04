@@ -197,6 +197,55 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+		case "aws-bedrock": {
+			transformedResponse = {
+				id: `chatcmpl-${Date.now()}`,
+				object: "chat.completion",
+				created: Math.floor(Date.now() / 1000),
+				model: `${usedProvider}/${baseModelName}`,
+				choices: [
+					{
+						index: 0,
+						message: {
+							role: "assistant",
+							content: content,
+							...(reasoningContent !== null && {
+								reasoning: reasoningContent,
+							}),
+							...(toolResults && { tool_calls: toolResults }),
+						},
+						finish_reason: finishReason || "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: Math.max(1, promptTokens || 1),
+					completion_tokens: completionTokens || 0,
+					total_tokens: (() => {
+						const fallbackTotal =
+							(promptTokens || 0) +
+							(completionTokens || 0) +
+							(reasoningTokens || 0);
+						return Math.max(1, totalTokens ?? fallbackTotal);
+					})(),
+					...(reasoningTokens !== null && {
+						reasoning_tokens: reasoningTokens,
+					}),
+					...(cachedTokens !== null && {
+						prompt_tokens_details: {
+							cached_tokens: cachedTokens,
+						},
+					}),
+				},
+				metadata: {
+					requested_model: requestedModel,
+					requested_provider: requestedProvider,
+					used_model: baseModelName,
+					used_provider: usedProvider,
+					underlying_used_model: usedModel,
+				},
+			};
+			break;
+		}
 		case "openai": {
 			// Handle OpenAI responses format transformation to chat completions format
 			if (json.output && Array.isArray(json.output)) {
