@@ -2367,8 +2367,13 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract content for logging using helper function
+							// For providers with custom extraction logic (google-ai-studio, anthropic),
+							// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 							const contentChunk = extractContent(
-								transformedData,
+								usedProvider === "google-ai-studio" ||
+									usedProvider === "anthropic"
+									? data
+									: transformedData,
 								usedProvider,
 							);
 							if (contentChunk) {
@@ -2382,8 +2387,13 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract reasoning content for logging using helper function
+							// For providers with custom extraction logic (google-ai-studio, anthropic),
+							// use raw data. For others, use transformed OpenAI format.
 							const reasoningContentChunk = extractReasoning(
-								transformedData,
+								usedProvider === "google-ai-studio" ||
+									usedProvider === "anthropic"
+									? data
+									: transformedData,
 								usedProvider,
 							);
 							if (reasoningContentChunk) {
