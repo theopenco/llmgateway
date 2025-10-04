@@ -2813,7 +2813,6 @@ chat.openapi(completions, async (c) => {
 	let res;
 	try {
 		const headers = getProviderHeaders(usedProvider, usedToken);
-		console.log('headers:', headers);
 		headers["Content-Type"] = "application/json";
 		res = await fetch(url, {
 			method: "POST",

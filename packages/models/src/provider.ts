@@ -17,6 +17,7 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	perplexity: "LLM_PERPLEXITY_API_KEY",
 	alibaba: "LLM_ALIBABA_API_KEY",
 	nebius: "LLM_NEBIUS_API_KEY",
+	nanogpt: "LLM_NANO_GPT_API_KEY",
 	zai: "LLM_Z_AI_API_KEY",
 	routeway: "LLM_ROUTEWAY_API_KEY",
 	"routeway-discount": "LLM_ROUTEWAY_DISCOUNT_API_KEY",
