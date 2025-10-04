@@ -234,6 +234,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "aws-bedrock",
+		name: "AWS Bedrock",
+		description: "Amazon Bedrock - fully managed service for foundation models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#FF9900",
+		website: "https://aws.amazon.com/bedrock",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

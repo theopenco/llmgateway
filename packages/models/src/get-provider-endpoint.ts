@@ -95,6 +95,11 @@ export function getProviderEndpoint(
 				url =
 					process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
 				break;
+			case "aws-bedrock":
+				url =
+					process.env.LLM_AWS_BEDROCK_BASE_URL ||
+					"https://bedrock-runtime.us-east-1.amazonaws.com";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -131,6 +136,8 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
+		case "aws-bedrock":
+			return `${url}/model/${modelName}/converse`;
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation

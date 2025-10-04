@@ -16,6 +16,11 @@ export function getProviderHeaders(
 			};
 		case "google-ai-studio":
 			return {};
+		case "aws-bedrock":
+			return {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+			};
 		case "openai":
 		case "inference.net":
 		case "xai":

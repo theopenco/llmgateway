@@ -134,6 +134,28 @@ export const metaModels = [
 		jsonOutput: true,
 	},
 	{
+		id: "llama-3-70b-instruct",
+		name: "Llama 3 70B Instruct",
+		family: "meta",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "aws-bedrock",
+				modelName: "meta.llama3-70b-instruct-v1:0",
+				inputPrice: 2.65 / 1e6,
+				outputPrice: 3.5 / 1e6,
+				requestPrice: 0,
+				contextSize: 8192,
+				maxOutput: 2048,
+				streaming: true,
+				vision: false,
+				tools: false,
+			},
+		],
+		jsonOutput: true,
+	},
+	{
 		id: "llama-3.1-405b-instruct",
 		name: "Llama 3.1 405B Instruct",
 		family: "meta",

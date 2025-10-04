@@ -442,6 +442,62 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "aws-bedrock": {
+			// AWS Bedrock uses the Converse API format
+			delete requestBody.model; // Model is in the URL path
+			delete requestBody.stream; // Will be added to inferenceConfig
+			delete requestBody.messages; // Will be transformed to Bedrock format
+			delete requestBody.tools; // Will be transformed to Bedrock format
+			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
+
+			// Transform messages to Bedrock format
+			requestBody.messages = processedMessages.map((msg: any) => {
+				const bedrockMessage: any = {
+					role: msg.role === "assistant" ? "assistant" : "user",
+					content: [],
+				};
+
+				// Handle content based on type
+				if (typeof msg.content === "string") {
+					bedrockMessage.content.push({
+						text: msg.content,
+					});
+				} else if (Array.isArray(msg.content)) {
+					// Handle multi-part content (text + images)
+					msg.content.forEach((part: any) => {
+						if (part.type === "text") {
+							bedrockMessage.content.push({
+								text: part.text,
+							});
+						} else if (part.type === "image_url") {
+							// Bedrock uses a different image format
+							// For now, skip images or handle them differently
+							// This would need additional implementation for vision support
+						}
+					});
+				}
+
+				return bedrockMessage;
+			});
+
+			// Add inferenceConfig for optional parameters
+			const inferenceConfig: any = {};
+			if (temperature !== undefined) {
+				inferenceConfig.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				inferenceConfig.maxTokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				inferenceConfig.topP = top_p;
+			}
+
+			if (Object.keys(inferenceConfig).length > 0) {
+				requestBody.inferenceConfig = inferenceConfig;
+			}
+
+			break;
+		}
 		case "google-ai-studio": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
