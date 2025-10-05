@@ -11,7 +11,7 @@ import {
 	MoreVerticalIcon,
 	Loader2,
 } from "lucide-react";
-import dynamic from "next/dynamic";
+// import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -52,14 +52,14 @@ import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
-import { ProjectSwitcher } from "./project-switcher";
+// import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
 
-const OrganizationSwitcher = dynamic(
-	() => import("./organization-switcher").then((m) => m.OrganizationSwitcher),
-	{ ssr: false },
-);
+// const OrganizationSwitcher = dynamic(
+// 	() => import("./organization-switcher").then((m) => m.OrganizationSwitcher),
+// 	{ ssr: false },
+// );
 
 interface ChatSidebarProps {
 	currentChatId?: string;
@@ -87,14 +87,14 @@ export function ChatSidebar({
 	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
-	organizations,
+	// organizations,
 	selectedOrganization,
-	onSelectOrganization,
-	onOrganizationCreated,
-	projects,
-	selectedProject,
-	onSelectProject,
-	onProjectCreated,
+	// onSelectOrganization,
+	// onOrganizationCreated,
+	// projects,
+	// selectedProject,
+	// onSelectProject,
+	// onProjectCreated,
 }: ChatSidebarProps) {
 	const queryClient = useQueryClient();
 	const router = useRouter();
@@ -410,7 +410,7 @@ export function ChatSidebar({
 			</SidebarHeader>
 
 			<SidebarContent className="px-2 py-4">
-				<SidebarMenu>
+				{/* <SidebarMenu>
 					<SidebarMenuItem>
 						<OrganizationSwitcher
 							organizations={organizations}
@@ -432,7 +432,7 @@ export function ChatSidebar({
 							/>
 						)}
 					</SidebarMenuItem>
-				</SidebarMenu>
+				</SidebarMenu> */}
 				<SidebarMenu>
 					{renderChatGroup("Today", chatGroups.today)}
 					{renderChatGroup("Yesterday", chatGroups.yesterday)}
