@@ -29,10 +29,31 @@ export async function validateProviderKey(
 	}
 
 	try {
+		// Determine the validation model first (needed for endpoint URL)
+		const validationModel = getCheapestModelForProvider(provider);
+
+		logger.debug("Using validation model", {
+			provider,
+			validationModel: validationModel || undefined,
+		});
+		if (!validationModel) {
+			throw new Error(
+				`No model with pricing information found for provider ${provider}`,
+			);
+		}
+
+		// Find the model definition to get the model ID
+		const modelDef = models.find((m) =>
+			m.providers.some(
+				(p) => p.providerId === provider && p.modelName === validationModel,
+			),
+		);
+		const modelId = modelDef?.id;
+
 		const endpoint = getProviderEndpoint(
 			provider,
 			baseUrl,
-			undefined,
+			modelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock)
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
@@ -50,24 +71,7 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const validationModel = getCheapestModelForProvider(provider);
-
-		logger.debug("Using validation model", {
-			provider,
-			validationModel: validationModel || undefined,
-		});
-		if (!validationModel) {
-			throw new Error(
-				`No model with pricing information found for provider ${provider}`,
-			);
-		}
-
-		// Find the model definition and check if max_tokens is supported
-		const modelDef = models.find((m) =>
-			m.providers.some(
-				(p) => p.providerId === provider && p.modelName === validationModel,
-			),
-		);
+		// Check if max_tokens is supported
 		const providerMapping = modelDef?.providers.find(
 			(p) => p.providerId === provider && p.modelName === validationModel,
 		);
