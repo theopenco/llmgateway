@@ -13,4 +13,4 @@ jobs:
         uses: steebchen/actions/autofix@v0.14.1
         with:
           token: ${{ secrets.GH_TOKEN }}
-          format-command: pnpm migrations && pnpm format
+          format-command: pnpm migrations && pnpm build && pnpm format
