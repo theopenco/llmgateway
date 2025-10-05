@@ -18,6 +18,13 @@ import {
 } from "@/lib/components/dialog";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
@@ -60,6 +67,9 @@ export function CreateProviderKeyDialog({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
+	const [awsBedrockRegionPrefix, setAwsBedrockRegionPrefix] = useState<
+		"us." | "global."
+	>("us.");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -172,6 +182,9 @@ export function CreateProviderKeyDialog({
 			token: string;
 			name?: string;
 			baseUrl?: string;
+			options?: {
+				aws_bedrock_region_prefix?: "us." | "global.";
+			};
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
@@ -183,6 +196,11 @@ export function CreateProviderKeyDialog({
 		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
+		}
+		if (selectedProvider === "aws-bedrock") {
+			payload.options = {
+				aws_bedrock_region_prefix: awsBedrockRegionPrefix,
+			};
 		}
 
 		setIsValidating(true);
@@ -225,6 +243,7 @@ export function CreateProviderKeyDialog({
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
+			setAwsBedrockRegionPrefix("us.");
 		}, 300);
 	};
 
@@ -306,6 +325,31 @@ export function CreateProviderKeyDialog({
 								onChange={(e) => setBaseUrl(e.target.value)}
 								required
 							/>
+						</div>
+					)}
+
+					{selectedProvider === "aws-bedrock" && (
+						<div className="space-y-2">
+							<Label htmlFor="region-prefix">Region Prefix</Label>
+							<Select
+								value={awsBedrockRegionPrefix}
+								onValueChange={(value) =>
+									setAwsBedrockRegionPrefix(value as "us." | "global.")
+								}
+							>
+								<SelectTrigger id="region-prefix">
+									<SelectValue placeholder="Select region prefix" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="us.">us. (US regions)</SelectItem>
+									<SelectItem value="global.">
+										global. (Global regions)
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								Region prefix for AWS Bedrock model endpoints
+							</p>
 						</div>
 					)}
 
