@@ -11,7 +11,11 @@ export function getCheapestModelForProvider(
 ): string | null {
 	const availableModels = models
 		.filter((model) => model.providers.some((p) => p.providerId === provider))
-		.filter((model) => !model.deprecatedAt || new Date() <= model.deprecatedAt)
+		.filter(
+			(model) =>
+				(!model.deprecatedAt || new Date() < model.deprecatedAt) &&
+				(!model.deactivatedAt || new Date() < model.deactivatedAt),
+		)
 		.map((model) => ({
 			model: model.id,
 			modelStability:
