@@ -40,6 +40,11 @@ const createProviderKeySchema = z.object({
 		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
 		.optional(),
 	baseUrl: z.string().url().optional(),
+	options: z
+		.object({
+			aws_bedrock_region_prefix: z.enum(["us.", "global."]).optional(),
+		})
+		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
 });
 
@@ -93,6 +98,7 @@ keysProvider.openapi(create, async (c) => {
 		token: userToken,
 		name,
 		baseUrl,
+		options,
 		organizationId,
 	} = c.req.valid("json");
 
@@ -225,6 +231,7 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			name,
 			baseUrl,
+			options,
 		})
 		.returning();
 

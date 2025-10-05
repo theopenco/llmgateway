@@ -1,6 +1,7 @@
 import { models, type ProviderModelMapping } from "./models.js";
 
 import type { ProviderId } from "./providers.js";
+import type { ProviderKeyOptions } from "@llmgateway/db";
 
 /**
  * Get the endpoint URL for a provider API call
@@ -13,9 +14,7 @@ export function getProviderEndpoint(
 	stream?: boolean,
 	supportsReasoning?: boolean,
 	hasExistingToolCalls?: boolean,
-	providerKeyOptions?: {
-		aws_bedrock_region_prefix?: string;
-	},
+	providerKeyOptions?: ProviderKeyOptions,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {

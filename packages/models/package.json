@@ -22,6 +22,7 @@
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
+		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*"
 	},
 	"devDependencies": {}

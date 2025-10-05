@@ -842,6 +842,9 @@ importers:
 
   packages/models:
     dependencies:
+      '@llmgateway/db':
+        specifier: workspace:*
+        version: link:../db
       '@llmgateway/logger':
         specifier: workspace:*
         version: link:../logger
