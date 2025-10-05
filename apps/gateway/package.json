@@ -15,7 +15,7 @@
 	],
 	"scripts": {
 		"build": "tsc && resolve-tspaths && pnpm run generate",
-		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --env-file=../../.env dist/serve.js\"",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --enable-source-maps --env-file=../../.env dist/serve.js\"",
 		"exec-dev": "resolve-tspaths && node dist/serve.js",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
@@ -39,7 +39,7 @@
 		"gpt-tokenizer": "3.0.1",
 		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
-		"ioredis": "5.6.1",
+		"ioredis": "5.7.0",
 		"redis": "5.8.2",
 		"worker": "workspace:*",
 		"zod": "3.25.75",

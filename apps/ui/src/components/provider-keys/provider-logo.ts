@@ -23,6 +23,7 @@ export const providerLogoUrls: Partial<
 	zai: ProviderIcons.zai,
 	routeway: ProviderIcons.routeway,
 	"routeway-discount": ProviderIcons.routeway,
+	nanogpt: ProviderIcons.nanogpt,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

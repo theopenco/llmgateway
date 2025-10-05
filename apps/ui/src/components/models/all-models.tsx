@@ -422,28 +422,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const getMostUnstableStability = (model: any): StabilityLevel | undefined => {
-		const stabilityLevels: StabilityLevel[] = [
-			"experimental",
-			"unstable",
-			"beta",
-			"stable",
-		];
-
-		// Get all stability levels (model-level and provider-level)
-		const allStabilities = [
-			model.stability,
-			...model.providers.map((p: any) => p.stability || model.stability),
-		].filter(Boolean) as StabilityLevel[];
-
-		// Return the most unstable level
-		for (const level of stabilityLevels) {
-			if (allStabilities.includes(level)) {
-				return level;
-			}
-		}
-
-		return undefined;
+	const hasProviderStabilityWarning = (provider: ProviderModelMapping) => {
+		const providerStability = provider.stability;
+		return (
+			providerStability &&
+			["unstable", "experimental"].includes(providerStability)
+		);
 	};
 
 	const copyToClipboard = async (text: string) => {
@@ -876,9 +860,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="space-y-1">
 										<div className="font-semibold text-sm flex items-center gap-2">
 											{model.name || model.id}
-											{shouldShowStabilityWarning(
-												getMostUnstableStability(model),
-											) && (
+											{shouldShowStabilityWarning(model.stability) && (
 												<AlertTriangle className="h-4 w-4 text-orange-500" />
 											)}
 											{model.free && (
@@ -957,6 +939,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												>
 													{providerInfo?.name || provider.providerId}
 												</Badge>
+												{hasProviderStabilityWarning(provider) && (
+													<AlertTriangle className="h-3 w-3 text-orange-500" />
+												)}
 											</div>
 										))}
 									</div>
@@ -1066,10 +1051,8 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 								<TableCell className="text-center">
 									{(() => {
-										const mostUnstableStability =
-											getMostUnstableStability(model);
 										const stabilityProps = getStabilityBadgeProps(
-											mostUnstableStability,
+											model.stability,
 										);
 										return stabilityProps ? (
 											<Badge
@@ -1207,6 +1190,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 											>
 												{providerInfo?.name || provider.providerId}
 											</Badge>
+											{hasProviderStabilityWarning(provider) && (
+												<AlertTriangle className="h-3 w-3 text-orange-500" />
+											)}
 										</div>
 									))}
 								</div>
@@ -1313,9 +1299,8 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 							<div>
 								<div className="font-medium mb-2 text-sm">Stability:</div>
 								{(() => {
-									const mostUnstableStability = getMostUnstableStability(model);
 									const stabilityProps = getStabilityBadgeProps(
-										mostUnstableStability,
+										model.stability,
 									);
 									return stabilityProps ? (
 										<Badge

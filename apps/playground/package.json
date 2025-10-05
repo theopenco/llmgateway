@@ -8,7 +8,7 @@
 		".next"
 	],
 	"scripts": {
-		"build": "tsc && next build && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/playground/.next/ && test -d public && cp -r public .next/standalone/apps/playground/",
+		"build": "pnpm generate && tsc && next build && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/playground/.next/ && test -d public && cp -r public .next/standalone/apps/playground/",
 		"dev": "next dev --port 3003 --turbopack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
