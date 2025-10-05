@@ -308,6 +308,9 @@ export const providerKey = pgTable(
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z only)
 		baseUrl: text(), // Optional base URL for custom providers
+		options: jsonb().$type<{
+			aws_bedrock_region_prefix?: string;
+		}>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),

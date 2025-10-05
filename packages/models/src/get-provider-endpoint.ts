@@ -13,6 +13,9 @@ export function getProviderEndpoint(
 	stream?: boolean,
 	supportsReasoning?: boolean,
 	hasExistingToolCalls?: boolean,
+	providerKeyOptions?: {
+		aws_bedrock_region_prefix?: string;
+	},
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -140,7 +143,10 @@ export function getProviderEndpoint(
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			const prefix = process.env.LLM_AWS_BEDROCK_REGION || "us.";
+			const prefix =
+				providerKeyOptions?.aws_bedrock_region_prefix ||
+				process.env.LLM_AWS_BEDROCK_REGION ||
+				"us.";
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}

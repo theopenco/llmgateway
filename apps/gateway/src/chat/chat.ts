@@ -1302,6 +1302,7 @@ chat.openapi(completions, async (c) => {
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
+			providerKey?.options || undefined,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
