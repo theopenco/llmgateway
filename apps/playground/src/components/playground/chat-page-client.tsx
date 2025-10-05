@@ -4,13 +4,13 @@ import { useChat } from "@ai-sdk/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useRef } from "react";
 
-import { ApiKeyManager } from "@/components/playground/api-key-manager";
+// Removed API key manager for playground; we rely on server-set cookie
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { useApiKey } from "@/hooks/useApiKey";
+// No local api key. We'll call backend to ensure key cookie exists after login.
 import {
 	useAddMessage,
 	useChats,
@@ -20,20 +20,27 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { mapModels } from "@/lib/mapmodels";
 
-import type { ComboboxModel } from "@/lib/types";
+import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 interface ChatPageClientProps {
 	models: ModelDefinition[];
 	providers: ProviderDefinition[];
+	organizations: Organization[];
+	selectedOrganization: Organization | null;
+	projects: Project[];
+	selectedProject: Project | null;
 }
 
 export default function ChatPageClient({
 	models,
 	providers,
+	organizations,
+	selectedOrganization,
+	projects,
+	selectedProject,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
-	const { userApiKey, isLoaded: isApiKeyLoaded } = useApiKey();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
@@ -105,16 +112,29 @@ export default function ChatPageClient({
 		});
 	}, [currentChatData, setMessages]);
 
-	const [showApiKeyManager, setShowApiKeyManager] = useState(false);
+	// Removed showApiKeyManager
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
+	// After login, ensure a playground key cookie exists via backend
 	useEffect(() => {
-		if (isApiKeyLoaded && !userApiKey && !showAuthDialog) {
-			setShowApiKeyManager(true);
-		}
-	}, [isApiKeyLoaded, userApiKey, showAuthDialog]);
+		const ensureKey = async () => {
+			if (!isAuthenticated || !selectedOrganization || !selectedProject) {
+				return;
+			}
+			try {
+				await fetch("/api/ensure-playground-key", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ projectId: selectedProject.id }),
+				});
+			} catch {
+				// ignore for now
+			}
+		};
+		ensureKey();
+	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
@@ -213,6 +233,55 @@ export default function ChatPageClient({
 		return !!model?.vision;
 	}, [availableModels, selectedModel]);
 
+	const handleSelectOrganization = (org: Organization | null) => {
+		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		if (org?.id) {
+			params.set("orgId", org.id);
+		} else {
+			params.delete("orgId");
+		}
+		// Clear projectId to avoid 404 when switching orgs (server will pick first/last-used)
+		params.delete("projectId");
+		// Always keep model param
+		if (!params.get("model")) {
+			params.set("model", selectedModel);
+		}
+		router.push(params.toString() ? `/?${params.toString()}` : "/");
+	};
+
+	const handleOrganizationCreated = (org: Organization) => {
+		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		params.set("orgId", org.id);
+		params.delete("projectId");
+		if (!params.get("model")) {
+			params.set("model", selectedModel);
+		}
+		router.push(params.toString() ? `/?${params.toString()}` : "/");
+	};
+
+	const handleSelectProject = (project: Project | null) => {
+		if (!project) {
+			return;
+		}
+		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		params.set("orgId", project.organizationId);
+		params.set("projectId", project.id);
+		if (!params.get("model")) {
+			params.set("model", selectedModel);
+		}
+		router.push(params.toString() ? `/?${params.toString()}` : "/");
+	};
+
+	const handleProjectCreated = (project: Project) => {
+		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		params.set("orgId", project.organizationId);
+		params.set("projectId", project.id);
+		if (!params.get("model")) {
+			params.set("model", selectedModel);
+		}
+		router.push(params.toString() ? `/?${params.toString()}` : "/");
+	};
+
 	return (
 		<SidebarProvider>
 			<div className="flex h-screen bg-background w-full">
@@ -221,8 +290,16 @@ export default function ChatPageClient({
 					onChatSelect={handleChatSelect}
 					currentChatId={currentChatId || undefined}
 					clearMessages={clearMessages}
-					userApiKey={userApiKey}
+					userApiKey={null}
 					isLoading={isLoading}
+					organizations={organizations}
+					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
+					onOrganizationCreated={handleOrganizationCreated}
+					projects={projects}
+					selectedProject={selectedProject}
+					onSelectProject={handleSelectProject}
+					onProjectCreated={handleProjectCreated}
 				/>
 				<div className="flex flex-1 flex-col w-full h-full">
 					<div className="flex-shrink-0">
@@ -230,7 +307,6 @@ export default function ChatPageClient({
 							models={models}
 							providers={providers}
 							selectedModel={selectedModel}
-							onManageApiKey={() => setShowApiKeyManager(true)}
 							setSelectedModel={setSelectedModel}
 						/>
 					</div>
@@ -239,7 +315,7 @@ export default function ChatPageClient({
 							messages={messages}
 							supportsImages={supportsImages}
 							sendMessage={sendMessage}
-							userApiKey={userApiKey}
+							userApiKey={null}
 							selectedModel={selectedModel}
 							text={text}
 							setText={setText}
@@ -254,11 +330,6 @@ export default function ChatPageClient({
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} />
-			<ApiKeyManager
-				open={showApiKeyManager}
-				onOpenChange={setShowApiKeyManager}
-				selectedModel={selectedModel}
-			/>
 		</SidebarProvider>
 	);
 }

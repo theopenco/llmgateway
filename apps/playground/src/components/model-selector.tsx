@@ -283,13 +283,17 @@ export function ModelSelector({
 
 		// Text search
 		if (searchQuery) {
+			const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, "");
+			const q = normalize(searchQuery);
 			filtered = filtered.filter((model) => {
 				const provider = getProviderForModel(model, providers);
-				return (
-					model.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					model.family.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					provider?.name.toLowerCase().includes(searchQuery.toLowerCase())
-				);
+				const candidates = [
+					model.name ?? "",
+					model.family,
+					provider?.name ?? "",
+					model.id, // allow searching by exact model id
+				];
+				return candidates.some((c) => normalize(c).includes(q));
 			});
 		}
 
@@ -592,9 +596,7 @@ export function ModelSelector({
 											key={model.id}
 											value={model.id}
 											onSelect={(currentValue) => {
-												onValueChange?.(
-													currentValue === value ? "" : currentValue,
-												);
+												onValueChange?.(currentValue);
 												setOpen(false);
 											}}
 											className="p-3 cursor-pointer"

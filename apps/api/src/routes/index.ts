@@ -10,6 +10,7 @@ import keysProvider from "./keys-provider.js";
 import { logs } from "./logs.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
+import playground from "./playground.js";
 import projects from "./projects.js";
 import { subscriptions } from "./subscriptions.js";
 import { user } from "./user.js";
@@ -41,6 +42,7 @@ routes.route("/activity", activity);
 routes.route("/keys", keysApi);
 routes.route("/keys", keysProvider);
 routes.route("/projects", projects);
+routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
 routes.route("/payments", payments);

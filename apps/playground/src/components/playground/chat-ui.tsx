@@ -121,8 +121,8 @@ export const ChatUI = ({
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	return (
-		<div className="flex flex-col h-full">
-			<div className="flex-1 overflow-y-auto px-4">
+		<div className="flex flex-col h-full min-h-[calc(100dvh-4rem)]">
+			<div className="flex-1 overflow-y-auto px-4 pb-24">
 				<Conversation>
 					<ConversationContent>
 						{messages.length === 0 ? (
@@ -266,7 +266,7 @@ export const ChatUI = ({
 				</Conversation>
 			</div>
 
-			<div className="flex-shrink-0 px-4 pb-4">
+			<div className="sticky bottom-0 left-0 right-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-gradient-to-t from-background via-background/95 to-transparent backdrop-blur supports-[backdrop-filter]:bg-background/60">
 				{error && (
 					<Alert variant="destructive" className="mb-4">
 						<AlertCircle className="h-4 w-4" />
