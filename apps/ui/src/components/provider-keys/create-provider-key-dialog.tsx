@@ -29,7 +29,7 @@ import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import { providers } from "@llmgateway/models";
+import { providers, type ProviderDefinition } from "@llmgateway/models";
 
 import { ProviderSelect } from "./provider-select";
 
@@ -312,6 +312,35 @@ export function CreateProviderKeyDialog({
 							onChange={(e) => setToken(e.target.value)}
 							required
 						/>
+						{(() => {
+							const provider = providers.find((p) => p.id === selectedProvider);
+							const instructions = (provider as ProviderDefinition)
+								?.apiKeyInstructions;
+							const learnMoreUrl = (provider as ProviderDefinition)?.learnMore;
+
+							if (!instructions) {
+								return null;
+							}
+
+							return (
+								<p className="text-sm text-muted-foreground">
+									{instructions}
+									{learnMoreUrl && (
+										<>
+											{" "}
+											<a
+												href={learnMoreUrl}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="text-primary hover:underline"
+											>
+												Learn more
+											</a>
+										</>
+									)}
+								</p>
+							);
+						})()}
 					</div>
 
 					{selectedProvider === "llmgateway" && (

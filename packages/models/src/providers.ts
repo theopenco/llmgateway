@@ -14,6 +14,10 @@ export interface ProviderDefinition {
 	website?: string | null;
 	// Announcement text
 	announcement?: string | null;
+	// Instructions for creating an API key
+	apiKeyInstructions?: string;
+	// Learn more URL for API key creation
+	learnMore?: string;
 }
 
 export const providers = [
@@ -254,6 +258,9 @@ export const providers = [
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
 		announcement: null,
+		apiKeyInstructions:
+			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
+		learnMore: "https://llmgateway.io/blog/aws-bedrock-api-key-setup",
 	},
 	{
 		id: "custom",
