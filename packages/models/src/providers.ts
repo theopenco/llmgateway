@@ -260,7 +260,7 @@ export const providers = [
 		announcement: null,
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
-		learnMore: "https://llmgateway.io/blog/aws-bedrock-api-key-setup",
+		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
 	},
 	{
 		id: "custom",

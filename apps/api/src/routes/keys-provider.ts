@@ -42,7 +42,7 @@ const createProviderKeySchema = z.object({
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global."]).optional(),
+			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),

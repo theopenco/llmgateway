@@ -1372,7 +1372,7 @@ export interface paths {
                         baseUrl?: string;
                         options?: {
                             /** @enum {string} */
-                            aws_bedrock_region_prefix?: "us." | "global.";
+                            aws_bedrock_region_prefix?: "us." | "global." | "eu.";
                         };
                         organizationId: string;
                     };

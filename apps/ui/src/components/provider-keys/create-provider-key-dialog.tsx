@@ -68,7 +68,7 @@ export function CreateProviderKeyDialog({
 	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
 	const [awsBedrockRegionPrefix, setAwsBedrockRegionPrefix] = useState<
-		"us." | "global."
+		"us." | "global." | "eu."
 	>("us.");
 	const [isValidating, setIsValidating] = useState(false);
 
@@ -183,7 +183,7 @@ export function CreateProviderKeyDialog({
 			name?: string;
 			baseUrl?: string;
 			options?: {
-				aws_bedrock_region_prefix?: "us." | "global.";
+				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
 			};
 			organizationId: string;
 		} = {
@@ -363,7 +363,7 @@ export function CreateProviderKeyDialog({
 							<Select
 								value={awsBedrockRegionPrefix}
 								onValueChange={(value) =>
-									setAwsBedrockRegionPrefix(value as "us." | "global.")
+									setAwsBedrockRegionPrefix(value as "us." | "global." | "eu.")
 								}
 							>
 								<SelectTrigger id="region-prefix">
@@ -374,6 +374,7 @@ export function CreateProviderKeyDialog({
 									<SelectItem value="global.">
 										global. (Global regions)
 									</SelectItem>
+									<SelectItem value="eu.">eu. (EU regions)</SelectItem>
 								</SelectContent>
 							</Select>
 							<p className="text-sm text-muted-foreground">

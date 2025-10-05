@@ -22,6 +22,8 @@
 		"---Resources---",
 		"resources/rate-limits",
 		"resources/...",
+		"---Provider Integrations---",
+		"...integrations",
 		"---Guides---",
 		"...guides",
 		"---References---",
