@@ -37,27 +37,12 @@ AWS Bedrock supports **Long-Term API Keys** for simplified authentication. These
 
 1. In AWS Bedrock console, navigate to **API Keys** in the left sidebar
 2. Click **Create Long-Term API Key**
-3. Enter a descriptive name (e.g., `llmgateway-production`)
-4. Select the region where you want to use the key
-5. Click **Create API Key**
-6. **Important**: Copy the API key immediately - it's only shown once!
-   - Store it securely in a password manager
+3. Set expiry date ("Never expires" is recommended)
+4. Click **Generate**
+5. **Important**: Copy the API key immediately - it's only shown once!
 
 </Step>
 
-<Step>
-### Choose Your Region
-
-AWS Bedrock Long-Term API Keys are tied to specific regions. Common regions include:
-
-- **US East (N. Virginia)**: `us-east-1` - Widest model availability
-- **US West (Oregon)**: `us-west-2` - Good for West Coast workloads
-- **EU (Frankfurt)**: `eu-central-1` - Best for European workloads
-- **AP (Tokyo)**: `ap-northeast-1` - Best for Asia-Pacific workloads
-
-The region you select when creating the key determines which models you can access.
-
-</Step>
 </Steps>
 
 ## Add to LLM Gateway
@@ -75,14 +60,13 @@ The region you select when creating the key determines which models you can acce
 <Step>
 ### Add AWS Bedrock Provider Key
 
-1. Click **Add Provider Key**
-2. Select **AWS Bedrock** as the provider
-3. Paste your Long-Term API Key
-4. **Select Region Prefix** based on where you created your key:
+1. Click **Add** for **AWS Bedrock**
+2. Paste your Long-Term API Key
+3. **Select Region Prefix** based on where you you want to use your models:
    - **us.** - For US regions (`us-east-1`, `us-west-2`)
    - **eu.** - For European regions (`eu-central-1`, `eu-west-1`)
    - **global.** - For global/cross-region endpoints
-5. Click **Add Key**
+4. Click **Add Key**
 
 The system will validate your key and confirm the connection.
 
@@ -124,44 +108,7 @@ Once configured, you can access all AWS Bedrock models through LLM Gateway:
 
 Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=aws-bedrock)
 
-## Region Prefix
-
-The region prefix determines which AWS Bedrock endpoint your requests use:
-
-- **us.** - US regions
-  - Use for: `us-east-1`, `us-west-2`, and other US regions
-  - Best for: US-based workloads, lowest latency in North America
-  - Widest model availability
-
-- **eu.** - European regions
-  - Use for: `eu-central-1`, `eu-west-1`, and other EU regions
-  - Best for: European workloads, GDPR compliance
-  - Models deployed in European data centers
-
-- **global.** - Global/cross-region endpoints
-  - Use for: Multi-region redundancy
-  - Best for: International workloads
-  - May have different model availability
-
-Choose the prefix that matches your Long-Term API Key's region.
-
-## Security Best Practices
-
-<Callout type="warn">**Important Security Notes**</Callout>
-
-1. **Protect your Long-Term API Keys** - These keys provide direct access to AWS Bedrock
-2. **Store keys securely** - Use a password manager or secrets management system
-3. **Rotate keys regularly** - Create new Long-Term API Keys periodically and delete old ones
-4. **Monitor usage** - Check AWS Bedrock console for API activity and costs
-5. **Use separate keys per environment** - Don't share keys between development and production
-
 ## Troubleshooting
-
-### "Invalid API key" error
-
-- Verify you copied the complete Long-Term API Key
-- Ensure you're using the correct region prefix (us., eu., or global.)
-- Check that the key hasn't been deleted or expired in AWS Bedrock console
 
 ### "Model not available" error
 
@@ -169,23 +116,8 @@ Choose the prefix that matches your Long-Term API Key's region.
 - Check that the region where you created your key has access to the model
 - Some models are only available in specific regions
 
-### "Region mismatch" error
-
-- Ensure the region prefix matches your Long-Term API Key's region
-- Use `us.` for US regions, `eu.` for EU regions, `global.` for global endpoints
-
 ### Rate limiting
 
 - AWS Bedrock has request quotas per model and region
 - Monitor usage in AWS Bedrock console
 - Consider requesting quota increases for high-volume workloads
-
-## Next Steps
-
-- Explore [routing strategies](/features/routing) to optimize costs
-- Set up [usage monitoring](/features/api-keys) for your API keys
-- Learn about [metadata](/features/metadata) to track requests
-
-## Support
-
-Need help? Contact us at [support@llmgateway.io](mailto:support@llmgateway.io) or visit our [documentation](https://llmgateway.io).
