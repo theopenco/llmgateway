@@ -28,7 +28,7 @@ const ensureKey = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ ok: z.boolean() }),
+					schema: z.object({ ok: z.boolean(), token: z.string() }),
 				},
 			},
 			description: "Ensured playground key and set cookie",
