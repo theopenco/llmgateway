@@ -503,7 +503,7 @@ export const googleModels = [
 		name: "Gemma2 9B IT",
 		family: "google",
 		deprecatedAt: undefined,
-		deactivatedAt: undefined,
+		deactivatedAt: new Date("2025-10-08"),
 		providers: [
 			{
 				providerId: "groq",
