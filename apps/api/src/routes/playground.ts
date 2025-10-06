@@ -43,12 +43,26 @@ playground.openapi(ensureKey, async (c) => {
 	}
 	const { projectId } = c.req.valid("json");
 
-	// Verify project access
+	// Verify project exists
 	const project = await db.query.project.findFirst({
 		where: { id: { eq: projectId } },
 	});
 	if (!project) {
 		throw new HTTPException(404, { message: "Project not found" });
+	}
+
+	// Verify the authenticated user belongs to the organization's project
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: project.organizationId },
+		},
+	});
+
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this project's organization",
+		});
 	}
 
 	// Find an existing API key with description marker
