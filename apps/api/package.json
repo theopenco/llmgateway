@@ -35,7 +35,7 @@
 		"hono": "^4.9.7",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.7.0",
-		"nodemailer": "^7.0.5",
+		"nodemailer": "^7.0.6",
 		"openai": "^5.19.1",
 		"posthog-node": "5.8.2",
 		"stripe": "18.1.1",
@@ -43,6 +43,6 @@
 		"zod-openapi": "^4.2.4"
 	},
 	"devDependencies": {
-		"@types/nodemailer": "7.0.1"
+		"@types/nodemailer": "7.0.2"
 	}
 }
