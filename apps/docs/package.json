@@ -27,7 +27,7 @@
 		"fumadocs-ui": "15.8.1",
 		"gateway": "workspace:*",
 		"lucide-react": "^0.544.0",
-		"next": "15.5.2",
+		"next": "15.5.4",
 		"posthog-js": "1.255.1",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
