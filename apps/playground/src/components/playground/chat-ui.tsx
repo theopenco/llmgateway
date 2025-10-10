@@ -181,6 +181,10 @@ export const ChatUI = ({
 									const toolParts = m.parts.filter(
 										(p) => p.type === "dynamic-tool",
 									) as any[];
+									const imageUrlParts = m.parts.filter(
+										// Images streamed from gateway (e.g., Google) appear as image_url parts
+										(p: any) => p.type === "image_url" && p.image_url?.url,
+									) as any[];
 									const reasoningContent = m.parts
 										.filter((p) => p.type === "reasoning")
 										.map((p) => p.text)
@@ -204,6 +208,18 @@ export const ChatUI = ({
 											) : null}
 
 											{textContent ? <Response>{textContent}</Response> : null}
+											{imageUrlParts.length > 0 ? (
+												<div className="mt-3 grid grid-cols-1 gap-3">
+													{imageUrlParts.map((img: any, idx: number) => (
+														<img
+															key={idx}
+															src={img.image_url.url}
+															alt="Generated image"
+															className="rounded-md border max-w-full h-auto"
+														/>
+													))}
+												</div>
+											) : null}
 											{isLastMessage &&
 												(status === "submitted" || status === "streaming") && (
 													<Loader />
@@ -300,17 +316,40 @@ export const ChatUI = ({
 
 							setText(""); // Clear input immediately
 
+							// Build message parts (support image inputs for Gemini image preview model)
+							const parts: any[] = [{ type: "text", text: textContent }];
+							if (
+								selectedModel ===
+								"google-ai-studio/gemini-2.5-flash-image-preview"
+							) {
+								const files = message.files ?? [];
+								for (const f of files) {
+									if (f.mediaType?.startsWith("image/") && f.url) {
+										parts.push({
+											type: "image",
+											image: f.url, // data URL produced upstream
+											mediaType: f.mediaType,
+										});
+									}
+								}
+							}
+
 							// Call sendMessage which will handle adding the user message and API request
 							sendMessage(
 								{
 									id: crypto.randomUUID(),
 									role: "user",
-									parts: [{ type: "text", text: textContent }],
+									parts,
 								},
 								{
 									body: {
 										apiKey: userApiKey,
 										model: selectedModel,
+										// Hint server to use non-stream image API path for Gemini image preview
+										...(selectedModel ===
+										"google-ai-studio/gemini-2.5-flash-image-preview"
+											? { mode: "image" as const }
+											: {}),
 									},
 								},
 							);

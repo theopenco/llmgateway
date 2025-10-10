@@ -8,9 +8,7 @@ const nextConfig: NextConfig = {
 	output: "standalone",
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
-	eslint: {
-		ignoreDuringBuilds: true,
-	},
+	reactCompiler: true,
 	webpack: (config, { isServer }) => {
 		if (isServer) {
 			config.devtool = "source-map";

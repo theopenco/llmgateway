@@ -65,7 +65,6 @@ interface ChatSidebarProps {
 	currentChatId?: string;
 	onChatSelect?: (chatId: string) => void;
 	onNewChat?: () => void;
-	userApiKey: string | null;
 	clearMessages: () => void;
 	className?: string;
 	isLoading?: boolean;
@@ -83,7 +82,6 @@ export function ChatSidebar({
 	currentChatId,
 	onChatSelect,
 	onNewChat,
-	userApiKey,
 	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
@@ -156,17 +154,6 @@ export function ChatSidebar({
 	};
 
 	const handleDeleteChat = (chatId: string) => {
-		if (!userApiKey) {
-			toast.error("API Key Required", {
-				description: "You must provide an API key to delete chats.",
-				style: {
-					backgroundColor: "var(--destructive)",
-					color: "var(--destructive-foreground)",
-				},
-			});
-			return;
-		}
-
 		deleteChat.mutate({
 			params: {
 				path: { id: chatId },

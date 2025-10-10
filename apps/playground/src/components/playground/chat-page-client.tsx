@@ -71,14 +71,24 @@ export default function ChatPageClient({
 				if (!chatId) {
 					return;
 				}
+				// Extract assistant text and images from UIMessage parts
+				const textContent = message.parts
+					.filter((p) => p.type === "text")
+					.map((p) => p.text)
+					.join("");
+				const images = (message.parts as any[])
+					.filter((p: any) => p.type === "image_url" && p.image_url?.url)
+					.map((p: any) => ({
+						type: "image_url",
+						image_url: { url: p.image_url.url },
+					}));
+
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
 					body: {
 						role: "assistant",
-						content: message.parts
-							.filter((p) => p.type === "text")
-							.map((p) => p.text)
-							.join(""),
+						content: textContent,
+						images: images.length > 0 ? JSON.stringify(images) : undefined,
 					},
 				});
 			},
@@ -293,7 +303,6 @@ export default function ChatPageClient({
 					onChatSelect={handleChatSelect}
 					currentChatId={currentChatId || undefined}
 					clearMessages={clearMessages}
-					userApiKey={null}
 					isLoading={isLoading}
 					organizations={organizations}
 					selectedOrganization={selectedOrganization}

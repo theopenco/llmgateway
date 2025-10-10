@@ -61,7 +61,10 @@ interface FilterState {
 }
 
 // helper to extract simple capability labels from a mapping
-function getMappingCapabilities(mapping?: ProviderModelMapping): string[] {
+function getMappingCapabilities(
+	mapping?: ProviderModelMapping,
+	model?: ModelDefinition,
+): string[] {
 	if (!mapping) {
 		return [];
 	}
@@ -77,6 +80,10 @@ function getMappingCapabilities(mapping?: ProviderModelMapping): string[] {
 	}
 	if ((mapping as any).reasoning) {
 		labels.push("Reasoning");
+	}
+	// Image Generation capability if model outputs include images
+	if (model?.output?.includes("image")) {
+		labels.push("Image Generation");
 	}
 	return labels;
 }
@@ -144,7 +151,7 @@ export function ModelSelector({
 	const availableCapabilities = React.useMemo(() => {
 		const set = new Set<string>();
 		allEntries.forEach((e) =>
-			getMappingCapabilities(e.mapping).forEach((c) => set.add(c)),
+			getMappingCapabilities(e.mapping, e.model).forEach((c) => set.add(c)),
 		);
 		return Array.from(set).sort();
 	}, [allEntries]);
@@ -171,7 +178,7 @@ export function ModelSelector({
 		}
 		if (filters.capabilities.length > 0) {
 			list = list.filter((e) => {
-				const caps = getMappingCapabilities(e.mapping);
+				const caps = getMappingCapabilities(e.mapping, e.model);
 				return filters.capabilities.every((c) => caps.includes(c));
 			});
 		}
