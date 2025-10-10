@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
+	transpilePackages: ["shiki"],
 };
 
 export default nextConfig;
