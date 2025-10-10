@@ -1807,7 +1807,6 @@ export interface paths {
                     content: {
                         "application/json": {
                             ok: boolean;
-                            token: string;
                         };
                     };
                 };
