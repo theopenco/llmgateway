@@ -1,0 +1,181 @@
+# Make.com Integration
+
+> Connect Make.com workflow automation to LLM Gateway for AI-powered workflows
+
+Make.com (formerly Integromat) is a visual automation platform that you can enhance with AI capabilities through LLM Gateway. This guide shows you how to integrate LLM Gateway into your Make.com scenarios step by step.
+
+## What You'll Need
+
+- An LLM Gateway account with an API key ([Sign up here](https://llmgateway.io))
+- A Make.com account ([Sign up here](https://www.make.com))
+
+---
+
+## Step 1: Get Your LLM Gateway API Key
+
+First, you need to get your API key from LLM Gateway:
+
+1. Go to [llmgateway.io](https://llmgateway.io) and log in
+2. Click on **API Keys** in the left sidebar
+3. Click the **Create New API Key** button
+4. Give it a name like "Make.com Integration"
+5. Click **Create**
+6. **Copy the API key** and save it somewhere safe (you'll only see it once!)
+
+
+![LLM Gateway API Keys Page](./images/llm-gateway-api-keys.png)
+
+> **⚠️ Important:** Store your API key securely. You won't be able to see it again after creation.
+
+---
+
+## Step 2: Create a New Scenario in Make.com
+
+Now let's set up your Make.com scenario:
+
+1. Log into [Make.com](https://www.make.com)
+2. Click **Create a new scenario**
+3. You'll see a blank canvas with a **+** button
+
+![Make.com New Scenario](./images/make-new-scenario.png)
+
+---
+
+## Step 3: Add a Trigger (Optional)
+
+For this tutorial, we'll use a simple Webhook trigger. You can skip this and use any trigger you want.
+
+1. Click the **+** button
+2. Search for **Webhooks**
+3. Select **Webhooks > Custom webhook**
+4. Click **Add** to create a new webhook
+5. Give it a name and click **Save**
+6. Copy the webhook URL for testing later
+
+![Webhook Configuration](./images/make-webhook-config.png)
+
+---
+
+## Step 4: Add the HTTP Module
+
+This is where we'll connect to LLM Gateway:
+
+1. Click the **+** button after your trigger
+2. Search for **HTTP**
+3. Select **HTTP > Make a Request**
+
+![HTTP Module Selection](./images/make-http-module.png)
+
+---
+
+## Step 5: Configure the HTTP Module
+
+Now we'll set up the connection to LLM Gateway. Copy these settings exactly:
+
+### Basic Settings
+
+**URL:** Copy and paste this
+```
+https://api.llmgateway.io/
+```
+
+**Method:** Select `POST` from the dropdown
+
+![HTTP Basic Settings](./images/make-http-basic.png)
+
+### Headers Section
+
+Click **Add item** twice to add two headers:
+
+**Header 1:**
+- Name: `Content-Type`
+- Value: `application/json`
+
+**Header 2:**
+- Name: `Authorization`
+- Value: `Bearer YOUR_API_KEY_HERE`
+
+> **⚠️ Important:** Replace `YOUR_API_KEY_HERE` with the API key you copied in Step 1. Make sure to keep the word "Bearer" and the space after it.
+
+![HTTP Headers Configuration](./images/make-http-headers.png)
+
+### Body Section
+
+**Body type:** Select `Raw`
+
+**Content type:** Select `JSON (application/json)`
+
+**Request content:** Copy and paste this JSON:
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello! Can you help me test this integration?"
+    }
+  ]
+}
+```
+
+![HTTP Body Configuration](./images/make-http-body.png)
+
+---
+
+## Step 6: Test Your Integration
+
+Let's make sure everything works:
+
+1. Click **OK** to save the HTTP module
+2. Click **Run once** at the bottom of the screen
+3. If you used a webhook, trigger it by visiting the webhook URL in your browser
+4. Watch the modules execute
+
+You should see a successful response! ✅
+
+![Successful Execution](./images/make-success.png)
+
+### Understanding the Response
+
+Click on the HTTP module bubble to see the response. It will look like this:
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "content": "Hello! Yes, I'd be happy to help..."
+      }
+    }
+  ],
+  "usage": {
+    "total_tokens": 45
+  }
+}
+```
+
+The AI's response is in: `choices[1].message.content`
+
+![Response Data View](./images/make-response-data.png)
+
+---
+
+## Step 7: Use the AI Response
+
+Now let's do something with the AI response:
+
+1. Click the **+** button after the HTTP module
+2. Add any module you want (Slack, Email, Google Sheets, etc.)
+3. In the text field, type `{{` and select the HTTP module
+4. Navigate to: `choices[1] > message > content`
+
+This will insert the AI's response!
+
+![Mapping AI Response](./images/make-mapping-response.png)
+
+---
+
+
+
+
