@@ -68,17 +68,24 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 	const config = useAppConfig();
 
 	const menuItems = [
-		{ name: "Pricing", href: "/#pricing", external: false },
+		{ name: "Pricing", href: "/#pricing" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
-		{ name: "Changelog", href: "/changelog", external: false },
+		{ name: "Models", href: "/models" },
 	];
 
 	const resourcesItems = [
 		{ name: "Blog", href: "/blog" },
-		{ name: "Models", href: "/models" },
-		{ name: "Playground", href: "/playground" },
+		{ name: "Changelog", href: "/changelog" },
+		{
+			name: "Chat",
+			href:
+				process.env.NODE_ENV === "development"
+					? "http://localhost:3003"
+					: "https://chat.llmgateway.io",
+		},
 		{ name: "Providers", href: "/providers" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
+		{ name: "Compare", href: "/models/compare" },
 		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
 	];
 
@@ -94,9 +101,13 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 			description: "Product updates, tutorials, benchmarks, and announcements.",
 		},
 		{
-			title: "Playground",
-			href: "/playground",
-			description: "Try models in your browser with streaming and tools.",
+			title: "Chat",
+			href:
+				process.env.NODE_ENV === "development"
+					? "http://localhost:3003"
+					: "https://chat.llmgateway.io",
+			description:
+				"Try models in your browser with streaming and more features.",
 		},
 		{
 			title: "Docs",
@@ -106,9 +117,9 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 			external: true,
 		},
 		{
-			title: "Models",
-			href: "/models",
-			description: "Explore all supported models, pricing, and capabilities.",
+			title: "Compare",
+			href: "/models/compare",
+			description: "Compare models side by side",
 		},
 		{
 			title: "Changelog",

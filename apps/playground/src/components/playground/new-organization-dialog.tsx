@@ -2,8 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/lib/components/button";
+import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -11,10 +12,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/lib/components/dialog";
-import { Input } from "@/lib/components/input";
-import { Label } from "@/lib/components/label";
-import { toast } from "@/lib/components/use-toast";
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Organization } from "@/lib/types";
@@ -68,8 +68,7 @@ export function NewOrganizationDialog({
 			});
 
 			// Show success toast
-			toast({
-				title: "Organization created successfully",
+			toast("Organization created successfully", {
 				description: `${data.organization.name} has been created.`,
 			});
 		},
@@ -79,19 +78,23 @@ export function NewOrganizationDialog({
 				error.message?.includes("maximum") ||
 				error.message?.includes("limit")
 			) {
-				toast({
-					title: "Organization limit reached",
+				toast("Organization limit reached", {
 					description:
 						"You've reached the maximum number of organizations for your plan. Please contact us to upgrade to Enterprise.",
-					variant: "destructive",
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
 				});
 			} else {
 				// Generic error toast
-				toast({
-					title: "Failed to create organization",
+				toast("Failed to create organization", {
 					description:
 						error.message || "An unexpected error occurred. Please try again.",
-					variant: "destructive",
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
 				});
 			}
 		},

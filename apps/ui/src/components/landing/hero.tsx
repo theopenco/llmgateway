@@ -48,10 +48,8 @@ const transitionVariants = {
 const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "OpenAI", providerId: "openai" },
 	{ name: "Anthropic", providerId: "anthropic" },
-	{ name: "Mistral", providerId: "mistral" },
 	{ name: "Together AI", providerId: "together.ai" },
 	{ name: "Cloudrift", providerId: "cloudrift" },
-	{ name: "Inference Net", providerId: "inference.net" },
 	{ name: "Groq", providerId: "groq" },
 	{ name: "xAI", providerId: "xai" },
 	{ name: "DeepSeek", providerId: "deepseek" },
@@ -61,6 +59,8 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Novita", providerId: "novita" },
 	{ name: "Nebius", providerId: "nebius" },
 	{ name: "Zai", providerId: "zai" },
+	{ name: "Routeway", providerId: "routeway" },
+	{ name: "NanoGPT", providerId: "nanogpt" },
 ];
 
 // TypeScript code example

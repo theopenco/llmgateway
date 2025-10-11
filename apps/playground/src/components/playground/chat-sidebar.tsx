@@ -1,4 +1,5 @@
 "use client";
+
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
@@ -10,6 +11,7 @@ import {
 	MoreVerticalIcon,
 	Loader2,
 } from "lucide-react";
+// import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -49,6 +51,16 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
+// import { ProjectSwitcher } from "./project-switcher";
+
+import type { Organization, Project } from "@/lib/types";
+
+// const OrganizationSwitcher = dynamic(
+// 	() => import("./organization-switcher").then((m) => m.OrganizationSwitcher),
+// 	{ ssr: false },
+// );
+
 interface ChatSidebarProps {
 	currentChatId?: string;
 	onChatSelect?: (chatId: string) => void;
@@ -57,6 +69,14 @@ interface ChatSidebarProps {
 	clearMessages: () => void;
 	className?: string;
 	isLoading?: boolean;
+	organizations: Organization[];
+	selectedOrganization: Organization | null;
+	onSelectOrganization: (organization: Organization | null) => void;
+	onOrganizationCreated: (organization: Organization) => void;
+	projects: Project[];
+	selectedProject: Project | null;
+	onSelectProject: (project: Project | null) => void;
+	onProjectCreated: (project: Project) => void;
 }
 
 export function ChatSidebar({
@@ -67,11 +87,19 @@ export function ChatSidebar({
 	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
+	// organizations,
+	selectedOrganization,
+	// onSelectOrganization,
+	// onOrganizationCreated,
+	// projects,
+	// selectedProject,
+	// onSelectProject,
+	// onProjectCreated,
 }: ChatSidebarProps) {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const posthog = usePostHog();
-	const { user } = useUser();
+	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
 
@@ -213,6 +241,7 @@ export function ChatSidebar({
 				<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
 					{title}
 				</div>
+
 				<div className="space-y-1">
 					{chats.map((chat) => (
 						<SidebarMenuItem key={chat.id} className="relative">
@@ -300,7 +329,15 @@ export function ChatSidebar({
 		);
 	};
 
-	if (isChatsLoading) {
+	const isAuthenticated = !!user;
+
+	// Loading auth state → show lightweight skeleton to avoid hydration issues
+	if (isUserLoading) {
+		return <ChatSidebarSkeleton organization={null} isOrgLoading={true} />;
+	}
+
+	// Unauthenticated → show CTA instead of org/project/chats UI
+	if (!isAuthenticated) {
 		return (
 			<Sidebar className={className}>
 				<SidebarHeader>
@@ -314,36 +351,37 @@ export function ChatSidebar({
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
 							<Badge>Chat</Badge>
 						</Link>
-						<Button
-							variant="outline"
-							className="w-full flex items-center gap-2"
-							onClick={onNewChat}
-							disabled
-						>
-							<Loader2 className="h-4 w-4 animate-spin" />
-							New Chat
-						</Button>
-					</div>
-				</SidebarHeader>
-				<SidebarContent className="px-2 py-4">
-					<div className="flex items-center justify-center py-8">
-						<div className="text-sm text-muted-foreground">
-							Loading chats...
+						<div className="w-full rounded-md border p-4 text-sm">
+							<div className="font-medium mb-2">Sign in required</div>
+							<p className="text-muted-foreground mb-3">
+								Please sign in to view organizations, projects, and chats.
+							</p>
+							<div className="flex items-center justify-end gap-2">
+								<Button size="sm" asChild>
+									<Link href="/login">Sign in</Link>
+								</Button>
+								<Button size="sm" variant="outline" asChild>
+									<Link href="/signup">Create account</Link>
+								</Button>
+							</div>
 						</div>
 					</div>
-				</SidebarContent>
-				<SidebarFooter className="border-t">
-					<CreditsDisplay
-						organization={organization}
-						isLoading={isOrgLoading}
-					/>
-				</SidebarFooter>
+				</SidebarHeader>
 			</Sidebar>
 		);
 	}
 
+	if (isChatsLoading || isOrgLoading) {
+		return (
+			<ChatSidebarSkeleton
+				organization={selectedOrganization}
+				isOrgLoading={isOrgLoading}
+			/>
+		);
+	}
+
 	return (
-		<Sidebar className={className}>
+		<Sidebar className={className + " max-md:hidden"}>
 			<SidebarHeader>
 				<div className="flex flex-col items-center gap-4 mb-4">
 					<Link
@@ -370,7 +408,31 @@ export function ChatSidebar({
 					</Button>
 				</div>
 			</SidebarHeader>
+
 			<SidebarContent className="px-2 py-4">
+				{/* <SidebarMenu>
+					<SidebarMenuItem>
+						<OrganizationSwitcher
+							organizations={organizations}
+							selectedOrganization={selectedOrganization}
+							onSelectOrganization={onSelectOrganization}
+							onOrganizationCreated={onOrganizationCreated}
+						/>
+					</SidebarMenuItem>
+				</SidebarMenu>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						{selectedOrganization && (
+							<ProjectSwitcher
+								projects={projects}
+								selectedProject={selectedProject}
+								onSelectProject={onSelectProject}
+								currentOrganization={selectedOrganization}
+								onProjectCreated={onProjectCreated}
+							/>
+						)}
+					</SidebarMenuItem>
+				</SidebarMenu> */}
 				<SidebarMenu>
 					{renderChatGroup("Today", chatGroups.today)}
 					{renderChatGroup("Yesterday", chatGroups.yesterday)}

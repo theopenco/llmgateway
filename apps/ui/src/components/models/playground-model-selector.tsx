@@ -1,18 +1,11 @@
 "use client";
 
-import {
-	Check,
-	ChevronsUpDown,
-	Filter,
-	Info,
-	ExternalLink,
-} from "lucide-react";
+import { Check, ChevronsUpDown, Filter } from "lucide-react";
 import * as React from "react";
 
-import { getProviderIcon } from "@/components/provider-icons";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+// import { Badge } from "@/lib/components/badge";
+import { Button } from "@/lib/components/button";
+import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Command,
 	CommandEmpty,
@@ -20,24 +13,17 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
-} from "@/components/ui/command";
-import {
-	HoverCard,
-	HoverCardContent,
-	HoverCardTrigger,
-} from "@/components/ui/hover-card";
-import { Label } from "@/components/ui/label";
+} from "@/lib/components/command";
+// import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/lib/components/hover-card";
+import { Label } from "@/lib/components/label";
 import {
 	Popover,
 	PopoverContent,
 	PopoverTrigger,
-} from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
-import {
-	formatPrice,
-	formatContextSize,
-	getProviderForModel,
-} from "@/lib/model-utils";
+} from "@/lib/components/popover";
+import { getProviderIcon } from "@/lib/components/providers-icons";
+import { Separator } from "@/lib/components/separator";
+import { getProviderForModel } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -80,8 +66,6 @@ function getMappingCapabilities(mapping?: ProviderModelMapping): string[] {
 	}
 	return labels;
 }
-
-// Removed old ModelItem; we render entries per provider below
 
 export function ModelSelector({
 	models,
@@ -135,7 +119,6 @@ export function ModelSelector({
 		return out;
 	}, [models, providers]);
 
-	// Get unique providers and capabilities for filtering
 	const availableProviders = React.useMemo(() => {
 		const ids = new Set(allEntries.map((e) => e.mapping.providerId));
 		return providers.filter((p) => ids.has(p.id as any));
@@ -243,15 +226,15 @@ export function ModelSelector({
 						<div className="flex items-center gap-3">
 							{(() => {
 								const provider =
-									selectedProviderDef ||
+									selectedProviderDef ??
 									getProviderForModel(selectedModel, providers);
 								const ProviderIcon = provider
-									? getProviderIcon(provider.id)
+									? getProviderIcon(provider.id as string)
 									: null;
 								return ProviderIcon ? (
 									<ProviderIcon
 										className="h-5 w-5"
-										style={{ color: provider?.color }}
+										style={{ color: (provider as any)?.color }}
 									/>
 								) : null;
 							})()}
@@ -262,7 +245,7 @@ export function ModelSelector({
 								<span className="text-xs text-muted-foreground">
 									{
 										(
-											selectedProviderDef ||
+											selectedProviderDef ??
 											getProviderForModel(selectedModel, providers)
 										)?.name
 									}
@@ -492,152 +475,6 @@ export function ModelSelector({
 															</span>
 														</div>
 													</div>
-													<HoverCard>
-														<HoverCardTrigger asChild>
-															<Button
-																variant="ghost"
-																size="sm"
-																className="p-0 hover:bg-muted/50"
-															>
-																<Info className="h-3 w-3" />
-															</Button>
-														</HoverCardTrigger>
-														<HoverCardContent
-															className="w-96"
-															side="right"
-															align="start"
-															style={{ zIndex: 1000000 }}
-														>
-															<div className="space-y-4">
-																<div className="flex items-start justify-between">
-																	<div className="flex items-center gap-3">
-																		{ProviderIcon && (
-																			<div
-																				className="p-2 rounded-lg"
-																				style={{
-																					backgroundColor: `${provider?.color}15`,
-																				}}
-																			>
-																				<ProviderIcon className="h-6 w-6" />
-																			</div>
-																		)}
-																		<div>
-																			<h4 className="font-semibold text-base">
-																				{model.name}
-																			</h4>
-																			<p className="text-sm text-muted-foreground">
-																				{provider?.name}
-																			</p>
-																			<p className="text-xs text-muted-foreground capitalize">
-																				{model.family} family
-																			</p>
-																		</div>
-																	</div>
-																	{provider?.website && (
-																		<Button variant="ghost" size="sm" asChild>
-																			<a
-																				href={provider.website}
-																				target="_blank"
-																				rel="noopener noreferrer"
-																				className="h-8 w-8 p-0"
-																			>
-																				<ExternalLink className="h-3 w-3" />
-																			</a>
-																		</Button>
-																	)}
-																</div>
-
-																{provider?.description && (
-																	<>
-																		<p className="text-sm text-muted-foreground leading-relaxed">
-																			{provider.description}
-																		</p>
-																		<Separator />
-																	</>
-																)}
-
-																<div className="space-y-3">
-																	<h5 className="font-medium text-sm">
-																		Pricing & Limits
-																	</h5>
-																	<div className="grid grid-cols-2 gap-3">
-																		<div className="space-y-1">
-																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																				Input
-																			</span>
-																			<p className="text-sm font-mono">
-																				{formatPrice(mapping?.inputPrice)}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																				Output
-																			</span>
-																			<p className="text-sm font-mono">
-																				{formatPrice(mapping?.outputPrice)}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																				Context
-																			</span>
-																			<p className="text-sm font-mono">
-																				{formatContextSize(
-																					mapping?.contextSize,
-																				)}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																				Max Output
-																			</span>
-																			<p className="text-sm font-mono">
-																				{formatContextSize(mapping?.maxOutput)}
-																			</p>
-																		</div>
-																	</div>
-																	{mapping?.cachedInputPrice && (
-																		<div className="pt-2 border-t border-dashed">
-																			<div className="space-y-1">
-																				<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																					Cached Input
-																				</span>
-																				<p className="text-sm font-mono text-green-600 dark:text-green-400">
-																					{formatPrice(
-																						mapping.cachedInputPrice,
-																					)}
-																				</p>
-																			</div>
-																		</div>
-																	)}
-																</div>
-
-																<Separator />
-
-																{(() => {
-																	const caps = getMappingCapabilities(mapping);
-																	return caps.length > 0 ? (
-																		<div className="space-y-2">
-																			<h5 className="font-medium text-sm">
-																				Capabilities
-																			</h5>
-																			<div className="flex flex-wrap gap-1.5">
-																				{caps.map((capability) => (
-																					<Badge
-																						key={capability}
-																						variant="secondary"
-																						className="text-xs px-2 py-1"
-																					>
-																						{capability}
-																					</Badge>
-																				))}
-																			</div>
-																		</div>
-																	) : null;
-																})()}
-															</div>
-														</HoverCardContent>
-													</HoverCard>
 												</div>
 											</CommandItem>
 										);

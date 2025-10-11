@@ -5,7 +5,6 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { StatusBadge } from "@/components/ui/status-badge";
 import { useDefaultProject } from "@/hooks/useDefaultProject";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
@@ -18,6 +17,7 @@ import {
 	FormMessage,
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
+import { StatusBadge } from "@/lib/components/status-badge";
 import { Step } from "@/lib/components/stepper";
 import {
 	Table,

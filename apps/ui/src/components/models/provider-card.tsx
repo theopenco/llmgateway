@@ -3,10 +3,10 @@
 import { Copy, Check, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 
-import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
+import { getProviderIcon } from "@/lib/components/providers-icons";
 import { formatContextSize } from "@/lib/utils";
 
 import type {

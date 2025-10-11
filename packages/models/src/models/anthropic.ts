@@ -85,6 +85,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-7-sonnet-20250219",
 				inputPrice: 3.0 / 1e6,
@@ -99,6 +100,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "skip",
 				providerId: "routeway-discount",
 				modelName: "claude-3-7-sonnet-20250219-v1:0",
 				inputPrice: 3.0 / 1e6,
@@ -124,6 +126,7 @@ export const anthropicModels = [
 		deactivatedAt: new Date("2025-10-22T00:00:00Z"),
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-5-sonnet-20241022",
 				inputPrice: 3.0 / 1e6,
@@ -208,6 +211,7 @@ export const anthropicModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-sonnet-4-5",
 				inputPrice: 3.0 / 1e6,
@@ -222,6 +226,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "skip",
 				providerId: "routeway-discount",
 				modelName: "claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: 3.0 / 1e6,

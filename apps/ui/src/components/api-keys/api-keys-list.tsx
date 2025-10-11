@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -43,6 +42,7 @@ import {
 } from "@/lib/components/dropdown-menu";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { StatusBadge } from "@/lib/components/status-badge";
 import {
 	Table,
 	TableBody,

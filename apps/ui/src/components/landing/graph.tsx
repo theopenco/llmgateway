@@ -4,8 +4,8 @@ import { MonitorSmartphone, HelpCircle, Plus } from "lucide-react";
 import Link from "next/link";
 import React, { forwardRef, useId, useRef } from "react";
 
-import { ProviderIcons } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
+import { ProviderIcons } from "@/lib/components/providers-icons";
 import {
 	Tooltip,
 	TooltipProvider,

@@ -2,8 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/lib/components/button";
+import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -11,10 +12,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/lib/components/dialog";
-import { Input } from "@/lib/components/input";
-import { Label } from "@/lib/components/label";
-import { toast } from "@/lib/components/use-toast";
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Organization, Project } from "@/lib/types";
@@ -65,8 +65,7 @@ export function NewProjectDialog({
 			}
 
 			// Show success toast
-			toast({
-				title: "Project created successfully",
+			toast("Project created successfully", {
 				description: `${data.project.name} has been created.`,
 			});
 		},
@@ -76,19 +75,23 @@ export function NewProjectDialog({
 				error.message?.includes("maximum") ||
 				error.message?.includes("limit")
 			) {
-				toast({
-					title: "Project limit reached",
+				toast("Project limit reached", {
 					description:
 						"You've reached the maximum number of projects for your plan. Please contact us to upgrade to Enterprise.",
-					variant: "destructive",
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
 				});
 			} else {
 				// Generic error toast
-				toast({
-					title: "Failed to create project",
+				toast("Failed to create project", {
 					description:
 						error.message || "An unexpected error occurred. Please try again.",
-					variant: "destructive",
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
 				});
 			}
 		},

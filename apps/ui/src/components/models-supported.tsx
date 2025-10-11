@@ -10,7 +10,6 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 
-import { getProviderIcon } from "@/components/ui/providers-icons";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -20,6 +19,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Select,
 	SelectContent,

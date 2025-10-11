@@ -3,8 +3,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyIcon, MoreHorizontal } from "lucide-react";
 
-import { ProviderIcons } from "@/components/ui/providers-icons";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -26,6 +24,8 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
+import { ProviderIcons } from "@/lib/components/providers-icons";
+import { StatusBadge } from "@/lib/components/status-badge";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 

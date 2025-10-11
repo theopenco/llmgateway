@@ -8,7 +8,7 @@ set -e  # Exit on any error
 echo "🚀 Setting up LLMGateway development environment..."
 
 pnpm install
-pnpm build
+pnpm build:core
 pnpm run setup
 
 echo "✅ Setup complete!"

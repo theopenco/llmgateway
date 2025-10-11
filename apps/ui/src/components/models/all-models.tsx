@@ -21,13 +21,13 @@ import {
 	AlertTriangle,
 	ExternalLink,
 	Percent,
+	Scale,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
 import Footer from "@/components/landing/footer";
-import { getProviderIcon } from "@/components/ui/providers-icons";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/components/card";
 import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
+import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Select,
 	SelectContent,
@@ -1392,6 +1393,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									>
 										<Grid className="h-4 w-4 mr-1" />
 										Grid
+									</Button>
+									<Button size="sm" asChild>
+										<Link href="/models/compare">
+											<Scale className="h-4 w-4 mr-1" />
+											Compare
+										</Link>
 									</Button>
 								</div>
 							</div>

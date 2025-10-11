@@ -692,15 +692,18 @@ export function DashboardSidebar({
 				internal: true,
 			},
 			{
-				href: "https://docs.llmgateway.io",
-				label: "Documentation",
-				icon: ExternalLink,
+				href:
+					process.env.NODE_ENV === "development"
+						? "http://localhost:3003"
+						: "https://chat.llmgateway.io",
+				label: "Chat",
+				icon: BotMessageSquare,
 				internal: false,
 			},
 			{
-				href: "/playground",
-				label: "Playground",
-				icon: BotMessageSquare,
+				href: "https://docs.llmgateway.io",
+				label: "Documentation",
+				icon: ExternalLink,
 				internal: false,
 			},
 		],

@@ -1,11 +1,8 @@
+"use client";
+
 import { useApi } from "@/lib/fetch-client";
 
-interface Organization {
-	id: string;
-	name: string;
-	credits: string;
-	plan: "free" | "pro";
-}
+import type { Organization } from "@/lib/types";
 
 export function useOrganization() {
 	const api = useApi();

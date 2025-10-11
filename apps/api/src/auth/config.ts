@@ -1,3 +1,4 @@
+import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
@@ -378,270 +379,272 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 	}
 }
 
-export const apiAuth: ReturnType<typeof betterAuth> = betterAuth({
-	advanced: {
-		crossSubDomainCookies: {
+export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
+	betterAuth({
+		advanced: {
+			crossSubDomainCookies: {
+				enabled: true,
+				domain: cookieDomain,
+			},
+			defaultCookieAttributes: {
+				domain: cookieDomain,
+			},
+		},
+		session: {
+			cookieCache: {
+				enabled: true,
+				maxAge: 5 * 60,
+			},
+			expiresIn: 60 * 60 * 24 * 30, // 30 days
+			updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
+		},
+		basePath: "/auth",
+		trustedOrigins: originUrls.split(","),
+		plugins: [
+			passkey({
+				rpID: process.env.PASSKEY_RP_ID || "localhost",
+				rpName: process.env.PASSKEY_RP_NAME || "LLMGateway",
+				origin: uiUrl,
+			}),
+		],
+		emailAndPassword: {
 			enabled: true,
-			domain: cookieDomain,
 		},
-		defaultCookieAttributes: {
-			domain: cookieDomain,
-		},
-	},
-	session: {
-		cookieCache: {
-			enabled: true,
-			maxAge: 5 * 60,
-		},
-		expiresIn: 60 * 60 * 24 * 30, // 30 days
-		updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
-	},
-	basePath: "/auth",
-	trustedOrigins: originUrls.split(","),
-	plugins: [
-		passkey({
-			rpID: process.env.PASSKEY_RP_ID || "localhost",
-			rpName: process.env.PASSKEY_RP_NAME || "LLMGateway",
-			origin: uiUrl,
+		baseURL: apiUrl || "http://localhost:4002",
+		secret: process.env.AUTH_SECRET || "your-secret-key",
+		database: drizzleAdapter(db, {
+			provider: "pg",
+			schema: {
+				user: tables.user,
+				session: tables.session,
+				account: tables.account,
+				verification: tables.verification,
+				passkey: tables.passkey,
+			},
 		}),
-	],
-	emailAndPassword: {
-		enabled: true,
-	},
-	baseURL: apiUrl || "http://localhost:4002",
-	secret: process.env.AUTH_SECRET || "your-secret-key",
-	database: drizzleAdapter(db, {
-		provider: "pg",
-		schema: {
-			user: tables.user,
-			session: tables.session,
-			account: tables.account,
-			verification: tables.verification,
-			passkey: tables.passkey,
+		socialProviders: {
+			github: {
+				clientId: process.env.GITHUB_CLIENT_ID!,
+				clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+			},
 		},
-	}),
-	socialProviders: {
-		github: {
-			clientId: process.env.GITHUB_CLIENT_ID!,
-			clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-		},
-	},
-	emailVerification: isHosted
-		? {
-				sendOnSignUp: true,
-				autoSignInAfterVerification: true,
-				// TODO this should be afterEmailVerification in better-auth v1.3
-				onEmailVerification: async (user: {
-					id: string;
-					email: string;
-					name?: string | null;
-				}) => {
-					// Add verified email to Brevo CRM
-					await createBrevoContact(user.email, user.name || undefined);
-				},
-				sendVerificationEmail: async ({ user, token }) => {
-					const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
-					if (!smtpHost || !smtpUser || !smtpPass) {
-						const isDev = process.env.NODE_ENV === "development";
-						const maskedUrl = isDev
-							? url
-							: url.replace(
-									/token=[^&]+/,
-									`token=${token.slice(0, 4)}...${token.slice(-4)}`,
-								);
+		emailVerification: isHosted
+			? {
+					sendOnSignUp: true,
+					autoSignInAfterVerification: true,
+					// TODO this should be afterEmailVerification in better-auth v1.3
+					onEmailVerification: async (user: {
+						id: string;
+						email: string;
+						name?: string | null;
+					}) => {
+						// Add verified email to Brevo CRM
+						await createBrevoContact(user.email, user.name || undefined);
+					},
+					sendVerificationEmail: async ({ user, token }) => {
+						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+						if (!smtpHost || !smtpUser || !smtpPass) {
+							const isDev = process.env.NODE_ENV === "development";
+							const maskedUrl = isDev
+								? url
+								: url.replace(
+										/token=[^&]+/,
+										`token=${token.slice(0, 4)}...${token.slice(-4)}`,
+									);
 
-						logger.info("Email verification link generated", {
-							...(isDev ? { url } : { maskedUrl }),
-							userId: user.id,
+							logger.info("Email verification link generated", {
+								...(isDev ? { url } : { maskedUrl }),
+								userId: user.id,
+							});
+							logger.error(
+								"SMTP configuration is not set. Email verification will not work.",
+							);
+							return;
+						}
+
+						const transporter = nodemailer.createTransport({
+							host: smtpHost,
+							port: smtpPort,
+							secure: smtpPort === 465,
+							auth: {
+								user: smtpUser,
+								pass: smtpPass,
+							},
 						});
-						logger.error(
-							"SMTP configuration is not set. Email verification will not work.",
-						);
-						return;
-					}
 
-					const transporter = nodemailer.createTransport({
-						host: smtpHost,
-						port: smtpPort,
-						secure: smtpPort === 465,
-						auth: {
-							user: smtpUser,
-							pass: smtpPass,
-						},
-					});
-
-					try {
-						await transporter.sendMail({
-							from: smtpFromEmail,
-							replyTo: replyToEmail,
-							to: user.email,
-							subject: "Verify your email address",
-							html: `
+						try {
+							await transporter.sendMail({
+								from: smtpFromEmail,
+								replyTo: replyToEmail,
+								to: user.email,
+								subject: "Verify your email address",
+								html: `
 						<h1>Welcome to LLMGateway!</h1>
 						<p>Please click the link below to verify your email address:</p>
 						<a href="${url}">Verify Email</a>
 						<p>If you didn't create an account, you can safely ignore this email.</p>
 						<p>Have feedback? Let us know by replying to this email – we might also have some free credits for you!</p>
 					`,
+							});
+						} catch (error) {
+							logger.error(
+								"Failed to send verification email",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+							throw new Error(
+								"Failed to send verification email. Please try again.",
+							);
+						}
+					},
+				}
+			: {
+					sendOnSignUp: false,
+					autoSignInAfterVerification: false,
+				},
+		hooks: {
+			before: createAuthMiddleware(async (ctx) => {
+				// Check and record rate limit for ALL signup attempts
+				if (ctx.path.startsWith("/sign-up")) {
+					// Get IP address from various possible headers, prioritizing CF-Connecting-IP
+					let ipAddress = ctx.headers?.get("cf-connecting-ip");
+					if (!ipAddress) {
+						ipAddress = ctx.headers?.get("x-forwarded-for");
+						if (ipAddress) {
+							// x-forwarded-for can be a comma-separated list, take the first IP
+							ipAddress = ipAddress.split(",")[0]?.trim();
+						} else {
+							ipAddress =
+								ctx.headers?.get("x-real-ip") ||
+								ctx.headers?.get("x-client-ip") ||
+								"unknown";
+						}
+					}
+
+					// Check and record signup attempt with exponential backoff
+					const rateLimitResult = await checkAndRecordSignupAttempt(ipAddress);
+
+					if (!rateLimitResult.allowed) {
+						logger.warn("Signup rate limit exceeded", {
+							ip: ipAddress,
+							resetTime: new Date(rateLimitResult.resetTime),
 						});
-					} catch (error) {
-						logger.error(
-							"Failed to send verification email",
-							error instanceof Error ? error : new Error(String(error)),
+
+						const retryAfterSeconds = Math.ceil(
+							(rateLimitResult.resetTime - Date.now()) / 1000,
 						);
-						throw new Error(
-							"Failed to send verification email. Please try again.",
-						);
-					}
-				},
-			}
-		: {
-				sendOnSignUp: false,
-				autoSignInAfterVerification: false,
-			},
-	hooks: {
-		before: createAuthMiddleware(async (ctx) => {
-			// Check and record rate limit for ALL signup attempts
-			if (ctx.path.startsWith("/sign-up")) {
-				// Get IP address from various possible headers, prioritizing CF-Connecting-IP
-				let ipAddress = ctx.headers?.get("cf-connecting-ip");
-				if (!ipAddress) {
-					ipAddress = ctx.headers?.get("x-forwarded-for");
-					if (ipAddress) {
-						// x-forwarded-for can be a comma-separated list, take the first IP
-						ipAddress = ipAddress.split(",")[0]?.trim();
-					} else {
-						ipAddress =
-							ctx.headers?.get("x-real-ip") ||
-							ctx.headers?.get("x-client-ip") ||
-							"unknown";
-					}
-				}
 
-				// Check and record signup attempt with exponential backoff
-				const rateLimitResult = await checkAndRecordSignupAttempt(ipAddress);
+						const minutes = Math.ceil(retryAfterSeconds / 60);
+						const hours = Math.floor(minutes / 60);
+						const displayMinutes = minutes % 60;
 
-				if (!rateLimitResult.allowed) {
-					logger.warn("Signup rate limit exceeded", {
-						ip: ipAddress,
-						resetTime: new Date(rateLimitResult.resetTime),
-					});
+						let timeMessage = "";
+						if (hours > 0) {
+							timeMessage = `${hours}h ${displayMinutes}m`;
+						} else {
+							timeMessage = `${minutes}m`;
+						}
 
-					const retryAfterSeconds = Math.ceil(
-						(rateLimitResult.resetTime - Date.now()) / 1000,
-					);
-
-					const minutes = Math.ceil(retryAfterSeconds / 60);
-					const hours = Math.floor(minutes / 60);
-					const displayMinutes = minutes % 60;
-
-					let timeMessage = "";
-					if (hours > 0) {
-						timeMessage = `${hours}h ${displayMinutes}m`;
-					} else {
-						timeMessage = `${minutes}m`;
-					}
-
-					return new Response(
-						JSON.stringify({
-							error: "too_many_requests",
-							message: `Too many signup attempts. Please try again in ${timeMessage}.`,
-							retryAfter: retryAfterSeconds,
-						}),
-						{
-							status: 429,
-							headers: {
-								"Content-Type": "application/json",
-								"Retry-After": retryAfterSeconds.toString(),
+						return new Response(
+							JSON.stringify({
+								error: "too_many_requests",
+								message: `Too many signup attempts. Please try again in ${timeMessage}.`,
+								retryAfter: retryAfterSeconds,
+							}),
+							{
+								status: 429,
+								headers: {
+									"Content-Type": "application/json",
+									"Retry-After": retryAfterSeconds.toString(),
+								},
 							},
-						},
-					);
+						);
+					}
 				}
-			}
-			return;
-		}),
-		after: createAuthMiddleware(async (ctx) => {
-			// Create default org/project for first-time sessions (email signup or first social sign-in)
-			const newSession = ctx.context.newSession;
-			if (!newSession?.user) {
 				return;
-			}
+			}),
+			after: createAuthMiddleware(async (ctx) => {
+				// Create default org/project for first-time sessions (email signup or first social sign-in)
+				const newSession = ctx.context.newSession;
+				if (!newSession?.user) {
+					return;
+				}
 
-			const userId = newSession.user.id;
+				const userId = newSession.user.id;
 
-			// Check if the user already has any active organizations
-			const userOrganizations = await db.query.userOrganization.findMany({
-				where: {
-					userId,
-				},
-				with: {
-					organization: true,
-				},
-			});
-
-			const activeOrganizations = userOrganizations.filter(
-				(uo) => uo.organization?.status !== "deleted",
-			);
-
-			if (activeOrganizations.length > 0) {
-				// User already has an organization, nothing to do
-				return;
-			}
-
-			// Perform all DB operations in a single transaction for atomicity
-			await db.transaction(async (tx) => {
-				// For self-hosted installations, automatically verify the user's email
-				if (!isHosted) {
-					await tx
-						.update(tables.user)
-						.set({ emailVerified: true })
-						.where(eq(tables.user.id, userId));
-
-					logger.info("Automatically verified email for self-hosted user", {
+				// Check if the user already has any active organizations
+				const userOrganizations = await db.query.userOrganization.findMany({
+					where: {
 						userId,
-					});
+					},
+					with: {
+						organization: true,
+					},
+				});
+
+				const activeOrganizations = userOrganizations.filter(
+					(uo) => uo.organization?.status !== "deleted",
+				);
+
+				if (activeOrganizations.length > 0) {
+					// User already has an organization, nothing to do
+					return;
 				}
 
-				// Create a default organization
-				const [organization] = await tx
-					.insert(tables.organization)
-					.values({
-						name: "Default Organization",
-					})
-					.returning();
+				// Perform all DB operations in a single transaction for atomicity
+				await db.transaction(async (tx) => {
+					// For self-hosted installations, automatically verify the user's email
+					if (!isHosted) {
+						await tx
+							.update(tables.user)
+							.set({ emailVerified: true })
+							.where(eq(tables.user.id, userId));
 
-				// Link user to organization
-				await tx.insert(tables.userOrganization).values({
-					userId,
-					organizationId: organization.id,
-				});
+						logger.info("Automatically verified email for self-hosted user", {
+							userId,
+						});
+					}
 
-				// Create a default project with credits mode for better conversion
-				const [project] = await tx
-					.insert(tables.project)
-					.values({
-						name: "Default Project",
+					// Create a default organization
+					const [organization] = await tx
+						.insert(tables.organization)
+						.values({
+							name: "Default Organization",
+						})
+						.returning();
+
+					// Link user to organization
+					await tx.insert(tables.userOrganization).values({
+						userId,
 						organizationId: organization.id,
-						mode: "credits",
-					})
-					.returning();
+					});
 
-				// Auto-create an API key for the playground to use
-				// Generate a token with a prefix for better identification
-				const prefix =
-					process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-				const token = prefix + shortid(40);
+					// Create a default project with credits mode for better conversion
+					const [project] = await tx
+						.insert(tables.project)
+						.values({
+							name: "Default Project",
+							organizationId: organization.id,
+							mode: "credits",
+						})
+						.returning();
 
-				await tx.insert(tables.apiKey).values({
-					projectId: project.id,
-					token: token,
-					description: "Auto-generated playground key",
-					usageLimit: null, // No limit for playground key
+					// Auto-create an API key for the playground to use
+					// Generate a token with a prefix for better identification
+					const prefix =
+						process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+					const token = prefix + shortid(40);
+
+					await tx.insert(tables.apiKey).values({
+						projectId: project.id,
+						token: token,
+						description: "Auto-generated playground key",
+						usageLimit: null, // No limit for playground key
+					});
 				});
-			});
-		}),
-	},
-});
+			}),
+		},
+	}),
+);
 
 export interface Variables {
 	user: typeof apiAuth.$Infer.Session.user | null;

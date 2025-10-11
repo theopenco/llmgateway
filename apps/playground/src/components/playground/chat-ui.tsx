@@ -1,6 +1,6 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, RefreshCcw, Copy, GlobeIcon } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
@@ -16,12 +16,15 @@ import {
 	PromptInputActionMenu,
 	PromptInputActionMenuContent,
 	PromptInputActionMenuTrigger,
+	PromptInputAttachment,
+	PromptInputAttachments,
 	PromptInputBody,
 	PromptInputButton,
-	PromptInputTextarea,
-	PromptInputTools,
-	PromptInputToolbar,
+	PromptInputSpeechButton,
 	PromptInputSubmit,
+	PromptInputTextarea,
+	PromptInputToolbar,
+	PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import {
 	Reasoning,
@@ -38,6 +41,11 @@ import {
 } from "@/components/ai-elements/tool";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
@@ -120,9 +128,10 @@ export const ChatUI = ({
 }: ChatUIProps) => {
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
+	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	return (
-		<div className="flex flex-col h-full">
-			<div className="flex-1 overflow-y-auto px-4">
+		<div className="flex flex-col h-full min-h-[calc(100dvh-4rem)]">
+			<div className="flex-1 overflow-y-auto px-4 pb-24">
 				<Conversation>
 					<ConversationContent>
 						{messages.length === 0 ? (
@@ -266,7 +275,7 @@ export const ChatUI = ({
 				</Conversation>
 			</div>
 
-			<div className="flex-shrink-0 px-4 pb-4">
+			<div className="sticky bottom-0 left-0 right-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-gradient-to-t from-background via-background/95 to-transparent backdrop-blur supports-[backdrop-filter]:bg-background/60">
 				{error && (
 					<Alert variant="destructive" className="mb-4">
 						<AlertCircle className="h-4 w-4" />
@@ -318,14 +327,108 @@ export const ChatUI = ({
 					}}
 				>
 					<PromptInputBody>
+						<PromptInputAttachments>
+							{(attachment) => <PromptInputAttachment data={attachment} />}
+						</PromptInputAttachments>
+						<PromptInputTextarea
+							ref={textareaRef}
+							value={text}
+							onChange={(e) => setText(e.currentTarget.value)}
+							placeholder="Message"
+						/>
+					</PromptInputBody>
+					<PromptInputToolbar>
+						<PromptInputTools>
+							<PromptInputActionMenu>
+								<PromptInputActionMenuTrigger />
+								<PromptInputActionMenuContent>
+									<PromptInputActionAddAttachments />
+								</PromptInputActionMenuContent>
+							</PromptInputActionMenu>
+							<PromptInputSpeechButton
+								onTranscriptionChange={setText}
+								textareaRef={textareaRef}
+							/>
+							<Tooltip delayDuration={400}>
+								<TooltipTrigger asChild>
+									<span className="inline-flex pointer-events-auto">
+										<PromptInputButton
+											variant="ghost"
+											disabled
+											className="pointer-events-none"
+										>
+											<GlobeIcon size={16} />
+											<span>Search</span>
+										</PromptInputButton>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>coming soon</TooltipContent>
+							</Tooltip>
+						</PromptInputTools>
+						<div className="flex items-center gap-2">
+							{status === "streaming" ? (
+								<PromptInputButton onClick={() => stop()} variant="ghost">
+									Stop
+								</PromptInputButton>
+							) : null}
+							<PromptInputSubmit
+								status={status === "streaming" ? "streaming" : "ready"}
+								disabled={isLoading}
+							/>
+						</div>
+					</PromptInputToolbar>
+				</PromptInput>
+
+				{/* <PromptInput
+					accept={supportsImages ? "image/*" : undefined}
+					multiple
+					globalDrop
+					aria-disabled={isLoading || status === "streaming"}
+					onSubmit={async (message) => {
+						if (isLoading || status === "streaming") {
+							return;
+						}
+
+						try {
+							const textContent = message.text ?? "";
+							if (!textContent.trim()) {
+								return;
+							}
+
+							setText(""); // Clear input immediately
+
+							// Call sendMessage which will handle adding the user message and API request
+							sendMessage(
+								{
+									id: crypto.randomUUID(),
+									role: "user",
+									parts: [{ type: "text", text: textContent }],
+								},
+								{
+									body: {
+										apiKey: userApiKey,
+										model: selectedModel,
+									},
+								},
+							);
+
+							// Then save to database in the background
+							if (onUserMessage) {
+								onUserMessage(textContent).catch((error) => {
+									toast.error(`Failed to save message to database: ${error}`);
+								});
+							}
+						} catch {
+							toast.error("Could not send message.");
+						}
+					}}
+				>
+					<PromptInputBody>
 						<PromptInputTextarea
 							placeholder="Message"
 							value={text}
 							onChange={(e) => setText(e.currentTarget.value)}
 						/>
-						{/* <PromptInputAttachments>
-							{(file: any) => <PromptInputAttachment data={file} />}
-						</PromptInputAttachments> */}
 						<PromptInputToolbar>
 							<PromptInputTools>
 								<PromptInputActionMenu>
@@ -348,7 +451,7 @@ export const ChatUI = ({
 							</div>
 						</PromptInputToolbar>
 					</PromptInputBody>
-				</PromptInput>
+				</PromptInput> */}
 			</div>
 		</div>
 	);

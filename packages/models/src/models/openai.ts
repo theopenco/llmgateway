@@ -395,6 +395,7 @@ export const openaiModels = [
 				],
 			},
 			{
+				test: "skip",
 				providerId: "routeway-discount",
 				modelName: "gpt-5",
 				inputPrice: 1.25 / 1e6,

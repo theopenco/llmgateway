@@ -1,10 +1,6 @@
 // import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {
-	streamText,
-	type UIMessage,
-	convertToModelMessages,
-	// experimental_createMCPClient,
-} from "ai";
+import { streamText, type UIMessage, convertToModelMessages } from "ai";
+import { cookies } from "next/headers";
 
 import { getUser } from "@/lib/getUser";
 
@@ -19,6 +15,7 @@ interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: LLMGatewayChatModelId;
 	apiKey?: string;
+	provider?: string; // optional provider override
 }
 
 // let githubMCP: experimental_MCPClient | null = null;
@@ -34,7 +31,7 @@ export async function POST(req: Request) {
 	}
 
 	const body = await req.json();
-	const { messages, model, apiKey }: ChatRequestBody = body;
+	const { messages, model, apiKey, provider }: ChatRequestBody = body;
 
 	// if (!githubMCP) {
 	// 	const transport = new StreamableHTTPClientTransport(
@@ -63,7 +60,13 @@ export async function POST(req: Request) {
 	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
 
-	const finalApiKey = apiKey ?? headerApiKey;
+	// Prefer explicit apiKey or header, else read from httpOnly cookie set by backend.
+	// Accept both api.llmgateway cookie and current-domain cookie for local dev.
+	const cookieStore = await cookies();
+	const cookieApiKey =
+		cookieStore.get("llmgateway_playground_key")?.value ||
+		cookieStore.get("__Host-llmgateway_playground_key")?.value;
+	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
 			status: 400,
@@ -81,14 +84,15 @@ export async function POST(req: Request) {
 		baseUrl: gatewayUrl,
 		headers: {
 			"x-source": "chat.llmgateway.io",
-			"X-LLMGateway-User-ID": user.id,
-			"X-LLMGateway-User-Email": user.email,
-			"X-LLMGateway-User-Name": user.name,
 		},
 	});
-	const selectedModel = (model ??
-		headerModel ??
-		"auto") as LLMGatewayChatModelId;
+	let selectedModel = (model ?? headerModel ?? "auto") as LLMGatewayChatModelId;
+	if (provider && typeof provider === "string") {
+		const alreadyPrefixed = String(selectedModel).includes("/");
+		if (!alreadyPrefixed) {
+			selectedModel = `${provider}/${selectedModel}` as LLMGatewayChatModelId;
+		}
+	}
 
 	try {
 		const result = streamText({
