@@ -193,7 +193,7 @@ const groupedProviders = modelDefinitions.reduce<
 			providerName: provider.name,
 			inputPrice: map.inputPrice,
 			outputPrice: map.outputPrice,
-			requestPrice: map.requestPrice,
+			requestPrice: "requestPrice" in map ? map.requestPrice : undefined,
 			contextSize: map.contextSize,
 		});
 	});
