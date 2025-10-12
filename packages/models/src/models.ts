@@ -1,6 +1,5 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
-import { azureModels } from "./models/azure.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
@@ -165,7 +164,6 @@ export const models = [
 	...llmgatewayModels,
 	...openaiModels,
 	...anthropicModels,
-	...azureModels,
 	...googleModels,
 	...perplexityModels,
 	...xaiModels,
