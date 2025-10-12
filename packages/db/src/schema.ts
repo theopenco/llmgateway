@@ -297,6 +297,8 @@ export const apiKeyIamRule = pgTable(
 
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: string;
+	azure_resource?: string;
+	azure_region?: string;
 }
 
 export const providerKey = pgTable(

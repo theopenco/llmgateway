@@ -263,6 +263,22 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
 	},
 	{
+		id: "azure",
+		name: "Azure OpenAI",
+		description:
+			"Microsoft Azure OpenAI Service - enterprise-grade OpenAI models",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#0078D4",
+		website:
+			"https://azure.microsoft.com/en-us/products/ai-services/openai-service",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure-openai",
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

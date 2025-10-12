@@ -21,6 +21,10 @@ export function getProviderHeaders(
 				Authorization: `Bearer ${token}`,
 				"Content-Type": "application/json",
 			};
+		case "azure":
+			return {
+				"api-key": token,
+			};
 		case "openai":
 		case "inference.net":
 		case "xai":

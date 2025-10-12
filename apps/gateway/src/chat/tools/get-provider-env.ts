@@ -20,5 +20,19 @@ export function getProviderEnv(usedProvider: Provider): string {
 			message: `No API key set in environment for provider: ${usedProvider}`,
 		});
 	}
+
+	if (usedProvider === "azure") {
+		if (!process.env.LLM_AZURE_RESOURCE) {
+			throw new HTTPException(400, {
+				message: `LLM_AZURE_RESOURCE environment variable is required for Azure provider`,
+			});
+		}
+		if (!process.env.LLM_AZURE_REGION) {
+			throw new HTTPException(400, {
+				message: `LLM_AZURE_REGION environment variable is required for Azure provider`,
+			});
+		}
+	}
+
 	return token;
 }

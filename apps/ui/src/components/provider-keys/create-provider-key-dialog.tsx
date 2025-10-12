@@ -70,6 +70,8 @@ export function CreateProviderKeyDialog({
 	const [awsBedrockRegionPrefix, setAwsBedrockRegionPrefix] = useState<
 		"us." | "global." | "eu."
 	>("us.");
+	const [azureResource, setAzureResource] = useState("");
+	const [azureRegion, setAzureRegion] = useState("eastus");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -184,6 +186,8 @@ export function CreateProviderKeyDialog({
 			baseUrl?: string;
 			options?: {
 				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+				azure_resource?: string;
+				azure_region?: string;
 			};
 			organizationId: string;
 		} = {
@@ -200,6 +204,20 @@ export function CreateProviderKeyDialog({
 		if (selectedProvider === "aws-bedrock") {
 			payload.options = {
 				aws_bedrock_region_prefix: awsBedrockRegionPrefix,
+			};
+		}
+		if (selectedProvider === "azure") {
+			if (!azureResource) {
+				toast({
+					title: "Error",
+					description: "Azure resource name is required",
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				azure_resource: azureResource,
+				azure_region: azureRegion,
 			};
 		}
 
@@ -244,6 +262,8 @@ export function CreateProviderKeyDialog({
 			setCustomName("");
 			setToken("");
 			setAwsBedrockRegionPrefix("us.");
+			setAzureResource("");
+			setAzureRegion("eastus");
 		}, 300);
 	};
 
@@ -381,6 +401,43 @@ export function CreateProviderKeyDialog({
 								Region prefix for AWS Bedrock model endpoints
 							</p>
 						</div>
+					)}
+
+					{selectedProvider === "azure" && (
+						<>
+							<div className="space-y-2">
+								<Label htmlFor="azure-resource">Resource Name</Label>
+								<Input
+									id="azure-resource"
+									type="text"
+									placeholder="my-resource"
+									value={azureResource}
+									onChange={(e) => setAzureResource(e.target.value)}
+									required
+								/>
+								<p className="text-sm text-muted-foreground">
+									Your Azure resource name from the base URL:
+									https://&lt;resource-name&gt;.openai.azure.com
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="azure-region">Region</Label>
+								<Select
+									value={azureRegion}
+									onValueChange={(value) => setAzureRegion(value)}
+								>
+									<SelectTrigger id="azure-region">
+										<SelectValue placeholder="Select region" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="eastus">East US</SelectItem>
+									</SelectContent>
+								</Select>
+								<p className="text-sm text-muted-foreground">
+									Azure region for your deployment
+								</p>
+							</div>
+						</>
 					)}
 
 					{selectedProvider === "custom" && (

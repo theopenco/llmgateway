@@ -105,6 +105,17 @@ export function getProviderEndpoint(
 					process.env.LLM_AWS_BEDROCK_BASE_URL ||
 					"https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
+			case "azure": {
+				const resource =
+					providerKeyOptions?.azure_resource || process.env.LLM_AZURE_RESOURCE;
+				if (!resource) {
+					throw new Error(
+						"Azure resource is required - set via options or LLM_AZURE_RESOURCE env var",
+					);
+				}
+				url = `https://${resource}.openai.azure.com`;
+				break;
+			}
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -149,6 +160,8 @@ export function getProviderEndpoint(
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
+		case "azure":
+			return `${url}/openai/deployments/${modelName}/chat/completions?api-version=2025-01-01-preview`;
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation
