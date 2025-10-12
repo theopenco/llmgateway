@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 	description:
 		"LLM Gateway Documentation - Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
 	icons: {
-		icon: "/favicon/favicon.ico?v=1",
+		icon: "/favicon/favicon.ico?v=2",
 	},
 };
 
