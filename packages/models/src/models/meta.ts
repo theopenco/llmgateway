@@ -9,6 +9,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-8b-instruct-v1:0",
 				inputPrice: 0.3 / 1e6,
@@ -31,6 +32,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-70b-instruct-v1:0",
 				inputPrice: 2.65 / 1e6,
@@ -132,6 +134,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-2-1b-instruct-v1:0",
 				inputPrice: 0.1 / 1e6,
@@ -154,6 +157,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-2-3b-instruct-v1:0",
 				inputPrice: 0.15 / 1e6,
@@ -176,6 +180,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-2-11b-instruct-v1:0",
 				inputPrice: 0.35 / 1e6,
@@ -209,6 +214,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-2-90b-instruct-v1:0",
 				inputPrice: 2.0 / 1e6,
@@ -275,6 +281,7 @@ export const metaModels = [
 		deactivatedAt: undefined,
 		providers: [
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-3-70b-instruct-v1:0",
 				inputPrice: 0.72 / 1e6,
