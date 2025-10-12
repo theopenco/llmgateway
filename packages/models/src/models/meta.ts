@@ -11,8 +11,8 @@ export const metaModels = [
 			{
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-1-8b-instruct-v1:0",
-				inputPrice: 2.2 / 1e6,
-				outputPrice: 6.6 / 1e6,
+				inputPrice: 0.22 / 1e6,
+				outputPrice: 0.22 / 1e6,
 				requestPrice: 0,
 				contextSize: 128000,
 				maxOutput: 2048,
@@ -68,8 +68,8 @@ export const metaModels = [
 			{
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-1-70b-instruct-v1:0",
-				inputPrice: 10.6 / 1e6,
-				outputPrice: 31.8 / 1e6,
+				inputPrice: 0.72 / 1e6,
+				outputPrice: 0.72 / 1e6,
 				requestPrice: 0,
 				contextSize: 128000,
 				maxOutput: 2048,
