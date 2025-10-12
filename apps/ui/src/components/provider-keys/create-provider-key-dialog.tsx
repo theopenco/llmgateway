@@ -72,6 +72,7 @@ export function CreateProviderKeyDialog({
 	>("us.");
 	const [azureResource, setAzureResource] = useState("");
 	const [azureRegion, setAzureRegion] = useState("eastus");
+	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -188,6 +189,7 @@ export function CreateProviderKeyDialog({
 				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
 				azure_resource?: string;
 				azure_region?: string;
+				azure_api_version?: string;
 			};
 			organizationId: string;
 		} = {
@@ -218,6 +220,7 @@ export function CreateProviderKeyDialog({
 			payload.options = {
 				azure_resource: azureResource,
 				azure_region: azureRegion,
+				azure_api_version: azureApiVersion,
 			};
 		}
 
@@ -264,6 +267,7 @@ export function CreateProviderKeyDialog({
 			setAwsBedrockRegionPrefix("us.");
 			setAzureResource("");
 			setAzureRegion("eastus");
+			setAzureApiVersion("2024-10-21");
 		}, 300);
 	};
 
@@ -435,6 +439,19 @@ export function CreateProviderKeyDialog({
 								</Select>
 								<p className="text-sm text-muted-foreground">
 									Azure region for your deployment
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="azure-api-version">API Version</Label>
+								<Input
+									id="azure-api-version"
+									type="text"
+									placeholder="2024-10-21"
+									value={azureApiVersion}
+									onChange={(e) => setAzureApiVersion(e.target.value)}
+								/>
+								<p className="text-sm text-muted-foreground">
+									Azure OpenAI API version (default: 2024-10-21 GA)
 								</p>
 							</div>
 						</>

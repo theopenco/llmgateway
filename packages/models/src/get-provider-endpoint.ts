@@ -160,8 +160,13 @@ export function getProviderEndpoint(
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
-		case "azure":
-			return `${url}/openai/deployments/${modelName}/chat/completions?api-version=2025-01-01-preview`;
+		case "azure": {
+			const apiVersion =
+				providerKeyOptions?.azure_api_version ||
+				process.env.LLM_AZURE_API_VERSION ||
+				"2024-10-21";
+			return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
+		}
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
 			// but not when there are existing tool calls in the conversation
