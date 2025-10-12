@@ -22,7 +22,6 @@ export const openaiModels = [
 				tools: true,
 			},
 			{
-				test: "only",
 				providerId: "azure",
 				modelName: "gpt-4o-mini",
 				inputPrice: 0.15 / 1e6,
