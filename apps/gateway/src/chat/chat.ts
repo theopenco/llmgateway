@@ -169,11 +169,22 @@ const completionsRequestSchema = z.object({
 			example: 0.0,
 		}),
 	response_format: z
-		.object({
-			type: z.enum(["text", "json_object"]).openapi({
-				example: "json_object",
+		.union([
+			z.object({
+				type: z.enum(["text", "json_object"]).openapi({
+					example: "json_object",
+				}),
 			}),
-		})
+			z.object({
+				type: z.literal("json_schema"),
+				json_schema: z.object({
+					name: z.string(),
+					description: z.string().optional(),
+					schema: z.record(z.any()),
+					strict: z.boolean().optional(),
+				}),
+			}),
+		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
 	tools: z
