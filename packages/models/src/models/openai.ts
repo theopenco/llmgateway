@@ -102,6 +102,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				disableJsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,

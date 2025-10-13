@@ -90,6 +90,11 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutputSchema?: boolean;
 	/**
+	 * Explicitly disable JSON schema output mode for this specific provider mapping
+	 * (overrides jsonOutputSchema at the provider level)
+	 */
+	disableJsonOutputSchema?: boolean;
+	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];
