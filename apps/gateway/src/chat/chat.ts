@@ -564,6 +564,23 @@ chat.openapi(completions, async (c) => {
 				message: `Model ${requestedModel} does not support JSON output mode`,
 			});
 		}
+
+		// Additional validation for json_schema type
+		if (response_format?.type === "json_schema") {
+			// For non-auto/custom models, check if the provider supports json_schema
+			if (requestedModel !== "auto" && requestedModel !== "custom") {
+				const supportsJsonSchema = modelInfo.providers.some(
+					(provider) =>
+						(provider as ProviderModelMapping).jsonOutputSchema === true,
+				);
+
+				if (!supportsJsonSchema) {
+					throw new HTTPException(400, {
+						message: `Model ${requestedModel} does not support JSON schema output mode. Use response_format type 'json_object' instead.`,
+					});
+				}
+			}
+		}
 	}
 
 	// Check if reasoning_effort is specified but model doesn't support reasoning
