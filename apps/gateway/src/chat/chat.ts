@@ -555,7 +555,10 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (response_format?.type === "json_object") {
+	if (
+		response_format?.type === "json_object" ||
+		response_format?.type === "json_schema"
+	) {
 		if (!(modelInfo as ModelDefinition).jsonOutput) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support JSON output mode`,
