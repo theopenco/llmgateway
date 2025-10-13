@@ -263,7 +263,7 @@ export function ModelSelector({
 								) : null;
 							})()}
 							<div className="flex flex-col items-start">
-								<span className="font-medium max-w-40 truncate">
+								<span className="font-medium max-w-fit truncate">
 									{selectedModel.name}
 								</span>
 								<span className="text-xs text-muted-foreground">
