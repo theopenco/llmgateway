@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"@ai-sdk/openai": "2.0.30",
-		"@ai-sdk/react": "2.0.44",
+		"@ai-sdk/react": "2.0.61",
 		"@hey-api/client-fetch": "0.13.1",
 		"@hookform/resolvers": "5.1.1",
 		"@llmgateway/ai-sdk-provider": "2.3.0",
