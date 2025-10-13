@@ -553,6 +553,7 @@ export interface paths {
                                 frequencyPenalty: number | null;
                                 presencePenalty: number | null;
                                 reasoningEffort: string | null;
+                                responseFormat?: unknown;
                                 tools: {
                                     /** @enum {string} */
                                     type: "function";

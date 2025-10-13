@@ -437,6 +437,28 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 									</Tooltip>
 									<span>{log.reasoningEffort || "-"}</span>
 								</div>
+								<div className="flex items-center justify-between gap-2">
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="text-muted-foreground">
+												Response Format
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="max-w-xs text-xs">
+												Requested output format (text, json_object, or
+												json_schema)
+											</p>
+										</TooltipContent>
+									</Tooltip>
+									<span>
+										{log.responseFormat
+											? typeof log.responseFormat === "object"
+												? (log.responseFormat as any).type || "-"
+												: "-"
+											: "-"}
+									</span>
+								</div>
 							</TooltipProvider>
 						</div>
 					</div>
@@ -544,6 +566,18 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								{log.messages ? JSON.stringify(log.messages, null, 2) : "–"}
 							</pre>
 						</div>
+						{!!log.responseFormat && (
+							<div className="mt-3">
+								<h5 className="text-xs font-medium text-muted-foreground mb-2">
+									Response Format
+								</h5>
+								<div className="rounded-md border p-3">
+									<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">
+										{JSON.stringify(log.responseFormat, null, 2)}
+									</pre>
+								</div>
+							</div>
+						)}
 					</div>
 					{log.reasoningContent && (
 						<div className="space-y-2">
