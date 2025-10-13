@@ -11,7 +11,11 @@ import {
 	logMode,
 } from "@/chat-helpers.e2e.js";
 
-import { type ModelDefinition, models } from "@llmgateway/models";
+import {
+	type ModelDefinition,
+	models,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 
 describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -70,7 +74,14 @@ describe("e2e", getConcurrentTestOptions(), () => {
 	test.each(
 		testModels.filter((m) => {
 			const modelDef = models.find((mo) => m.originalModel === mo.id);
-			return (modelDef as ModelDefinition)?.jsonOutput === true;
+			if ((modelDef as ModelDefinition)?.jsonOutput !== true) {
+				return false;
+			}
+			// Check if any provider for this model supports jsonOutputSchema
+			return modelDef?.providers.some(
+				(provider) =>
+					(provider as ProviderModelMapping).jsonOutputSchema === true,
+			);
 		}),
 	)("JSON schema output $model", getTestOptions(), async ({ model }) => {
 		const res = await app.request("/v1/chat/completions", {
