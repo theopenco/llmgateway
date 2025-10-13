@@ -110,7 +110,7 @@ export function getProviderEndpoint(
 					providerKeyOptions?.azure_resource || process.env.LLM_AZURE_RESOURCE;
 				if (!resource) {
 					throw new Error(
-						"Azure resource is required - set via provider options or LLM_AZURE_RESOURCE env var",
+						"Azure resource is required - set via options or LLM_AZURE_RESOURCE env var",
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
@@ -161,7 +161,11 @@ export function getProviderEndpoint(
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
 		case "azure": {
-			return `${url}/openai/v1/chat/completions`;
+			const apiVersion =
+				providerKeyOptions?.azure_api_version ||
+				process.env.LLM_AZURE_API_VERSION ||
+				"2024-10-21";
+			return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 		}
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
