@@ -117,7 +117,12 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 					axisLine={false}
 					tickFormatter={(value) => `${value}`}
 				/>
-				<Tooltip content={<CustomTooltip />} />
+				<Tooltip
+					content={<CustomTooltip />}
+					cursor={{
+						fill: "color-mix(in srgb, currentColor 15%, transparent)",
+					}}
+				/>
 				<Bar
 					dataKey="total"
 					fill="currentColor"

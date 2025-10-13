@@ -163,7 +163,12 @@ export function UsageChart({ initialData, projectId }: UsageChartProps) {
 						tickLine={false}
 						axisLine={false}
 					/>
-					<Tooltip content={<CustomTooltip />} />
+					<Tooltip
+						content={<CustomTooltip />}
+						cursor={{
+							fill: "color-mix(in srgb, currentColor 15%, transparent)",
+						}}
+					/>
 					<Bar
 						dataKey="requests"
 						fill="currentColor"

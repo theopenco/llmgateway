@@ -170,7 +170,14 @@ export function ErrorRateChart({
 						axisLine={false}
 						tickFormatter={(value) => `${value.toFixed(1)}%`}
 					/>
-					<Tooltip content={<CustomTooltip />} />
+					<Tooltip
+						content={<CustomTooltip />}
+						cursor={{
+							stroke: "hsl(var(--muted-foreground))",
+							strokeWidth: 1,
+							strokeDasharray: "5 5",
+						}}
+					/>
 					<Line
 						type="monotone"
 						dataKey="errorRate"
