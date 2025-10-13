@@ -15,11 +15,35 @@ import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 import type { ActivitT } from "@/types/activity";
+import type { TooltipProps } from "recharts";
 
 interface CacheRateChartProps {
 	initialData?: ActivitT;
 	projectId: string | undefined;
 }
+
+const CustomTooltip = ({
+	active,
+	payload,
+	label,
+}: TooltipProps<number, string>) => {
+	if (active && payload && payload.length) {
+		return (
+			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
+				<p className="font-medium">
+					{label && format(parseISO(label), "MMM d, yyyy")}
+				</p>
+				<p className="text-sm">
+					<span className="font-medium">
+						{Number(payload[0].value).toFixed(2)}%
+					</span>{" "}
+					Cache Rate
+				</p>
+			</div>
+		);
+	}
+	return null;
+};
 
 export function CacheRateChart({
 	initialData,
@@ -146,13 +170,7 @@ export function CacheRateChart({
 						axisLine={false}
 						tickFormatter={(value) => `${value.toFixed(1)}%`}
 					/>
-					<Tooltip
-						formatter={(value) => [
-							`${Number(value).toFixed(2)}%`,
-							"Cache Rate",
-						]}
-						labelFormatter={(label) => format(parseISO(label), "MMM d, yyyy")}
-					/>
+					<Tooltip content={<CustomTooltip />} />
 					<Line
 						type="monotone"
 						dataKey="cacheRate"
