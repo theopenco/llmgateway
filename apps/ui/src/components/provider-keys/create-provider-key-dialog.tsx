@@ -73,6 +73,9 @@ export function CreateProviderKeyDialog({
 	const [azureResource, setAzureResource] = useState("");
 	const [azureRegion, setAzureRegion] = useState("eastus");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
+	const [azureDeploymentType, setAzureDeploymentType] = useState<
+		"openai" | "ai-foundry"
+	>("ai-foundry");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -190,6 +193,7 @@ export function CreateProviderKeyDialog({
 				azure_resource?: string;
 				azure_region?: string;
 				azure_api_version?: string;
+				azure_deployment_type?: "openai" | "ai-foundry";
 			};
 			organizationId: string;
 		} = {
@@ -221,6 +225,7 @@ export function CreateProviderKeyDialog({
 				azure_resource: azureResource,
 				azure_region: azureRegion,
 				azure_api_version: azureApiVersion,
+				azure_deployment_type: azureDeploymentType,
 			};
 		}
 
@@ -268,6 +273,7 @@ export function CreateProviderKeyDialog({
 			setAzureResource("");
 			setAzureRegion("eastus");
 			setAzureApiVersion("2024-10-21");
+			setAzureDeploymentType("ai-foundry");
 		}, 300);
 	};
 
@@ -442,18 +448,41 @@ export function CreateProviderKeyDialog({
 								</p>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="azure-api-version">API Version</Label>
-								<Input
-									id="azure-api-version"
-									type="text"
-									placeholder="2024-10-21"
-									value={azureApiVersion}
-									onChange={(e) => setAzureApiVersion(e.target.value)}
-								/>
+								<Label htmlFor="azure-deployment-type">Deployment Type</Label>
+								<Select
+									value={azureDeploymentType}
+									onValueChange={(value) =>
+										setAzureDeploymentType(value as "openai" | "ai-foundry")
+									}
+								>
+									<SelectTrigger id="azure-deployment-type">
+										<SelectValue placeholder="Select deployment type" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="ai-foundry">Azure AI Foundry</SelectItem>
+										<SelectItem value="openai">Azure OpenAI Service</SelectItem>
+									</SelectContent>
+								</Select>
 								<p className="text-sm text-muted-foreground">
-									Azure OpenAI API version (default: 2024-10-21 GA)
+									Choose Azure AI Foundry (unified endpoint) or Azure OpenAI
+									Service (deployment-based)
 								</p>
 							</div>
+							{azureDeploymentType === "openai" && (
+								<div className="space-y-2">
+									<Label htmlFor="azure-api-version">API Version</Label>
+									<Input
+										id="azure-api-version"
+										type="text"
+										placeholder="2024-10-21"
+										value={azureApiVersion}
+										onChange={(e) => setAzureApiVersion(e.target.value)}
+									/>
+									<p className="text-sm text-muted-foreground">
+										Azure OpenAI API version (default: 2024-10-21 GA)
+									</p>
+								</div>
+							)}
 						</>
 					)}
 

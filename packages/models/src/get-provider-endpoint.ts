@@ -161,7 +161,22 @@ export function getProviderEndpoint(
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
 		case "azure": {
-			return `${url}/openai/v1/chat/completions`;
+			const deploymentType =
+				providerKeyOptions?.azure_deployment_type ||
+				process.env.LLM_AZURE_DEPLOYMENT_TYPE ||
+				"ai-foundry";
+
+			if (deploymentType === "openai") {
+				// Traditional Azure OpenAI Service (deployment-based)
+				const apiVersion =
+					providerKeyOptions?.azure_api_version ||
+					process.env.LLM_AZURE_API_VERSION ||
+					"2024-10-21";
+				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
+			} else {
+				// Azure AI Foundry (unified endpoint)
+				return `${url}/openai/v1/chat/completions`;
+			}
 		}
 		case "openai":
 			// Use responses endpoint for reasoning models that support responses API
