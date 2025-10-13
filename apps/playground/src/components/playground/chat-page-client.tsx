@@ -76,18 +76,48 @@ export default function ChatPageClient({
 					.filter((p) => p.type === "text")
 					.map((p) => p.text)
 					.join("");
-				const images = (message.parts as any[])
+				const imageUrlParts = (message.parts as any[])
 					.filter((p: any) => p.type === "image_url" && p.image_url?.url)
 					.map((p: any) => ({
 						type: "image_url",
 						image_url: { url: p.image_url.url },
 					}));
 
+				// Handle file parts (AI SDK format for images)
+				const fileParts = (message.parts as any[])
+					.filter(
+						(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+					)
+					.map((p: any) => {
+						const mediaType = p.mediaType || p.mime_type || "image/png";
+						let url = String(p.url || "");
+						const isDataUrl = url.startsWith("data:");
+						const looksLikeBase64 =
+							!isDataUrl && /^[A-Za-z0-9+/=\s]+$/.test(url.slice(0, 200));
+
+						if (looksLikeBase64) {
+							url = url.replace(/\s+/g, "");
+						}
+
+						const dataUrl = isDataUrl
+							? url
+							: looksLikeBase64
+								? `data:${mediaType};base64,${url}`
+								: url;
+
+						return {
+							type: "image_url",
+							image_url: { url: dataUrl },
+						};
+					});
+
+				const images = [...imageUrlParts, ...fileParts];
+
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
 					body: {
 						role: "assistant",
-						content: textContent,
+						content: textContent || undefined,
 						images: images.length > 0 ? JSON.stringify(images) : undefined,
 					},
 				});
@@ -111,12 +141,51 @@ export default function ChatPageClient({
 
 		setMessages((prev) => {
 			if (prev.length === 0) {
-				return currentChatData.messages.map((msg) => ({
-					id: msg.id,
-					role: msg.role,
-					content: msg.content ?? "",
-					parts: [{ type: "text", text: msg.content ?? "" }],
-				}));
+				return currentChatData.messages.map((msg) => {
+					const parts: any[] = [];
+
+					// Add text content
+					if (msg.content) {
+						parts.push({ type: "text", text: msg.content });
+					}
+
+					// Add images if present
+					if (msg.images) {
+						try {
+							const parsedImages = JSON.parse(msg.images);
+							// Convert saved image_url format to file format for rendering
+							const imageParts = parsedImages.map((img: any) => {
+								const dataUrl = img.image_url?.url || "";
+								// Extract base64 and mediaType from data URL
+								if (dataUrl.startsWith("data:")) {
+									const [header, base64] = dataUrl.split(",");
+									const mediaType =
+										header.match(/data:([^;]+)/)?.[1] || "image/png";
+									return {
+										type: "file",
+										mediaType,
+										url: base64,
+									};
+								}
+								return {
+									type: "file",
+									mediaType: "image/png",
+									url: dataUrl,
+								};
+							});
+							parts.push(...imageParts);
+						} catch (error) {
+							console.error("Failed to parse images:", error);
+						}
+					}
+
+					return {
+						id: msg.id,
+						role: msg.role,
+						content: msg.content ?? "",
+						parts,
+					};
+				});
 			}
 			return prev;
 		});

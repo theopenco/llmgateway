@@ -1,10 +1,5 @@
 // import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import {
-	streamText,
-	generateText,
-	type UIMessage,
-	convertToModelMessages,
-} from "ai";
+import { streamText, type UIMessage, convertToModelMessages } from "ai";
 import { cookies } from "next/headers";
 
 import { getUser } from "@/lib/getUser";
@@ -101,48 +96,6 @@ export async function POST(req: Request) {
 	}
 
 	try {
-		const isGoogleImageModel =
-			selectedModel ===
-			("google-ai-studio/gemini-2.5-flash-image-preview" as LLMGatewayChatModelId);
-		const wantsImageMode =
-			body?.mode === "image" ||
-			(Array.isArray(messages) &&
-				messages.some(
-					(m) =>
-						Array.isArray((m as any).parts) &&
-						(m as any).parts.some(
-							(p: any) => p?.type === "image" || p?.type === "image_url",
-						),
-				));
-
-		// Special non-stream path for Gemini 2.5 Flash Image preview: return files like docs example
-		if (isGoogleImageModel && wantsImageMode) {
-			const result = await generateText({
-				model: llmgateway.chat(selectedModel),
-				messages: convertToModelMessages(messages),
-			});
-
-			const images = (result.files || [])
-				.filter((f) => f.mediaType?.startsWith("image/"))
-				.map((f) => {
-					const base64 = Buffer.from(f.uint8Array).toString("base64");
-					return {
-						type: "image_url",
-						image_url: {
-							url: `data:${f.mediaType};base64,${base64}`,
-						},
-					};
-				});
-
-			return new Response(
-				JSON.stringify({ content: result.text || null, images }),
-				{
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				},
-			);
-		}
-
 		// Default streaming chat path
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
