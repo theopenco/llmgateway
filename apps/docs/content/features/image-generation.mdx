@@ -69,19 +69,34 @@ Image generation models return responses in the standard chat completions format
 }
 ```
 
+## Vision support
+
+You can edit or modify images by combining image generation with [vision models](https://docs.llmgateway.io/features/vision) by including the image in the `messages` array.
+
+## Response Structure
+
+### Images Array
+
+The `images` array contains one or more generated images with the following structure:
+
+- `type`: Always `"image_url"` for generated images
+- `image_url.url`: A data URL containing the base64-encoded image data (format: `data:image/png;base64,<data>`)
+
+### Content Field
+
+The `content` field may contain descriptive text about the generated image, depending on the model's behavior.
+
 ## AI SDK
 
-You can use the AI SDK to generate images with the `createImage` function.
+You can use the AI SDK to generate images with your existing generateText or streamText calls.
+
+### Example
 
 "Generate an image of a cute golden retriever puppy playing in a sunny meadow"
 
 ```ts title="/api/chat/route.ts"
 import { streamText, type UIMessage, convertToModelMessages } from "ai";
-import { cookies } from "next/headers";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
-
-export const maxDuration = 300; // 5 minutes
 
 interface ChatRequestBody {
 	messages: UIMessage[];
@@ -131,7 +146,6 @@ import {
 	PromptInputButton,
 	PromptInputTextarea,
 	PromptInputToolbar,
-	PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import {
 	Conversation,
@@ -142,7 +156,7 @@ import { Loader } from "@/components/ai-elements/loader";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import { Response } from "@/components/ai-elements/response";
 
-const ChatUI = () => {
+export const ChatUI = () => {
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const [text, setText] = useState("");
 	const { messages, status, stop, regenerate, sendMessage } = useChat();
@@ -309,7 +323,7 @@ export function parseImagePartToDataUrl(part: any): {
 	mediaType: string;
 } {
 	try {
-		// Handle image_url parts (e.g., from Google/gateway responses)
+		// Handle image_url parts
 		if (part.type === "image_url" && part.image_url?.url) {
 			const url = part.image_url.url;
 			const mediaType = "image/png"; // Default for image_url parts
@@ -357,23 +371,6 @@ export function parseImagePartToDataUrl(part: any): {
 }
 ```
 
-## Vision support
-
-You can edit or modify images by combining image generation with [vision models](https://docs.llmgateway.io/features/vision) by including the image in the `messages` array.
-
-## Response Structure
-
-### Images Array
-
-The `images` array contains one or more generated images with the following structure:
-
-- `type`: Always `"image_url"` for generated images
-- `image_url.url`: A data URL containing the base64-encoded image data (format: `data:image/png;base64,<data>`)
-
-### Content Field
-
-The `content` field may contain descriptive text about the generated image, depending on the model's behavior.
-
 ## Usage Notes
 
 <Callout type="info">
@@ -386,23 +383,3 @@ The `content` field may contain descriptive text about the generated image, depe
 	Consider the payload size when integrating image generation into your
 	applications.
 </Callout>
-
-## Best Practices
-
-### Prompt Engineering
-
-- Be specific and descriptive in your prompts for better results
-- Include details about style, composition, lighting, and mood
-- Experiment with different models to find the best fit for your use case
-
-### Handling Responses
-
-- Parse the `images` array to extract generated images
-- The base64 data can be directly used in HTML `<img>` tags or saved to files
-- Consider implementing proper error handling for failed generation requests
-
-### Cost Optimization
-
-- Monitor token usage as image generation can be more expensive than text generation
-- Use auto routing to automatically select cost-effective image generation models
-- Cache generated images when appropriate to avoid repeated generation costs
