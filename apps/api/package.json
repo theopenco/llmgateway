@@ -39,7 +39,7 @@
 		"nodemailer": "^7.0.6",
 		"openai": "^5.19.1",
 		"posthog-node": "5.8.2",
-		"stripe": "18.1.1",
+		"stripe": "19.1.0",
 		"zod": "3.25.75",
 		"zod-openapi": "^4.2.4"
 	},

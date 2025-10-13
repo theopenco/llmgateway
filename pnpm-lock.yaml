@@ -165,8 +165,8 @@ importers:
         specifier: 5.8.2
         version: 5.8.2
       stripe:
-        specifier: 18.1.1
-        version: 18.1.1(@types/node@24.7.0)
+        specifier: 19.1.0
+        version: 19.1.0(@types/node@24.7.0)
       zod:
         specifier: 3.25.75
         version: 3.25.75
@@ -757,8 +757,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       stripe:
-        specifier: 18.1.1
-        version: 18.1.1(@types/node@24.7.0)
+        specifier: 19.1.0
+        version: 19.1.0(@types/node@24.7.0)
       zod:
         specifier: 3.25.75
         version: 3.25.75
@@ -8549,11 +8549,11 @@ packages:
   strip-literal@3.0.0:
     resolution: {integrity: sha512-TcccoMhJOM3OebGhSBEmp3UZ2SfDMZUEBdRA/9ynfLi8yYajyWX3JiXArcJt4Umh4vISpspkQIY8ZZoCqjbviA==}
 
-  stripe@18.1.1:
-    resolution: {integrity: sha512-hlF0ripc2nJrihpsJZQDl3xirS7tpdpS7DlmSNLEDRW8j7Qr215y5DHOI3+aEY/lq6PG8y4GR1RZPtEoIoAs/g==}
-    engines: {node: '>=12.*'}
+  stripe@19.1.0:
+    resolution: {integrity: sha512-FjgIiE98dMMTNssfdjMvFdD4eZyEzdWAOwPYqzhPRNZeg9ggFWlPXmX1iJKD5pPIwZBaPlC3SayQQkwsPo6/YQ==}
+    engines: {node: '>=16'}
     peerDependencies:
-      '@types/node': '>=12.x.x'
+      '@types/node': '>=16'
     peerDependenciesMeta:
       '@types/node':
         optional: true
@@ -18075,7 +18075,7 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
-  stripe@18.1.1(@types/node@24.7.0):
+  stripe@19.1.0(@types/node@24.7.0):
     dependencies:
       qs: 6.14.0
     optionalDependencies:
