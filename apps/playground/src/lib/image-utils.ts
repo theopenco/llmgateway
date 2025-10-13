@@ -93,15 +93,12 @@ export function parseImagePartToDataUrl(part: any): {
 			};
 		}
 
-		// Unknown part type
-		console.warn("Unknown image part type:", part.type);
 		return {
 			dataUrl: "",
 			base64Only: "",
 			mediaType: "image/png",
 		};
-	} catch (error) {
-		console.error("Failed to parse image part:", error);
+	} catch {
 		return {
 			dataUrl: "",
 			base64Only: "",
