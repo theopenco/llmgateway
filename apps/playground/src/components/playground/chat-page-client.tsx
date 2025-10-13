@@ -18,6 +18,7 @@ import {
 	useDataChat,
 } from "@/hooks/useChats";
 import { useUser } from "@/hooks/useUser";
+import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
@@ -89,22 +90,7 @@ export default function ChatPageClient({
 						(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
 					)
 					.map((p: any) => {
-						const mediaType = p.mediaType || p.mime_type || "image/png";
-						let url = String(p.url || "");
-						const isDataUrl = url.startsWith("data:");
-						const looksLikeBase64 =
-							!isDataUrl && /^[A-Za-z0-9+/=\s]+$/.test(url.slice(0, 200));
-
-						if (looksLikeBase64) {
-							url = url.replace(/\s+/g, "");
-						}
-
-						const dataUrl = isDataUrl
-							? url
-							: looksLikeBase64
-								? `data:${mediaType};base64,${url}`
-								: url;
-
+						const { dataUrl } = parseImageFile(p);
 						return {
 							type: "image_url",
 							image_url: { url: dataUrl },

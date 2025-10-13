@@ -48,6 +48,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
@@ -183,21 +184,16 @@ export const ChatUI = ({
 									const toolParts = m.parts.filter(
 										(p) => p.type === "dynamic-tool",
 									) as any[];
-									const imageUrlParts = m.parts.filter(
-										// Images streamed from gateway (e.g., Google) appear as image_url parts
-										(p: any) => p.type === "image_url" && p.image_url?.url,
-									) as any[];
-									// Handle file parts (AI SDK format for images)
-									const fileParts = m.parts.filter(
+									// Combine all image parts (both image_url and file types)
+									const imageParts = m.parts.filter(
 										(p: any) =>
-											p.type === "file" && p.mediaType?.startsWith("image/"),
+											(p.type === "image_url" && p.image_url?.url) ||
+											(p.type === "file" && p.mediaType?.startsWith("image/")),
 									) as any[];
 									const reasoningContent = m.parts
 										.filter((p) => p.type === "reasoning")
 										.map((p) => p.text)
 										.join("");
-
-									console.log(m);
 
 									return (
 										<div key={m.id}>
@@ -217,45 +213,15 @@ export const ChatUI = ({
 											) : null}
 
 											{textContent ? <Response>{textContent}</Response> : null}
-											{imageUrlParts.length > 0 ? (
-												<div className="mt-3 grid grid-cols-1 gap-3">
-													{imageUrlParts.map((img: any, idx: number) => (
-														<img
-															key={idx}
-															src={img.image_url.url}
-															alt="Generated image"
-															className="rounded-md border max-w-full h-auto"
-														/>
-													))}
-												</div>
-											) : null}
-											{fileParts.length > 0 ? (
+											{imageParts.length > 0 ? (
 												<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-													{fileParts.map((file: any, idx: number) => {
-														const mediaType =
-															file.mediaType || file.mime_type || "image/png";
-														let url = String(file.url || "");
-														const isDataUrl = url.startsWith("data:");
-														const looksLikeBase64 =
-															!isDataUrl &&
-															/^[A-Za-z0-9+/=\s]+$/.test(url.slice(0, 200));
+													{imageParts.map((part: any, idx: number) => {
+														const { base64Only, mediaType } =
+															parseImagePartToDataUrl(part);
 
-														if (looksLikeBase64) {
-															url = url.replace(/\s+/g, "");
-														}
-
-														const dataUrl = isDataUrl
-															? url
-															: looksLikeBase64
-																? `data:${mediaType};base64,${url}`
-																: url;
-
-														// Extract base64-only for your <Image/> API
-														let base64Only = "";
-														if (dataUrl.startsWith("data:")) {
-															const comma = dataUrl.indexOf(",");
-															base64Only =
-																comma >= 0 ? dataUrl.slice(comma + 1) : "";
+														// Skip rendering if parsing failed
+														if (!base64Only) {
+															return null;
 														}
 
 														return (
@@ -263,8 +229,7 @@ export const ChatUI = ({
 																<Image
 																	base64={base64Only}
 																	mediaType={mediaType}
-																	uint8Array={new Uint8Array()}
-																	alt={file.name || "Generated image"}
+																	alt={part.name || "Generated image"}
 																/>
 															</ImageZoom>
 														);

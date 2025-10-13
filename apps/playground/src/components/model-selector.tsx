@@ -78,7 +78,7 @@ function getMappingCapabilities(
 	if (mapping.tools) {
 		labels.push("Tools");
 	}
-	if ((mapping as any).reasoning) {
+	if (mapping.reasoning) {
 		labels.push("Reasoning");
 	}
 	// Image Generation capability if model outputs include images
