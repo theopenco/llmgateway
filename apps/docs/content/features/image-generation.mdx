@@ -92,8 +92,6 @@ You can use the AI SDK to generate images with your existing generateText or str
 
 ### Example
 
-"Generate an image of a cute golden retriever puppy playing in a sunny meadow"
-
 ```ts title="/api/chat/route.ts"
 import { streamText, type UIMessage, convertToModelMessages } from "ai";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
@@ -297,6 +295,42 @@ export const ChatUI = () => {
 ```
 
 ```ts title="/lib/image-utils.ts"
+/**
+ * Parses a file object containing image data and returns a properly formatted data URL
+ * and normalized media type.
+ *
+ * Handles:
+ * - Normalizing mediaType from various property names (mediaType, mime_type)
+ * - Detecting existing data: URLs
+ * - Detecting base64-looking content
+ * - Stripping whitespace from base64 content
+ * - Building proper data:...;base64,... URLs
+ */
+export function parseImageFile(file: {
+	url?: string;
+	mediaType?: string;
+	mime_type?: string;
+}): { dataUrl: string; mediaType: string } {
+	const mediaType = file.mediaType || file.mime_type || "image/png";
+	let url = String(file.url || "");
+
+	const isDataUrl = url.startsWith("data:");
+	const looksLikeBase64 =
+		!isDataUrl && /^[A-Za-z0-9+/=\s]+$/.test(url.slice(0, 200));
+
+	if (looksLikeBase64) {
+		url = url.replace(/\s+/g, "");
+	}
+
+	const dataUrl = isDataUrl
+		? url
+		: looksLikeBase64
+			? `data:${mediaType};base64,${url}`
+			: url;
+
+	return { dataUrl, mediaType };
+}
+
 /**
  * Extracts base64-only content from a data URL.
  * Returns empty string if the input is not a valid data URL.
