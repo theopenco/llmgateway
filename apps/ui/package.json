@@ -81,8 +81,8 @@
 	},
 	"devDependencies": {
 		"@tanstack/react-query-devtools": "5.84.1",
-		"@types/react": "^19.2.0",
-		"@types/react-dom": "^19.2.0",
+		"@types/react": "^19.2.2",
+		"@types/react-dom": "^19.2.1",
 		"autoprefixer": "^10.4.20",
 		"openapi-typescript": "7.9.1",
 		"postcss": "^8.5.6",
