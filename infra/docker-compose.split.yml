@@ -139,6 +139,7 @@ services:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
 
@@ -166,6 +167,7 @@ services:
       - llmgateway-network
     environment:
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_KEY=${POSTHOG_KEY}
       - POSTHOG_HOST=${POSTHOG_HOST}
 
