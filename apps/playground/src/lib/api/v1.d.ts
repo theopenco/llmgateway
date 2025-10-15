@@ -2196,6 +2196,183 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/team/{organizationId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of team members in the organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            members: {
+                                id: string;
+                                userId: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "developer";
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                        /** @enum {string} */
+                        role: "owner" | "admin" | "developer";
+                    };
+                };
+            };
+            responses: {
+                /** @description Member added successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            member: {
+                                id: string;
+                                userId: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "developer";
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/team/{organizationId}/members/{memberId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    memberId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Member removed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    memberId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        role: "owner" | "admin" | "developer";
+                    };
+                };
+            };
+            responses: {
+                /** @description Member role updated successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            member: {
+                                id: string;
+                                userId: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "developer";
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/payments/create-payment-intent": {
         parameters: {
             query?: never;

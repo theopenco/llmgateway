@@ -247,6 +247,7 @@ organization.openapi(createOrganization, async (c) => {
 	await db.insert(tables.userOrganization).values({
 		userId: user.id,
 		organizationId: newOrganization.id,
+		role: "owner",
 	});
 
 	await db.insert(tables.project).values({

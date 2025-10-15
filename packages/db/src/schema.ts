@@ -191,6 +191,11 @@ export const userOrganization = pgTable(
 		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		role: text({
+			enum: ["owner", "admin", "developer"],
+		})
+			.notNull()
+			.default("owner"),
 	},
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
