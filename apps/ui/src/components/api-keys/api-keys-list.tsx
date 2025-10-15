@@ -71,6 +71,7 @@ interface ApiKeysListProps {
 }
 
 type StatusFilter = "all" | "active" | "inactive";
+type CreatorFilter = "mine" | "all";
 
 export function ApiKeysList({
 	selectedProject,
@@ -79,6 +80,7 @@ export function ApiKeysList({
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -86,7 +88,10 @@ export function ApiKeysList({
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject?.id || "" },
+				query: {
+					projectId: selectedProject?.id || "",
+					filter: creatorFilter,
+				},
 			},
 		},
 		{
@@ -100,6 +105,7 @@ export function ApiKeysList({
 					...key,
 					maskedToken: key.maskedToken,
 				})),
+				userRole: "developer",
 			},
 		},
 	);
@@ -122,6 +128,8 @@ export function ApiKeysList({
 	const activeKeys = allKeys.filter((key) => key.status === "active");
 	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
 	const planLimits = data?.planLimits;
+	const userRole = data?.userRole || "developer";
+	const canViewAllKeys = userRole === "owner" || userRole === "admin";
 
 	const filteredKeys = (() => {
 		switch (statusFilter) {
@@ -357,8 +365,22 @@ export function ApiKeysList({
 
 	return (
 		<>
-			{/* Status Filter Tabs */}
-			<div className="mb-6">
+			{/* Filter Tabs */}
+			<div className="mb-6 flex flex-col gap-4">
+				{/* Creator Filter - Only visible for admins/owners */}
+				{canViewAllKeys && (
+					<Tabs
+						value={creatorFilter}
+						onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
+					>
+						<TabsList className="flex space-x-2 w-full md:w-fit">
+							<TabsTrigger value="all">All Keys</TabsTrigger>
+							<TabsTrigger value="mine">My Keys</TabsTrigger>
+						</TabsList>
+					</Tabs>
+				)}
+
+				{/* Status Filter Tabs */}
 				<Tabs
 					value={statusFilter}
 					onValueChange={(value) => setStatusFilter(value as StatusFilter)}
@@ -493,6 +515,7 @@ export function ApiKeysList({
 							<TableHead>API Key</TableHead>
 							<TableHead>Status</TableHead>
 							<TableHead>Created</TableHead>
+							{canViewAllKeys && <TableHead>Created By</TableHead>}
 							<TableHead>Usage</TableHead>
 							<TableHead>Usage Limit</TableHead>
 							<TableHead>IAM Rules</TableHead>
@@ -540,6 +563,22 @@ export function ApiKeysList({
 										</TooltipContent>
 									</Tooltip>
 								</TableCell>
+								{canViewAllKeys && (
+									<TableCell>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground cursor-help">
+													{key.creator?.name || key.creator?.email || "Unknown"}
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs">
+													{key.creator?.email || "No email available"}
+												</p>
+											</TooltipContent>
+										</Tooltip>
+									</TableCell>
+								)}
 								<TableCell>${Number(key.usage).toFixed(2)}</TableCell>
 								<TableCell>
 									<Dialog>
@@ -915,6 +954,16 @@ export function ApiKeysList({
 								)}
 							</div>
 						</div>
+						{canViewAllKeys && (
+							<div className="pt-2 border-t">
+								<div className="text-xs text-muted-foreground mb-1">
+									Created By
+								</div>
+								<div className="text-sm">
+									{key.creator?.name || key.creator?.email || "Unknown"}
+								</div>
+							</div>
+						)}
 					</div>
 				))}
 			</div>

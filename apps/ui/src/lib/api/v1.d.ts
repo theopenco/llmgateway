@@ -739,6 +739,7 @@ export interface paths {
             parameters: {
                 query?: {
                     projectId?: string;
+                    filter?: "mine" | "all";
                 };
                 header?: never;
                 path?: never;
@@ -746,7 +747,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description List of API keys with plan limits. */
+                /** @description List of API keys with plan limits and user role. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -763,6 +764,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string | null;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -788,6 +795,8 @@ export interface paths {
                                 /** @enum {string} */
                                 plan: "free" | "pro";
                             };
+                            /** @enum {string} */
+                            userRole: "owner" | "admin" | "developer";
                         };
                     };
                 };
@@ -828,6 +837,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string | null;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -952,6 +967,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string | null;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -1048,6 +1069,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string | null;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;

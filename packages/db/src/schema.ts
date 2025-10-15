@@ -249,8 +249,14 @@ export const apiKey = pgTable(
 		projectId: text()
 			.notNull()
 			.references(() => project.id, { onDelete: "cascade" }),
+		createdBy: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
 	},
-	(table) => [index("api_key_project_id_idx").on(table.projectId)],
+	(table) => [
+		index("api_key_project_id_idx").on(table.projectId),
+		index("api_key_created_by_idx").on(table.createdBy),
+	],
 );
 
 export const apiKeyIamRule = pgTable(
