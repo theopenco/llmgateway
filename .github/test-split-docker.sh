@@ -43,6 +43,17 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Function to log container logs
+log_container_logs() {
+  local service_name="$1"
+  local lines="${2:-50}"
+
+  echo -e "${RED}=== Logs for $service_name (last $lines lines) ===${NC}"
+  docker compose -f infra/docker-compose.split.local.yml -f "$TEMP_OVERRIDE_FILE" logs --tail="$lines" "$service_name" 2>&1 || echo "Failed to retrieve logs for $service_name"
+  echo -e "${RED}=== End logs for $service_name ===${NC}"
+  echo
+}
+
 # Function to perform health check on a specific route
 perform_health_check() {
   local endpoint="$1"
@@ -59,6 +70,9 @@ perform_health_check() {
     return 0
   else
     echo -e "${RED}✗ Health check failed for $app (HTTP $response_code)${NC}"
+    log_container_logs "$app"
+    log_container_logs "postgres"
+    log_container_logs "redis"
     return 1
   fi
 }
@@ -98,6 +112,9 @@ wait_for_service() {
   done
 
   echo -e "${RED}✗ $service_name failed to become healthy within $timeout seconds${NC}"
+  log_container_logs "$service_name"
+  log_container_logs "postgres"
+  log_container_logs "redis"
   return 1
 }
 
