@@ -158,11 +158,23 @@ team.openapi(addMember, async (c) => {
 				eq: organizationId,
 			},
 		},
+		with: {
+			organization: true,
+		},
 	});
 
 	if (!userOrganization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		process.env.PAID_MODE === "true" &&
+		userOrganization.organization?.plan !== "pro"
+	) {
+		throw new HTTPException(403, {
+			message: "Team management is only available on the Pro plan",
 		});
 	}
 
@@ -285,11 +297,23 @@ team.openapi(updateMember, async (c) => {
 				eq: organizationId,
 			},
 		},
+		with: {
+			organization: true,
+		},
 	});
 
 	if (!userOrganization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		process.env.PAID_MODE === "true" &&
+		userOrganization.organization?.plan !== "pro"
+	) {
+		throw new HTTPException(403, {
+			message: "Team management is only available on the Pro plan",
 		});
 	}
 
@@ -416,11 +440,23 @@ team.openapi(removeMember, async (c) => {
 				eq: organizationId,
 			},
 		},
+		with: {
+			organization: true,
+		},
 	});
 
 	if (!userOrganization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		process.env.PAID_MODE === "true" &&
+		userOrganization.organization?.plan !== "pro"
+	) {
+		throw new HTTPException(403, {
+			message: "Team management is only available on the Pro plan",
 		});
 	}
 
