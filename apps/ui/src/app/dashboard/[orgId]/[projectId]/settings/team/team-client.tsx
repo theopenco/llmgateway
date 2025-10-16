@@ -3,12 +3,15 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
 	useAddTeamMember,
 	useUpdateTeamMember,
 	useRemoveTeamMember,
 } from "@/hooks/useTeam";
+import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -44,10 +47,16 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 
 export function TeamClient() {
 	const params = useParams();
+	const config = useAppConfig();
 	const organizationId = params.orgId as string;
+	const { selectedOrganization } = useDashboardNavigation();
+
+	const isProPlan = selectedOrganization?.plan === "pro";
+	const isRestricted = config.hosted && !isProPlan;
 
 	const { data, isLoading } = useTeamMembers(organizationId);
 	const addMemberMutation = useAddTeamMember(organizationId);
@@ -174,7 +183,7 @@ export function TeamClient() {
 					<h2 className="text-3xl font-bold tracking-tight">Team</h2>
 					<Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
 						<DialogTrigger asChild>
-							<Button>Add Member</Button>
+							<Button disabled={isRestricted}>Add Member</Button>
 						</DialogTrigger>
 						<DialogContent>
 							<DialogHeader>
@@ -232,6 +241,22 @@ export function TeamClient() {
 					</Dialog>
 				</div>
 
+				{isRestricted && (
+					<Alert>
+						<AlertDescription className="flex items-center justify-between gap-2">
+							<span>
+								Team management is only available on the Pro plan. Upgrade to
+								invite and manage team members.
+							</span>
+							<UpgradeToProDialog>
+								<Button size="sm" variant="outline">
+									Upgrade to Pro
+								</Button>
+							</UpgradeToProDialog>
+						</AlertDescription>
+					</Alert>
+				)}
+
 				<Card>
 					<CardHeader>
 						<CardTitle>Team Members</CardTitle>
@@ -266,7 +291,9 @@ export function TeamClient() {
 															value as "owner" | "admin" | "developer",
 														)
 													}
-													disabled={updateMemberMutation.isPending}
+													disabled={
+														isRestricted || updateMemberMutation.isPending
+													}
 												>
 													<SelectTrigger className="w-[130px]">
 														<SelectValue />
@@ -288,7 +315,9 @@ export function TeamClient() {
 															member.user.name || member.user.email,
 														)
 													}
-													disabled={removeMemberMutation.isPending}
+													disabled={
+														isRestricted || removeMemberMutation.isPending
+													}
 												>
 													Remove
 												</Button>
