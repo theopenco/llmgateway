@@ -99,13 +99,16 @@ export function ApiKeysList({
 			refetchOnWindowFocus: false,
 			refetchOnMount: false,
 			refetchInterval: false,
-			initialData: {
-				apiKeys: initialData.map((key) => ({
-					...key,
-					maskedToken: key.maskedToken,
-				})),
-				userRole: "developer",
-			},
+			// Only use initialData when filter is "all" (matches the SSR data)
+			...(creatorFilter === "all" && {
+				initialData: {
+					apiKeys: initialData.map((key) => ({
+						...key,
+						maskedToken: key.maskedToken,
+					})),
+					userRole: "developer",
+				},
+			}),
 		},
 	);
 
