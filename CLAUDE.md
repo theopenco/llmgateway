@@ -15,7 +15,7 @@ This file provides guidance to AI agents when working with code in this reposito
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 - `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, API on :4002, Gateway on :4001, Docs on :3005)
-- `pnpm build` - Build all applications for production
+- `pnpm build` - Build all applications for production. Always run this after finishing work on a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 
 ### Code Quality
@@ -24,7 +24,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 Always run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
 
-- `pnpm format` - Format code and fix linting issues
+- `pnpm format` - Format code and fix linting issues. Always run this before committing code.
 - `pnpm lint` - Check linting and formatting (without fixing)
 
 ### Writing code

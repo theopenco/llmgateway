@@ -62,6 +62,7 @@ describe("stats-calculator", () => {
 				description: "Test API Key",
 				token: "test-key",
 				projectId: "proj-1",
+				createdBy: "test-user-id",
 			},
 		]);
 

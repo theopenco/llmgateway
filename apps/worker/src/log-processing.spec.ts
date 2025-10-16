@@ -46,6 +46,7 @@ describe("Log Processing", () => {
 				token: "test-token-123",
 				description: "Test Key",
 				usage: "0.00",
+				createdBy: "test-user-id",
 			})
 			.returning();
 		testApiKey = keys[0];

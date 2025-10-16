@@ -764,7 +764,7 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
-                                createdBy: string | null;
+                                createdBy: string;
                                 creator?: {
                                     id: string;
                                     name: string | null;
@@ -837,7 +837,7 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
-                                createdBy: string | null;
+                                createdBy: string;
                                 creator?: {
                                     id: string;
                                     name: string | null;
@@ -967,7 +967,7 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
-                                createdBy: string | null;
+                                createdBy: string;
                                 creator?: {
                                     id: string;
                                     name: string | null;
@@ -1069,7 +1069,7 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
-                                createdBy: string | null;
+                                createdBy: string;
                                 creator?: {
                                     id: string;
                                     name: string | null;

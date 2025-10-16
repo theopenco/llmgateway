@@ -36,6 +36,11 @@ async function sendBeacon(data: BeaconData): Promise<void> {
  * Retrieves installation data and sends beacon on startup
  */
 export async function sendInstallationBeacon(): Promise<void> {
+	// Skip beacon in CI environments
+	if (process.env.CI) {
+		return;
+	}
+
 	// Check if telemetry is active via environment variable
 	if (process.env.TELEMETRY_ACTIVE !== "true") {
 		return;

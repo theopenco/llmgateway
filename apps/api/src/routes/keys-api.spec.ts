@@ -41,6 +41,7 @@ describe("keys route", () => {
 			token: "test-token",
 			projectId: "test-project-id",
 			description: "Test API Key",
+			createdBy: "test-user-id",
 		});
 	});
 
@@ -133,6 +134,7 @@ describe("keys route", () => {
 				projectId: "test-project-id",
 				description: `Test API Key ${i}`,
 				status: "active",
+				createdBy: "test-user-id",
 			});
 		}
 
@@ -171,6 +173,7 @@ describe("keys route", () => {
 				projectId: "test-project-id",
 				description: `Test API Key ${i}`,
 				status: "active",
+				createdBy: "test-user-id",
 			});
 		}
 

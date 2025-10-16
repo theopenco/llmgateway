@@ -40,12 +40,14 @@ describe("activity endpoint", () => {
 				token: "test-token",
 				projectId: "test-project-id",
 				description: "Test API Key",
+				createdBy: "test-user-id",
 			},
 			{
 				id: "test-api-key-id-2",
 				token: "test-token-2",
 				projectId: "test-project-id-2",
 				description: "Test API Key 2",
+				createdBy: "test-user-id",
 			},
 		]);
 
