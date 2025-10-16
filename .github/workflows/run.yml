@@ -37,26 +37,3 @@ jobs:
         run: |
           set -eux
           ${{ inputs.cmd }}
-        env:
-          LLM_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LLM_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          LLM_INFERENCE_NET_API_KEY: ${{ secrets.INFERENCE_NET_API_KEY }}
-          LLM_TOGETHER_AI_API_KEY: ${{ secrets.TOGETHER_AI_API_KEY }}
-          LLM_GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
-          LLM_CLOUD_RIFT_API_KEY: ${{ secrets.CLOUD_RIFT_API_KEY }}
-          LLM_MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          LLM_X_AI_API_KEY: ${{ secrets.X_AI_API_KEY }}
-          LLM_GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          LLM_DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          LLM_PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
-          LLM_NOVITA_AI_API_KEY: ${{ secrets.NOVITA_AI_API_KEY }}
-          LLM_MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-          LLM_ALIBABA_API_KEY: ${{ secrets.ALIBABA_API_KEY }}
-          LLM_NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
-          LLM_Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
-          LLM_NANO_GPT_API_KEY: ${{ secrets.NANO_GPT_API_KEY }}
-          LLM_ROUTEWAY_API_KEY: ${{ secrets.ROUTEWAY_API_KEY }}
-          LLM_ROUTEWAY_DISCOUNT_API_KEY: ${{ secrets.ROUTEWAY_DISCOUNT_API_KEY }}
-          LLM_ROUTEWAY_DISCOUNT_BASE_URL: ${{ secrets.ROUTEWAY_DISCOUNT_BASE_URL }}
-          LLM_AWS_BEDROCK_API_KEY: ${{ secrets.AWS_BEDROCK_API_KEY }}
-          LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
