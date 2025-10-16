@@ -222,6 +222,14 @@ export function TeamClient() {
 										</SelectContent>
 									</Select>
 								</div>
+
+								<Alert>
+									<AlertDescription>
+										Adding a team member will increase your subscription cost by{" "}
+										<span className="inline font-semibold">$25/seat/month</span>
+										The charge will be prorated based on your billing cycle.
+									</AlertDescription>
+								</Alert>
 							</div>
 							<DialogFooter>
 								<Button
