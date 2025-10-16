@@ -50,10 +50,16 @@ export function ArchiveProjectSettings({
 			// Redirect to organization dashboard
 			router.push(`/dashboard/${orgId}`);
 		},
-		onError: () => {
+		onError: (error: any) => {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "Failed to archive the project. Please try again.");
 			toast({
 				title: "Error",
-				description: "Failed to archive the project. Please try again.",
+				description: errorMessage,
 				variant: "destructive",
 			});
 		},
