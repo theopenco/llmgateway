@@ -46,6 +46,9 @@ services:
       - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY:-}
       - LLM_ANTHROPIC_API_KEY=${LLM_ANTHROPIC_API_KEY:-}
 
+      # CI environment
+      - CI=${CI}
+
 volumes:
   llmgateway_postgres:
     driver: local
