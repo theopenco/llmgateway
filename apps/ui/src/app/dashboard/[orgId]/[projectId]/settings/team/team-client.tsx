@@ -359,6 +359,14 @@ export function TeamClient() {
 								or organization settings.
 							</p>
 						</div>
+						<div>
+							<h4 className="font-semibold">Restricted Access</h4>
+							<p className="text-muted-foreground text-sm">
+								If you want a user to just access the API but not the dashboard
+								or settings, just add an API key for them, where you can also
+								set specific permissions.
+							</p>
+						</div>
 					</CardContent>
 				</Card>
 			</div>

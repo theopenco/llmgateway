@@ -351,6 +351,20 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// Check if user is trying to update policies or billing settings
+	const isBillingOrPolicyUpdate =
+		retentionLevel !== undefined ||
+		autoTopUpEnabled !== undefined ||
+		autoTopUpThreshold !== undefined ||
+		autoTopUpAmount !== undefined;
+
+	// Only owners can update billing and policy settings
+	if (isBillingOrPolicyUpdate && userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can update billing and policy settings",
+		});
+	}
+
 	const updateData: any = {};
 	if (name !== undefined) {
 		updateData.name = name;

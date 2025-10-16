@@ -69,6 +69,13 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		});
 	}
 
+	// Only owners can manage subscriptions
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can manage subscriptions",
+		});
+	}
+
 	const organization = userOrganization.organization;
 
 	// Check if organization already has a pro subscription
@@ -185,6 +192,13 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 		});
 	}
 
+	// Only owners can manage subscriptions
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can manage subscriptions",
+		});
+	}
+
 	const organization = userOrganization.organization;
 
 	if (!organization.stripeSubscriptionId) {
@@ -257,6 +271,13 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// Only owners can manage subscriptions
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can manage subscriptions",
 		});
 	}
 
@@ -343,6 +364,13 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// Only owners can manage subscriptions
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can manage subscriptions",
 		});
 	}
 

@@ -373,8 +373,8 @@ keysApi.openapi(list, async (c) => {
 		}
 	}
 
-	// Developers can only see their own keys, regardless of filter
-	const shouldFilterByCreator = userRole === "developer" || filter === "mine";
+	// All users can see all keys, but can still filter to "mine"
+	const shouldFilterByCreator = filter === "mine";
 
 	// Get API keys for the specified project or all accessible projects
 	const apiKeys = await db.query.apiKey.findMany({
@@ -544,17 +544,6 @@ keysApi.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	// Check if user is a developer and enforce ownership
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
-
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
-		throw new HTTPException(403, {
-			message: "You don't have permission to delete this API key",
-		});
-	}
-
 	await db
 		.update(tables.apiKey)
 		.set({
@@ -681,17 +670,6 @@ keysApi.openapi(updateStatus, async (c) => {
 	if (!apiKey.project) {
 		throw new HTTPException(404, {
 			message: "Project not found for API key",
-		});
-	}
-
-	// Check if user is a developer and enforce ownership
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
-
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
-		throw new HTTPException(403, {
-			message: "You don't have permission to modify this API key",
 		});
 	}
 
@@ -831,17 +809,6 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		});
 	}
 
-	// Check if user is a developer and enforce ownership
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
-
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
-		throw new HTTPException(403, {
-			message: "You don't have permission to modify this API key",
-		});
-	}
-
 	// Update the API key usage limit
 	const [updatedApiKey] = await db
 		.update(tables.apiKey)
@@ -948,17 +915,6 @@ keysApi.openapi(createIamRule, async (c) => {
 	if (!apiKey.project) {
 		throw new HTTPException(404, {
 			message: "Project not found for API key",
-		});
-	}
-
-	// Check if user is a developer and enforce ownership
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
-
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
-		throw new HTTPException(403, {
-			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
 
@@ -1161,17 +1117,6 @@ keysApi.openapi(updateIamRule, async (c) => {
 		});
 	}
 
-	// Check if user is a developer and enforce ownership
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
-
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
-		throw new HTTPException(403, {
-			message: "You don't have permission to manage IAM rules for this API key",
-		});
-	}
-
 	// Update the IAM rule
 	const [updatedRule] = await db
 		.update(tables.apiKeyIamRule)
@@ -1270,17 +1215,6 @@ keysApi.openapi(deleteIamRule, async (c) => {
 	if (!apiKey.project) {
 		throw new HTTPException(404, {
 			message: "Project not found for API key",
-		});
-	}
-
-	// Check if user is a developer and enforce ownership
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
-
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
-		throw new HTTPException(403, {
-			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
 
