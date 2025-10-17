@@ -253,9 +253,9 @@ export function PricingPlans() {
 				"NO fees on credit purchases",
 				"100,000 included requests/month",
 				"$0.0001 per additional request",
+				"3 Team Members (more at $10/user/month)",
 				"90-day data retention",
 				"Advanced Analytics",
-				"Team Members (+$20/user/month)",
 				"Priority support",
 			],
 			cta:
