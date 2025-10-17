@@ -161,9 +161,15 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 					toast({ title: "IAM rule created successfully" });
 				},
 				onError: (error: any) => {
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error
+							? error.message
+							: "Failed to create IAM rule");
 					toast({
 						title: "Failed to create IAM rule",
-						description: error?.message || "An unknown error occurred",
+						description: errorMessage,
 						variant: "destructive",
 					});
 				},
@@ -186,9 +192,15 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 
 					toast({ title: "IAM rule deleted successfully" });
 				},
-				onError: () => {
+				onError: (error: any) => {
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error
+							? error.message
+							: "Failed to delete IAM rule");
 					toast({
-						title: "Failed to delete IAM rule",
+						title: errorMessage,
 						variant: "destructive",
 					});
 				},

@@ -62,10 +62,16 @@ export function PlanManagement() {
 				description:
 					"Your Pro subscription has been canceled. You'll retain access until the end of your billing period.",
 			});
-		} catch (error) {
+		} catch (error: any) {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "Failed to cancel subscription. Please try again.");
 			toast({
 				title: "Error",
-				description: `Failed to cancel subscription. Please try again. Error: ${error}`,
+				description: errorMessage,
 				variant: "destructive",
 			});
 		}
@@ -90,10 +96,16 @@ export function PlanManagement() {
 				description:
 					"Your Pro subscription has been resumed. You'll continue to have access to all Pro features.",
 			});
-		} catch (error) {
+		} catch (error: any) {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "Failed to resume subscription. Please try again.");
 			toast({
 				title: "Error",
-				description: `Failed to resume subscription. Please try again. Error: ${error}`,
+				description: errorMessage,
 				variant: "destructive",
 			});
 		}
@@ -118,10 +130,16 @@ export function PlanManagement() {
 				description:
 					"Your subscription has been upgraded to yearly billing. You'll save money on future billing cycles!",
 			});
-		} catch (error) {
+		} catch (error: any) {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "Failed to upgrade to yearly plan. Please try again.");
 			toast({
 				title: "Error",
-				description: `Failed to upgrade to yearly plan. Please try again. Error: ${error}`,
+				description: errorMessage,
 				variant: "destructive",
 			});
 		}

@@ -222,13 +222,15 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
-				onError: (error: unknown) => {
+				onError: (error: any) => {
 					setIsValidating(false);
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error ? error.message : "Failed to create key");
 					toast({
 						title: "Error",
-						description:
-							(error as { message?: string })?.message ??
-							"Failed to create key",
+						description: errorMessage,
 						variant: "destructive",
 					});
 				},
