@@ -263,6 +263,18 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
 	},
 	{
+		id: "canopywave",
+		name: "CanopyWave",
+		description:
+			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
+		streaming: true,
+		cancellation: true,
+		jsonOutput: true,
+		color: "#10b981",
+		website: "https://canopywave.io",
+		announcement: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
