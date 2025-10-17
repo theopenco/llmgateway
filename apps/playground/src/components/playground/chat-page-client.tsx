@@ -313,6 +313,14 @@ export default function ChatPageClient({
 		return !!model?.vision;
 	}, [availableModels, selectedModel]);
 
+	const supportsImageGen = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.imageGen;
+	}, [availableModels, selectedModel]);
+
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
 		if (org?.id) {
@@ -393,6 +401,7 @@ export default function ChatPageClient({
 						<ChatUI
 							messages={messages}
 							supportsImages={supportsImages}
+							supportsImageGen={supportsImageGen}
 							sendMessage={sendMessage}
 							userApiKey={null}
 							selectedModel={selectedModel}

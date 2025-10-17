@@ -47,6 +47,7 @@ export interface ComboboxModel {
 	outputPrice?: number;
 	vision?: boolean;
 	tools?: boolean;
+	imageGen?: boolean;
 }
 
 export interface Project {

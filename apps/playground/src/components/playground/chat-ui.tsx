@@ -55,6 +55,7 @@ import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
+	supportsImageGen: boolean;
 	sendMessage: (
 		message: UIMessage,
 		options?: ChatRequestOptions,
@@ -106,17 +107,17 @@ const heroSuggestionGroups = {
 		"Explain how to debounce an input in React",
 		"Show an example of a Zod schema with refinement",
 	],
-	Learn: [
-		"Teach me Rust ownership like I'm new to systems programming",
-		"Create a 7‑day plan to learn SQL",
-		"Explain OAuth vs. OIDC with diagrams",
-		"How does vector search work?",
+	"Image gen": [
+		"Generate an image of a cyberpunk city at night",
+		"Create a serene mountain landscape at sunrise",
+		"Design a futuristic robot assistant",
 	],
 };
 
 export const ChatUI = ({
 	messages,
 	supportsImages,
+	supportsImageGen,
 	sendMessage,
 	userApiKey,
 	selectedModel,
@@ -149,32 +150,46 @@ export const ChatUI = ({
 									</h2>
 								</div>
 								<div className="mb-6 flex justify-center gap-2">
-									{Object.keys(heroSuggestionGroups).map((key) => (
-										<Button
-											key={key}
-											size="sm"
-											variant={activeGroup === key ? "default" : "secondary"}
-											onClick={() =>
-												setActiveGroup(key as keyof typeof heroSuggestionGroups)
-											}
-											className="rounded-full"
-										>
-											{key}
-										</Button>
-									))}
+									{Object.keys(heroSuggestionGroups).map((key) => {
+										const isImageGen = key === "Image gen";
+										const isDisabled = isImageGen && !supportsImageGen;
+										return (
+											<Button
+												key={key}
+												size="sm"
+												variant={activeGroup === key ? "default" : "secondary"}
+												onClick={() =>
+													setActiveGroup(
+														key as keyof typeof heroSuggestionGroups,
+													)
+												}
+												className="rounded-full"
+												disabled={isDisabled}
+											>
+												{key}
+											</Button>
+										);
+									})}
 								</div>
-								<div className="space-y-2">
-									{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
-										<button
-											key={s}
-											type="button"
-											onClick={() => setText(s)}
-											className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
-										>
-											{s}
-										</button>
-									))}
-								</div>
+								{activeGroup === "Image gen" && !supportsImageGen ? (
+									<div className="text-center text-sm text-muted-foreground py-8">
+										Please select a model that supports image generation to use
+										this feature.
+									</div>
+								) : (
+									<div className="space-y-2">
+										{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
+											<button
+												key={s}
+												type="button"
+												onClick={() => setText(s)}
+												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+											>
+												{s}
+											</button>
+										))}
+									</div>
+								)}
 							</div>
 						) : (
 							messages.map((m, messageIndex) => {
