@@ -150,26 +150,19 @@ export const ChatUI = ({
 									</h2>
 								</div>
 								<div className="mb-6 flex justify-center gap-2">
-									{Object.keys(heroSuggestionGroups).map((key) => {
-										const isImageGen = key === "Image gen";
-										const isDisabled = isImageGen && !supportsImageGen;
-										return (
-											<Button
-												key={key}
-												size="sm"
-												variant={activeGroup === key ? "default" : "secondary"}
-												onClick={() =>
-													setActiveGroup(
-														key as keyof typeof heroSuggestionGroups,
-													)
-												}
-												className="rounded-full"
-												disabled={isDisabled}
-											>
-												{key}
-											</Button>
-										);
-									})}
+									{Object.keys(heroSuggestionGroups).map((key) => (
+										<Button
+											key={key}
+											size="sm"
+											variant={activeGroup === key ? "default" : "secondary"}
+											onClick={() =>
+												setActiveGroup(key as keyof typeof heroSuggestionGroups)
+											}
+											className="rounded-full"
+										>
+											{key}
+										</Button>
+									))}
 								</div>
 								{activeGroup === "Image gen" && !supportsImageGen ? (
 									<div className="text-center text-sm text-muted-foreground py-8">
