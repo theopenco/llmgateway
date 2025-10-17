@@ -11,6 +11,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "deepseek-r1t2-chimera:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -34,6 +35,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "glm-4.5-air:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -57,6 +59,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "kimi-dev-72b:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -80,6 +83,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "mistral-small-3:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -103,6 +107,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "gpt-oss-20b:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -126,6 +131,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -149,6 +155,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "llama-3.3-70b-instruct:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -172,6 +179,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "llama-4-scout:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -195,6 +203,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "llama-4-maverick:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -218,6 +227,7 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
+				stability: "unstable" as const,
 				modelName: "nemotron-nano-9b-v2:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
