@@ -133,11 +133,15 @@ export const ChatUI = ({
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	return (
-		<div className="flex flex-col h-full min-h-[calc(100dvh-4rem)]">
-			<div className="flex-1 overflow-y-auto px-4 pb-24">
+		<div className="flex flex-col h-full min-h-0">
+			<div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
 				<Conversation>
 					<ConversationContent>
-						{messages.length === 0 ? (
+						{isLoading && messages.length === 0 ? (
+							<div className="flex items-center justify-center h-full">
+								<Loader />
+							</div>
+						) : messages.length === 0 ? (
 							<div className="max-w-3xl mx-auto py-10">
 								<div className="mb-6 text-center">
 									<h2 className="text-3xl font-semibold tracking-tight">
@@ -307,7 +311,7 @@ export const ChatUI = ({
 				</Conversation>
 			</div>
 
-			<div className="sticky bottom-0 left-0 right-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-gradient-to-t from-background via-background/95 to-transparent backdrop-blur supports-[backdrop-filter]:bg-background/60">
+			<div className="flex-shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t">
 				{error && (
 					<Alert variant="destructive" className="mb-4">
 						<AlertCircle className="h-4 w-4" />

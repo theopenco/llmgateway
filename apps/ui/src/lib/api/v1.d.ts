@@ -2685,6 +2685,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                reasoning: string | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -2803,6 +2804,7 @@ export interface paths {
                         role: "user" | "assistant" | "system";
                         content?: string;
                         images?: string;
+                        reasoning?: string;
                     };
                 };
             };
@@ -2820,6 +2822,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                reasoning: string | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;

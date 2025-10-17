@@ -25,6 +25,7 @@ const messageSchema = z.object({
 	role: z.enum(["user", "assistant", "system"]),
 	content: z.string().nullable(),
 	images: z.string().nullable(), // JSON string
+	reasoning: z.string().nullable(), // Reasoning content
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -44,6 +45,7 @@ const createMessageSchema = z
 		role: z.enum(["user", "assistant", "system"]),
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
+		reasoning: z.string().optional(), // Reasoning content
 	})
 	.refine((data) => data.content || data.images, {
 		message: "Either content or images must be provided",
@@ -282,6 +284,7 @@ chats.openapi(getChat, async (c) => {
 				role: message.role as "user" | "assistant" | "system",
 				content: message.content,
 				images: message.images,
+				reasoning: message.reasoning,
 				sequence: message.sequence,
 				createdAt: message.createdAt.toISOString(),
 			})),
@@ -513,6 +516,7 @@ chats.openapi(addMessage, async (c) => {
 			role: body.role,
 			content: body.content || null,
 			images: body.images || null,
+			reasoning: body.reasoning || null,
 			sequence: nextSequence,
 		})
 		.returning();
@@ -530,6 +534,7 @@ chats.openapi(addMessage, async (c) => {
 				role: newMessage.role as "user" | "assistant" | "system",
 				content: newMessage.content,
 				images: newMessage.images,
+				reasoning: newMessage.reasoning,
 				sequence: newMessage.sequence,
 				createdAt: newMessage.createdAt.toISOString(),
 			},

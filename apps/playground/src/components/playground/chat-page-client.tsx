@@ -72,11 +72,17 @@ export default function ChatPageClient({
 				if (!chatId) {
 					return;
 				}
-				// Extract assistant text and images from UIMessage parts
+				// Extract assistant text, images, and reasoning from UIMessage parts
 				const textContent = message.parts
 					.filter((p) => p.type === "text")
 					.map((p) => p.text)
 					.join("");
+
+				const reasoningContent = message.parts
+					.filter((p) => p.type === "reasoning")
+					.map((p) => p.text)
+					.join("");
+
 				const imageUrlParts = (message.parts as any[])
 					.filter((p: any) => p.type === "image_url" && p.image_url?.url)
 					.map((p: any) => ({
@@ -105,6 +111,7 @@ export default function ChatPageClient({
 						role: "assistant",
 						content: textContent || undefined,
 						images: images.length > 0 ? JSON.stringify(images) : undefined,
+						reasoning: reasoningContent || undefined,
 					},
 				});
 			},
@@ -117,12 +124,19 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
-	const { data: currentChatData } = useDataChat(currentChatId ?? "");
+	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
+		currentChatId ?? "",
+	);
 	useChats();
 
 	useEffect(() => {
 		if (!currentChatData?.messages) {
 			return;
+		}
+
+		// Update the selected model when loading a chat
+		if (currentChatData.chat?.model) {
+			setSelectedModel(currentChatData.chat.model);
 		}
 
 		setMessages((prev) => {
@@ -133,6 +147,11 @@ export default function ChatPageClient({
 					// Add text content
 					if (msg.content) {
 						parts.push({ type: "text", text: msg.content });
+					}
+
+					// Add reasoning if present
+					if (msg.reasoning) {
+						parts.push({ type: "reasoning", text: msg.reasoning });
 					}
 
 					// Add images if present
@@ -175,7 +194,7 @@ export default function ChatPageClient({
 			}
 			return prev;
 		});
-	}, [currentChatData, setMessages]);
+	}, [currentChatData, setMessages, setSelectedModel]);
 
 	// Removed showApiKeyManager
 
@@ -266,16 +285,9 @@ export default function ChatPageClient({
 	};
 
 	const handleChatSelect = (chatId: string) => {
-		setIsLoading(true);
 		setError(null);
-		try {
-			setMessages([]);
-			setCurrentChatId(chatId);
-		} catch {
-			setError("Failed to load chat. Please try again.");
-		} finally {
-			setIsLoading(false);
-		}
+		setMessages([]);
+		setCurrentChatId(chatId);
 	};
 
 	// keep URL in sync with selected model
@@ -352,7 +364,7 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
-			<div className="flex h-screen bg-background w-full">
+			<div className="flex h-svh bg-background w-full overflow-hidden">
 				<ChatSidebar
 					onNewChat={handleNewChat}
 					onChatSelect={handleChatSelect}
@@ -368,7 +380,7 @@ export default function ChatPageClient({
 					onSelectProject={handleSelectProject}
 					onProjectCreated={handleProjectCreated}
 				/>
-				<div className="flex flex-1 flex-col w-full h-full">
+				<div className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
 					<div className="flex-shrink-0">
 						<ChatHeader
 							models={models}
@@ -377,7 +389,7 @@ export default function ChatPageClient({
 							setSelectedModel={setSelectedModel}
 						/>
 					</div>
-					<div className="flex-1 overflow-hidden w-full md:w-2xl mx-auto">
+					<div className="flex flex-col flex-1 min-h-0 w-full max-w-3xl mx-auto overflow-hidden">
 						<ChatUI
 							messages={messages}
 							supportsImages={supportsImages}
@@ -390,7 +402,7 @@ export default function ChatPageClient({
 							stop={stop}
 							regenerate={regenerate}
 							onUserMessage={handleUserMessage}
-							isLoading={isLoading}
+							isLoading={isLoading || isChatLoading}
 							error={error}
 						/>
 					</div>

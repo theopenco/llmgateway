@@ -518,6 +518,7 @@ export const message = pgTable(
 		}).notNull(),
 		content: text(), // Made nullable to support image-only messages
 		images: text(), // JSON string to store images array
+		reasoning: text(), // Reasoning content from AI models
 		sequence: integer().notNull(), // To maintain message order
 	},
 	(table) => [index("message_chat_id_idx").on(table.chatId)],
