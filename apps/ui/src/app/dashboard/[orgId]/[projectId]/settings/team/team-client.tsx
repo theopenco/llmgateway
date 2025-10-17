@@ -225,8 +225,9 @@ export function TeamClient() {
 
 								<Alert>
 									<AlertDescription>
-										Adding a team member will increase your subscription cost by{" "}
-										<span className="inline font-semibold">$25/seat/month</span>
+										3 seats are included; any additional members will incur a
+										cost of{" "}
+										<span className="inline font-semibold">$10/seat/month</span>
 										The charge will be prorated based on your billing cycle.
 									</AlertDescription>
 								</Alert>
