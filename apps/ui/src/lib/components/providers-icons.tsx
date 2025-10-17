@@ -917,11 +917,6 @@ export type ProviderIconKey = keyof typeof ProviderIcons;
 export const getProviderIcon = (
 	provider: string,
 ): React.FC<React.SVGProps<SVGSVGElement>> | null => {
-	console.log(
-		"Getting icon for provider:",
-		provider,
-		ProviderIcons[provider as ProviderIconKey],
-	);
 	// First try the exact provider name (for keys like "together.ai", "inference.net")
 	if (ProviderIcons[provider as ProviderIconKey]) {
 		return ProviderIcons[provider as ProviderIconKey];
