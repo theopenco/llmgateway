@@ -6,6 +6,7 @@ import {
 	Filter,
 	Info,
 	ExternalLink,
+	AlertTriangle,
 } from "lucide-react";
 import * as React from "react";
 
@@ -59,6 +60,7 @@ interface FilterState {
 	providers: string[];
 	capabilities: string[];
 	priceRange: "free" | "low" | "medium" | "high" | "all";
+	hideUnstable: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -89,6 +91,19 @@ function getMappingCapabilities(
 	return labels;
 }
 
+// helper to check if a model is unstable or experimental
+function isModelUnstable(
+	mapping: ProviderModelMapping,
+	model: ModelDefinition,
+): boolean {
+	const providerStability = mapping.stability;
+	const modelStability = model.stability;
+	const effectiveStability = providerStability ?? modelStability;
+	return (
+		effectiveStability === "unstable" || effectiveStability === "experimental"
+	);
+}
+
 // Removed old ModelItem; we render entries per provider below
 
 export function ModelSelector({
@@ -111,6 +126,7 @@ export function ModelSelector({
 		providers: [],
 		capabilities: [],
 		priceRange: "all",
+		hideUnstable: true,
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
@@ -127,7 +143,7 @@ export function ModelSelector({
 			? `${selectedProviderId}-${selectedModel.id}`
 			: "";
 
-	// Build entries of model per provider mapping
+	// Build entries of model per provider mapping (include all, filter later)
 	const allEntries = React.useMemo(() => {
 		const out: {
 			model: ModelDefinition;
@@ -139,15 +155,6 @@ export function ModelSelector({
 				continue;
 			}
 			for (const mp of m.providers) {
-				// Filter out unstable models/providers
-				const providerStability = mp.stability;
-				const modelStability = m.stability;
-				const effectiveStability = providerStability ?? modelStability;
-
-				if (effectiveStability === "unstable") {
-					continue;
-				}
-
 				out.push({
 					model: m,
 					mapping: mp,
@@ -174,6 +181,17 @@ export function ModelSelector({
 
 	const filteredEntries = React.useMemo(() => {
 		let list = allEntries;
+		if (filters.hideUnstable) {
+			list = list.filter((e) => {
+				const providerStability = e.mapping.stability;
+				const modelStability = e.model.stability;
+				const effectiveStability = providerStability ?? modelStability;
+				return (
+					effectiveStability !== "unstable" &&
+					effectiveStability !== "experimental"
+				);
+			});
+		}
 		if (searchQuery) {
 			const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, "");
 			const q = normalize(searchQuery);
@@ -245,13 +263,15 @@ export function ModelSelector({
 			providers: [],
 			capabilities: [],
 			priceRange: "all",
+			hideUnstable: true,
 		});
 	};
 
 	const hasActiveFilters =
 		filters.providers.length > 0 ||
 		filters.capabilities.length > 0 ||
-		filters.priceRange !== "all";
+		filters.priceRange !== "all" ||
+		!filters.hideUnstable;
 
 	return (
 		<>
@@ -280,9 +300,20 @@ export function ModelSelector({
 									) : null;
 								})()}
 								<div className="flex flex-col items-start min-w-0 flex-1">
-									<span className="font-medium truncate max-w-full">
-										{selectedModel.name}
-									</span>
+									<div className="flex items-center gap-1 max-w-full">
+										<span className="font-medium truncate">
+											{selectedModel.name}
+										</span>
+										{(() => {
+											const selectedMapping = selectedModel.providers.find(
+												(p) => p.providerId === selectedProviderId,
+											);
+											return selectedMapping &&
+												isModelUnstable(selectedMapping, selectedModel) ? (
+												<AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-yellow-600 dark:text-yellow-500" />
+											) : null;
+										})()}
+									</div>
 									<span className="text-xs text-muted-foreground truncate max-w-full">
 										{
 											(
@@ -464,6 +495,30 @@ export function ModelSelector({
 														))}
 													</div>
 												</div>
+
+												<Separator />
+
+												{/* Stability filter */}
+												<div className="space-y-2">
+													<Label className="text-sm font-medium">
+														Stability
+													</Label>
+													<div className="flex items-center space-x-2">
+														<Checkbox
+															id="hide-unstable"
+															checked={filters.hideUnstable}
+															onCheckedChange={(checked) =>
+																updateFilter("hideUnstable", checked)
+															}
+														/>
+														<Label
+															htmlFor="hide-unstable"
+															className="text-sm cursor-pointer"
+														>
+															Hide unstable/experimental models
+														</Label>
+													</div>
+												</div>
 											</div>
 										</PopoverContent>
 									</Popover>
@@ -492,6 +547,7 @@ export function ModelSelector({
 												? getProviderIcon(provider.id)
 												: null;
 											const entryKey = `${mapping.providerId}-${model.id}`;
+											const isUnstable = isModelUnstable(mapping, model);
 											return (
 												<CommandItem
 													key={entryKey}
@@ -518,9 +574,14 @@ export function ModelSelector({
 																<ProviderIcon className="h-6 w-6 flex-shrink-0" />
 															) : null}
 															<div className="flex flex-col min-w-0 flex-1">
-																<span className="font-medium truncate">
-																	{model.name}
-																</span>
+																<div className="flex items-center gap-1">
+																	<span className="font-medium truncate">
+																		{model.name}
+																	</span>
+																	{isUnstable && (
+																		<AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-yellow-600 dark:text-yellow-500" />
+																	)}
+																</div>
 																<span className="text-xs text-muted-foreground truncate">
 																	{provider?.name}
 																</span>
