@@ -7,13 +7,13 @@ ALTER TABLE "api_key" ADD COLUMN "created_by" text;--> statement-breakpoint
 -- Set creator for existing API keys: assign to the first user in the organization
 UPDATE "api_key"
 SET "created_by" = (
-  SELECT uo."user_id"
-  FROM "project" p
-  JOIN "user_organization" uo ON uo."organization_id" = p."organization_id"
-  WHERE p."id" = "api_key"."project_id"
-  ORDER BY uo."created_at" ASC
-  LIMIT 1
-)
+	SELECT uo."user_id"
+	FROM "project" p
+				 JOIN "user_organization" uo ON uo."organization_id" = p."organization_id"
+	WHERE p."id" = "api_key"."project_id"
+	ORDER BY uo."created_at" ASC
+	LIMIT 1
+	)
 WHERE "created_by" IS NULL;--> statement-breakpoint
 
 -- Now make the column NOT NULL after all existing rows have been updated
