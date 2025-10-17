@@ -56,6 +56,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "deepseek-reasoner",
 				inputPrice: 0.55 / 1e6,
 				outputPrice: 2.19 / 1e6,
@@ -163,6 +164,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "deepseek-chat",
 				inputPrice: 0.56 / 1e6,
 				outputPrice: 1.68 / 1e6,

@@ -409,6 +409,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gpt-5",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -468,6 +469,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gpt-5-mini",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 2 / 1e6,
@@ -527,6 +529,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gpt-5-nano",
 				inputPrice: 0.05 / 1e6,
 				outputPrice: 0.4 / 1e6,

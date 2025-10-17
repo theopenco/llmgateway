@@ -23,6 +23,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gemini-2.5-pro",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -168,6 +169,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gemini-2.5-flash",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
@@ -205,6 +207,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gemini-2.5-flash-lite",
 				inputPrice: 0.1 / 1e6,
 				outputPrice: 0.4 / 1e6,
