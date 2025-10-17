@@ -489,6 +489,8 @@ describe("getCheapestFromAvailableProviders", () => {
 				(p) =>
 					(!(p as ProviderModelMapping).discount ||
 						(p as ProviderModelMapping).discount === 1) &&
+					(p as ProviderModelMapping).stability !== "experimental" &&
+					(p as ProviderModelMapping).stability !== "unstable" &&
 					p.inputPrice !== undefined &&
 					p.outputPrice !== undefined,
 			);
@@ -496,6 +498,8 @@ describe("getCheapestFromAvailableProviders", () => {
 				(p) =>
 					(p as ProviderModelMapping).discount !== undefined &&
 					(p as ProviderModelMapping).discount! < 1 &&
+					(p as ProviderModelMapping).stability !== "experimental" &&
+					(p as ProviderModelMapping).stability !== "unstable" &&
 					p.inputPrice !== undefined &&
 					p.outputPrice !== undefined,
 			);
