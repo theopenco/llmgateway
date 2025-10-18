@@ -106,6 +106,7 @@ export function ApiKeysList({
 						...key,
 						maskedToken: key.maskedToken,
 					})),
+					userRole: "owner" as const,
 				},
 			}),
 		},
