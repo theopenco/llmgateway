@@ -21,7 +21,11 @@ export function useAddTeamMember(organizationId: string) {
 	return api.useMutation("post", "/team/{organizationId}/members", {
 		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["get", "/team/{organizationId}/members"],
+				queryKey: [
+					"get",
+					"/team/{organizationId}/members",
+					{ params: { path: { organizationId } } },
+				],
 			});
 		},
 	});
@@ -34,7 +38,11 @@ export function useUpdateTeamMember(organizationId: string) {
 	return api.useMutation("patch", "/team/{organizationId}/members/{memberId}", {
 		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["get", "/team/{organizationId}/members"],
+				queryKey: [
+					"get",
+					"/team/{organizationId}/members",
+					{ params: { path: { organizationId } } },
+				],
 			});
 		},
 	});
@@ -50,7 +58,11 @@ export function useRemoveTeamMember(organizationId: string) {
 		{
 			onSuccess: () => {
 				queryClient.invalidateQueries({
-					queryKey: ["get", "/team/{organizationId}/members"],
+					queryKey: [
+						"get",
+						"/team/{organizationId}/members",
+						{ params: { path: { organizationId } } },
+					],
 				});
 			},
 		},
