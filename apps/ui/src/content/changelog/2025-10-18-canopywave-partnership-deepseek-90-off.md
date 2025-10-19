@@ -58,7 +58,6 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -d '{
     "model": "canopywave/deepseek-v3.1",
     "messages": [{"role": "user", "content": "Hello DeepSeek!"}],
-    "stream": true
   }'
 ```
 
