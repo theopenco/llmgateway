@@ -8,15 +8,8 @@ const nextConfig: NextConfig = {
 	output: "standalone",
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
-	eslint: {
-		ignoreDuringBuilds: true,
-	},
-	webpack: (config, { isServer }) => {
-		if (isServer) {
-			config.devtool = "source-map";
-		}
-		return config;
-	},
+	reactCompiler: true,
+	transpilePackages: ["shiki"],
 };
 
 export default nextConfig;

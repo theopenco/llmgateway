@@ -639,6 +639,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						token: token,
 						description: "Auto-generated playground key",
 						usageLimit: null, // No limit for playground key
+						createdBy: userId,
 					});
 				});
 			}),

@@ -86,6 +86,325 @@ The `images` array contains one or more generated images with the following stru
 
 The `content` field may contain descriptive text about the generated image, depending on the model's behavior.
 
+## AI SDK
+
+You can use the AI SDK to generate images with your existing generateText or streamText calls.
+
+### Example
+
+```ts title="/api/chat/route.ts"
+import { streamText, type UIMessage, convertToModelMessages } from "ai";
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+
+interface ChatRequestBody {
+	messages: UIMessage[];
+}
+
+export async function POST(req: Request) {
+	const body = await req.json();
+
+	const { messages }: ChatRequestBody = body;
+
+	const llmgateway = createLLMGateway({
+		apiKey: "llmgateway_api_key",
+		baseUrl: "https://api.llmgateway.io/v1",
+	});
+
+	try {
+		const result = streamText({
+			model: llmgateway.chat("gemini-2.5-flash-image-preview"),
+			messages: convertToModelMessages(messages),
+		});
+
+		return result.toUIMessageStreamResponse();
+	} catch {
+		return new Response(
+			JSON.stringify({ error: "LLM Gateway Chat request failed" }),
+			{
+				status: 500,
+			},
+		);
+	}
+}
+```
+
+Then you can render the image in your frontend using the `Image` component from the [ai-elements](https://ai-sdk.dev/elements/components/image).
+
+Here is a full example of how to use the AI SDK to generate images in your frontend:
+
+```tsx title="/app/page.tsx"
+"use client";
+
+import { useState, useRef } from "react";
+import { useChat } from "@ai-sdk/react";
+import { parseImagePartToDataUrl } from "@/lib/image-utils";
+import {
+	PromptInput,
+	PromptInputBody,
+	PromptInputButton,
+	PromptInputSubmit,
+	PromptInputTextarea,
+	PromptInputToolbar,
+} from "@/components/ai-elements/prompt-input";
+import {
+	Conversation,
+	ConversationContent,
+} from "@/components/ai-elements/conversation";
+import { Image } from "@/components/ai-elements/image";
+import { Loader } from "@/components/ai-elements/loader";
+import { Message, MessageContent } from "@/components/ai-elements/message";
+import { Response } from "@/components/ai-elements/response";
+
+export const ChatUI = () => {
+	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const [text, setText] = useState("");
+	const { messages, status, stop, regenerate, sendMessage } = useChat();
+
+	return (
+		<>
+			<div className="flex-1 overflow-y-auto px-4 pb-24">
+				<Conversation>
+					<ConversationContent>
+						{messages.length === 0 ? (
+							<div className="mb-6 text-center">
+								<h2 className="text-3xl font-semibold tracking-tight">
+									How can I help you?
+								</h2>
+							</div>
+						) : (
+							messages.map((m, messageIndex) => {
+								const isLastMessage = messageIndex === messages.length - 1;
+
+								if (m.role === "assistant") {
+									const textContent = m.parts
+										.filter((p) => p.type === "text")
+										.map((p) => p.text)
+										.join("");
+									// Combine all image parts (both image_url and file types)
+									const imageParts = m.parts.filter(
+										(p) =>
+											p.type === "file" && p.mediaType?.startsWith("image/"),
+									);
+
+									return (
+										<div key={m.id}>
+											{textContent ? <Response>{textContent}</Response> : null}
+											{imageParts.length > 0 ? (
+												<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+													{imageParts.map((part, idx: number) => {
+														const { base64Only, mediaType } =
+															parseImagePartToDataUrl(part);
+
+														if (!base64Only) {
+															return null;
+														}
+
+														return (
+															<Image
+																key={idx}
+																base64={base64Only}
+																mediaType={mediaType}
+																alt={part.name || "Generated image"}
+															/>
+														);
+													})}
+												</div>
+											) : null}
+											{isLastMessage &&
+												(status === "submitted" || status === "streaming") && (
+													<Loader />
+												)}
+										</div>
+									);
+								} else {
+									return (
+										<Message key={m.id} from={m.role}>
+											<MessageContent variant="flat">
+												{m.parts.map((p, i) => {
+													if (p.type === "text") {
+														return <div key={i}>{p.text}</div>;
+													}
+													return null;
+												})}
+											</MessageContent>
+											{isLastMessage &&
+												(status === "submitted" || status === "streaming") && (
+													<Loader />
+												)}
+										</Message>
+									);
+								}
+							})
+						)}
+					</ConversationContent>
+				</Conversation>
+			</div>
+			<div className="sticky bottom-0 left-0 right-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-gradient-to-t from-background via-background/95 to-transparent backdrop-blur supports-[backdrop-filter]:bg-background/60">
+				<PromptInput
+					aria-disabled={status === "streaming"}
+					onSubmit={async (message) => {
+						if (status === "streaming") {
+							return;
+						}
+
+						try {
+							const textContent = message.text ?? "";
+							if (!textContent.trim()) {
+								return;
+							}
+
+							setText(""); // Clear input immediately
+
+							const parts = [{ type: "text", text: textContent }];
+
+							// Call sendMessage which will handle adding the user message and API request
+							sendMessage({
+								role: "user",
+								parts,
+							});
+						} catch (error) {
+							// Throw error here
+						}
+					}}
+				>
+					<PromptInputBody>
+						<PromptInputTextarea
+							ref={textareaRef}
+							value={text}
+							onChange={(e) => setText(e.currentTarget.value)}
+							placeholder="Message"
+						/>
+					</PromptInputBody>
+					<PromptInputToolbar>
+						<div className="flex items-center gap-2">
+							{status === "streaming" ? (
+								<PromptInputButton onClick={() => stop()} variant="ghost">
+									Stop
+								</PromptInputButton>
+							) : null}
+							<PromptInputSubmit
+								status={status === "streaming" ? "streaming" : "ready"}
+							/>
+						</div>
+					</PromptInputToolbar>
+				</PromptInput>
+			</div>
+		</>
+	);
+};
+```
+
+```ts title="/lib/image-utils.ts"
+/**
+ * Parses a file object containing image data and returns a properly formatted data URL
+ * and normalized media type.
+ *
+ * Handles:
+ * - Normalizing mediaType from various property names (mediaType, mime_type)
+ * - Detecting existing data: URLs
+ * - Detecting base64-looking content
+ * - Stripping whitespace from base64 content
+ * - Building proper data:...;base64,... URLs
+ */
+export function parseImageFile(file: {
+	url?: string;
+	mediaType?: string;
+	mime_type?: string;
+}): { dataUrl: string; mediaType: string } {
+	const mediaType = file.mediaType || file.mime_type || "image/png";
+	let url = String(file.url || "");
+
+	const isDataUrl = url.startsWith("data:");
+	const looksLikeBase64 =
+		!isDataUrl && /^[A-Za-z0-9+/=\s]+$/.test(url.slice(0, 200));
+
+	if (looksLikeBase64) {
+		url = url.replace(/\s+/g, "");
+	}
+
+	const dataUrl = isDataUrl
+		? url
+		: looksLikeBase64
+			? `data:${mediaType};base64,${url}`
+			: url;
+
+	return { dataUrl, mediaType };
+}
+
+/**
+ * Extracts base64-only content from a data URL.
+ * Returns empty string if the input is not a valid data URL.
+ */
+export function extractBase64FromDataUrl(dataUrl: string): string {
+	if (!dataUrl.startsWith("data:")) {
+		return "";
+	}
+
+	const comma = dataUrl.indexOf(",");
+	return comma >= 0 ? dataUrl.slice(comma + 1) : "";
+}
+
+/**
+ * Parses an image part (either image_url or file type) and returns
+ * dataUrl, base64Only, and mediaType ready for rendering.
+ *
+ * Handles error cases gracefully by returning empty base64Only string
+ * when parsing fails, allowing the renderer to skip invalid images.
+ */
+export function parseImagePartToDataUrl(part: any): {
+	dataUrl: string;
+	base64Only: string;
+	mediaType: string;
+} {
+	try {
+		// Handle image_url parts
+		if (part.type === "image_url" && part.image_url?.url) {
+			const url = part.image_url.url;
+			const mediaType = "image/png"; // Default for image_url parts
+
+			if (url.startsWith("data:")) {
+				// Extract media type from data URL if present
+				const match = url.match(/data:([^;]+)/);
+				const extractedMediaType = match?.[1] || mediaType;
+				return {
+					dataUrl: url,
+					base64Only: extractBase64FromDataUrl(url),
+					mediaType: extractedMediaType,
+				};
+			}
+
+			return {
+				dataUrl: url,
+				base64Only: "",
+				mediaType,
+			};
+		}
+
+		// Handle file parts (AI SDK format)
+		if (part.type === "file") {
+			const { dataUrl, mediaType } = parseImageFile(part);
+			return {
+				dataUrl,
+				base64Only: extractBase64FromDataUrl(dataUrl),
+				mediaType,
+			};
+		}
+
+		return {
+			dataUrl: "",
+			base64Only: "",
+			mediaType: "image/png",
+		};
+	} catch {
+		return {
+			dataUrl: "",
+			base64Only: "",
+			mediaType: "image/png",
+		};
+	}
+}
+```
+
 ## Usage Notes
 
 <Callout type="info">
@@ -98,23 +417,3 @@ The `content` field may contain descriptive text about the generated image, depe
 	Consider the payload size when integrating image generation into your
 	applications.
 </Callout>
-
-## Best Practices
-
-### Prompt Engineering
-
-- Be specific and descriptive in your prompts for better results
-- Include details about style, composition, lighting, and mood
-- Experiment with different models to find the best fit for your use case
-
-### Handling Responses
-
-- Parse the `images` array to extract generated images
-- The base64 data can be directly used in HTML `<img>` tags or saved to files
-- Consider implementing proper error handling for failed generation requests
-
-### Cost Optimization
-
-- Monitor token usage as image generation can be more expensive than text generation
-- Use auto routing to automatically select cost-effective image generation models
-- Cache generated images when appropriate to avoid repeated generation costs

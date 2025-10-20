@@ -99,6 +99,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key with mock server URL as baseUrl
@@ -170,6 +171,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key for OpenAI with mock server URL as baseUrl
@@ -213,6 +215,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key for OpenAI with mock server URL as baseUrl
@@ -342,6 +345,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key for OpenAI with mock server URL as baseUrl
@@ -379,6 +383,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		await db.insert(tables.providerKey).values({
@@ -419,6 +424,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key for OpenAI with mock server URL as baseUrl
@@ -458,6 +464,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		const res = await app.request("/v1/chat/completions", {
@@ -490,6 +497,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key with mock server URL as baseUrl
@@ -544,6 +552,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key for inference.net with mock server URL as baseUrl
@@ -590,6 +599,7 @@ describe("test", () => {
 			projectId: "project-id",
 			description: "Test API Key",
 			status: "inactive",
+			createdBy: "user-id",
 		});
 
 		// Create provider key for OpenAI with mock server URL as baseUrl
@@ -626,6 +636,7 @@ describe("test", () => {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		});
 
 		// Create provider key with mock server URL as baseUrl
@@ -683,6 +694,7 @@ describe("test", () => {
 			token: "token-with-headers",
 			projectId: "project-id",
 			description: "Test API Key with headers",
+			createdBy: "user-id",
 		});
 
 		await db.insert(tables.providerKey).values({

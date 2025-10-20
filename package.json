@@ -30,9 +30,6 @@
 		"extends": "@steebchen/commitlint-config"
 	},
 	"prettier": "@steebchen/prettier-config",
-	"dependencies": {
-		"@kubiks/otel-better-auth": "2.0.2"
-	},
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "2.2.0",
 		"@steebchen/commitlint-config": "^1.5.2",

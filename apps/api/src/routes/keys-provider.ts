@@ -5,6 +5,7 @@ import { z } from "zod";
 import { maskToken } from "@/lib/maskToken.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { providers, validateProviderKey } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
@@ -210,8 +211,14 @@ keysProvider.openapi(create, async (c) => {
 
 	if (validationResult.error) {
 		const errorMessage = validationResult.error || "Upstream server error";
+		logger.error("Provider key validation failed", {
+			provider,
+			model: validationResult.model,
+			statusCode: validationResult.statusCode,
+			error: errorMessage,
+		});
 		throw new HTTPException(500, {
-			message: `Error from provider: ${errorMessage} and status code ${validationResult.statusCode}. Please try again later or contact support.`,
+			message: `Error from provider: ${errorMessage} and status code ${validationResult.statusCode} (using model ${validationResult.model}). Please try again later or contact support.`,
 		});
 	}
 

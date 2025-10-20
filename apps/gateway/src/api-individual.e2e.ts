@@ -57,6 +57,7 @@ describe("e2e individual tests", () => {
 			token,
 			projectId: projectId,
 			description: `Test API Key ${testId}`,
+			createdBy: userId,
 		});
 
 		// Set up provider keys for this test
@@ -211,7 +212,7 @@ describe("e2e individual tests", () => {
 				}
 			}
 
-			const { orgId, projectId } = await createTestData("credits-auto");
+			const { userId, orgId, projectId } = await createTestData("credits-auto");
 
 			await db
 				.update(tables.organization)
@@ -229,6 +230,7 @@ describe("e2e individual tests", () => {
 				token: creditsToken,
 				projectId: projectId,
 				description: "Test API Key for Credits",
+				createdBy: userId,
 			});
 
 			const requestId = generateTestRequestId();
@@ -316,7 +318,7 @@ describe("e2e individual tests", () => {
 			return;
 		}
 
-		const { orgId, projectId } = await createTestData("custom-model");
+		const { userId, orgId, projectId } = await createTestData("custom-model");
 
 		await db
 			.update(tables.organization)
@@ -343,6 +345,7 @@ describe("e2e individual tests", () => {
 			token: customToken,
 			projectId: projectId,
 			description: "Test API Key",
+			createdBy: userId,
 		});
 
 		const requestId = generateTestRequestId();

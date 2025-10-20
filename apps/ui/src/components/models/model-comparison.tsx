@@ -22,6 +22,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/lib/components/table";
+import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -566,6 +567,7 @@ function renderRowValue(
 }
 
 export function ModelComparison() {
+	const config = useAppConfig();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -633,14 +635,11 @@ export function ModelComparison() {
 
 	const buildPlaygroundUrl = (providerId?: string, modelId?: string) => {
 		if (!modelId) {
-			return "/playground";
+			return config.playgroundUrl;
 		}
 		const modelParam = providerId ? `${providerId}/${modelId}` : modelId;
-		const base =
-			process.env.NODE_ENV === "development"
-				? "http://localhost:3003"
-				: "https://chat.llmgateway.io";
-		return `${base}/?model=${encodeURIComponent(modelParam)}`;
+
+		return `${config.playgroundUrl}/?model=${encodeURIComponent(modelParam)}`;
 	};
 
 	return (
@@ -773,7 +772,7 @@ export function ModelComparison() {
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Playground
+											Try in Chat
 										</a>
 									</Button>
 								</>
@@ -797,7 +796,7 @@ export function ModelComparison() {
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Playground
+											Try in Chat
 										</a>
 									</Button>
 								</>

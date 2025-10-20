@@ -15,11 +15,29 @@ import { useApi } from "@/lib/fetch-client";
 import { providers } from "@llmgateway/models";
 
 import type { ActivitT } from "@/types/activity";
+import type { TooltipProps } from "recharts";
 
 interface CostBreakdownChartProps {
 	initialData?: ActivitT;
 	projectId: string | undefined;
 }
+
+const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
+	if (active && payload && payload.length) {
+		return (
+			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
+				<p className="font-medium">{payload[0].name}</p>
+				<p className="text-sm">
+					<span className="font-medium">
+						${Number(payload[0].value).toFixed(4)}
+					</span>{" "}
+					Cost
+				</p>
+			</div>
+		);
+	}
+	return null;
+};
 
 export function CostBreakdownChart({
 	initialData,
@@ -141,9 +159,7 @@ export function CostBreakdownChart({
 							<Cell key={`cell-${index}`} fill={entry.color} />
 						))}
 					</Pie>
-					<Tooltip
-						formatter={(value) => [`$${Number(value).toFixed(4)}`, "Cost"]}
-					/>
+					<Tooltip content={<CustomTooltip />} />
 					<Legend />
 				</PieChart>
 			</ResponsiveContainer>

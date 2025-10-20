@@ -247,6 +247,7 @@ organization.openapi(createOrganization, async (c) => {
 	await db.insert(tables.userOrganization).values({
 		userId: user.id,
 		organizationId: newOrganization.id,
+		role: "owner",
 	});
 
 	await db.insert(tables.project).values({
@@ -347,6 +348,20 @@ organization.openapi(updateOrganization, async (c) => {
 	) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// Check if user is trying to update policies or billing settings
+	const isBillingOrPolicyUpdate =
+		retentionLevel !== undefined ||
+		autoTopUpEnabled !== undefined ||
+		autoTopUpThreshold !== undefined ||
+		autoTopUpAmount !== undefined;
+
+	// Only owners can update billing and policy settings
+	if (isBillingOrPolicyUpdate && userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can update billing and policy settings",
 		});
 	}
 

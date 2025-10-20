@@ -5,11 +5,11 @@ import Footer from "@/components/landing/footer";
 
 import type { ChangelogFrontmatter } from "@/lib/utils/markdown";
 
-interface ChangelogComponentProps {
+interface ChangelogProps {
 	entries?: ChangelogFrontmatter[];
 }
 
-export function ChangelogComponent({ entries }: ChangelogComponentProps = {}) {
+export function Changelog({ entries }: ChangelogProps = {}) {
 	const changelogEntries = entries || [];
 
 	return (

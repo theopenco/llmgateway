@@ -12,6 +12,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: pw
       POSTGRES_DB: db
+      CI: ${CI}
     volumes:
       - ./packages/db/init:/docker-entrypoint-initdb.d
 
@@ -22,3 +23,5 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    environment:
+      CI: ${CI}

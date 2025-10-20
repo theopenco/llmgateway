@@ -93,9 +93,8 @@ export interface PromptInputController {
 }
 
 const PromptInputContext = createContext<PromptInputController | null>(null);
-const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(
-	null,
-);
+// Local attachments context used by both provider and local mode
+const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
 
 export const usePromptInputController = () => {
 	const ctx = useContext(PromptInputContext);
@@ -113,20 +112,7 @@ const optional_usePromptInputController = () => {
 	return useContext(PromptInputContext);
 };
 
-export const useProviderAttachments = () => {
-	const ctx = useContext(ProviderAttachmentsContext);
-	if (!ctx) {
-		throw new Error(
-			"Wrap your component inside <PromptInputProvider> to use useProviderAttachments().",
-		);
-	}
-	return ctx;
-};
-
-const optional_useProviderAttachments = () => {
-	// eslint-disable-next-line react-hooks/rules-of-hooks
-	return useContext(ProviderAttachmentsContext);
-};
+// (Removed provider-specific attachments hooks; unified on LocalAttachmentsContext)
 
 export type PromptInputProviderProps = PropsWithChildren<{
 	initialInput?: string;
@@ -230,9 +216,9 @@ export function PromptInputProvider({
 
 	return (
 		<PromptInputContext.Provider value={controller}>
-			<ProviderAttachmentsContext.Provider value={attachments}>
+			<LocalAttachmentsContext.Provider value={attachments}>
 				{children}
-			</ProviderAttachmentsContext.Provider>
+			</LocalAttachmentsContext.Provider>
 		</PromptInputContext.Provider>
 	);
 }
@@ -241,13 +227,8 @@ export function PromptInputProvider({
 // Component Context & Hooks
 // ============================================================================
 
-const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
-
 export const usePromptInputAttachments = () => {
-	// Dual-mode: prefer provider if present, otherwise use local
-	const provider = optional_useProviderAttachments();
-	const local = useContext(LocalAttachmentsContext);
-	const context = provider ?? local;
+	const context = useContext(LocalAttachmentsContext);
 	if (!context) {
 		throw new Error(
 			"usePromptInputAttachments must be used within a PromptInput or PromptInputProvider",

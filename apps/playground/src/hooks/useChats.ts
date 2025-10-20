@@ -18,6 +18,7 @@ export interface ChatMessage {
 	role: "user" | "assistant" | "system";
 	content: string | null;
 	images: string | null; // JSON string from API
+	reasoning: string | null; // Reasoning content from AI
 	sequence: number;
 	createdAt: string;
 }

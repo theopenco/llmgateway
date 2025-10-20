@@ -63,6 +63,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "claude-3-5-haiku-20241022-v1:0",
 				inputPrice: 0.8 / 1e6,
 				outputPrice: 4.0 / 1e6,
@@ -102,6 +103,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "claude-3-7-sonnet-20250219-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -200,6 +202,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "claude-sonnet-4-20250514-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -256,6 +259,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -287,6 +291,28 @@ export const anthropicModels = [
 		],
 	},
 	{
+		id: "claude-haiku-4-5",
+		name: "Claude Haiku 4.5",
+		family: "anthropic",
+		deprecatedAt: undefined,
+		deactivatedAt: undefined,
+		providers: [
+			{
+				providerId: "anthropic",
+				modelName: "claude-haiku-4-5",
+				inputPrice: 1.0 / 1e6,
+				outputPrice: 5.0 / 1e6,
+				cachedInputPrice: 0.1 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 8192,
+				streaming: true,
+				vision: false,
+				tools: true,
+			},
+		],
+	},
+	{
 		id: "claude-opus-4-20250514",
 		name: "Claude Opus 4 (2025-05-14)",
 		family: "anthropic",
@@ -311,6 +337,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "claude-opus-4-20250514-v1:0",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,
@@ -367,6 +394,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "claude-opus-4-1-20250805-v1:0",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,

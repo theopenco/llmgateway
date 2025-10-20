@@ -18,7 +18,7 @@ export const ChatHeader = ({
 	setSelectedModel,
 }: ChatHeaderProps) => {
 	return (
-		<header className="flex items-center p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+		<header className="flex items-center p-4 border-b bg-background">
 			<div className="flex items-center gap-3 min-w-0 flex-1">
 				<SidebarTrigger />
 				<div className="flex items-center gap-2 w-full max-w-[360px] sm:max-w-[420px] min-w-0">

@@ -18,6 +18,7 @@ import {
 	useDataChat,
 } from "@/hooks/useChats";
 import { useUser } from "@/hooks/useUser";
+import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
@@ -71,14 +72,46 @@ export default function ChatPageClient({
 				if (!chatId) {
 					return;
 				}
+				// Extract assistant text, images, and reasoning from UIMessage parts
+				const textContent = message.parts
+					.filter((p) => p.type === "text")
+					.map((p) => p.text)
+					.join("");
+
+				const reasoningContent = message.parts
+					.filter((p) => p.type === "reasoning")
+					.map((p) => p.text)
+					.join("");
+
+				const imageUrlParts = (message.parts as any[])
+					.filter((p: any) => p.type === "image_url" && p.image_url?.url)
+					.map((p: any) => ({
+						type: "image_url",
+						image_url: { url: p.image_url.url },
+					}));
+
+				// Handle file parts (AI SDK format for images)
+				const fileParts = (message.parts as any[])
+					.filter(
+						(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+					)
+					.map((p: any) => {
+						const { dataUrl } = parseImageFile(p);
+						return {
+							type: "image_url",
+							image_url: { url: dataUrl },
+						};
+					});
+
+				const images = [...imageUrlParts, ...fileParts];
+
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
 					body: {
 						role: "assistant",
-						content: message.parts
-							.filter((p) => p.type === "text")
-							.map((p) => p.text)
-							.join(""),
+						content: textContent || undefined,
+						images: images.length > 0 ? JSON.stringify(images) : undefined,
+						reasoning: reasoningContent || undefined,
 					},
 				});
 			},
@@ -91,7 +124,9 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
-	const { data: currentChatData } = useDataChat(currentChatId ?? "");
+	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
+		currentChatId ?? "",
+	);
 	useChats();
 
 	useEffect(() => {
@@ -99,18 +134,67 @@ export default function ChatPageClient({
 			return;
 		}
 
+		// Update the selected model when loading a chat
+		if (currentChatData.chat?.model) {
+			setSelectedModel(currentChatData.chat.model);
+		}
+
 		setMessages((prev) => {
 			if (prev.length === 0) {
-				return currentChatData.messages.map((msg) => ({
-					id: msg.id,
-					role: msg.role,
-					content: msg.content ?? "",
-					parts: [{ type: "text", text: msg.content ?? "" }],
-				}));
+				return currentChatData.messages.map((msg) => {
+					const parts: any[] = [];
+
+					// Add text content
+					if (msg.content) {
+						parts.push({ type: "text", text: msg.content });
+					}
+
+					// Add reasoning if present
+					if (msg.reasoning) {
+						parts.push({ type: "reasoning", text: msg.reasoning });
+					}
+
+					// Add images if present
+					if (msg.images) {
+						try {
+							const parsedImages = JSON.parse(msg.images);
+							// Convert saved image_url format to file format for rendering
+							const imageParts = parsedImages.map((img: any) => {
+								const dataUrl = img.image_url?.url || "";
+								// Extract base64 and mediaType from data URL
+								if (dataUrl.startsWith("data:")) {
+									const [header, base64] = dataUrl.split(",");
+									const mediaType =
+										header.match(/data:([^;]+)/)?.[1] || "image/png";
+									return {
+										type: "file",
+										mediaType,
+										url: base64,
+									};
+								}
+								return {
+									type: "file",
+									mediaType: "image/png",
+									url: dataUrl,
+								};
+							});
+							parts.push(...imageParts);
+						} catch (error) {
+							console.error("Failed to parse images:", error);
+						}
+					}
+
+					return {
+						id: msg.id,
+						role: msg.role,
+						content: msg.content ?? "",
+						parts,
+					};
+				});
 			}
 			return prev;
 		});
-	}, [currentChatData, setMessages]);
+	}, [currentChatData, setMessages, setSelectedModel]);
 
 	// Removed showApiKeyManager
 
@@ -201,16 +285,9 @@ export default function ChatPageClient({
 	};
 
 	const handleChatSelect = (chatId: string) => {
-		setIsLoading(true);
 		setError(null);
-		try {
-			setMessages([]);
-			setCurrentChatId(chatId);
-		} catch {
-			setError("Failed to load chat. Please try again.");
-		} finally {
-			setIsLoading(false);
-		}
+		setMessages([]);
+		setCurrentChatId(chatId);
 	};
 
 	// keep URL in sync with selected model
@@ -234,6 +311,14 @@ export default function ChatPageClient({
 			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
 		return !!model?.vision;
+	}, [availableModels, selectedModel]);
+
+	const supportsImageGen = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.imageGen;
 	}, [availableModels, selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
@@ -287,13 +372,12 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
-			<div className="flex h-screen bg-background w-full">
+			<div className="flex h-svh bg-background w-full overflow-hidden">
 				<ChatSidebar
 					onNewChat={handleNewChat}
 					onChatSelect={handleChatSelect}
 					currentChatId={currentChatId || undefined}
 					clearMessages={clearMessages}
-					userApiKey={null}
 					isLoading={isLoading}
 					organizations={organizations}
 					selectedOrganization={selectedOrganization}
@@ -304,7 +388,7 @@ export default function ChatPageClient({
 					onSelectProject={handleSelectProject}
 					onProjectCreated={handleProjectCreated}
 				/>
-				<div className="flex flex-1 flex-col w-full h-full">
+				<div className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
 					<div className="flex-shrink-0">
 						<ChatHeader
 							models={models}
@@ -313,10 +397,11 @@ export default function ChatPageClient({
 							setSelectedModel={setSelectedModel}
 						/>
 					</div>
-					<div className="flex-1 overflow-hidden w-full md:w-2xl mx-auto">
+					<div className="flex flex-col flex-1 min-h-0 w-full max-w-3xl mx-auto overflow-hidden">
 						<ChatUI
 							messages={messages}
 							supportsImages={supportsImages}
+							supportsImageGen={supportsImageGen}
 							sendMessage={sendMessage}
 							userApiKey={null}
 							selectedModel={selectedModel}
@@ -326,7 +411,7 @@ export default function ChatPageClient({
 							stop={stop}
 							regenerate={regenerate}
 							onUserMessage={handleUserMessage}
-							isLoading={isLoading}
+							isLoading={isLoading || isChatLoading}
 							error={error}
 						/>
 					</div>

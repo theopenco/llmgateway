@@ -7,7 +7,6 @@ import {
 	MessageSquare,
 	ImagePlus,
 } from "lucide-react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
@@ -16,6 +15,7 @@ import { CopyModelName } from "@/components/models/copy-model-name";
 import { ProviderCard } from "@/components/models/provider-card";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
+import { getConfig } from "@/lib/config-server";
 
 import {
 	models as modelDefinitions,
@@ -31,6 +31,7 @@ interface PageProps {
 }
 
 export default async function ModelPage({ params }: PageProps) {
+	const config = getConfig();
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
@@ -118,15 +119,16 @@ export default async function ModelPage({ params }: PageProps) {
 								);
 							})()}
 
-							<Link
-								href={`/playground?model=${encodeURIComponent(modelDef.id)}`}
-								prefetch={true}
+							<a
+								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${modelDef.providers[0]?.providerId}/${modelDef.id}`)}`}
+								target="_blank"
+								rel="noopener noreferrer"
 							>
 								<Button variant="outline" size="sm" className="gap-2">
 									<Play className="h-3 w-3" />
 									Try in Playground
 								</Button>
-							</Link>
+							</a>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">

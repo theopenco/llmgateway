@@ -424,6 +424,7 @@ export async function beforeAllHook() {
 			token: "real-token",
 			projectId: "project-id",
 			description: "Test API Key",
+			createdBy: "user-id",
 		})
 		.onConflictDoNothing();
 

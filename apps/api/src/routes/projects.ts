@@ -460,6 +460,16 @@ projects.openapi(deleteProject, async (c) => {
 		});
 	}
 
+	// Only owners can delete projects
+	const userOrg = userOrgs.find(
+		(uo) => uo.organizationId === project.organizationId,
+	);
+	if (!userOrg || userOrg.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can delete projects",
+		});
+	}
+
 	await db
 		.update(tables.project)
 		.set({

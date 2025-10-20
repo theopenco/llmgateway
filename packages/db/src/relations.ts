@@ -13,6 +13,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.chat.userId,
 		}),
+		createdApiKeys: r.many.apiKey({
+			from: r.user.id,
+			to: r.apiKey.createdBy,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
@@ -44,6 +48,10 @@ export const relations = defineRelations(schema, (r) => ({
 		}),
 		logs: r.many.log(),
 		iamRules: r.many.apiKeyIamRule(),
+		creator: r.one.user({
+			from: r.apiKey.createdBy,
+			to: r.user.id,
+		}),
 	},
 	apiKeyIamRule: {
 		apiKey: r.one.apiKey({

@@ -73,12 +73,16 @@ export function NewOrganizationDialog({
 				description: `${data.organization.name} has been created.`,
 			});
 		},
-		onError: (error: Error) => {
+		onError: (error: any) => {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "An unexpected error occurred. Please try again.");
+
 			// Check if it's a max organizations limit error
-			if (
-				error.message?.includes("maximum") ||
-				error.message?.includes("limit")
-			) {
+			if (errorMessage.includes("maximum") || errorMessage.includes("limit")) {
 				toast({
 					title: "Organization limit reached",
 					description:
@@ -89,8 +93,7 @@ export function NewOrganizationDialog({
 				// Generic error toast
 				toast({
 					title: "Failed to create organization",
-					description:
-						error.message || "An unexpected error occurred. Please try again.",
+					description: errorMessage,
 					variant: "destructive",
 				});
 			}

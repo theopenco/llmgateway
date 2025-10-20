@@ -41,6 +41,7 @@ services:
       # LLM Provider API Keys
       - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY}
       - LLM_ANTHROPIC_API_KEY=${LLM_ANTHROPIC_API_KEY}
+      - CI=${CI}
 
   # API Service
   api:
@@ -92,6 +93,7 @@ services:
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - CI=${CI}
 
   # UI Service
   ui:
@@ -122,8 +124,10 @@ services:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
+      - CI=${CI}
 
   # Playground Service
   playground:
@@ -154,8 +158,10 @@ services:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
+      - CI=${CI}
 
   # Docs Service
   docs:
@@ -184,8 +190,10 @@ services:
       - llmgateway-network
     environment:
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_KEY=${POSTHOG_KEY}
       - POSTHOG_HOST=${POSTHOG_HOST}
+      - CI=${CI}
 
   # PostgreSQL Database
   postgres:
@@ -197,6 +205,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llmgateway_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-llmgateway}
+      CI: ${CI}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../packages/db/init:/docker-entrypoint-initdb.d
@@ -228,6 +237,8 @@ services:
       - redis_data:/data
     ports:
       - "${REDIS_PORT:-6379}:6379"
+    environment:
+      CI: ${CI}
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s

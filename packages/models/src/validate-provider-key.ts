@@ -125,13 +125,19 @@ export async function validateProviderKey(
 				return {
 					valid: false,
 					statusCode: response.status,
+					model: validationModel,
 				};
 			}
 
-			return { valid: false, error: errorMessage, statusCode: response.status };
+			return {
+				valid: false,
+				error: errorMessage,
+				statusCode: response.status,
+				model: validationModel,
+			};
 		}
 
-		return { valid: true };
+		return { valid: true, model: validationModel };
 	} catch (error) {
 		return {
 			valid: false,

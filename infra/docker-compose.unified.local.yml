@@ -25,6 +25,7 @@ services:
       - API_BACKEND_URL=${API_BACKEND_URL:-http://localhost:4002}
       - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:4002}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
 
       # Authentication
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
@@ -52,6 +53,9 @@ services:
       # LLM Provider API Keys (add the ones you need)
       - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY:-}
       - LLM_ANTHROPIC_API_KEY=${LLM_ANTHROPIC_API_KEY:-}
+
+      # CI environment
+      - CI=${CI}
 
 volumes:
   llmgateway_postgres:

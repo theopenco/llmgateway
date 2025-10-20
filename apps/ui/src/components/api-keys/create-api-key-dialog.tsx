@@ -86,7 +86,12 @@ export function CreateApiKeyDialog({
 					setStep("created");
 				},
 				onError: (error: any) => {
-					const errorMessage = error?.message || "Failed to create API key.";
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error
+							? error.message
+							: "Failed to create API key.");
 					toast({ title: errorMessage, variant: "destructive" });
 				},
 			},

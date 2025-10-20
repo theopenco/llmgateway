@@ -20,6 +20,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "azure",
@@ -100,6 +101,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "azure",
@@ -135,6 +137,8 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
+				disableJsonOutputSchema: true,
 			},
 			{
 				providerId: "azure",
@@ -169,6 +173,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "azure",
@@ -203,6 +208,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				parallelToolCalls: true,
+				jsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,
@@ -227,6 +233,7 @@ export const openaiModels = [
 				vision: true,
 				reasoning: true,
 				tools: false,
+				jsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,
@@ -275,6 +282,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				parallelToolCalls: true,
+				jsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,
@@ -298,6 +306,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				parallelToolCalls: true,
+				jsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,
@@ -320,6 +329,7 @@ export const openaiModels = [
 				streaming: false,
 				vision: true,
 				tools: false,
+				jsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,
@@ -342,6 +352,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutputSchema: true,
 			},
 		],
 		jsonOutput: true,
@@ -442,6 +453,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
@@ -455,6 +467,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gpt-5",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -501,6 +514,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
@@ -513,6 +527,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gpt-5-mini",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 2 / 1e6,
@@ -559,6 +574,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
@@ -571,6 +587,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "routeway-discount",
+				stability: "unstable" as const,
 				modelName: "gpt-5-nano",
 				inputPrice: 0.05 / 1e6,
 				outputPrice: 0.4 / 1e6,
@@ -616,6 +633,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: false,
+				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",

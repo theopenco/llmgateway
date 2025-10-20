@@ -13,6 +13,7 @@ import {
 	apiKey,
 	eq,
 	and,
+	user,
 } from "@llmgateway/db";
 
 import {
@@ -39,6 +40,17 @@ describe("stats-calculator", () => {
 		await db.delete(apiKey);
 		await db.delete(project);
 		await db.delete(organization);
+		await db.delete(user);
+
+		// Create test user
+		const users = await db
+			.insert(user)
+			.values({
+				email: "test@example.com",
+				name: "Test User",
+			})
+			.returning();
+		const testUser = users[0];
 
 		// Set up basic test data - organization, project, api key first
 		await db.insert(organization).values([
@@ -62,6 +74,7 @@ describe("stats-calculator", () => {
 				description: "Test API Key",
 				token: "test-key",
 				projectId: "proj-1",
+				createdBy: testUser.id,
 			},
 		]);
 

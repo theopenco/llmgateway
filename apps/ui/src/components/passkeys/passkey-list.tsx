@@ -40,9 +40,13 @@ export function PasskeyList() {
 
 			void refetch();
 		},
-		onError: () => {
+		onError: (error: any) => {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error ? error.message : "Error deleting passkey");
 			toast({
-				title: "Error deleting passkey",
+				title: errorMessage,
 				variant: "destructive",
 			});
 		},

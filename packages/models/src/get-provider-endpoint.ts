@@ -116,6 +116,9 @@ export function getProviderEndpoint(
 				url = `https://${resource}.openai.azure.com`;
 				break;
 			}
+		case "canopywave":
+			url = "https://inference.canopywave.io";
+			break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -212,6 +215,7 @@ export function getProviderEndpoint(
 		case "routeway":
 		case "routeway-discount":
 		case "nanogpt":
+		case "canopywave":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

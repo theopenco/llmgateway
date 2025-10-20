@@ -10,12 +10,33 @@ import {
 } from "recharts";
 
 import type { DailyActivity } from "@/types/activity";
+import type { TooltipProps } from "recharts";
 
 interface OverviewProps {
 	data?: DailyActivity[];
 	isLoading?: boolean;
 	days?: 7 | 30;
 }
+
+const CustomTooltip = ({
+	active,
+	payload,
+	label,
+}: TooltipProps<number, string>) => {
+	if (active && payload && payload.length) {
+		return (
+			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
+				<p className="font-medium">
+					{label && format(parseISO(label), "MMM d, yyyy")}
+				</p>
+				<p className="text-sm">
+					<span className="font-medium">{payload[0].value}</span> Requests
+				</p>
+			</div>
+		);
+	}
+	return null;
+};
 
 export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 	if (isLoading) {
@@ -97,8 +118,10 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 					tickFormatter={(value) => `${value}`}
 				/>
 				<Tooltip
-					formatter={(value) => [value, "Requests"]}
-					labelFormatter={(label) => format(parseISO(label), "MMM d, yyyy")}
+					content={<CustomTooltip />}
+					cursor={{
+						fill: "color-mix(in srgb, currentColor 15%, transparent)",
+					}}
 				/>
 				<Bar
 					dataKey="total"

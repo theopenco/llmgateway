@@ -1,64 +1,16 @@
-export interface Organization {
-	id: string;
-	createdAt: string;
-	updatedAt: string;
-	name: string;
-	credits: string;
-	plan: "free" | "pro";
-	planExpiresAt: string | null;
-	retentionLevel: "retain" | "none";
-	status: "active" | "inactive" | "deleted" | null;
-	autoTopUpEnabled: boolean;
-	autoTopUpThreshold: string | null;
-	autoTopUpAmount: string | null;
-}
+import type {
+	SerializedOrganization,
+	SerializedProject,
+	SerializedUser,
+	SerializedApiKey,
+	SerializedApiKeyIamRule,
+} from "@llmgateway/db";
 
-export interface Project {
-	id: string;
-	createdAt: string;
-	updatedAt: string;
-	name: string;
-	organizationId: string;
-	cachingEnabled: boolean;
-	cacheDurationSeconds: number;
-	mode: "api-keys" | "credits" | "hybrid";
-	status: "active" | "inactive" | "deleted" | null;
-}
+export type Organization = SerializedOrganization;
+export type Project = SerializedProject;
+export type User = SerializedUser | null;
 
-export type User = {
-	id: string;
-	email: string;
-	name: string | null;
-} | null;
-
-export interface ApiKey {
-	id: string;
-	createdAt: string;
-	updatedAt: string;
+export type ApiKey = Omit<SerializedApiKey, "token"> & {
 	maskedToken: string;
-	status: "active" | "inactive" | "deleted" | null;
-	usageLimit: string | null;
-	usage: string;
-	description: string;
-	projectId: string;
-	iamRules?: Array<{
-		id: string;
-		createdAt: string;
-		updatedAt: string;
-		ruleType:
-			| "allow_models"
-			| "deny_models"
-			| "allow_pricing"
-			| "deny_pricing"
-			| "allow_providers"
-			| "deny_providers";
-		ruleValue: {
-			models?: string[];
-			providers?: string[];
-			pricingType?: "free" | "paid";
-			maxInputPrice?: number;
-			maxOutputPrice?: number;
-		};
-		status: "active" | "inactive";
-	}>;
-}
+	iamRules?: Omit<SerializedApiKeyIamRule, "apiKeyId">[];
+};

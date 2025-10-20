@@ -15,11 +15,32 @@ import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 import type { ActivitT } from "@/types/activity";
+import type { TooltipProps } from "recharts";
 
 interface UsageChartProps {
 	initialData?: ActivitT;
 	projectId: string | undefined;
 }
+
+const CustomTooltip = ({
+	active,
+	payload,
+	label,
+}: TooltipProps<number, string>) => {
+	if (active && payload && payload.length) {
+		return (
+			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
+				<p className="font-medium">
+					{label && format(parseISO(label), "MMM d, yyyy")}
+				</p>
+				<p className="text-sm">
+					<span className="font-medium">{payload[0].value}</span> Requests
+				</p>
+			</div>
+		);
+	}
+	return null;
+};
 
 export function UsageChart({ initialData, projectId }: UsageChartProps) {
 	const searchParams = useSearchParams();
@@ -143,8 +164,10 @@ export function UsageChart({ initialData, projectId }: UsageChartProps) {
 						axisLine={false}
 					/>
 					<Tooltip
-						formatter={(value) => [value, "Requests"]}
-						labelFormatter={(label) => format(parseISO(label), "MMM d, yyyy")}
+						content={<CustomTooltip />}
+						cursor={{
+							fill: "color-mix(in srgb, currentColor 15%, transparent)",
+						}}
 					/>
 					<Bar
 						dataKey="requests"

@@ -92,13 +92,14 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
-									<Link
-										href="/playground"
+									<a
+										href={config.playgroundUrl}
 										className="text-sm hover:text-black dark:hover:text-white"
-										prefetch={true}
+										rel="noopener noreferrer"
+										target="_blank"
 									>
-										Playground
-									</Link>
+										Chat Playground
+									</a>
 								</li>
 								<li>
 									<Link

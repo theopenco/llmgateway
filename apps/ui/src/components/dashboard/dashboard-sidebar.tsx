@@ -128,6 +128,10 @@ const ORGANIZATION_SETTINGS = [
 		href: "settings/policies",
 		label: "Policies",
 	},
+	{
+		href: "settings/team",
+		label: "Team",
+	},
 ] as const;
 
 // TOOLS_RESOURCES will be created dynamically inside the component
@@ -319,7 +323,8 @@ function OrganizationSection({
 								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
 								isActive("settings/billing") ||
 									isActive("settings/transactions") ||
-									isActive("settings/policies")
+									isActive("settings/policies") ||
+									isActive("settings/team")
 									? "bg-primary/10 text-primary"
 									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
 							)}

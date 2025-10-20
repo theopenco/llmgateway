@@ -70,12 +70,16 @@ export function NewProjectDialog({
 				description: `${data.project.name} has been created.`,
 			});
 		},
-		onError: (error) => {
+		onError: (error: any) => {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "An unexpected error occurred. Please try again.");
+
 			// Check if it's a max projects limit error
-			if (
-				error.message?.includes("maximum") ||
-				error.message?.includes("limit")
-			) {
+			if (errorMessage.includes("maximum") || errorMessage.includes("limit")) {
 				toast({
 					title: "Project limit reached",
 					description:
@@ -86,8 +90,7 @@ export function NewProjectDialog({
 				// Generic error toast
 				toast({
 					title: "Failed to create project",
-					description:
-						error.message || "An unexpected error occurred. Please try again.",
+					description: errorMessage,
 					variant: "destructive",
 				});
 			}

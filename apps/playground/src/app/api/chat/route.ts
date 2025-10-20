@@ -16,6 +16,7 @@ interface ChatRequestBody {
 	model?: LLMGatewayChatModelId;
 	apiKey?: string;
 	provider?: string; // optional provider override
+	mode?: "image" | "chat"; // optional hint to force image generation path
 }
 
 // let githubMCP: experimental_MCPClient | null = null;
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
 	}
 
 	try {
+		// Default streaming chat path
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
 			messages: convertToModelMessages(messages),

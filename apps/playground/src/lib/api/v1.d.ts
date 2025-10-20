@@ -553,6 +553,7 @@ export interface paths {
                                 frequencyPenalty: number | null;
                                 presencePenalty: number | null;
                                 reasoningEffort: string | null;
+                                responseFormat?: unknown;
                                 tools: {
                                     /** @enum {string} */
                                     type: "function";
@@ -738,6 +739,7 @@ export interface paths {
             parameters: {
                 query?: {
                     projectId?: string;
+                    filter?: "mine" | "all";
                 };
                 header?: never;
                 path?: never;
@@ -745,7 +747,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description List of API keys with plan limits. */
+                /** @description List of API keys with plan limits and user role. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -762,6 +764,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -787,6 +795,8 @@ export interface paths {
                                 /** @enum {string} */
                                 plan: "free" | "pro";
                             };
+                            /** @enum {string} */
+                            userRole: "owner" | "admin" | "developer";
                         };
                     };
                 };
@@ -827,6 +837,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -951,6 +967,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -1047,6 +1069,12 @@ export interface paths {
                                 usageLimit: string | null;
                                 usage: string;
                                 projectId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
                                 iamRules?: {
                                     id: string;
                                     createdAt: string;
@@ -2195,6 +2223,183 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/team/{organizationId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of team members in the organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            members: {
+                                id: string;
+                                userId: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "developer";
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                        /** @enum {string} */
+                        role: "owner" | "admin" | "developer";
+                    };
+                };
+            };
+            responses: {
+                /** @description Member added successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            member: {
+                                id: string;
+                                userId: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "developer";
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/team/{organizationId}/members/{memberId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    memberId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Member removed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    memberId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        role: "owner" | "admin" | "developer";
+                    };
+                };
+            };
+            responses: {
+                /** @description Member role updated successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            member: {
+                                id: string;
+                                userId: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "developer";
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/payments/create-payment-intent": {
         parameters: {
             query?: never;
@@ -2684,6 +2889,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                reasoning: string | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -2802,6 +3008,7 @@ export interface paths {
                         role: "user" | "assistant" | "system";
                         content?: string;
                         images?: string;
+                        reasoning?: string;
                     };
                 };
             };
@@ -2819,6 +3026,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                reasoning: string | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;

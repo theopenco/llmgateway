@@ -246,6 +246,7 @@ export interface ProviderValidationResult {
 	valid: boolean;
 	error?: string;
 	statusCode?: number;
+	model?: string;
 }
 
 // Model with pricing information

@@ -7,6 +7,7 @@ import { Inter } from "next/font/google";
 import { ConfigProvider } from "@/lib/context";
 import { PostHogProvider } from "@/lib/providers";
 
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 const inter = Inter({
@@ -14,6 +15,16 @@ const inter = Inter({
 });
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+	metadataBase: new URL("https://llmgateway.io"),
+	title: "LLM Gateway Documentation",
+	description:
+		"LLM Gateway Documentation - Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
+	icons: {
+		icon: "/favicon/favicon.ico?v=2",
+	},
+};
 
 export default function Layout({ children }: { children: ReactNode }) {
 	// Access environment variables directly on the server

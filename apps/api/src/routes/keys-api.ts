@@ -22,6 +22,15 @@ const apiKeySchema = z.object({
 	usageLimit: z.string().nullable(),
 	usage: z.string(),
 	projectId: z.string(),
+	createdBy: z.string(),
+	creator: z
+		.object({
+			id: z.string(),
+			name: z.string().nullable(),
+			email: z.string(),
+		})
+		.nullable()
+		.optional(),
 	iamRules: z
 		.array(
 			z.object({
@@ -60,6 +69,10 @@ const createApiKeySchema = z.object({
 const listApiKeysQuerySchema = z.object({
 	projectId: z.string().optional().openapi({
 		description: "Filter API keys by project ID",
+	}),
+	filter: z.enum(["mine", "all"]).optional().openapi({
+		description:
+			"Filter by creator: 'mine' for your keys, 'all' for all keys (admins/owners only)",
 	}),
 });
 
@@ -247,6 +260,7 @@ keysApi.openapi(create, async (c) => {
 			projectId,
 			description,
 			usageLimit,
+			createdBy: user.id,
 		})
 		.returning();
 
@@ -285,10 +299,11 @@ const list = createRoute({
 								plan: z.enum(["free", "pro"]),
 							})
 							.optional(),
+						userRole: z.enum(["owner", "admin", "developer"]),
 					}),
 				},
 			},
-			description: "List of API keys with plan limits.",
+			description: "List of API keys with plan limits and user role.",
 		},
 	},
 });
@@ -302,9 +317,9 @@ keysApi.openapi(list, async (c) => {
 	}
 
 	const query = c.req.valid("query");
-	const { projectId } = query;
+	const { projectId, filter } = query;
 
-	// Get the user's projects
+	// Get the user's projects and role
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
 			userId: {
@@ -321,7 +336,7 @@ keysApi.openapi(list, async (c) => {
 	});
 
 	if (!userOrgs.length) {
-		return c.json({ apiKeys: [] });
+		return c.json({ apiKeys: [], userRole: "developer" });
 	}
 
 	// Get all project IDs the user has access to
@@ -337,15 +352,51 @@ keysApi.openapi(list, async (c) => {
 		});
 	}
 
+	// Determine user's role for the relevant organization
+	let userRole: "owner" | "admin" | "developer" = "developer";
+	if (projectId) {
+		const project = await db.query.project.findFirst({
+			where: {
+				id: {
+					eq: projectId,
+				},
+			},
+		});
+
+		if (project) {
+			const userOrg = userOrgs.find(
+				(org) => org.organizationId === project.organizationId,
+			);
+			if (userOrg) {
+				userRole = userOrg.role as "owner" | "admin" | "developer";
+			}
+		}
+	}
+
+	// All users can see all keys, but can still filter to "mine"
+	const shouldFilterByCreator = filter === "mine";
+
 	// Get API keys for the specified project or all accessible projects
 	const apiKeys = await db.query.apiKey.findMany({
 		where: {
 			projectId: {
 				in: projectId ? [projectId] : projectIds,
 			},
+			...(shouldFilterByCreator && {
+				createdBy: {
+					eq: user.id,
+				},
+			}),
 		},
 		with: {
 			iamRules: true,
+			creator: {
+				columns: {
+					id: true,
+					name: true,
+					email: true,
+				},
+			},
 		},
 	});
 
@@ -386,6 +437,7 @@ keysApi.openapi(list, async (c) => {
 					plan,
 				}
 			: undefined,
+		userRole,
 	});
 });
 
@@ -475,11 +527,33 @@ keysApi.openapi(deleteKey, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only delete their own API keys
+	// Owners and admins can delete any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to delete this API key",
 		});
 	}
 
@@ -595,11 +669,33 @@ keysApi.openapi(updateStatus, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only modify their own API keys
+	// Owners and admins can modify any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to modify this API key",
 		});
 	}
 
@@ -722,11 +818,33 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only modify their own API keys
+	// Owners and admins can modify any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to modify this API key",
 		});
 	}
 
@@ -822,11 +940,33 @@ keysApi.openapi(createIamRule, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only manage IAM rules for their own API keys
+	// Owners and admins can manage IAM rules for any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
 
@@ -909,11 +1049,20 @@ keysApi.openapi(listIamRules, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
 		});
 	}
 
@@ -1003,11 +1152,33 @@ keysApi.openapi(updateIamRule, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only manage IAM rules for their own API keys
+	// Owners and admins can manage IAM rules for any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
 
@@ -1095,11 +1266,33 @@ keysApi.openapi(deleteIamRule, async (c) => {
 				in: projectIds,
 			},
 		},
+		with: {
+			project: true,
+		},
 	});
 
 	if (!apiKey) {
 		throw new HTTPException(404, {
 			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only manage IAM rules for their own API keys
+	// Owners and admins can manage IAM rules for any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
 

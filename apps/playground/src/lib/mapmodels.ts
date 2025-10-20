@@ -20,6 +20,7 @@ export function mapModels(
 				outputPrice: p.outputPrice,
 				vision: p.vision,
 				tools: p.tools,
+				imageGen: m.output?.includes("image"),
 			});
 		}
 	}

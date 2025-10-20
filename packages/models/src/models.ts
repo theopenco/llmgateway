@@ -86,6 +86,15 @@ export interface ProviderModelMapping {
 	 */
 	parallelToolCalls?: boolean;
 	/**
+	 * Whether this provider supports JSON schema output mode (json_schema response format)
+	 */
+	jsonOutputSchema?: boolean;
+	/**
+	 * Explicitly disable JSON schema output mode for this specific provider mapping
+	 * (overrides jsonOutputSchema at the provider level)
+	 */
+	disableJsonOutputSchema?: boolean;
+	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];

@@ -1,23 +1,23 @@
-import { ChangelogComponent } from "@/components/changelog";
+import { Changelog } from "@/components/changelog";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import type { Changelog } from "content-collections";
+import type { Changelog as ChangelogType } from "content-collections";
 
 export default async function ChangelogPage() {
 	const { allChangelogs } = await import("content-collections");
 
 	const sortedEntries = allChangelogs
 		.sort(
-			(a: Changelog, b: Changelog) =>
+			(a: ChangelogType, b: ChangelogType) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		)
-		.filter((entry: Changelog) => !entry?.draft)
-		.map(({ ...entry }: Changelog) => entry);
+		.filter((entry: ChangelogType) => !entry?.draft)
+		.map(({ ...entry }: ChangelogType) => entry);
 
 	return (
 		<div>
 			<HeroRSC navbarOnly />
-			<ChangelogComponent entries={sortedEntries} />
+			<Changelog entries={sortedEntries} />
 		</div>
 	);
 }

@@ -5,7 +5,6 @@ import {
 	MoreHorizontal,
 	PlusIcon,
 	Shield,
-	Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -71,6 +70,7 @@ interface ApiKeysListProps {
 }
 
 type StatusFilter = "all" | "active" | "inactive";
+type CreatorFilter = "mine" | "all";
 
 export function ApiKeysList({
 	selectedProject,
@@ -79,6 +79,7 @@ export function ApiKeysList({
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -86,7 +87,10 @@ export function ApiKeysList({
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject?.id || "" },
+				query: {
+					projectId: selectedProject?.id || "",
+					filter: creatorFilter,
+				},
 			},
 		},
 		{
@@ -95,12 +99,16 @@ export function ApiKeysList({
 			refetchOnWindowFocus: false,
 			refetchOnMount: false,
 			refetchInterval: false,
-			initialData: {
-				apiKeys: initialData.map((key) => ({
-					...key,
-					maskedToken: key.maskedToken,
-				})),
-			},
+			// Only use initialData when filter is "all" (matches the SSR data)
+			...(creatorFilter === "all" && {
+				initialData: {
+					apiKeys: initialData.map((key) => ({
+						...key,
+						maskedToken: key.maskedToken,
+					})),
+					userRole: "owner" as const,
+				},
+			}),
 		},
 	);
 
@@ -213,8 +221,14 @@ export function ApiKeysList({
 
 					toast({ title: "API key deleted successfully." });
 				},
-				onError: () => {
-					toast({ title: "Failed to delete API key.", variant: "destructive" });
+				onError: (error: any) => {
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error
+							? error.message
+							: "Failed to delete API key.");
+					toast({ title: errorMessage, variant: "destructive" });
 				},
 			},
 		);
@@ -250,8 +264,14 @@ export function ApiKeysList({
 						description: "The API key status has been updated.",
 					});
 				},
-				onError: () => {
-					toast({ title: "Failed to update API key.", variant: "destructive" });
+				onError: (error: any) => {
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error
+							? error.message
+							: "Failed to update API key.");
+					toast({ title: errorMessage, variant: "destructive" });
 				},
 			},
 		);
@@ -282,44 +302,17 @@ export function ApiKeysList({
 						description: "The API key usage limit has been updated.",
 					});
 				},
-				onError: () => {
-					toast({ title: "Failed to update API key.", variant: "destructive" });
+				onError: (error: any) => {
+					const errorMessage =
+						error?.error?.message ||
+						error?.message ||
+						(error instanceof Error
+							? error.message
+							: "Failed to update API key.");
+					toast({ title: errorMessage, variant: "destructive" });
 				},
 			},
 		);
-	};
-
-	const bulkActivateInactive = () => {
-		inactiveKeys.forEach((key) => {
-			toggleKeyStatus(
-				{
-					params: {
-						path: { id: key.id },
-					},
-					body: {
-						status: "active",
-					},
-				},
-				{
-					onSuccess: () => {
-						const queryKey = api.queryOptions("get", "/keys/api", {
-							params: {
-								query: { projectId: selectedProject!.id },
-							},
-						}).queryKey;
-						queryClient.invalidateQueries({ queryKey });
-					},
-				},
-			);
-		});
-
-		// Switch to active tab to show the results
-		setStatusFilter("active");
-
-		toast({
-			title: "Activating Keys",
-			description: `${inactiveKeys.length} key${inactiveKeys.length !== 1 ? "s" : ""} are being activated.`,
-		});
 	};
 
 	if (allKeys.length === 0) {
@@ -357,8 +350,20 @@ export function ApiKeysList({
 
 	return (
 		<>
-			{/* Status Filter Tabs */}
-			<div className="mb-6">
+			{/* Filter Tabs */}
+			<div className="mb-6 flex flex-col gap-4">
+				{/* Creator Filter */}
+				<Tabs
+					value={creatorFilter}
+					onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
+				>
+					<TabsList className="flex space-x-2 w-full md:w-fit">
+						<TabsTrigger value="all">All Keys</TabsTrigger>
+						<TabsTrigger value="mine">My Keys</TabsTrigger>
+					</TabsList>
+				</Tabs>
+
+				{/* Status Filter Tabs */}
 				<Tabs
 					value={statusFilter}
 					onValueChange={(value) => setStatusFilter(value as StatusFilter)}
@@ -427,63 +432,6 @@ export function ApiKeysList({
 				</div>
 			)}
 
-			{/* Inactive Keys Summary Bar */}
-			{statusFilter === "active" && inactiveKeys.length > 0 && (
-				<div className="mb-4 rounded-lg border bg-muted/30 p-2">
-					<div className="flex flex-col space-y-2 md:space-y-0 md:flex-row md:items-center justify-between">
-						<div className="flex items-center gap-2">
-							<div className="text-sm text-muted-foreground">
-								💤 {inactiveKeys.length} inactive key
-								{inactiveKeys.length !== 1 ? "s" : ""}
-							</div>
-						</div>
-						<div className="flex items-center gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setStatusFilter("inactive")}
-							>
-								Manage
-							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={bulkActivateInactive}
-								className="flex items-center gap-1"
-							>
-								<Zap className="h-3 w-3" />
-								Activate All
-							</Button>
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* Bulk Actions Bar for Inactive Tab */}
-			{statusFilter === "inactive" && inactiveKeys.length > 0 && (
-				<div className="mb-4 rounded-lg border bg-muted/30 p-4">
-					<div className="flex items-center justify-between">
-						<div className="flex items-center gap-2">
-							<div className="text-sm text-muted-foreground">
-								💤 {inactiveKeys.length} inactive key
-								{inactiveKeys.length !== 1 ? "s" : ""} selected
-							</div>
-						</div>
-						<div className="flex items-center gap-2">
-							<Button
-								variant="default"
-								size="sm"
-								onClick={bulkActivateInactive}
-								className="flex items-center gap-1"
-							>
-								<Zap className="h-3 w-3" />
-								Activate All
-							</Button>
-						</div>
-					</div>
-				</div>
-			)}
-
 			{/* Desktop Table */}
 			<div className="hidden md:block">
 				<Table>
@@ -493,6 +441,7 @@ export function ApiKeysList({
 							<TableHead>API Key</TableHead>
 							<TableHead>Status</TableHead>
 							<TableHead>Created</TableHead>
+							<TableHead>Created By</TableHead>
 							<TableHead>Usage</TableHead>
 							<TableHead>Usage Limit</TableHead>
 							<TableHead>IAM Rules</TableHead>
@@ -536,6 +485,20 @@ export function ApiKeysList({
 													hour: "2-digit",
 													minute: "2-digit",
 												}).format(new Date(key.createdAt))}
+											</p>
+										</TooltipContent>
+									</Tooltip>
+								</TableCell>
+								<TableCell>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="text-muted-foreground cursor-help">
+												{key.creator?.name || key.creator?.email || "Unknown"}
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="max-w-xs text-xs">
+												{key.creator?.email || "No email available"}
 											</p>
 										</TooltipContent>
 									</Tooltip>
@@ -913,6 +876,14 @@ export function ApiKeysList({
 										</Button>
 									</IamRulesDialog>
 								)}
+							</div>
+						</div>
+						<div className="pt-2 border-t">
+							<div className="text-xs text-muted-foreground mb-1">
+								Created By
+							</div>
+							<div className="text-sm">
+								{key.creator?.name || key.creator?.email || "Unknown"}
 							</div>
 						</div>
 					</div>

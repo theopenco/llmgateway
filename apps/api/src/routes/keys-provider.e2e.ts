@@ -105,7 +105,11 @@ describe(
 			"POST /keys/provider with $name key",
 			async ({ providerId }) => {
 				// TODO temporarily skip routeway and nanogpt
-				if (providerId === "routeway" || providerId === "nanogpt") {
+				if (
+					providerId === "routeway" ||
+					providerId === "routeway-discount" ||
+					providerId === "nanogpt"
+				) {
 					return;
 				}
 				const envVarName = getProviderEnvVar(providerId);

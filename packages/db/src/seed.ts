@@ -82,6 +82,7 @@ async function seed() {
 		token: "test-token",
 		projectId: "test-project-id",
 		description: "Test API Key",
+		createdBy: "test-user-id",
 	});
 
 	// Insert logs

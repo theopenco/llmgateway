@@ -7,17 +7,16 @@ export interface HonoRequestLoggerOptions {
 }
 
 export function createHonoRequestLogger(options: HonoRequestLoggerOptions) {
+	if (process.env.NODE_ENV === "production") {
+		return async (c: any, next: any) => await next();
+	}
+
 	return honoLogger((message: string, ...args: any) => {
-		logger.info(
-			message,
-			process.env.NODE_ENV === "production"
-				? {
-						kind: "request",
-						service: options.service,
-						source: "hono-logger",
-						args,
-					}
-				: undefined,
-		);
+		logger.info(message, {
+			kind: "request",
+			service: options.service,
+			source: "hono-logger",
+			args,
+		});
 	});
 }

@@ -89,4 +89,4 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 
 ---
 
-**[Try it now in the Playground](/playground?model=qwen3-max)** 🚀
+**[Try it now in the Playground](https://chat.llmgateway.io/?model=alibaba/qwen3-max)** 🚀

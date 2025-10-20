@@ -1,6 +1,14 @@
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
-import { db, tables, log, organization, project, apiKey } from "@llmgateway/db";
+import {
+	db,
+	tables,
+	log,
+	organization,
+	project,
+	apiKey,
+	user,
+} from "@llmgateway/db";
 
 import { batchProcessLogs } from "./worker.js";
 
@@ -11,11 +19,22 @@ describe("Log Processing", () => {
 
 	beforeEach(async () => {
 		// Clean up existing data
+		await db.delete(user);
 		await db.delete(log);
 		await db.delete(apiKey);
 		await db.delete(project);
 		await db.delete(organization);
 		await db.delete(tables.lock);
+
+		// Create test user
+		const users = await db
+			.insert(user)
+			.values({
+				email: "test@example.com",
+				name: "Test User",
+			})
+			.returning();
+		const testUser = users[0];
 
 		// Create test organization
 		const orgs = await db
@@ -46,6 +65,7 @@ describe("Log Processing", () => {
 				token: "test-token-123",
 				description: "Test Key",
 				usage: "0.00",
+				createdBy: testUser.id,
 			})
 			.returning();
 		testApiKey = keys[0];

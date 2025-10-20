@@ -66,10 +66,16 @@ function UpgradeDialogContent({
 
 			// Redirect to Stripe Checkout
 			window.location.href = checkoutUrl;
-		} catch (error) {
+		} catch (error: any) {
+			const errorMessage =
+				error?.error?.message ||
+				error?.message ||
+				(error instanceof Error
+					? error.message
+					: "Failed to create checkout session. Please try again.");
 			toast({
 				title: "Upgrade Failed",
-				description: `Failed to create checkout session. Please try again. Error: ${error}`,
+				description: errorMessage,
 				variant: "destructive",
 			});
 			setLoading(false);
@@ -147,6 +153,10 @@ function UpgradeDialogContent({
 						<li className="flex items-center gap-2">
 							<div className="w-2 h-2 rounded-full bg-green-500" />
 							Hybrid mode: fallback to credits when needed
+						</li>
+						<li className="flex items-center gap-2">
+							<div className="w-2 h-2 rounded-full bg-green-500" />
+							Team management: invite and manage team members
 						</li>
 						<li className="flex items-center gap-2">
 							<div className="w-2 h-2 rounded-full bg-green-500" />
