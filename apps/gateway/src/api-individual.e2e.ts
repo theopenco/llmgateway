@@ -584,14 +584,17 @@ describe("e2e individual tests", () => {
 			const log = await validateLogByRequestId(requestId);
 			expect(log.requestedModel).toBe("auto");
 
-			// Auto-routing should select a reasoning model
-			// If gpt-5* is selected, reasoning_effort should be "minimal"
-			// For other reasoning models, reasoning_effort should be "low"
+			// Verify a reasoning model was selected
 			const usedModel = log.usedModelMapping;
-			expect(usedModel).toBeTruthy();
+			expect(usedModel).toBeDefined();
 
-			// The key test is that a reasoning model was selected and the request completed successfully
-			// This validates that the auto-routing + reasoning_effort logic works without errors
+			// Verify reasoningEffort is set and has the correct value based on model
+			expect(log.reasoningEffort).toBeDefined();
+			if (usedModel?.startsWith("gpt-5")) {
+				expect(log.reasoningEffort).toEqual("minimal");
+			} else {
+				expect(log.reasoningEffort).toEqual("low");
+			}
 
 			// Verify the response has valid usage information
 			expect(json.usage).toBeDefined();
