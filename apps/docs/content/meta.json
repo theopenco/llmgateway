@@ -16,6 +16,7 @@
 		"features/source",
 		"features/image-generation",
 		"features/vision",
+		"features/reasoning",
 		"features/custom-providers",
 		"features/metadata",
 		"features/...",

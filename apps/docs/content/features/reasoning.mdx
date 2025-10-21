@@ -1,0 +1,186 @@
+---
+title: Reasoning
+description: Learn how to use reasoning-capable models that show their step-by-step thought process.
+icon: Brain
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Reasoning
+
+LLMGateway supports reasoning-capable models that can show their step-by-step thought process before providing a final answer. This feature is particularly useful for complex problem-solving tasks, mathematical calculations, and logical reasoning.
+
+## Reasoning-Enabled Models
+
+You can find all reasoning-enabled models on our [models page with reasoning filter](https://llmgateway.io/models?filters=1&reasoning=true). These models include:
+
+- OpenAI's GPT-5 series (e.g., `gpt-5`, `gpt-5-mini`)
+  - Note: GPT-5 models use reasoning but currently do not return the reasoning content in the response.
+- Anthropic's Claude 3.7 Sonnet
+- Google's Gemini 2.0 Flash Thinking and Gemini 2.5 Pro
+- GPT OSS models such as `gpt-oss-120b` and `gpt-oss-20b`
+- Z.AI's reasoning models
+
+<Callout type="info">
+	Some models may reason internally even if the `reasoning_effort` parameter is
+	not specified.
+</Callout>
+
+## Using the Reasoning Parameter
+
+To enable reasoning output, add the `reasoning_effort` parameter to your request. This parameter accepts the following values:
+
+- `minimal` - Fastest reasoning with minimal thought process (only for GPT-5 models)
+- `low` - Light reasoning for simpler tasks
+- `medium` - Balanced reasoning for most tasks
+- `high` - Deep reasoning for complex problems
+
+### Example Request
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 2/3 + 1/4 + 5/6?"
+      }
+    ],
+    "reasoning_effort": "medium"
+  }'
+```
+
+### Example Response
+
+The response will include a `reasoning` field in the message object containing the model's step-by-step thought process:
+
+```json
+{
+	"id": "chatcmpl-abc123",
+	"object": "chat.completion",
+	"created": 1234567890,
+	"model": "gpt-5-preview",
+	"choices": [
+		{
+			"index": 0,
+			"message": {
+				"role": "assistant",
+				"content": "The answer is 1.75 or 7/4.",
+				"reasoning": "First, I need to find a common denominator for 2/3, 1/4, and 5/6. The LCD is 12. Converting: 2/3 = 8/12, 1/4 = 3/12, 5/6 = 10/12. Adding: 8/12 + 3/12 + 10/12 = 21/12 = 1.75 or 7/4."
+			},
+			"finish_reason": "completed"
+		}
+	],
+	"usage": {
+		"prompt_tokens": 20,
+		"completion_tokens": 45,
+		"reasoning_tokens": 35,
+		"total_tokens": 65
+	}
+}
+```
+
+## Streaming Reasoning Content
+
+When streaming is enabled, reasoning content will be streamed as part of the response chunks:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve this logic puzzle: If all roses are flowers and some flowers fade quickly, can we conclude that some roses fade quickly?"
+      }
+    ],
+    "reasoning_effort": "high",
+    "stream": true
+  }'
+```
+
+The reasoning content will appear in the stream chunks before the final answer, allowing you to display the model's thought process in real-time.
+
+Example:
+
+```
+data: {
+	"id": "chatcmpl-fb266880-1016-4797-9a70-f21a538edaf6",
+	"object": "chat.completion.chunk",
+	"created": 1761048126,
+	"model": "openai/gpt-oss-20b",
+	"choices": [
+		{
+			"index": 0,
+			"delta": {
+				"reasoning": "It's ",
+				"role": "assistant"
+			},
+			"finish_reason": null
+		}
+	]
+}
+```
+
+## Usage Tracking
+
+### Response Payload
+
+The `usage` object in the response includes reasoning-specific token counts:
+
+- `reasoning_tokens` - Number of tokens used for the reasoning process
+- `completion_tokens` - Number of tokens in the final answer
+- `prompt_tokens` - Number of tokens in the input
+- `total_tokens` - Sum of all token counts
+
+### Logs and Analytics
+
+All requests using the `reasoning_effort` parameter are tracked in your dashboard logs with:
+
+- The `reasoningContent` field containing the full reasoning text
+- Separate token counts for reasoning vs. completion
+- Performance metrics for reasoning-enabled requests
+
+You can view detailed logs for each request in the [dashboard](https://llmgateway.io/dashboard) to analyze how models are reasoning through problems.
+
+## Auto-Routing with Reasoning
+
+When using auto-routing (specifying a model like `gpt-5` without a specific version), LLMGateway will:
+
+1. Automatically set `reasoning_effort` to `minimal` for GPT-5 models
+2. Set `reasoning_effort` to `low` for other auto-routed reasoning models
+3. Only route to providers that support reasoning when `reasoning_effort` is specified
+
+This ensures optimal performance and cost when using auto-routing with reasoning-capable models.
+
+## Model-Specific Behavior
+
+Not all reasoning models return reasoning content in the same way. Some models (like OpenAI models) may reason internally but not expose the reasoning content in the response. LLMGateway makes sure the response is unified across different providers, but the depth and format of reasoning may vary.
+
+## Best Practices
+
+1. **Choose appropriate reasoning effort**: Use `low` or `minimal` for simple tasks, `medium` for most tasks, and `high` only for complex problems that require deep reasoning
+2. **Monitor token usage**: Reasoning can significantly increase token consumption - monitor your `reasoning_tokens` in the usage object
+3. **Stream for better UX**: When building user-facing applications, enable streaming to show the reasoning process in real-time
+4. **Check logs**: Review the `reasoningContent` in your dashboard logs to understand how models are solving problems
+
+## Error Handling
+
+If you specify `reasoning_effort` for a model that doesn't support reasoning, you'll receive an error:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
+To avoid this error, only use the `reasoning_effort` parameter with [reasoning-enabled models](https://llmgateway.io/models?filters=1&reasoning=true).
