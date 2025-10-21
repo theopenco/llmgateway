@@ -200,6 +200,6 @@ export function calculateCosts(
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		estimatedCost: isEstimated,
-		discount: discount !== 1 ? discount : undefined,
+		discount: discount !== 0 ? discount : undefined,
 	};
 }
