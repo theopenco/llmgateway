@@ -21,7 +21,7 @@ interface ProviderKeysData {
 export default async function ProviderKeysPage({
 	params,
 }: {
-	params: Promise<{ orgId: string; projectId: string }>;
+	params: Promise<{ orgId: string }>;
 }) {
 	const { orgId } = await params;
 

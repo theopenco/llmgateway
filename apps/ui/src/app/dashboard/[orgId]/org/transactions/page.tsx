@@ -39,7 +39,7 @@ async function fetchTransactions(orgId: string): Promise<TransactionsData> {
 export default async function TransactionsPage({
 	params,
 }: {
-	params: Promise<{ orgId: string; projectId: string }>;
+	params: Promise<{ orgId: string }>;
 }) {
 	const { orgId } = await params;
 

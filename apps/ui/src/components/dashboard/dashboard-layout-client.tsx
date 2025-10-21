@@ -7,6 +7,7 @@ import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
 import { TopBar } from "@/components/dashboard/top-bar";
 import { EmailVerificationBanner } from "@/components/email-verification-banner";
+import { DashboardProvider } from "@/lib/dashboard-context";
 import { useDashboardState } from "@/lib/dashboard-state";
 
 interface DashboardLayoutClientProps {
@@ -47,29 +48,42 @@ export function DashboardLayoutClient({
 	}, [posthog]);
 
 	return (
-		<div className="flex min-h-screen w-full flex-col">
-			<MobileHeader />
-			<div className="flex flex-1">
-				<DashboardSidebar
-					organizations={organizations}
-					onSelectOrganization={handleOrganizationSelect}
-					onOrganizationCreated={handleOrganizationCreated}
-					selectedOrganization={selectedOrganization}
-				/>
-				<div className="flex flex-1 flex-col justify-center">
-					<TopBar
-						projects={projects}
-						selectedProject={selectedProject}
-						onSelectProject={handleProjectSelect}
+		<DashboardProvider
+			value={{
+				organizations,
+				projects,
+				selectedOrganization,
+				selectedProject,
+				handleOrganizationSelect,
+				handleProjectSelect,
+				handleOrganizationCreated,
+				handleProjectCreated,
+			}}
+		>
+			<div className="flex min-h-screen w-full flex-col">
+				<MobileHeader />
+				<div className="flex flex-1">
+					<DashboardSidebar
+						organizations={organizations}
+						onSelectOrganization={handleOrganizationSelect}
+						onOrganizationCreated={handleOrganizationCreated}
 						selectedOrganization={selectedOrganization}
-						onProjectCreated={handleProjectCreated}
 					/>
-					<EmailVerificationBanner />
-					<main className="bg-background w-full flex-1 overflow-y-auto pt-10 pb-4 px-4 md:p-6 lg:p-8">
-						{children}
-					</main>
+					<div className="flex flex-1 flex-col justify-center">
+						<TopBar
+							projects={projects}
+							selectedProject={selectedProject}
+							onSelectProject={handleProjectSelect}
+							selectedOrganization={selectedOrganization}
+							onProjectCreated={handleProjectCreated}
+						/>
+						<EmailVerificationBanner />
+						<main className="bg-background w-full flex-1 overflow-y-auto pt-10 pb-4 px-4 md:p-6 lg:p-8">
+							{children}
+						</main>
+					</div>
 				</div>
 			</div>
-		</div>
+		</DashboardProvider>
 	);
 }

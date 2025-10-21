@@ -17,7 +17,6 @@ import { PaymentStatusHandler } from "./payment-status-handler";
 interface BillingPageProps {
 	params: Promise<{
 		orgId: string;
-		projectId: string;
 	}>;
 	searchParams: Promise<{
 		success?: string;
@@ -29,7 +28,7 @@ export default async function BillingPage({
 	params,
 	searchParams,
 }: BillingPageProps) {
-	const { orgId, projectId } = await params;
+	const { orgId } = await params;
 	const { success, canceled } = await searchParams;
 
 	if (success || canceled) {
@@ -40,7 +39,7 @@ export default async function BillingPage({
 			cookieStore.set("payment-status", "canceled", { maxAge: 10 });
 		}
 
-		const basePath = `/dashboard/${orgId}/${projectId}/settings/billing`;
+		const basePath = `/dashboard/${orgId}/org/billing`;
 		redirect(basePath);
 	}
 
