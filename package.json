@@ -56,7 +56,7 @@
 		"tsx": "4.20.6",
 		"turbo": "^2.5.8",
 		"typescript": "5.9.2",
-		"vite": "^7.1.10",
+		"vite": "^7.1.11",
 		"vite-tsconfig-paths": "^5.1.4",
 		"vitest": "^3.2.3"
 	},
