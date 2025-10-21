@@ -172,6 +172,7 @@ export function calculateCosts(
 	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
 	const discount = providerInfo.discount || 1;
+	const discountMultiplier = 1 - discount;
 
 	// Calculate input cost accounting for cached tokens
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
@@ -180,12 +181,13 @@ export function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
-	const inputCost = uncachedPromptTokens * inputPrice * discount;
-	const outputCost = calculatedCompletionTokens * outputPrice * discount;
+	const inputCost = uncachedPromptTokens * inputPrice * discountMultiplier;
+	const outputCost =
+		calculatedCompletionTokens * outputPrice * discountMultiplier;
 	const cachedInputCost = cachedTokens
-		? cachedTokens * cachedInputPrice * discount
+		? cachedTokens * cachedInputPrice * discountMultiplier
 		: 0;
-	const requestCost = requestPrice * discount;
+	const requestCost = requestPrice * discountMultiplier;
 	const totalCost = inputCost + outputCost + cachedInputCost + requestCost;
 
 	return {

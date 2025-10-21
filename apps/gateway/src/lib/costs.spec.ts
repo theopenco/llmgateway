@@ -151,19 +151,20 @@ describe("calculateCosts", () => {
 		// Instead, let's verify the logic works by testing the cost calculation directly.
 
 		// Test that the discount field appears when a discount is applied (using the actual logic from costs.ts)
-		const testDiscount = 0.5;
+		const testDiscount = 0.8; // 80% off
+		const discountMultiplier = 1 - testDiscount; // Pay 20% of original price
 		const inputPrice = 0.8 / 1e6; // Haiku input price
 		const outputPrice = 4.0 / 1e6; // Haiku output price
 
-		const expectedInputCost = 100 * inputPrice * testDiscount;
-		const expectedOutputCost = 50 * outputPrice * testDiscount;
+		const expectedInputCost = 100 * inputPrice * discountMultiplier;
+		const expectedOutputCost = 50 * outputPrice * discountMultiplier;
 		const expectedTotalCost = expectedInputCost + expectedOutputCost;
 
 		// Since we can't easily test the routeway model due to env var timing,
 		// let's verify our calculation logic is sound
-		expect(expectedInputCost).toBeCloseTo(0.00004); // 100 * 0.8e-6 * 0.5
-		expect(expectedOutputCost).toBeCloseTo(0.0001); // 50 * 4.0e-6 * 0.5
-		expect(expectedTotalCost).toBeCloseTo(0.00014);
+		expect(expectedInputCost).toBeCloseTo(0.000016); // 100 * 0.8e-6 * 0.2
+		expect(expectedOutputCost).toBeCloseTo(0.00004); // 50 * 4.0e-6 * 0.2
+		expect(expectedTotalCost).toBeCloseTo(0.000056);
 	});
 
 	it("should not include discount field when no discount applied", () => {

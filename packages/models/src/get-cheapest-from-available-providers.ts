@@ -42,10 +42,11 @@ export function getCheapestFromAvailableProviders<
 			(p) => p.providerId === provider.providerId,
 		);
 		const discount = (providerInfo as ProviderModelMapping)?.discount || 1;
+		const discountMultiplier = 1 - discount;
 		const totalPrice =
 			(((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) /
 				2) *
-			discount;
+			discountMultiplier;
 
 		if (totalPrice < lowestPrice) {
 			lowestPrice = totalPrice;
