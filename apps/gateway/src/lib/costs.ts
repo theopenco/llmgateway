@@ -171,7 +171,7 @@ export function calculateCosts(
 	const outputPrice = providerInfo.outputPrice || 0;
 	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
 	const requestPrice = providerInfo.requestPrice || 0;
-	const discount = providerInfo.discount || 1;
+	const discount = providerInfo.discount || 0;
 	const discountMultiplier = 1 - discount;
 
 	// Calculate input cost accounting for cached tokens

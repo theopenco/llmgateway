@@ -41,7 +41,7 @@ export function getCheapestFromAvailableProviders<
 		const providerInfo = modelWithPricing.providers.find(
 			(p) => p.providerId === provider.providerId,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount || 1;
+		const discount = (providerInfo as ProviderModelMapping)?.discount || 0;
 		const discountMultiplier = 1 - discount;
 		const totalPrice =
 			(((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) /
