@@ -35,6 +35,7 @@ describe("e2e individual tests", () => {
 		await db.insert(tables.organization).values({
 			id: orgId,
 			name: `Test Organization ${testId}`,
+			billingEmail: `user-${testId}@test.com`,
 			plan: "pro",
 		});
 

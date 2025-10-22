@@ -14,6 +14,7 @@ const organizationSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	name: z.string(),
+	billingEmail: z.string(),
 	credits: z.string(),
 	plan: z.enum(["free", "pro"]),
 	planExpiresAt: z.date().nullable(),
@@ -42,6 +43,7 @@ const createOrganizationSchema = z.object({
 
 const updateOrganizationSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
+	billingEmail: z.string().email().optional(),
 	retentionLevel: z.enum(["retain", "none"]).optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
@@ -241,6 +243,7 @@ organization.openapi(createOrganization, async (c) => {
 		.insert(tables.organization)
 		.values({
 			name,
+			billingEmail: user.email,
 		})
 		.returning();
 
@@ -322,6 +325,7 @@ organization.openapi(updateOrganization, async (c) => {
 	const { id } = c.req.param();
 	const {
 		name,
+		billingEmail,
 		retentionLevel,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -353,6 +357,7 @@ organization.openapi(updateOrganization, async (c) => {
 
 	// Check if user is trying to update policies or billing settings
 	const isBillingOrPolicyUpdate =
+		billingEmail !== undefined ||
 		retentionLevel !== undefined ||
 		autoTopUpEnabled !== undefined ||
 		autoTopUpThreshold !== undefined ||
@@ -368,6 +373,9 @@ organization.openapi(updateOrganization, async (c) => {
 	const updateData: any = {};
 	if (name !== undefined) {
 		updateData.name = name;
+	}
+	if (billingEmail !== undefined) {
+		updateData.billingEmail = billingEmail;
 	}
 	if (retentionLevel !== undefined) {
 		updateData.retentionLevel = retentionLevel;

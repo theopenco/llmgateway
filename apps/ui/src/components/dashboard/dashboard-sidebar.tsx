@@ -129,6 +129,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Policies",
 	},
 	{
+		href: "org/preferences",
+		label: "Preferences",
+	},
+	{
 		href: "org/team",
 		label: "Team",
 	},

@@ -75,6 +75,7 @@ describe(
 			await db.insert(tables.organization).values({
 				id: orgId,
 				name: "Test Organization",
+				billingEmail: `admin-${testId}@example.com`,
 				plan: "pro",
 			});
 

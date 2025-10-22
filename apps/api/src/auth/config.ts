@@ -609,6 +609,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						.insert(tables.organization)
 						.values({
 							name: "Default Organization",
+							billingEmail: newSession.user.email,
 						})
 						.returning();
 

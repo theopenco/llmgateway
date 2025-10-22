@@ -27,6 +27,7 @@ export async function ensureStripeCustomer(
 	let stripeCustomerId = organization.stripeCustomerId;
 	if (!stripeCustomerId) {
 		const customer = await stripe.customers.create({
+			email: organization.billingEmail,
 			metadata: {
 				organizationId,
 			},
@@ -39,6 +40,11 @@ export async function ensureStripeCustomer(
 				stripeCustomerId,
 			})
 			.where(eq(tables.organization.id, organizationId));
+	} else {
+		// Update existing customer email if billingEmail has changed
+		await stripe.customers.update(stripeCustomerId, {
+			email: organization.billingEmail,
+		});
 	}
 
 	return stripeCustomerId;

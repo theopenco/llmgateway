@@ -57,6 +57,7 @@ describe("stats-calculator", () => {
 			{
 				id: "org-1",
 				name: "Test Organization",
+				billingEmail: testUser.email,
 			},
 		]);
 

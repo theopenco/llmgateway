@@ -1916,6 +1916,7 @@ export interface paths {
                                 createdAt: string;
                                 updatedAt: string;
                                 name: string;
+                                billingEmail: string;
                                 credits: string;
                                 /** @enum {string} */
                                 plan: "free" | "pro";
@@ -1961,6 +1962,7 @@ export interface paths {
                                 createdAt: string;
                                 updatedAt: string;
                                 name: string;
+                                billingEmail: string;
                                 credits: string;
                                 /** @enum {string} */
                                 plan: "free" | "pro";
@@ -2106,6 +2108,8 @@ export interface paths {
                 content: {
                     "application/json": {
                         name?: string;
+                        /** Format: email */
+                        billingEmail?: string;
                         /** @enum {string} */
                         retentionLevel?: "retain" | "none";
                         autoTopUpEnabled?: boolean;
@@ -2128,6 +2132,7 @@ export interface paths {
                                 createdAt: string;
                                 updatedAt: string;
                                 name: string;
+                                billingEmail: string;
                                 credits: string;
                                 /** @enum {string} */
                                 plan: "free" | "pro";

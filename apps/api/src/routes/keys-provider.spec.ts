@@ -19,6 +19,7 @@ describe("provider keys route", () => {
 		await db.insert(tables.organization).values({
 			id: "test-org-id",
 			name: "Test Organization",
+			billingEmail: "test@example.com",
 			plan: "pro",
 		});
 

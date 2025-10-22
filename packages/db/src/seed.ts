@@ -58,6 +58,7 @@ async function seed() {
 	await upsert(tables.organization, {
 		id: "test-org-id",
 		name: "Test Organization",
+		billingEmail: "admin@example.com",
 		credits: 5,
 	});
 
