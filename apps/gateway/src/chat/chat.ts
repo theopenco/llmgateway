@@ -2690,78 +2690,124 @@ chat.openapi(completions, async (c) => {
 						(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
 				}
 
-				// Send final usage chunk if we need to send usage data
-				// This includes cases where:
-				// 1. No usage tokens were provided at all (all null)
-				// 2. Some tokens are missing (e.g., Google AI Studio doesn't provide completion tokens during streaming)
-				const needsUsageChunk =
-					(promptTokens === null &&
-						completionTokens === null &&
-						totalTokens === null &&
-						(calculatedPromptTokens !== null ||
-							calculatedCompletionTokens !== null)) ||
-					(completionTokens === null && calculatedCompletionTokens !== null);
+				// Check if the response finished successfully but has no content, tokens, or tool calls
+				// This indicates an empty response which should be marked as an error
+				// Do this check BEFORE sending usage chunks to ensure proper event ordering
+				const hasEmptyResponse =
+					!streamingError &&
+					finishReason &&
+					(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
+					(!fullContent || fullContent.trim() === "") &&
+					(!streamingToolCalls || streamingToolCalls.length === 0);
 
-				if (needsUsageChunk) {
+				if (hasEmptyResponse) {
+					const errorMessage =
+						"Response finished successfully but returned no content or tool calls";
+					streamingError = errorMessage;
+					finishReason = "upstream_error";
+
+					// Send error event to client using writeSSEAndCache to cache the error
 					try {
-						const finalUsageChunk = {
-							id: `chatcmpl-${Date.now()}`,
-							object: "chat.completion.chunk",
-							created: Math.floor(Date.now() / 1000),
-							model: usedModel,
-							choices: [
-								{
-									index: 0,
-									delta: {},
-									finish_reason: null,
-								},
-							],
-							usage: {
-								prompt_tokens: Math.max(
-									1,
-									Math.round(
-										promptTokens && promptTokens > 0
-											? promptTokens
-											: calculatedPromptTokens || 1,
-									),
-								),
-								completion_tokens: Math.round(
-									completionTokens || calculatedCompletionTokens || 0,
-								),
-								total_tokens: Math.round(
-									totalTokens ||
-										calculatedTotalTokens ||
-										Math.max(
-											1,
-											promptTokens && promptTokens > 0
-												? promptTokens
-												: calculatedPromptTokens || 1,
-										),
-								),
-								...(cachedTokens !== null && {
-									prompt_tokens_details: {
-										cached_tokens: cachedTokens,
-									},
-								}),
-							},
-						};
-
 						await writeSSEAndCache({
-							data: JSON.stringify(finalUsageChunk),
+							event: "error",
+							data: JSON.stringify({
+								error: {
+									message: errorMessage,
+									type: "upstream_error",
+									code: "upstream_error",
+									param: null,
+									responseText: errorMessage,
+								},
+							}),
 							id: String(eventId++),
 						});
-
-						// Send final [DONE] if we haven't already
 						await writeSSEAndCache({
 							event: "done",
 							data: "[DONE]",
 							id: String(eventId++),
 						});
-					} catch (error) {
+					} catch (sseError) {
 						logger.error(
-							"Error sending final usage chunk",
-							error instanceof Error ? error : new Error(String(error)),
+							"Failed to send upstream error SSE",
+							sseError instanceof Error
+								? sseError
+								: new Error(String(sseError)),
 						);
+					}
+				} else {
+					// Send final usage chunk if we need to send usage data
+					// This includes cases where:
+					// 1. No usage tokens were provided at all (all null)
+					// 2. Some tokens are missing (e.g., Google AI Studio doesn't provide completion tokens during streaming)
+					const needsUsageChunk =
+						(promptTokens === null &&
+							completionTokens === null &&
+							totalTokens === null &&
+							(calculatedPromptTokens !== null ||
+								calculatedCompletionTokens !== null)) ||
+						(completionTokens === null && calculatedCompletionTokens !== null);
+
+					if (needsUsageChunk) {
+						try {
+							const finalUsageChunk = {
+								id: `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: Math.floor(Date.now() / 1000),
+								model: usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: null,
+									},
+								],
+								usage: {
+									prompt_tokens: Math.max(
+										1,
+										Math.round(
+											promptTokens && promptTokens > 0
+												? promptTokens
+												: calculatedPromptTokens || 1,
+										),
+									),
+									completion_tokens: Math.round(
+										completionTokens || calculatedCompletionTokens || 0,
+									),
+									total_tokens: Math.round(
+										totalTokens ||
+											calculatedTotalTokens ||
+											Math.max(
+												1,
+												promptTokens && promptTokens > 0
+													? promptTokens
+													: calculatedPromptTokens || 1,
+											),
+									),
+									...(cachedTokens !== null && {
+										prompt_tokens_details: {
+											cached_tokens: cachedTokens,
+										},
+									}),
+								},
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(finalUsageChunk),
+								id: String(eventId++),
+							});
+
+							// Send final [DONE] if we haven't already
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+						} catch (error) {
+							logger.error(
+								"Error sending final usage chunk",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+						}
 					}
 				}
 
@@ -2813,20 +2859,6 @@ chat.openapi(completions, async (c) => {
 
 				if (!finishReason && !streamingError && usedProvider === "routeway") {
 					finishReason = "stop";
-				}
-
-				// Check if the response finished successfully but has no content, tokens, or tool calls
-				// This indicates an empty response which should be marked as an error
-				if (
-					!streamingError &&
-					finishReason &&
-					(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
-					(!fullContent || fullContent.trim() === "") &&
-					(!streamingToolCalls || streamingToolCalls.length === 0)
-				) {
-					streamingError =
-						"Response finished successfully but returned no content or tool calls";
-					finishReason = "upstream_error";
 				}
 
 				await insertLog({
