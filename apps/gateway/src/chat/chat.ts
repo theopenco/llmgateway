@@ -2824,9 +2824,39 @@ chat.openapi(completions, async (c) => {
 					(!fullContent || fullContent.trim() === "") &&
 					(!streamingToolCalls || streamingToolCalls.length === 0)
 				) {
-					streamingError =
+					const errorMessage =
 						"Response finished successfully but returned no content or tool calls";
+					streamingError = errorMessage;
 					finishReason = "upstream_error";
+
+					// Send error event to client
+					try {
+						await stream.writeSSE({
+							event: "error",
+							data: JSON.stringify({
+								error: {
+									message: errorMessage,
+									type: "upstream_error",
+									code: "upstream_error",
+									param: null,
+									responseText: errorMessage,
+								},
+							}),
+							id: String(eventId++),
+						});
+						await stream.writeSSE({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+					} catch (sseError) {
+						logger.error(
+							"Failed to send upstream error SSE",
+							sseError instanceof Error
+								? sseError
+								: new Error(String(sseError)),
+						);
+					}
 				}
 
 				await insertLog({

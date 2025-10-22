@@ -104,6 +104,8 @@ export async function readAll(
 	hasOpenAIFormat: boolean;
 	chunks: any[];
 	hasUsage: boolean;
+	errorEvents: any[];
+	hasError: boolean;
 }> {
 	if (!stream) {
 		return {
@@ -113,6 +115,8 @@ export async function readAll(
 			hasOpenAIFormat: false,
 			chunks: [],
 			hasUsage: false,
+			errorEvents: [],
+			hasError: false,
 		};
 	}
 	const reader = stream.getReader();
@@ -123,6 +127,8 @@ export async function readAll(
 	let hasOpenAIFormat = true; // Assume true until proven otherwise
 	let hasUsage = false;
 	const chunks: any[] = [];
+	const errorEvents: any[] = [];
+	let hasError = false;
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
@@ -132,8 +138,11 @@ export async function readAll(
 			const chunk = new TextDecoder().decode(value);
 			fullContent += chunk;
 			const lines = chunk.split("\n");
+			let currentEvent = "";
 			for (const line of lines) {
-				if (line.startsWith("data: ")) {
+				if (line.startsWith("event: ")) {
+					currentEvent = line.substring(7).trim();
+				} else if (line.startsWith("data: ")) {
 					eventCount++;
 					hasValidSSE = true;
 					if (line === "data: [DONE]") {
@@ -141,6 +150,13 @@ export async function readAll(
 					}
 					try {
 						const data = JSON.parse(line.substring(6));
+						// Handle error events
+						if (currentEvent === "error" || data.error) {
+							errorEvents.push(data);
+							hasError = true;
+							currentEvent = "";
+							continue;
+						}
 						chunks.push(data);
 						// Check if this chunk has OpenAI format
 						if (
@@ -167,6 +183,7 @@ export async function readAll(
 							hasUsage = true;
 						}
 					} catch {}
+					currentEvent = "";
 				}
 			}
 		}
@@ -181,5 +198,7 @@ export async function readAll(
 		hasOpenAIFormat,
 		chunks,
 		hasUsage,
+		errorEvents,
+		hasError,
 	};
 }
