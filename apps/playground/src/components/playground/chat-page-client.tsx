@@ -206,8 +206,14 @@ export default function ChatPageClient({
 
 	// After login, ensure a playground key cookie exists via backend
 	useEffect(() => {
+		// Reset ref when user logs out or project is unset
+		if (!isAuthenticated || !selectedProject) {
+			ensuredProjectRef.current = null;
+			return;
+		}
+
 		const ensureKey = async () => {
-			if (!isAuthenticated || !selectedOrganization || !selectedProject) {
+			if (!selectedOrganization) {
 				return;
 			}
 			// Skip if we've already ensured the key for this project
