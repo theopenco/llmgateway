@@ -146,6 +146,8 @@ export async function readAll(
 					eventCount++;
 					hasValidSSE = true;
 					if (line === "data: [DONE]") {
+						// Reset currentEvent to avoid stale carry-over
+						currentEvent = "";
 						continue;
 					}
 					try {
