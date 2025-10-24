@@ -2330,7 +2330,10 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// For Google providers, add usage information when available
-							if (usedProvider === "google-ai-studio") {
+							if (
+								usedProvider === "google-ai-studio" ||
+								usedProvider === "google-vertex"
+							) {
 								const usage = extractTokenUsage(
 									data,
 									usedProvider,
@@ -2413,6 +2416,7 @@ chat.openapi(completions, async (c) => {
 							// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 							const contentChunk = extractContent(
 								usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex" ||
 									usedProvider === "anthropic"
 									? data
 									: transformedData,
@@ -2433,6 +2437,7 @@ chat.openapi(completions, async (c) => {
 							// use raw data. For others, use transformed OpenAI format.
 							const reasoningContentChunk = extractReasoning(
 								usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex" ||
 									usedProvider === "anthropic"
 									? data
 									: transformedData,

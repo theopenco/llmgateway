@@ -206,7 +206,6 @@ export const googleModels = [
 				tools: true,
 			},
 			{
-				test: "only",
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-lite",
 				inputPrice: 0.1 / 1e6,
