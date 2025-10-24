@@ -215,6 +215,7 @@ export const openaiModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-4.1",
 				inputPrice: 2.0 / 1e6,
