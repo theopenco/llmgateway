@@ -132,10 +132,18 @@ describe(
 						provider: providerId,
 						token: envVarValue,
 						organizationId: orgId,
+						...(providerId === "azure"
+							? {
+									options: {
+										azure_validation_model: "gpt-4o-mini",
+									},
+								}
+							: {}),
 					}),
 				});
 
 				const json = await res.json();
+				console.log("json", { json });
 				expect(res.status).toBe(200);
 				expect(json).toHaveProperty("providerKey");
 				expect(json.providerKey.provider).toBe(providerId);
