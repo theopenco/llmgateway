@@ -22,6 +22,7 @@ import {
 	ExternalLink,
 	Percent,
 	Scale,
+	Braces,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -128,6 +129,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
 			reasoning: searchParams.get("reasoning") === "true",
+			jsonOutput: searchParams.get("jsonOutput") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -161,6 +163,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		},
 		[router, searchParams],
 	);
+
+	// Calculate total counts
+	const totalModelCount = models.length;
+	const totalProviderCount = providers.length;
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const baseModels = (models as readonly ModelDefinition[]).map((model) => ({
@@ -217,6 +223,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				filters.capabilities.reasoning &&
 				!model.providerDetails.some((p) => p.provider.reasoning)
 			) {
+				return false;
+			}
+			if (filters.capabilities.jsonOutput && !model.jsonOutput) {
 				return false;
 			}
 			if (
@@ -373,6 +382,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		});
 	}, [searchQuery, filters, sortField, sortDirection]);
 
+	// Calculate unique filtered providers
+	const filteredProviderCount = useMemo(() => {
+		const uniqueProviders = new Set(
+			modelsWithProviders.flatMap((model) =>
+				model.providerDetails.map((p) => p.provider.providerId),
+			),
+		);
+		return uniqueProviders.size;
+	}, [modelsWithProviders]);
+
 	const handleSort = (field: SortField) => {
 		if (sortField === field) {
 			const newDir: SortDirection = sortDirection === "asc" ? "desc" : "asc";
@@ -496,6 +515,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				color: "text-orange-500",
 			});
 		}
+		if (model?.jsonOutput) {
+			capabilities.push({
+				icon: Braces,
+				label: "JSON Output",
+				color: "text-cyan-500",
+			});
+		}
 		if (model?.output?.includes("image")) {
 			capabilities.push({
 				icon: ImagePlus,
@@ -514,6 +540,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				vision: false,
 				tools: false,
 				reasoning: false,
+				jsonOutput: false,
 				imageGeneration: false,
 				free: false,
 				discounted: false,
@@ -532,6 +559,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			vision: undefined,
 			tools: undefined,
 			reasoning: undefined,
+			jsonOutput: undefined,
 			free: undefined,
 			discounted: undefined,
 			provider: undefined,
@@ -591,6 +619,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									label: "Reasoning",
 									icon: MessageSquare,
 									color: "text-orange-500",
+								},
+								{
+									key: "jsonOutput",
+									label: "JSON Output",
+									icon: Braces,
+									color: "text-cyan-500",
 								},
 								{
 									key: "imageGeneration",
@@ -1480,16 +1514,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<Card>
 									<CardContent className="p-4">
 										<div className="text-2xl font-bold">
-											{modelsWithProviders.length}
+											{hasActiveFilters
+												? `${modelsWithProviders.length}/${totalModelCount}`
+												: modelsWithProviders.length}
 										</div>
-										<div className="text-sm text-muted-foreground">
-											Total Models
-										</div>
+										<div className="text-sm text-muted-foreground">Models</div>
 									</CardContent>
 								</Card>
 								<Card>
 									<CardContent className="p-4">
-										<div className="text-2xl font-bold">{providers.length}</div>
+										<div className="text-2xl font-bold">
+											{hasActiveFilters
+												? `${filteredProviderCount}/${totalProviderCount}`
+												: totalProviderCount}
+										</div>
 										<div className="text-sm text-muted-foreground">
 											Providers
 										</div>
