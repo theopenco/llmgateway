@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { apiAuth as auth } from "@/auth/config.js";
+import {
+	apiAuth as auth,
+	updateBrevoContactAttributes,
+} from "@/auth/config.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
@@ -441,6 +444,10 @@ user.openapi(completeOnboarding, async (c) => {
 		})
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
+
+	await updateBrevoContactAttributes(updatedUser.email, {
+		ONBOARDING_COMPLETED: true,
+	});
 
 	return c.json({
 		user: {

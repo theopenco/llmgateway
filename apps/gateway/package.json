@@ -37,7 +37,7 @@
 		"@opentelemetry/sdk-node": "0.205.0",
 		"dotenv": "16.5.0",
 		"gpt-tokenizer": "3.0.1",
-		"hono": "^4.10.2",
+		"hono": "^4.10.3",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.7.0",
 		"redis": "5.8.2",

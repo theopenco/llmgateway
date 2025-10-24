@@ -66,7 +66,8 @@ export const filteredModels = models
 	.filter((model) => {
 		// Check only model-level stability, not provider-level
 		const modelStability = (model as ModelDefinition).stability;
-		const isUnstable = modelStability === "unstable";
+		const isUnstable =
+			modelStability === "unstable" || modelStability === "experimental";
 
 		if (!isUnstable) {
 			return true;
