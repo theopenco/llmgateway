@@ -162,6 +162,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		[router, searchParams],
 	);
 
+	// Calculate total counts
+	const totalModelCount = models.length;
+	const totalProviderCount = providers.length;
+
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const baseModels = (models as readonly ModelDefinition[]).map((model) => ({
 			...model,
@@ -372,6 +376,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			return 0;
 		});
 	}, [searchQuery, filters, sortField, sortDirection]);
+
+	// Calculate unique filtered providers
+	const filteredProviderCount = useMemo(() => {
+		const uniqueProviders = new Set(
+			modelsWithProviders.flatMap((model) =>
+				model.providerDetails.map((p) => p.provider.providerId),
+			),
+		);
+		return uniqueProviders.size;
+	}, [modelsWithProviders]);
 
 	const handleSort = (field: SortField) => {
 		if (sortField === field) {
@@ -1480,16 +1494,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<Card>
 									<CardContent className="p-4">
 										<div className="text-2xl font-bold">
-											{modelsWithProviders.length}
+											{hasActiveFilters
+												? `${modelsWithProviders.length}/${totalModelCount}`
+												: modelsWithProviders.length}
 										</div>
-										<div className="text-sm text-muted-foreground">
-											Total Models
-										</div>
+										<div className="text-sm text-muted-foreground">Models</div>
 									</CardContent>
 								</Card>
 								<Card>
 									<CardContent className="p-4">
-										<div className="text-2xl font-bold">{providers.length}</div>
+										<div className="text-2xl font-bold">
+											{hasActiveFilters
+												? `${filteredProviderCount}/${totalProviderCount}`
+												: totalProviderCount}
+										</div>
 										<div className="text-sm text-muted-foreground">
 											Providers
 										</div>
