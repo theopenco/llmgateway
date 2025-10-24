@@ -114,7 +114,9 @@ describe("provider keys route", () => {
 		const json = await res.json();
 		expect(json).toHaveProperty("providerKey");
 		expect(json.providerKey.provider).toBe("inference.net");
-		expect(json.providerKey.token).toBe("inference-test-token");
+		expect(json.providerKey.maskedToken).toBeDefined();
+		expect(json.providerKey.maskedToken).toContain("•");
+		expect(json.providerKey.token).toBeUndefined();
 
 		// Verify the key was created in the database
 		const providerKey = await db.query.providerKey.findFirst({
