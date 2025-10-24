@@ -1,12 +1,12 @@
 ---
-title: Azure OpenAI Integration
-description: Connect Azure OpenAI Service to LLM Gateway for enterprise-grade OpenAI models
+title: Azure Integration
+description: Connect Azure to LLM Gateway for enterprise-grade OpenAI models
 icon: Cloud
 ---
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 
-Azure OpenAI Service provides access to OpenAI's powerful language models through Microsoft's enterprise cloud infrastructure. This guide shows how to create an Azure OpenAI resource, deploy models, and integrate them with LLM Gateway.
+Azure provides access to OpenAI's powerful language models through Microsoft's enterprise cloud infrastructure. This guide shows how to create an Azure resource, deploy models, and integrate them with LLM Gateway.
 
 ## Prerequisites
 
@@ -15,13 +15,13 @@ Azure OpenAI Service provides access to OpenAI's powerful language models throug
 
 ## Overview
 
-Azure OpenAI Service provides enterprise-grade access to OpenAI models with enhanced security, compliance, and regional availability. LLM Gateway integrates seamlessly with Azure OpenAI deployments.
+Azure provides enterprise-grade access to OpenAI models with enhanced security, compliance, and regional availability. LLM Gateway integrates seamlessly with Azure deployments.
 
-## Create Azure OpenAI Resource
+## Create Azure Resource
 
 <Steps>
 <Step>
-### Create an Azure OpenAI Service Resource
+### Create an Azure OpenAI Resource
 
 1. Log into the **Azure Portal** (https://portal.azure.com)
 2. Click **Create a resource**
@@ -43,9 +43,9 @@ Azure OpenAI Service provides enterprise-grade access to OpenAI models with enha
 <Step>
 ### Deploy Models
 
-1. Navigate to your Azure OpenAI resource in the Azure Portal
+1. Navigate to your Azure resource in the Azure Portal
 2. Click **Go to Azure OpenAI Studio** or visit https://oai.azure.com
-3. In Azure OpenAI Studio, select **Deployments** from the left sidebar
+3. In Azure Studio, select **Deployments** from the left sidebar
 4. Click **Create new deployment**
 5. Configure your deployment:
    - **Model**: Select a model (e.g., gpt-4o, gpt-4o-mini, gpt-4-turbo)
@@ -67,12 +67,12 @@ Azure OpenAI Service provides enterprise-grade access to OpenAI models with enha
 <Step>
 ### Get API Key
 
-1. In the Azure Portal, go to your Azure OpenAI resource
+1. In the Azure Portal, go to your Azure resource
 2. Click **Keys and Endpoint** in the left sidebar
 3. Copy **Key 1** or **Key 2**
 4. Note your **Endpoint** URL (should be `https://<resource-name>.openai.azure.com`)
 
-**Important**: Keep your API key secure - it provides access to your Azure OpenAI deployments.
+**Important**: Keep your API key secure - it provides access to your Azure deployments.
 
 </Step>
 
@@ -91,11 +91,11 @@ Azure OpenAI Service provides enterprise-grade access to OpenAI models with enha
 </Step>
 
 <Step>
-### Add Azure OpenAI Provider Key
+### Add Azure Provider Key
 
-1. Click **Add** for **Azure OpenAI**
+1. Click **Add** for **Azure**
 2. Enter your **API Key** from Azure Portal
-3. Enter your **Resource Name** (the name from your Azure OpenAI endpoint URL)
+3. Enter your **Resource Name** (the name from your Azure endpoint URL)
    - Example: If your endpoint is `https://my-openai-resource.openai.azure.com`, enter `my-openai-resource`
 4. Click **Add Key**
 
@@ -117,7 +117,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
     "messages": [
       {
         "role": "user",
-        "content": "Hello from Azure OpenAI!"
+        "content": "Hello from Azure!"
       }
     ]
   }'
@@ -130,7 +130,7 @@ Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
 
 ## Available Models
 
-Once configured, you can access your Azure OpenAI deployments through LLM Gateway:
+Once configured, you can access your Azure deployments through LLM Gateway:
 
 - **GPT-4o**: `azure/gpt-4o`
 - **GPT-4o Mini**: `azure/gpt-4o-mini`
@@ -138,7 +138,7 @@ Once configured, you can access your Azure OpenAI deployments through LLM Gatewa
 - **GPT-4**: `azure/gpt-4`
 - **GPT-3.5 Turbo**: `azure/gpt-3.5-turbo`
 
-**Note**: Only models you have deployed in Azure OpenAI Studio will be available. Ensure your deployment names match the expected model identifiers.
+**Note**: Only models you have deployed in Azure Studio will be available. Ensure your deployment names match the expected model identifiers.
 
 Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=azure)
 
@@ -146,24 +146,24 @@ Browse all available models at [llmgateway.io/models](https://llmgateway.io/mode
 
 ### "Deployment not found" error
 
-- Verify you've created a deployment in Azure OpenAI Studio
+- Verify you've created a deployment in Azure Studio
 - Ensure the deployment name exactly matches the model name you're requesting
 - Check that the deployment is in the same resource as your API key
 
 ### "Resource not found" error
 
 - Verify the resource name is correct (check your Azure Portal endpoint URL)
-- Ensure your API key belongs to the correct Azure OpenAI resource
+- Ensure your API key belongs to the correct Azure resource
 - Confirm the resource is in an active state in Azure Portal
 
 ### Rate limiting
 
-- Azure OpenAI has Tokens Per Minute (TPM) quotas per deployment
-- Monitor usage in Azure OpenAI Studio under **Quotas**
+- Azure has Tokens Per Minute (TPM) quotas per deployment
+- Monitor usage in Azure Studio under **Quotas**
 - Request quota increases through Azure Portal if needed for high-volume workloads
 
 ### Region availability
 
 - Not all models are available in all Azure regions
-- Check [Azure OpenAI model availability](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) for your region
+- Check [Azure model availability](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) for your region
 - Consider creating resources in multiple regions for better availability

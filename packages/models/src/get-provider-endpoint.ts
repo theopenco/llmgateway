@@ -170,7 +170,7 @@ export function getProviderEndpoint(
 				"ai-foundry";
 
 			if (deploymentType === "openai") {
-				// Traditional Azure OpenAI Service (deployment-based)
+				// Traditional Azure (deployment-based)
 				const apiVersion =
 					providerKeyOptions?.azure_api_version ||
 					process.env.LLM_AZURE_API_VERSION ||

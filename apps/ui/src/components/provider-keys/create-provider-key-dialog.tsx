@@ -441,12 +441,12 @@ export function CreateProviderKeyDialog({
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="ai-foundry">Azure AI Foundry</SelectItem>
-										<SelectItem value="openai">Azure OpenAI Service</SelectItem>
+										<SelectItem value="openai">Azure OpenAI</SelectItem>
 									</SelectContent>
 								</Select>
 								<p className="text-sm text-muted-foreground">
 									Choose Azure AI Foundry (unified endpoint) or Azure OpenAI
-									Service (deployment-based)
+									(deployment-based)
 								</p>
 							</div>
 							{azureDeploymentType === "openai" && (
@@ -460,7 +460,7 @@ export function CreateProviderKeyDialog({
 										onChange={(e) => setAzureApiVersion(e.target.value)}
 									/>
 									<p className="text-sm text-muted-foreground">
-										Azure OpenAI API version (default: 2024-10-21 GA)
+										Azure API version (default: 2024-10-21 GA)
 									</p>
 								</div>
 							)}
