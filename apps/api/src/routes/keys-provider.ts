@@ -194,6 +194,11 @@ keysProvider.openapi(create, async (c) => {
 			throw new Error(`Invalid provider: ${provider}`);
 		}
 
+		logger.debug("Validating provider key with options", {
+			provider,
+			options,
+		});
+
 		// Skip validation for custom providers as they don't have predefined models
 		if (provider === "custom") {
 			validationResult = { valid: true };

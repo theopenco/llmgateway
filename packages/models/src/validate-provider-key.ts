@@ -69,6 +69,14 @@ export async function validateProviderKey(
 				? providerKeyOptions.azure_validation_model
 				: modelId;
 
+		logger.debug("Validation endpoint configuration", {
+			provider,
+			validationModel,
+			modelId,
+			effectiveModelId,
+			providerKeyOptions,
+		});
+
 		const endpoint = getProviderEndpoint(
 			provider,
 			baseUrl,
@@ -99,7 +107,8 @@ export async function validateProviderKey(
 			providerMapping as ProviderModelMapping | undefined
 		)?.supportedParameters;
 		const supportsMaxTokens =
-			supportedParameters?.includes("max_tokens") ?? true;
+			supportedParameters?.includes("max_tokens") &&
+			providerMapping?.providerId !== "azure";
 
 		const payload = await prepareRequestBody(
 			provider,
@@ -107,7 +116,7 @@ export async function validateProviderKey(
 			messages,
 			false, // stream
 			undefined, // temperature
-			supportsMaxTokens ? 1 : undefined, // max_tokens - minimal for validation, undefined if not supported
+			supportsMaxTokens ? 10 : undefined, // max_tokens - minimal for validation, undefined if not supported
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
