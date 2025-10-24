@@ -4,6 +4,14 @@ import { fetchServerData } from "@/lib/server-api";
 // Force dynamic rendering since this page uses server-side data fetching with cookies
 export const dynamic = "force-dynamic";
 
+interface ProviderKeyOptions {
+	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	azure_resource?: string;
+	azure_api_version?: string;
+	azure_deployment_type?: "openai" | "ai-foundry";
+	azure_validation_model?: string;
+}
+
 interface ProviderKeysData {
 	providerKeys: {
 		id: string;
@@ -12,6 +20,7 @@ interface ProviderKeysData {
 		provider: string;
 		name: string | null;
 		baseUrl: string | null;
+		options: ProviderKeyOptions | null;
 		status: "active" | "inactive" | "deleted" | null;
 		organizationId: string;
 		maskedToken: string;

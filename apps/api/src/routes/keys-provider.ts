@@ -23,6 +23,15 @@ const providerKeySchema = z.object({
 	provider: z.string(),
 	name: z.string().nullable(),
 	baseUrl: z.string().nullable(),
+	options: z
+		.object({
+			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			azure_resource: z.string().optional(),
+			azure_api_version: z.string().optional(),
+			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
+			azure_validation_model: z.string().optional(),
+		})
+		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	organizationId: z.string(),
 });
@@ -193,11 +202,6 @@ keysProvider.openapi(create, async (c) => {
 		if (!providers.some((p) => p.id === provider) && provider !== "custom") {
 			throw new Error(`Invalid provider: ${provider}`);
 		}
-
-		logger.debug("Validating provider key with options", {
-			provider,
-			options,
-		});
 
 		// Skip validation for custom providers as they don't have predefined models
 		if (provider === "custom") {

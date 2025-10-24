@@ -8,6 +8,14 @@ import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 
+interface ProviderKeyOptions {
+	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	azure_resource?: string;
+	azure_api_version?: string;
+	azure_deployment_type?: "openai" | "ai-foundry";
+	azure_validation_model?: string;
+}
+
 interface ProviderKeysClientProps {
 	initialProviderKeysData?: {
 		providerKeys: {
@@ -17,6 +25,7 @@ interface ProviderKeysClientProps {
 			provider: string;
 			name: string | null;
 			baseUrl: string | null;
+			options: ProviderKeyOptions | null;
 			status: "active" | "inactive" | "deleted" | null;
 			organizationId: string;
 			maskedToken: string;

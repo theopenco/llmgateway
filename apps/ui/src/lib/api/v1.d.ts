@@ -1372,6 +1372,15 @@ export interface paths {
                                 provider: string;
                                 name: string | null;
                                 baseUrl: string | null;
+                                options: {
+                                    /** @enum {string} */
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    azure_resource?: string;
+                                    azure_api_version?: string;
+                                    /** @enum {string} */
+                                    azure_deployment_type?: "openai" | "ai-foundry";
+                                    azure_validation_model?: string;
+                                } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 organizationId: string;
@@ -1401,6 +1410,11 @@ export interface paths {
                         options?: {
                             /** @enum {string} */
                             aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                            azure_resource?: string;
+                            azure_api_version?: string;
+                            /** @enum {string} */
+                            azure_deployment_type?: "openai" | "ai-foundry";
+                            azure_validation_model?: string;
                         };
                         organizationId: string;
                     };
@@ -1421,6 +1435,15 @@ export interface paths {
                                 provider: string;
                                 name: string | null;
                                 baseUrl: string | null;
+                                options: {
+                                    /** @enum {string} */
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    azure_resource?: string;
+                                    azure_api_version?: string;
+                                    /** @enum {string} */
+                                    azure_deployment_type?: "openai" | "ai-foundry";
+                                    azure_validation_model?: string;
+                                } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 organizationId: string;
@@ -1528,6 +1551,15 @@ export interface paths {
                                 provider: string;
                                 name: string | null;
                                 baseUrl: string | null;
+                                options: {
+                                    /** @enum {string} */
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    azure_resource?: string;
+                                    azure_api_version?: string;
+                                    /** @enum {string} */
+                                    azure_deployment_type?: "openai" | "ai-foundry";
+                                    azure_validation_model?: string;
+                                } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 organizationId: string;

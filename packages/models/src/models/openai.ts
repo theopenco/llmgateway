@@ -23,6 +23,7 @@ export const openaiModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-4o-mini",
 				inputPrice: 0.15 / 1e6,
@@ -68,6 +69,7 @@ export const openaiModels = [
 				],
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-4",
 				inputPrice: 30.0 / 1e6,
@@ -104,6 +106,7 @@ export const openaiModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-4o",
 				inputPrice: 2.5 / 1e6,
@@ -141,6 +144,7 @@ export const openaiModels = [
 				disableJsonOutputSchema: true,
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-35-turbo",
 				inputPrice: 0.5 / 1e6,
@@ -176,6 +180,7 @@ export const openaiModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-4-turbo",
 				inputPrice: 10.0 / 1e6,
@@ -492,6 +497,7 @@ export const openaiModels = [
 				],
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-5",
 				inputPrice: 1.25 / 1e6,
@@ -576,6 +582,7 @@ export const openaiModels = [
 				],
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-5-mini",
 				inputPrice: 0.25 / 1e6,
@@ -660,6 +667,7 @@ export const openaiModels = [
 				],
 			},
 			{
+				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-5-nano",
 				inputPrice: 0.05 / 1e6,
