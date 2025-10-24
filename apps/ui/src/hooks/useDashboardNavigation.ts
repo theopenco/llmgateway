@@ -10,6 +10,8 @@ import {
 	extractOrgAndProjectFromPath,
 } from "@/lib/navigation-utils";
 
+import type { Route } from "next";
+
 export function useDashboardNavigation() {
 	const pathname = usePathname();
 
@@ -27,13 +29,13 @@ export function useDashboardNavigation() {
 	const currentProjectId = projectId || selectedProject?.id;
 
 	// Helper function to build dashboard URLs
-	const buildUrl = (subPath?: string) => {
+	const buildUrl = (subPath?: string): Route => {
 		return buildDashboardUrl(currentOrgId, currentProjectId, subPath);
 	};
 
 	// Helper function to build org-only URLs (without project)
-	const buildOrgUrl = (subPath?: string) => {
-		return buildOrganizationUrl(currentOrgId, subPath);
+	const buildOrgUrl = (subPath?: string): Route => {
+		return buildOrganizationUrl(currentOrgId, subPath) as Route;
 	};
 
 	return {

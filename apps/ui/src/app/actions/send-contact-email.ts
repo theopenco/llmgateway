@@ -256,7 +256,7 @@ export async function sendContactEmail(data: ContactFormData) {
 			return {
 				success: false,
 				message: "Invalid form data",
-				errors: error.errors,
+				errors: error.flatten().fieldErrors,
 			};
 		}
 		return {

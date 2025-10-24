@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 
 export function buildUrlWithParams(
@@ -53,14 +54,14 @@ export function buildDashboardUrl(
 	orgId?: string | null,
 	projectId?: string | null,
 	subPath?: string,
-): string {
+): Route {
 	if (!orgId || !projectId) {
 		// Fallback to base dashboard (will redirect to proper structure)
 		return "/dashboard";
 	}
 
 	const basePath = `/dashboard/${orgId}/${projectId}`;
-	return subPath ? `${basePath}/${subPath}` : basePath;
+	return subPath ? (`${basePath}/${subPath}` as Route) : (basePath as Route);
 }
 
 /**
