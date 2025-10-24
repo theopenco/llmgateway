@@ -571,8 +571,7 @@ chat.openapi(completions, async (c) => {
 			if (requestedModel !== "auto" && requestedModel !== "custom") {
 				const supportsJsonSchema = modelInfo.providers.some(
 					(provider) =>
-						(provider as ProviderModelMapping).jsonOutputSchema === true &&
-						!(provider as ProviderModelMapping).disableJsonOutputSchema,
+						(provider as ProviderModelMapping).jsonOutputSchema === true,
 				);
 
 				if (!supportsJsonSchema) {

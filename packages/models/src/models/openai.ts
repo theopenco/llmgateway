@@ -139,8 +139,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutputSchema: true,
-				disableJsonOutputSchema: true,
+				jsonOutputSchema: false,
 			},
 			{
 				test: "skip",

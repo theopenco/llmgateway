@@ -77,11 +77,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			if ((modelDef as ModelDefinition)?.jsonOutput !== true) {
 				return false;
 			}
-			// Check if any provider for this model supports jsonOutputSchema and is not explicitly disabled
+			// Check if any provider for this model supports jsonOutputSchema
 			return modelDef?.providers.some(
 				(provider) =>
-					(provider as ProviderModelMapping).jsonOutputSchema === true &&
-					!(provider as ProviderModelMapping).disableJsonOutputSchema,
+					(provider as ProviderModelMapping).jsonOutputSchema === true,
 			);
 		}),
 	)("JSON schema output $model", getTestOptions(), async ({ model }) => {
