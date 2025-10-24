@@ -566,6 +566,15 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.topP = top_p;
 			}
 
+			// Handle JSON output mode for Google
+			if (response_format?.type === "json_object") {
+				requestBody.generationConfig.responseMimeType = "application/json";
+			} else if (response_format?.type === "json_schema") {
+				requestBody.generationConfig.responseMimeType = "application/json";
+				// Note: Google supports responseSchema but we'd need to convert from JSON Schema to Google's format
+				// For now, we just set the MIME type for basic JSON mode
+			}
+
 			// Enable thinking/reasoning content exposure for Google models that support reasoning
 			if (supportsReasoning) {
 				requestBody.generationConfig.thinkingConfig = {
