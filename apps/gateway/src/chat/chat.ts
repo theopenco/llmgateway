@@ -559,8 +559,15 @@ chat.openapi(completions, async (c) => {
 		response_format?.type === "json_object" ||
 		response_format?.type === "json_schema"
 	) {
-		// Check if any provider supports JSON output
-		const supportsJsonOutput = modelInfo.providers.some(
+		// Filter providers by requestedProvider if specified
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		// Check if the provider(s) support JSON output
+		const supportsJsonOutput = providersToCheck.some(
 			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
 		);
 
@@ -574,7 +581,7 @@ chat.openapi(completions, async (c) => {
 		if (response_format?.type === "json_schema") {
 			// For non-auto/custom models, check if the provider supports json_schema
 			if (requestedModel !== "auto" && requestedModel !== "custom") {
-				const supportsJsonSchema = modelInfo.providers.some(
+				const supportsJsonSchema = providersToCheck.some(
 					(provider) =>
 						(provider as ProviderModelMapping).jsonOutputSchema === true,
 				);
