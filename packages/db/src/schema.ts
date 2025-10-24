@@ -597,7 +597,6 @@ export const model = pgTable(
 			.$onUpdate(() => new Date()),
 		name: text(),
 		family: text().notNull(),
-		jsonOutput: boolean(),
 		free: boolean(),
 		deprecatedAt: timestamp(),
 		deactivatedAt: timestamp(),

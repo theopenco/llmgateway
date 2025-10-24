@@ -225,7 +225,7 @@ modelsApi.openapi(listModels, async (c) => {
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
 				// Add model-level capabilities
-				json_output: model.jsonOutput || false,
+				json_output: model.providers.some((p) => p.jsonOutput) || false,
 				free: model.free || false,
 				deprecated_at: model.deprecatedAt?.toISOString(),
 				deactivated_at: model.deactivatedAt?.toISOString(),

@@ -62,8 +62,6 @@ export async function syncProvidersAndModels() {
 					id: modelDef.id,
 					name: modelDef.name || null,
 					family: modelDef.family,
-					jsonOutput:
-						"jsonOutput" in modelDef ? modelDef.jsonOutput || null : null,
 					free: "free" in modelDef ? modelDef.free || null : null,
 					deprecatedAt: modelDef.deprecatedAt || null,
 					deactivatedAt: modelDef.deactivatedAt || null,
@@ -75,8 +73,6 @@ export async function syncProvidersAndModels() {
 					set: {
 						name: modelDef.name || null,
 						family: modelDef.family,
-						jsonOutput:
-							"jsonOutput" in modelDef ? modelDef.jsonOutput || null : null,
 						free: "free" in modelDef ? modelDef.free || null : null,
 						deprecatedAt: modelDef.deprecatedAt || null,
 						deactivatedAt: modelDef.deactivatedAt || null,
