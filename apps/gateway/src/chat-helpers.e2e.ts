@@ -62,13 +62,11 @@ export const filteredModels = models
 	// Filter out deactivated models
 	.filter((model) => !model.deactivatedAt || new Date() <= model.deactivatedAt)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
+	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
-		// Check if model or any of its providers are marked as unstable
+		// Check only model-level stability, not provider-level
 		const modelStability = (model as ModelDefinition).stability;
-		const hasUnstableProviders = model.providers.some(
-			(provider: ProviderModelMapping) => provider.stability === "unstable",
-		);
-		const isUnstable = modelStability === "unstable" || hasUnstableProviders;
+		const isUnstable = modelStability === "unstable";
 
 		if (!isUnstable) {
 			return true;
