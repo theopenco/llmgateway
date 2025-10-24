@@ -22,11 +22,18 @@ interface CostBreakdownChartProps {
 	projectId: string | undefined;
 }
 
-const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
+const CustomTooltip = ({
+	active,
+	payload,
+	label,
+}: TooltipProps<number, string> & {
+	payload: { value: number }[];
+	label: string;
+}) => {
 	if (active && payload && payload.length) {
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
-				<p className="font-medium">{payload[0].name}</p>
+				<p className="font-medium">{label}</p>
 				<p className="text-sm">
 					<span className="font-medium">
 						${Number(payload[0].value).toFixed(4)}
@@ -151,7 +158,7 @@ export function CostBreakdownChart({
 						paddingAngle={2}
 						dataKey="value"
 						label={({ name, percent }) =>
-							`${name} ${(percent * 100).toFixed(0)}%`
+							`${name} ${((percent as number) * 100).toFixed(0)}%`
 						}
 						labelLine={false}
 					>
@@ -159,7 +166,9 @@ export function CostBreakdownChart({
 							<Cell key={`cell-${index}`} fill={entry.color} />
 						))}
 					</Pie>
-					<Tooltip content={<CustomTooltip />} />
+					<Tooltip
+						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}
+					/>
 					<Legend />
 				</PieChart>
 			</ResponsiveContainer>

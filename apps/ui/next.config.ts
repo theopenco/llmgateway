@@ -9,21 +9,9 @@ const nextConfig: NextConfig = {
 	distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
 	output: "standalone",
 	productionBrowserSourceMaps: true,
-	eslint: {
-		ignoreDuringBuilds: true,
-	},
-	// experimental: {
-	// 	typedRoutes: true,
-	// 	clientSegmentCache: true,
-	// 	devtoolSegmentExplorer: true,
-	// 	globalNotFound: true,
-	// },
-	webpack: (config, { isServer }) => {
-		if (isServer) {
-			config.devtool = "source-map";
-		}
-		return config;
-	},
+	typedRoutes: true,
+	reactStrictMode: true,
+	reactCompiler: true,
 	async redirects() {
 		return [
 			{

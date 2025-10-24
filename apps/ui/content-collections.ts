@@ -32,7 +32,7 @@ const blog = defineCollection({
 		title: z.string(),
 		summary: z.string(),
 		draft: z.boolean().optional(),
-		categories: z.array(z.string()).default([]),
+		categories: z.array(z.string()).prefault([]),
 		image: z
 			.object({
 				src: z.string(),

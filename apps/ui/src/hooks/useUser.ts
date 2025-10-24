@@ -6,6 +6,8 @@ import { useEffect } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 
+import type { Route } from "next";
+
 export interface UserUpdateData {
 	name?: string;
 	email?: string;
@@ -82,14 +84,14 @@ export function useUser(options?: UseUserOptions) {
 			if (checkOnboarding && !data.user.onboardingCompleted) {
 				router.push("/onboarding");
 			} else {
-				router.push(redirectTo);
+				router.push(redirectTo as Route);
 			}
 		} else if (
 			redirectWhen === "unauthenticated" &&
 			!isLoading &&
 			(!hasUser || error)
 		) {
-			router.push(redirectTo);
+			router.push(redirectTo as Route);
 		}
 	}, [
 		data?.user,

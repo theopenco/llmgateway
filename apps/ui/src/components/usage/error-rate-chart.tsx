@@ -26,7 +26,10 @@ const CustomTooltip = ({
 	active,
 	payload,
 	label,
-}: TooltipProps<number, string>) => {
+}: TooltipProps<number, string> & {
+	payload: { value: number }[];
+	label: string;
+}) => {
 	if (active && payload && payload.length) {
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
@@ -171,7 +174,7 @@ export function ErrorRateChart({
 						tickFormatter={(value) => `${value.toFixed(1)}%`}
 					/>
 					<Tooltip
-						content={<CustomTooltip />}
+						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}
 						cursor={{
 							stroke: "hsl(var(--muted-foreground))",
 							strokeWidth: 1,

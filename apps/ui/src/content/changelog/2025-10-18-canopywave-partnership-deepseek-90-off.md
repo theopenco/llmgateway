@@ -1,5 +1,5 @@
 ---
-id: "22"
+id: "24"
 slug: "canopywave-partnership-deepseek-90-off"
 date: "2025-10-18"
 title: "CanopyWave Partnership: 90% Off DeepSeek v3.1"

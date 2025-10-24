@@ -26,23 +26,23 @@ const CustomTooltip = ({
 	active,
 	payload,
 	label,
-}: TooltipProps<number, string>) => {
-	if (active && payload && payload.length) {
-		return (
-			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
-				<p className="font-medium">
-					{label && format(parseISO(label), "MMM d, yyyy")}
-				</p>
-				<p className="text-sm">
-					<span className="font-medium">
-						{Number(payload[0].value).toFixed(2)}%
-					</span>{" "}
-					Cache Rate
-				</p>
-			</div>
-		);
-	}
-	return null;
+}: TooltipProps<number, string> & {
+	payload: { value: number }[];
+	label: string;
+}) => {
+	return (
+		<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
+			<p className="font-medium">
+				{label && format(parseISO(label), "MMM d, yyyy")}
+			</p>
+			<p className="text-sm">
+				<span className="font-medium">
+					{Number(payload[0].value).toFixed(2)}%
+				</span>{" "}
+				Cache Rate
+			</p>
+		</div>
+	);
 };
 
 export function CacheRateChart({
@@ -171,7 +171,7 @@ export function CacheRateChart({
 						tickFormatter={(value) => `${value.toFixed(1)}%`}
 					/>
 					<Tooltip
-						content={<CustomTooltip />}
+						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}
 						cursor={{
 							stroke: "hsl(var(--muted-foreground))",
 							strokeWidth: 1,

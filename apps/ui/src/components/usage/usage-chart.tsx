@@ -26,7 +26,10 @@ const CustomTooltip = ({
 	active,
 	payload,
 	label,
-}: TooltipProps<number, string>) => {
+}: TooltipProps<number, string> & {
+	payload: { value: number }[];
+	label: string;
+}) => {
 	if (active && payload && payload.length) {
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
@@ -164,7 +167,7 @@ export function UsageChart({ initialData, projectId }: UsageChartProps) {
 						axisLine={false}
 					/>
 					<Tooltip
-						content={<CustomTooltip />}
+						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}
 						cursor={{
 							fill: "color-mix(in srgb, currentColor 15%, transparent)",
 						}}
