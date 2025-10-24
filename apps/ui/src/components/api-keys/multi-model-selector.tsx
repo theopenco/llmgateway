@@ -134,7 +134,7 @@ export function MultiModelSelector({
 		return {
 			id: typedModel.id,
 			name: typedModel.name,
-			jsonOutput: typedModel.jsonOutput ?? false,
+			jsonOutput: typedModel.providers.some((p) => p.jsonOutput) ?? false,
 			stability: typedModel.stability,
 			providers: modelProviders,
 		};

@@ -225,7 +225,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			) {
 				return false;
 			}
-			if (filters.capabilities.jsonOutput && !model.jsonOutput) {
+			if (
+				filters.capabilities.jsonOutput &&
+				!model.providerDetails.some((p) => p.provider.jsonOutput)
+			) {
 				return false;
 			}
 			if (
