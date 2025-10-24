@@ -19,6 +19,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 			{
 				providerId: "nebius",
@@ -31,9 +32,9 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "deepseek-r1",
@@ -53,6 +54,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 			{
 				providerId: "routeway-discount",
@@ -67,9 +69,9 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "deepseek-r1-0528",
@@ -90,6 +92,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: false,
 				stability: "unstable" as const,
+				jsonOutput: false,
 			},
 			{
 				providerId: "deepseek",
@@ -102,6 +105,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 			{
 				providerId: "nebius",
@@ -115,9 +119,9 @@ export const deepseekModels = [
 				vision: false,
 				tools: false,
 				stability: "unstable" as const,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "deepseek-r1-distill-llama-70b",
@@ -138,9 +142,9 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "deepseek-v3.1",
@@ -161,6 +165,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -176,6 +181,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "canopywave",
@@ -190,8 +196,8 @@ export const deepseekModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

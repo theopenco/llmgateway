@@ -19,8 +19,8 @@ export const nousresearchModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

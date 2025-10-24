@@ -530,9 +530,9 @@ chat.openapi(completions, async (c) => {
 					maxOutput: 4096,
 					streaming: true,
 					vision: false,
+					jsonOutput: true,
 				},
 			],
-			jsonOutput: true,
 		};
 	} else {
 		modelInfo =
@@ -559,7 +559,12 @@ chat.openapi(completions, async (c) => {
 		response_format?.type === "json_object" ||
 		response_format?.type === "json_schema"
 	) {
-		if (!(modelInfo as ModelDefinition).jsonOutput) {
+		// Check if any provider supports JSON output
+		const supportsJsonOutput = modelInfo.providers.some(
+			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
+		);
+
+		if (!supportsJsonOutput) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support JSON output mode`,
 			});

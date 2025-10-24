@@ -25,9 +25,9 @@ export const llmgatewayModels = [
 					"frequency_penalty",
 					"presence_penalty",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "auto", // native automatic routing
@@ -53,8 +53,8 @@ export const llmgatewayModels = [
 					"frequency_penalty",
 					"presence_penalty",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

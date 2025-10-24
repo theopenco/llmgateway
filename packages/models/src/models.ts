@@ -86,6 +86,10 @@ export interface ProviderModelMapping {
 	 */
 	parallelToolCalls?: boolean;
 	/**
+	 * Whether this specific model supports JSON output mode for this provider
+	 */
+	jsonOutput?: boolean;
+	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
 	jsonOutputSchema?: boolean;
@@ -130,10 +134,6 @@ export interface ModelDefinition {
 	 * Mappings to provider models
 	 */
 	providers: ProviderModelMapping[];
-	/**
-	 * Whether the model supports JSON output mode
-	 */
-	jsonOutput?: boolean;
 	/**
 	 * Whether this model is free to use
 	 */
