@@ -136,7 +136,6 @@ describe(
 				});
 
 				const json = await res.json();
-				console.log("json", json);
 				expect(res.status).toBe(200);
 				expect(json).toHaveProperty("providerKey");
 				expect(json.providerKey.provider).toBe(providerId);

@@ -1,16 +1,10 @@
 import { ProviderKeysClient } from "@/components/provider-keys/provider-keys-client";
 import { fetchServerData } from "@/lib/server-api";
 
+import type { ProviderKeyOptions } from "@llmgateway/db";
+
 // Force dynamic rendering since this page uses server-side data fetching with cookies
 export const dynamic = "force-dynamic";
-
-interface ProviderKeyOptions {
-	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
-	azure_resource?: string;
-	azure_api_version?: string;
-	azure_deployment_type?: "openai" | "ai-foundry";
-	azure_validation_model?: string;
-}
 
 interface ProviderKeysData {
 	providerKeys: {

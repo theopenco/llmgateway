@@ -8,13 +8,7 @@ import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 
-interface ProviderKeyOptions {
-	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
-	azure_resource?: string;
-	azure_api_version?: string;
-	azure_deployment_type?: "openai" | "ai-foundry";
-	azure_validation_model?: string;
-}
+import type { ProviderKeyOptions } from "@llmgateway/db";
 
 interface ProviderKeysClientProps {
 	initialProviderKeysData?: {
