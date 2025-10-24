@@ -34,6 +34,8 @@ import {
 	type StabilityLevel,
 } from "@llmgateway/models";
 
+import type { Route } from "next";
+
 type ModelId = (typeof models)[number]["id"];
 
 const DEFAULT_LEFT_MODEL = "gpt-4o" as ModelId;
@@ -616,9 +618,12 @@ export function ModelComparison() {
 		}
 		const next = params.toString();
 		if (next !== searchParamsString) {
-			router.replace(next ? `${pathname}?${next}` : pathname, {
-				scroll: false,
-			});
+			router.replace(
+				next ? (`${pathname}?${next}` as Route) : (pathname as Route),
+				{
+					scroll: false,
+				},
+			);
 		}
 	};
 

@@ -10,7 +10,7 @@ export default function SettingsPage() {
 	const { buildUrl } = useDashboardNavigation();
 
 	useEffect(() => {
-		router.replace(buildUrl("settings/preferences"));
+		router.replace(buildUrl("settings/preferences") as any);
 	}, [router, buildUrl]);
 
 	return null;

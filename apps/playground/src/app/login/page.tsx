@@ -9,7 +9,7 @@ import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { z } from "zod";
+import * as z from "zod";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,7 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
 const formSchema = z.object({
-	email: z.string().email({ message: "Please enter a valid email address" }),
+	email: z.email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
 		.min(8, { message: "Password must be at least 8 characters" }),

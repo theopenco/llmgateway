@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { ThemeToggle } from "./theme-toggle";
 
+import type { Route } from "next";
 import type { ReactNode } from "react";
 
 function ListItem({
@@ -49,7 +50,7 @@ function ListItem({
 					</a>
 				) : (
 					<Link
-						href={href}
+						href={href as Route}
 						prefetch={true}
 						className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
 					>
@@ -91,7 +92,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 
 	const resourcesLinks: Array<{
 		title: string;
-		href: string;
+		href: string | Route;
 		description: string;
 		external?: boolean;
 	}> = [
@@ -201,7 +202,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 											) : (
 												<NavigationMenuLink asChild>
 													<Link
-														href={item.href}
+														href={item.href as Route}
 														className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
 														prefetch={true}
 													>
@@ -277,7 +278,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 												</a>
 											) : (
 												<Link
-													href={item.href}
+													href={item.href as Route}
 													className="text-muted-foreground hover:text-accent-foreground block duration-150"
 													prefetch={true}
 												>
@@ -295,7 +296,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 											{resourcesItems.map((item, index) => (
 												<li key={index}>
 													<Link
-														href={item.href}
+														href={item.href as Route}
 														className="text-muted-foreground hover:text-accent-foreground block duration-150"
 														prefetch={true}
 													>

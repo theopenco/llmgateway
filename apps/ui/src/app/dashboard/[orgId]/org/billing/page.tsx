@@ -40,7 +40,7 @@ export default async function BillingPage({
 		}
 
 		const basePath = `/dashboard/${orgId}/org/billing`;
-		redirect(basePath);
+		redirect(basePath as any);
 	}
 
 	const cookieStore = await cookies();
