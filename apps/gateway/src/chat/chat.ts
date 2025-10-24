@@ -1978,6 +1978,7 @@ chat.openapi(completions, async (c) => {
 			let reasoningTokens = null;
 			let cachedTokens = null;
 			let streamingToolCalls = null;
+			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
@@ -2247,6 +2248,7 @@ chat.openapi(completions, async (c) => {
 								data: "[DONE]",
 								id: String(eventId++),
 							});
+							doneSent = true;
 
 							processedLength = eventEnd;
 						} else {
@@ -2615,6 +2617,7 @@ chat.openapi(completions, async (c) => {
 							data: "[DONE]",
 							id: String(eventId++),
 						});
+						doneSent = true;
 					} catch (sseError) {
 						logger.error(
 							"Failed to send error SSE",
@@ -2733,6 +2736,7 @@ chat.openapi(completions, async (c) => {
 							data: "[DONE]",
 							id: String(eventId++),
 						});
+						doneSent = true;
 					} catch (sseError) {
 						logger.error(
 							"Failed to send upstream error SSE",
@@ -2810,18 +2814,20 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
-					// Always send [DONE] at the end of streaming
-					try {
-						await writeSSEAndCache({
-							event: "done",
-							data: "[DONE]",
-							id: String(eventId++),
-						});
-					} catch (error) {
-						logger.error(
-							"Error sending [DONE] event",
-							error instanceof Error ? error : new Error(String(error)),
-						);
+					// Always send [DONE] at the end of streaming if not already sent
+					if (!doneSent) {
+						try {
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+						} catch (error) {
+							logger.error(
+								"Error sending [DONE] event",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+						}
 					}
 				}
 
