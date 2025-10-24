@@ -564,7 +564,6 @@ export const provider = pgTable(
 		description: text().notNull(),
 		streaming: boolean(),
 		cancellation: boolean(),
-		jsonOutput: boolean(),
 		color: text(),
 		website: text(),
 		announcement: text(),

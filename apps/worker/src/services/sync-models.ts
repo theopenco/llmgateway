@@ -27,8 +27,6 @@ export async function syncProvidersAndModels() {
 					description: providerDef.description,
 					streaming: providerDef.streaming,
 					cancellation: providerDef.cancellation,
-					jsonOutput:
-						"jsonOutput" in providerDef ? providerDef.jsonOutput || null : null,
 					color: providerDef.color,
 					website: providerDef.website,
 					announcement: providerDef.announcement,
@@ -41,10 +39,6 @@ export async function syncProvidersAndModels() {
 						description: providerDef.description,
 						streaming: providerDef.streaming,
 						cancellation: providerDef.cancellation,
-						jsonOutput:
-							"jsonOutput" in providerDef
-								? providerDef.jsonOutput || null
-								: null,
 						color: providerDef.color,
 						website: providerDef.website,
 						announcement: providerDef.announcement,
