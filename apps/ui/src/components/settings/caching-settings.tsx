@@ -27,7 +27,7 @@ import type { CachingSettingsData } from "@/types/settings";
 const cachingFormSchema = z.object({
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z
-		.int()
+		.number()
 		.min(10, "Cache duration must be at least 10 seconds")
 		.max(
 			31536000,

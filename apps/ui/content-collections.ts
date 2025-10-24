@@ -1,5 +1,5 @@
 import { defineCollection, defineConfig } from "@content-collections/core";
-import { z } from "zod";
+import * as z from "zod";
 
 const changelog = defineCollection({
 	name: "changelog",
@@ -32,7 +32,7 @@ const blog = defineCollection({
 		title: z.string(),
 		summary: z.string(),
 		draft: z.boolean().optional(),
-		categories: z.array(z.string()).prefault([]),
+		categories: z.array(z.string()).default([]),
 		image: z
 			.object({
 				src: z.string(),

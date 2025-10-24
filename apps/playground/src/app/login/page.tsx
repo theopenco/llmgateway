@@ -25,7 +25,7 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
 const formSchema = z.object({
-	email: z.email({ message: "Please enter a valid email address" }),
+	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
 		.min(8, { message: "Password must be at least 8 characters" }),

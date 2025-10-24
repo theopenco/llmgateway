@@ -321,16 +321,16 @@ importers:
     dependencies:
       '@ai-sdk/openai':
         specifier: 2.0.53
-        version: 2.0.53(zod@4.1.12)
+        version: 2.0.53(zod@3.25.76)
       '@ai-sdk/react':
         specifier: 2.0.78
-        version: 2.0.78(react@19.2.0)(zod@4.1.12)
+        version: 2.0.78(react@19.2.0)(zod@3.25.76)
       '@hookform/resolvers':
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.0))
       '@llmgateway/ai-sdk-provider':
         specifier: 2.3.1
-        version: 2.3.1(ai@5.0.78(zod@4.1.12))(zod@4.1.12)
+        version: 2.3.1(ai@5.0.78(zod@3.25.76))(zod@3.25.76)
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
@@ -396,7 +396,7 @@ importers:
         version: 5.90.5(react@19.2.0)
       ai:
         specifier: 5.0.78
-        version: 5.0.78(zod@4.1.12)
+        version: 5.0.78(zod@3.25.76)
       api:
         specifier: workspace:*
         version: link:../api
@@ -525,8 +525,8 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
       zod:
-        specifier: 4.1.12
-        version: 4.1.12
+        specifier: 3.25.76
+        version: 3.25.76
 
   apps/ui:
     dependencies:
@@ -736,8 +736,8 @@ importers:
         specifier: ^8.5.6
         version: 8.5.6
       zod:
-        specifier: 4.1.12
-        version: 4.1.12
+        specifier: 3.25.75
+        version: 3.25.75
 
   apps/worker:
     dependencies:
@@ -9374,39 +9374,39 @@ snapshots:
     dependencies:
       prettier: 3.6.2
 
-  '@ai-sdk/gateway@2.0.1(zod@4.1.12)':
+  '@ai-sdk/gateway@2.0.1(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.12(zod@4.1.12)
+      '@ai-sdk/provider-utils': 3.0.12(zod@3.25.76)
       '@vercel/oidc': 3.0.3
-      zod: 4.1.12
+      zod: 3.25.76
 
-  '@ai-sdk/openai@2.0.53(zod@4.1.12)':
+  '@ai-sdk/openai@2.0.53(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.12(zod@4.1.12)
-      zod: 4.1.12
+      '@ai-sdk/provider-utils': 3.0.12(zod@3.25.76)
+      zod: 3.25.76
 
-  '@ai-sdk/provider-utils@3.0.12(zod@4.1.12)':
+  '@ai-sdk/provider-utils@3.0.12(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
       '@standard-schema/spec': 1.0.0
       eventsource-parser: 3.0.6
-      zod: 4.1.12
+      zod: 3.25.76
 
   '@ai-sdk/provider@2.0.0':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/react@2.0.78(react@19.2.0)(zod@4.1.12)':
+  '@ai-sdk/react@2.0.78(react@19.2.0)(zod@3.25.76)':
     dependencies:
-      '@ai-sdk/provider-utils': 3.0.12(zod@4.1.12)
-      ai: 5.0.78(zod@4.1.12)
+      '@ai-sdk/provider-utils': 3.0.12(zod@3.25.76)
+      ai: 5.0.78(zod@3.25.76)
       react: 19.2.0
       swr: 2.3.6(react@19.2.0)
       throttleit: 2.1.0
     optionalDependencies:
-      zod: 4.1.12
+      zod: 3.25.76
 
   '@alloc/quick-lru@5.2.0': {}
 
@@ -10805,10 +10805,10 @@ snapshots:
 
   '@levischuck/tiny-cbor@0.2.11': {}
 
-  '@llmgateway/ai-sdk-provider@2.3.1(ai@5.0.78(zod@4.1.12))(zod@4.1.12)':
+  '@llmgateway/ai-sdk-provider@2.3.1(ai@5.0.78(zod@3.25.76))(zod@3.25.76)':
     dependencies:
-      ai: 5.0.78(zod@4.1.12)
-      zod: 4.1.12
+      ai: 5.0.78(zod@3.25.76)
+      zod: 3.25.76
 
   '@mdx-js/mdx@3.1.1':
     dependencies:
@@ -10856,8 +10856,8 @@ snapshots:
       express-rate-limit: 7.5.1(express@5.1.0)
       pkce-challenge: 5.0.0
       raw-body: 3.0.1
-      zod: 3.25.75
-      zod-to-json-schema: 3.24.6(zod@3.25.75)
+      zod: 3.25.76
+      zod-to-json-schema: 3.24.6(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
 
@@ -13626,13 +13626,13 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@5.0.78(zod@4.1.12):
+  ai@5.0.78(zod@3.25.76):
     dependencies:
-      '@ai-sdk/gateway': 2.0.1(zod@4.1.12)
+      '@ai-sdk/gateway': 2.0.1(zod@3.25.76)
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.12(zod@4.1.12)
+      '@ai-sdk/provider-utils': 3.0.12(zod@3.25.76)
       '@opentelemetry/api': 1.9.0
-      zod: 4.1.12
+      zod: 3.25.76
 
   ajv-draft-04@1.0.0(ajv@8.17.1):
     optionalDependencies:
@@ -14975,8 +14975,8 @@ snapshots:
       '@babel/parser': 7.28.5
       eslint: 9.38.0(jiti@2.6.1)
       hermes-parser: 0.25.1
-      zod: 4.1.12
-      zod-validation-error: 4.0.2(zod@4.1.12)
+      zod: 3.25.76
+      zod-validation-error: 4.0.2(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
 
@@ -19059,13 +19059,13 @@ snapshots:
     dependencies:
       zod: 3.25.75
 
-  zod-to-json-schema@3.24.6(zod@3.25.75):
+  zod-to-json-schema@3.24.6(zod@3.25.76):
     dependencies:
-      zod: 3.25.75
+      zod: 3.25.76
 
-  zod-validation-error@4.0.2(zod@4.1.12):
+  zod-validation-error@4.0.2(zod@3.25.76):
     dependencies:
-      zod: 4.1.12
+      zod: 3.25.76
 
   zod@3.24.1: {}
 

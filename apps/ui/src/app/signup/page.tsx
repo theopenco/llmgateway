@@ -26,13 +26,13 @@ import { toast } from "@/lib/components/use-toast";
 
 const formSchema = z.object({
 	name: z.string().min(2, {
-		error: "Name is required",
+		message: "Name is required",
 	}),
-	email: z.email({
-		error: "Please enter a valid email address",
+	email: z.string().email({
+		message: "Please enter a valid email address",
 	}),
 	password: z.string().min(8, {
-		error: "Password must be at least 8 characters",
+		message: "Password must be at least 8 characters",
 	}),
 });
 
