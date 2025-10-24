@@ -33,7 +33,7 @@
 		"dotenv": "16.5.0",
 		"drizzle-zod": "0.8.3",
 		"gateway": "workspace:*",
-		"hono": "^4.10.2",
+		"hono": "^4.10.3",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.7.0",
 		"nodemailer": "^7.0.9",
