@@ -335,7 +335,11 @@ export async function checkRateLimit(
 	}
 }
 
-async function createBrevoContact(email: string, name?: string): Promise<void> {
+async function createBrevoContact(
+	email: string,
+	name?: string,
+	attributes?: Record<string, string | number | boolean>,
+): Promise<void> {
 	const brevoApiKey = process.env.BREVO_API_KEY;
 
 	if (!brevoApiKey) {
@@ -344,6 +348,21 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 	}
 
 	try {
+		const contactAttributes: Record<string, string | number | boolean> = {
+			...(attributes || {}),
+		};
+
+		if (name) {
+			const firstName = name.split(" ")[0];
+			const lastName = name.split(" ")[1];
+			if (firstName) {
+				contactAttributes.FIRSTNAME = firstName;
+			}
+			if (lastName) {
+				contactAttributes.LASTNAME = lastName;
+			}
+		}
+
 		const response = await fetch("https://api.brevo.com/v3/contacts", {
 			method: "POST",
 			headers: {
@@ -356,11 +375,8 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 				...(process.env.BREVO_LIST_IDS && {
 					listIds: process.env.BREVO_LIST_IDS.split(",").map(Number),
 				}),
-				...(name && {
-					attributes: {
-						FIRSTNAME: name.split(" ")[0] || undefined,
-						LASTNAME: name.split(" ")[1] || undefined,
-					},
+				...(Object.keys(contactAttributes).length > 0 && {
+					attributes: contactAttributes,
 				}),
 			}),
 		});
@@ -370,10 +386,53 @@ async function createBrevoContact(email: string, name?: string): Promise<void> {
 			throw new Error(`Brevo API error: ${response.status} - ${error}`);
 		}
 
-		logger.info("Successfully created Brevo contact", { email });
+		logger.info("Successfully created/updated Brevo contact", { email });
 	} catch (error) {
 		logger.error(
 			"Failed to create Brevo contact",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+}
+
+export async function updateBrevoContactAttributes(
+	email: string,
+	attributes: Record<string, string | number | boolean>,
+): Promise<void> {
+	const brevoApiKey = process.env.BREVO_API_KEY;
+
+	if (!brevoApiKey) {
+		logger.debug("BREVO_API_KEY not configured, skipping contact update");
+		return;
+	}
+
+	try {
+		const response = await fetch(
+			`https://api.brevo.com/v3/contacts/${encodeURIComponent(email)}`,
+			{
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					"api-key": brevoApiKey,
+				},
+				body: JSON.stringify({
+					attributes,
+				}),
+			},
+		);
+
+		if (!response.ok) {
+			const error = await response.text();
+			throw new Error(`Brevo API error: ${response.status} - ${error}`);
+		}
+
+		logger.info("Successfully updated Brevo contact attributes", {
+			email,
+			attributes,
+		});
+	} catch (error) {
+		logger.error(
+			"Failed to update Brevo contact attributes",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 	}
@@ -643,6 +702,15 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						createdBy: userId,
 					});
 				});
+
+				// Check if this is a social login (user has emailVerified but no email verification sent)
+				// In this case, we should add them to Brevo
+				if (isHosted && newSession.user.emailVerified) {
+					await createBrevoContact(
+						newSession.user.email,
+						newSession.user.name || undefined,
+					);
+				}
 			}),
 		},
 	}),
