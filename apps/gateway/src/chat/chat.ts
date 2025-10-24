@@ -1329,7 +1329,9 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			providerKey?.baseUrl || undefined,
 			usedModel,
-			usedProvider === "google-ai-studio" ? usedToken : undefined,
+			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
+				? usedToken
+				: undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
