@@ -19,6 +19,7 @@ export const nousresearchModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
 		jsonOutput: true,

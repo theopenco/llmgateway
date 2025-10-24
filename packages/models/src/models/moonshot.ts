@@ -70,6 +70,7 @@ export const moonshotModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
 		jsonOutput: true,
