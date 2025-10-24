@@ -2802,19 +2802,26 @@ chat.openapi(completions, async (c) => {
 								data: JSON.stringify(finalUsageChunk),
 								id: String(eventId++),
 							});
-
-							// Send final [DONE] if we haven't already
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
-							});
 						} catch (error) {
 							logger.error(
 								"Error sending final usage chunk",
 								error instanceof Error ? error : new Error(String(error)),
 							);
 						}
+					}
+
+					// Always send [DONE] at the end of streaming
+					try {
+						await writeSSEAndCache({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+					} catch (error) {
+						logger.error(
+							"Error sending [DONE] event",
+							error instanceof Error ? error : new Error(String(error)),
+						);
 					}
 				}
 
