@@ -75,7 +75,7 @@ const create = createRoute({
 						providerKey: providerKeySchema
 							.omit({ token: true })
 							.extend({
-								token: z.string(),
+								maskedToken: z.string(),
 							})
 							.openapi({}),
 					}),
@@ -245,7 +245,8 @@ keysProvider.openapi(create, async (c) => {
 	return c.json({
 		providerKey: {
 			...providerKey,
-			token: userToken, // Include the token in the response
+			maskedToken: maskToken(userToken),
+			token: undefined,
 		},
 	});
 });

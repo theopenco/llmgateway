@@ -1424,7 +1424,7 @@ export interface paths {
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 organizationId: string;
-                                token: string;
+                                maskedToken: string;
                             };
                         };
                     };
