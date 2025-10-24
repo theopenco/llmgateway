@@ -201,10 +201,23 @@ export default function ChatPageClient({
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
+	// Track which project has had its key ensured to prevent duplicate calls
+	const ensuredProjectRef = useRef<string | null>(null);
+
 	// After login, ensure a playground key cookie exists via backend
 	useEffect(() => {
+		// Reset ref when user logs out or project is unset
+		if (!isAuthenticated || !selectedProject) {
+			ensuredProjectRef.current = null;
+			return;
+		}
+
 		const ensureKey = async () => {
-			if (!isAuthenticated || !selectedOrganization || !selectedProject) {
+			if (!selectedOrganization) {
+				return;
+			}
+			// Skip if we've already ensured the key for this project
+			if (ensuredProjectRef.current === selectedProject.id) {
 				return;
 			}
 			try {
@@ -213,6 +226,7 @@ export default function ChatPageClient({
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ projectId: selectedProject.id }),
 				});
+				ensuredProjectRef.current = selectedProject.id;
 			} catch {
 				// ignore for now
 			}

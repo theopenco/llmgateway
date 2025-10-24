@@ -113,6 +113,7 @@ export const organization = pgTable("organization", {
 		.defaultNow()
 		.$onUpdate(() => new Date()),
 	name: text().notNull(),
+	billingEmail: text().notNull(),
 	stripeCustomerId: text().unique(),
 	stripeSubscriptionId: text().unique(),
 	credits: decimal().notNull().default("0"),

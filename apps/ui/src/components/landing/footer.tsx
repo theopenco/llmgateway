@@ -110,6 +110,15 @@ export default function Footer() {
 										Changelog
 									</Link>
 								</li>
+								<li>
+									<Link
+										href="/models/compare"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Compare Models
+									</Link>
+								</li>
 							</ul>
 						</div>
 
@@ -144,6 +153,24 @@ export default function Footer() {
 									>
 										Contact Us
 									</a>
+								</li>
+								<li>
+									<Link
+										href="/legal/privacy"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Privacy Policy
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/legal/terms"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Terms of Use
+									</Link>
 								</li>
 							</ul>
 						</div>

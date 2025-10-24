@@ -148,7 +148,6 @@ const groupedRows: Array<{
 			{ key: "modelId", label: "Model ID" },
 			{ key: "family", label: "Family" },
 			{ key: "aliases", label: "Aliases" },
-			{ key: "stability", label: "Stability" },
 			{ key: "providers", label: "Providers" },
 		],
 	},
@@ -409,6 +408,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 					<div className="text-xs text-muted-foreground">
 						API: {provider.providerId}/{provider.modelName}
 					</div>
+					<StabilityBadge stability={provider.stability} />
 				</div>
 			))}
 		</div>
@@ -503,8 +503,6 @@ function renderRowValue(
 			return detail.aliases && detail.aliases.length
 				? detail.aliases.join(", ")
 				: PLACEHOLDER;
-		case "stability":
-			return <StabilityBadge stability={detail.stability} />;
 		case "providers":
 			return <ProvidersList providers={detail.providers} />;
 		case "maxContext": {
@@ -825,7 +823,6 @@ export function ModelComparison() {
 													</Link>
 												) : null}
 											</div>
-											<StabilityBadge stability={leftModel?.stability} />
 										</div>
 									</TableHead>
 									<TableHead className="w-1/2">
@@ -843,7 +840,6 @@ export function ModelComparison() {
 													</Link>
 												) : null}
 											</div>
-											<StabilityBadge stability={rightModel?.stability} />
 										</div>
 									</TableHead>
 								</TableRow>

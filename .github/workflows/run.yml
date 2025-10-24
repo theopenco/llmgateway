@@ -25,7 +25,7 @@ jobs:
         with:
           version: ${{ env.pnpm_version }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.nodejs_version }}
           cache: pnpm

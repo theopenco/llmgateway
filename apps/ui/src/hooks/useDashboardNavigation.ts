@@ -3,39 +3,44 @@
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 
-import { useDashboardState } from "@/lib/dashboard-state";
+import { useDashboardContext } from "@/lib/dashboard-context";
 import {
 	buildDashboardUrl,
+	buildOrgUrl as buildOrganizationUrl,
 	extractOrgAndProjectFromPath,
 } from "@/lib/navigation-utils";
 
 export function useDashboardNavigation() {
 	const pathname = usePathname();
 
+	// Get the dashboard state from context (shared across all components)
+	const { selectedOrganization, selectedProject } = useDashboardContext();
+
 	// Extract org and project IDs from current path
 	const { orgId, projectId } = useMemo(() => {
 		return extractOrgAndProjectFromPath(pathname);
 	}, [pathname]);
 
-	// Get the dashboard state with the route parameters
-	const { selectedOrganization, selectedProject } = useDashboardState({
-		selectedOrgId: orgId || undefined,
-		selectedProjectId: projectId || undefined,
-	});
-
-	// Use the selected organization and project from state, fallback to path params
-	const currentOrgId = selectedOrganization?.id || orgId;
-	const currentProjectId = selectedProject?.id || projectId;
+	// Use path params if available, otherwise use context values
+	// This ensures navigation works on both project pages and org-only pages
+	const currentOrgId = orgId || selectedOrganization?.id;
+	const currentProjectId = projectId || selectedProject?.id;
 
 	// Helper function to build dashboard URLs
 	const buildUrl = (subPath?: string) => {
 		return buildDashboardUrl(currentOrgId, currentProjectId, subPath);
 	};
 
+	// Helper function to build org-only URLs (without project)
+	const buildOrgUrl = (subPath?: string) => {
+		return buildOrganizationUrl(currentOrgId, subPath);
+	};
+
 	return {
 		orgId: currentOrgId,
 		projectId: currentProjectId,
 		buildUrl,
+		buildOrgUrl,
 		selectedOrganization,
 		selectedProject,
 	};

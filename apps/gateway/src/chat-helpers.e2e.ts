@@ -394,6 +394,7 @@ export async function beforeAllHook() {
 		.values({
 			id: "org-id",
 			name: "Test Organization",
+			billingEmail: "user@test.com",
 			plan: "pro",
 		})
 		.onConflictDoNothing();

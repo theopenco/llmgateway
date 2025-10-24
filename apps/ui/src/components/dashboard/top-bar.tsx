@@ -1,3 +1,7 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+
 import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -17,9 +21,14 @@ export function TopBar({
 	selectedOrganization,
 	onProjectCreated,
 }: TopBarProps) {
+	const pathname = usePathname();
+
+	// Hide project switcher on org-only pages
+	const isOrgOnlyPage = pathname.includes("/org/");
+
 	return (
 		<header className="sticky md:top-0 top-13 z-40 flex h-16 flex-shrink-0 items-center gap-2 border-b border-border bg-background px-4 sm:px-6">
-			{selectedOrganization && (
+			{selectedOrganization && !isOrgOnlyPage && (
 				<ProjectSwitcher
 					projects={projects}
 					selectedProject={selectedProject}

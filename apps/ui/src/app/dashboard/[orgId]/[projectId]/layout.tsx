@@ -1,12 +1,9 @@
 import { notFound } from "next/navigation";
 
-import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
 import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
-import { UserProvider } from "@/components/providers/user-provider";
-import { SidebarProvider } from "@/lib/components/sidebar";
 import { fetchServerData } from "@/lib/server-api";
 
-import type { User, Project } from "@/lib/types";
+import type { Project } from "@/lib/types";
 import type { ReactNode } from "react";
 
 // Force dynamic rendering since this layout uses cookies for authentication
@@ -23,15 +20,7 @@ export default async function ProjectLayout({
 }: ProjectLayoutProps) {
 	const { orgId, projectId } = await params;
 
-	// Fetch user data server-side
-	const initialUserData = await fetchServerData<
-		{ user: User } | undefined | null
-	>("GET", "/user/me");
-
-	// Fetch organizations server-side
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
-
-	// Fetch projects for the specific organization
+	// Fetch projects for the specific organization to validate project exists
 	let initialProjectsData = null;
 	if (orgId) {
 		try {
@@ -68,18 +57,9 @@ export default async function ProjectLayout({
 	}
 
 	return (
-		<UserProvider initialUserData={initialUserData}>
-			<SidebarProvider>
-				<LastUsedProjectTracker orgId={orgId} projectId={projectId} />
-				<DashboardLayoutClient
-					initialOrganizationsData={initialOrganizationsData}
-					initialProjectsData={initialProjectsData}
-					selectedOrgId={orgId}
-					selectedProjectId={projectId}
-				>
-					{children}
-				</DashboardLayoutClient>
-			</SidebarProvider>
-		</UserProvider>
+		<>
+			<LastUsedProjectTracker orgId={orgId} projectId={projectId} />
+			{children}
+		</>
 	);
 }

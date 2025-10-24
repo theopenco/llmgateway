@@ -111,8 +111,8 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				},
 			],
 			allow_promotion_codes: true,
-			success_url: `${process.env.UI_URL || "http://localhost:3002"}/dashboard/settings/billing?success=true`,
-			cancel_url: `${process.env.UI_URL || "http://localhost:3002"}/dashboard/settings/billing?canceled=true`,
+			success_url: `${process.env.UI_URL || "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
+			cancel_url: `${process.env.UI_URL || "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
 			metadata: {
 				organizationId: organization.id,
 				plan: "pro",

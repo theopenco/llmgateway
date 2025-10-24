@@ -41,6 +41,7 @@ describe("Log Processing", () => {
 			.insert(organization)
 			.values({
 				name: "Test Org",
+				billingEmail: testUser.email,
 				credits: "100.00",
 			})
 			.returning();

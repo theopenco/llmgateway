@@ -35,6 +35,7 @@ describe("e2e individual tests", () => {
 		await db.insert(tables.organization).values({
 			id: orgId,
 			name: `Test Organization ${testId}`,
+			billingEmail: `user-${testId}@test.com`,
 			plan: "pro",
 		});
 
@@ -121,7 +122,7 @@ describe("e2e individual tests", () => {
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
-					model: "anthropic/claude-3-5-sonnet-20241022",
+					model: "anthropic/claude-haiku-4-5",
 					messages: [
 						{
 							role: "user",
@@ -532,7 +533,7 @@ describe("e2e individual tests", () => {
 	);
 
 	test(
-		"Auto-routing sets reasoning_effort to minimal for gpt-5 models",
+		"Auto-routing sets reasoning_effort appropriately",
 		getTestOptions({ completions: false }),
 		async () => {
 			const envVarName = getProviderEnvVar("openai");
@@ -584,15 +585,17 @@ describe("e2e individual tests", () => {
 			const log = await validateLogByRequestId(requestId);
 			expect(log.requestedModel).toBe("auto");
 
-			// Should auto-select gpt-5-nano (cheapest eligible model for auto)
-			// The provider can be either 'openai' or 'routeway-discount' depending on routing logic
-			expect(log.usedModelMapping).toBe("gpt-5-nano");
-			expect(log.usedModel).toMatch(/^(openai|routeway-discount)\/gpt-5-nano$/);
-			expect(["openai", "routeway-discount"]).toContain(log.usedProvider);
+			// Verify a reasoning model was selected
+			const usedModel = log.usedModelMapping;
+			expect(usedModel).toBeDefined();
 
-			// Should auto-set reasoning_effort to minimal for gpt-5* models
-			// The key test is that gpt-5-nano was selected and the request completed successfully
-			// This validates that the auto-routing + reasoning_effort logic works without errors
+			// Verify reasoningEffort is set and has the correct value based on model
+			expect(log.reasoningEffort).toBeDefined();
+			if (usedModel?.startsWith("gpt-5")) {
+				expect(log.reasoningEffort).toEqual("minimal");
+			} else {
+				expect(log.reasoningEffort).toEqual("low");
+			}
 
 			// Verify the response has valid usage information
 			expect(json.usage).toBeDefined();
@@ -600,16 +603,11 @@ describe("e2e individual tests", () => {
 			expect(json.usage.completion_tokens).toBeGreaterThan(0);
 			expect(json.usage.total_tokens).toBeGreaterThan(0);
 
-			// Check if reasoning was actually used (reasoning_tokens may not be present for minimal effort)
+			// Check if reasoning was actually used
+			// reasoning_tokens may not be present for minimal/low effort
 			if (json.usage.reasoning_tokens !== undefined) {
 				expect(typeof json.usage.reasoning_tokens).toBe("number");
 				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
-			} else {
-				// For minimal effort, reasoning_tokens might be 0 or not present
-				// The key test is that gpt-5-nano was selected and no errors occurred
-				console.log(
-					"Note: reasoning_tokens not present, which may be expected for minimal effort",
-				);
 			}
 		},
 	);

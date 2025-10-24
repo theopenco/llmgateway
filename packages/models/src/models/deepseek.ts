@@ -191,6 +191,6 @@ export const deepseekModels = [
 				tools: true,
 			},
 		],
-		jsonOutput: false,
+		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

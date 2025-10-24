@@ -46,6 +46,26 @@ const nextConfig: NextConfig = {
 				destination: "https://twitter.com/llmgateway",
 				permanent: true,
 			},
+			{
+				source: "/terms",
+				destination: "/legal/terms",
+				permanent: true,
+			},
+			{
+				source: "/terms-of-use",
+				destination: "/legal/terms",
+				permanent: true,
+			},
+			{
+				source: "/privacy",
+				destination: "/legal/privacy",
+				permanent: true,
+			},
+			{
+				source: "/privacy-policy",
+				destination: "/legal/privacy",
+				permanent: true,
+			},
 		];
 	},
 };

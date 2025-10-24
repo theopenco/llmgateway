@@ -20,10 +20,12 @@ describe("logs route", () => {
 			{
 				id: "test-org-id",
 				name: "Test Organization",
+				billingEmail: "test@example.com",
 			},
 			{
 				id: "test-org-id-2",
 				name: "Test Organization 2",
+				billingEmail: "test2@example.com",
 			},
 		]);
 
