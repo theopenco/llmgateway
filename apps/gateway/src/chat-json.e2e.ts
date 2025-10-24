@@ -77,8 +77,8 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			if ((modelDef as ModelDefinition)?.jsonOutput !== true) {
 				return false;
 			}
-			// Check if any provider for this model supports jsonOutputSchema
-			return modelDef?.providers.some(
+			// Check if the specific provider(s) for this test case support jsonOutputSchema
+			return m.providers.some(
 				(provider) =>
 					(provider as ProviderModelMapping).jsonOutputSchema === true,
 			);
