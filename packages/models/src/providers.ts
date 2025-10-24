@@ -68,6 +68,17 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "google-vertex",
+		name: "Google Vertex AI",
+		description:
+			"Google Vertex AI is a platform for accessing Google's Gemini models via Vertex AI.",
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: "https://cloud.google.com/vertex-ai",
+		announcement: null,
+	},
+	{
 		id: "groq",
 		name: "Groq",
 		description: "Groq's ultra-fast LPU inference with various models",

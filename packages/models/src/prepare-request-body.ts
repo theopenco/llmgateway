@@ -521,7 +521,8 @@ export async function prepareRequestBody(
 
 			break;
 		}
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers

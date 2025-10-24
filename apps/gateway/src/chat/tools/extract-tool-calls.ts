@@ -39,7 +39,8 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 				];
 			}
 			return null;
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			// Google AI Studio tool calls in streaming
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			return (

@@ -2489,6 +2489,7 @@ chat.openapi(completions, async (c) => {
 							// Handle provider-specific finish reason extraction
 							switch (usedProvider) {
 								case "google-ai-studio":
+								case "google-vertex":
 									if (data.candidates?.[0]?.finishReason) {
 										const googleFinishReason = data.candidates[0].finishReason;
 										// Check if there are function calls in this response

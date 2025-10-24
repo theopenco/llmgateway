@@ -959,6 +959,7 @@ export const ProviderIcons = {
 	cloudrift: CloudriftIcon,
 	deepseek: DeepseekIcon,
 	"google-ai-studio": GoogleStudioAIIcon,
+	"google-vertex": GoogleStudioAIIcon,
 	groq: GroqIcon,
 	"inference.net": InferenceNetIcon,
 	mistral: MistralIcon,

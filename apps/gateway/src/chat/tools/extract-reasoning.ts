@@ -17,7 +17,8 @@ export function extractReasoning(data: any, provider: Provider): string {
 			}
 			return "";
 		}
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const reasoningParts = parts.filter((part: any) => part.thought);
 			return reasoningParts.map((part: any) => part.text).join("") || "";

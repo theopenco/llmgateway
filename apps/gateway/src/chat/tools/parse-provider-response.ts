@@ -123,7 +123,8 @@ export function parseProviderResponse(
 			}
 			break;
 		}
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			// Extract content and reasoning content from Google response parts
 			const parts = json.candidates?.[0]?.content?.parts || [];
 			const contentParts = parts.filter((part: any) => !part.thought);
