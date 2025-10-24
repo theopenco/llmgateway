@@ -73,7 +73,6 @@ jobs:
           LLM_AWS_BEDROCK_API_KEY: ${{ secrets.AWS_BEDROCK_API_KEY }}
           LLM_AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           LLM_AZURE_RESOURCE: ${{ secrets.AZURE_RESOURCE }}
-          LLM_AZURE_REGION: ${{ secrets.AZURE_REGION }}
           LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
 
       - name: Upload shard results

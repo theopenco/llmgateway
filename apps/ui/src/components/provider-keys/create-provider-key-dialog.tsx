@@ -71,7 +71,6 @@ export function CreateProviderKeyDialog({
 		"us." | "global." | "eu."
 	>("us.");
 	const [azureResource, setAzureResource] = useState("");
-	const [azureRegion, setAzureRegion] = useState("eastus");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
 		"openai" | "ai-foundry"
@@ -191,7 +190,6 @@ export function CreateProviderKeyDialog({
 			options?: {
 				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
 				azure_resource?: string;
-				azure_region?: string;
 				azure_api_version?: string;
 				azure_deployment_type?: "openai" | "ai-foundry";
 			};
@@ -223,7 +221,6 @@ export function CreateProviderKeyDialog({
 			}
 			payload.options = {
 				azure_resource: azureResource,
-				azure_region: azureRegion,
 				azure_api_version: azureApiVersion,
 				azure_deployment_type: azureDeploymentType,
 			};
@@ -273,7 +270,6 @@ export function CreateProviderKeyDialog({
 			setToken("");
 			setAwsBedrockRegionPrefix("us.");
 			setAzureResource("");
-			setAzureRegion("eastus");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 		}, 300);
@@ -430,23 +426,6 @@ export function CreateProviderKeyDialog({
 								<p className="text-sm text-muted-foreground">
 									Your Azure resource name from the base URL:
 									https://&lt;resource-name&gt;.openai.azure.com
-								</p>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="azure-region">Region</Label>
-								<Select
-									value={azureRegion}
-									onValueChange={(value) => setAzureRegion(value)}
-								>
-									<SelectTrigger id="azure-region">
-										<SelectValue placeholder="Select region" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="eastus">East US</SelectItem>
-									</SelectContent>
-								</Select>
-								<p className="text-sm text-muted-foreground">
-									Azure region for your deployment
 								</p>
 							</div>
 							<div className="space-y-2">

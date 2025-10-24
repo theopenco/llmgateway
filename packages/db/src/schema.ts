@@ -310,7 +310,6 @@ export const apiKeyIamRule = pgTable(
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: string;
 	azure_resource?: string;
-	azure_region?: string;
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
 }
