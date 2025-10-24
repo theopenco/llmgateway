@@ -75,6 +75,8 @@ export function CreateProviderKeyDialog({
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
 		"openai" | "ai-foundry"
 	>("ai-foundry");
+	const [azureValidationModel, setAzureValidationModel] =
+		useState("gpt-4o-mini");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -192,6 +194,7 @@ export function CreateProviderKeyDialog({
 				azure_resource?: string;
 				azure_api_version?: string;
 				azure_deployment_type?: "openai" | "ai-foundry";
+				azure_validation_model?: string;
 			};
 			organizationId: string;
 		} = {
@@ -223,6 +226,7 @@ export function CreateProviderKeyDialog({
 				azure_resource: azureResource,
 				azure_api_version: azureApiVersion,
 				azure_deployment_type: azureDeploymentType,
+				azure_validation_model: azureValidationModel,
 			};
 		}
 
@@ -272,6 +276,7 @@ export function CreateProviderKeyDialog({
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
+			setAzureValidationModel("gpt-4o-mini");
 		}, 300);
 	};
 
@@ -464,6 +469,20 @@ export function CreateProviderKeyDialog({
 									</p>
 								</div>
 							)}
+							<div className="space-y-2">
+								<Label htmlFor="azure-validation-model">Validation Model</Label>
+								<Input
+									id="azure-validation-model"
+									type="text"
+									placeholder="gpt-4o-mini"
+									value={azureValidationModel}
+									onChange={(e) => setAzureValidationModel(e.target.value)}
+								/>
+								<p className="text-sm text-muted-foreground">
+									Model deployment name to use for validating the API key
+									(default: gpt-4o-mini)
+								</p>
+							</div>
 						</>
 					)}
 

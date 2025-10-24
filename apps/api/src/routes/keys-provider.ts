@@ -44,6 +44,10 @@ const createProviderKeySchema = z.object({
 	options: z
 		.object({
 			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			azure_resource: z.string().optional(),
+			azure_api_version: z.string().optional(),
+			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
+			azure_validation_model: z.string().optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
@@ -199,6 +203,7 @@ keysProvider.openapi(create, async (c) => {
 				userToken,
 				baseUrl,
 				isTestEnv,
+				options,
 			);
 		}
 	} catch (error) {

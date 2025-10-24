@@ -8,6 +8,7 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { ProviderId } from "./providers.js";
 import type { BaseMessage, ProviderValidationResult } from "./types.js";
+import type { ProviderKeyOptions } from "@llmgateway/db";
 
 /**
  * Validate a provider API key by making a minimal request
@@ -17,6 +18,7 @@ export async function validateProviderKey(
 	token: string,
 	baseUrl?: string,
 	skipValidation = false,
+	providerKeyOptions?: ProviderKeyOptions,
 ): Promise<ProviderValidationResult> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
@@ -30,19 +32,30 @@ export async function validateProviderKey(
 
 	try {
 		// Determine the validation model first (needed for endpoint URL)
-		const validationModel = getCheapestModelForProvider(provider);
-
-		logger.debug("Using validation model", {
-			provider,
-			validationModel: validationModel || undefined,
-		});
-		if (!validationModel) {
-			throw new Error(
-				`No model with pricing information found for provider ${provider}`,
-			);
+		// For Azure, use the user-provided validation model if available
+		let validationModel: string;
+		if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
+			validationModel = providerKeyOptions.azure_validation_model;
+			logger.debug("Using Azure validation model from options", {
+				provider,
+				validationModel,
+			});
+		} else {
+			const cheapestModel = getCheapestModelForProvider(provider);
+			logger.debug("Using cheapest validation model", {
+				provider,
+				validationModel: cheapestModel || undefined,
+			});
+			if (!cheapestModel) {
+				throw new Error(
+					`No model with pricing information found for provider ${provider}`,
+				);
+			}
+			validationModel = cheapestModel;
 		}
 
 		// Find the model definition to get the model ID
+		// For Azure with custom validation model, we might not find it in our models list
 		const modelDef = models.find((m) =>
 			m.providers.some(
 				(p) => p.providerId === provider && p.modelName === validationModel,
@@ -50,14 +63,21 @@ export async function validateProviderKey(
 		);
 		const modelId = modelDef?.id;
 
+		// For Azure, if we have a custom validation model, use it directly as modelId
+		const effectiveModelId =
+			provider === "azure" && providerKeyOptions?.azure_validation_model
+				? providerKeyOptions.azure_validation_model
+				: modelId;
+
 		const endpoint = getProviderEndpoint(
 			provider,
 			baseUrl,
-			modelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock)
+			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
 			provider === "google-ai-studio" ? token : undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
 			false, // hasExistingToolCalls - disable for validation
+			providerKeyOptions,
 		);
 
 		// Use prepareRequestBody to create the validation payload

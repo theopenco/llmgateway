@@ -312,6 +312,7 @@ export interface ProviderKeyOptions {
 	azure_resource?: string;
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
+	azure_validation_model?: string;
 }
 
 export const providerKey = pgTable(
