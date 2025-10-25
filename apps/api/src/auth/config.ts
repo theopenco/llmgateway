@@ -521,8 +521,24 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						email: string;
 						name?: string | null;
 					}) => {
-						// Add verified email to Brevo CRM
-						await createBrevoContact(user.email, user.name || undefined);
+						// Fetch the user's onboarding status to include in Brevo
+						const dbUser = await db.query.user.findFirst({
+							where: {
+								id: {
+									eq: user.id,
+								},
+							},
+							columns: {
+								onboardingCompleted: true,
+							},
+						});
+
+						// Add verified email to Brevo CRM with onboarding status
+						await createBrevoContact(user.email, user.name || undefined, {
+							...(dbUser?.onboardingCompleted && {
+								ONBOARDING_COMPLETED: true,
+							}),
+						});
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
