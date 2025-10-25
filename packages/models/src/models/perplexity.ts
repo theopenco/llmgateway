@@ -21,9 +21,9 @@ export const perplexityModels = [
 				vision: false,
 				tools: false,
 				test: "skip",
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "sonar-pro",
@@ -45,9 +45,9 @@ export const perplexityModels = [
 				vision: false,
 				tools: false,
 				test: "skip",
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "sonar",
@@ -69,8 +69,8 @@ export const perplexityModels = [
 				vision: false,
 				tools: false,
 				test: "skip",
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];

@@ -225,7 +225,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			) {
 				return false;
 			}
-			if (filters.capabilities.jsonOutput && !model.jsonOutput) {
+			if (
+				filters.capabilities.jsonOutput &&
+				!model.providerDetails.some((p) => p.provider.jsonOutput)
+			) {
 				return false;
 			}
 			if (
@@ -515,7 +518,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				color: "text-orange-500",
 			});
 		}
-		if (model?.jsonOutput) {
+		if (provider.jsonOutput) {
 			capabilities.push({
 				icon: Braces,
 				label: "JSON Output",

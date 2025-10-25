@@ -56,4 +56,4 @@ That's it — your teammate receives an invite and gains access based on the rol
 
 ---
 
-**Upgrade to Pro** to unlock multi-seat team management and scale your organization with confidence: **[Upgrade now](/dashboard/settings/billing)**.
+**Upgrade to Pro** to unlock multi-seat team management and scale your organization with confidence: **[Upgrade now](/dashboard/settings/org/billing)**.

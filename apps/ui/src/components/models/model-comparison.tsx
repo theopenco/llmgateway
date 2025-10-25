@@ -340,7 +340,7 @@ function collectModelDetail(modelId?: ModelId): ModelDetail | undefined {
 		model,
 		providers: providersWithInfo,
 		stability: pickMostUnstableStability(model),
-		jsonOutput: Boolean(model.jsonOutput),
+		jsonOutput: model.providers.some((p) => p.jsonOutput),
 		aggregated,
 	};
 }

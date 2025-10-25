@@ -19,9 +19,9 @@ export const mistralModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "mixtral-8x7b-instruct-together",
@@ -41,9 +41,9 @@ export const mistralModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "mistral-7b-instruct-together",
@@ -63,9 +63,9 @@ export const mistralModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "pixtral-large-latest",
@@ -85,8 +85,8 @@ export const mistralModels = [
 				streaming: true,
 				vision: true,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];

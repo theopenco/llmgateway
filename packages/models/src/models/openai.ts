@@ -21,6 +21,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "azure",
@@ -33,9 +34,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4",
@@ -51,7 +52,7 @@ export const openaiModels = [
 				inputPrice: 30.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
 				requestPrice: 0,
-				contextSize: 128000,
+				contextSize: 8192,
 				maxOutput: 8192,
 				streaming: true,
 				vision: false,
@@ -66,6 +67,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: false,
 			},
 			{
 				test: "skip",
@@ -78,9 +80,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "gpt-4o",
@@ -103,6 +105,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -117,9 +120,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-3.5-turbo",
@@ -140,6 +143,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: false,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -152,9 +156,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4-turbo",
@@ -176,6 +180,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -188,9 +193,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4.1",
@@ -212,6 +217,7 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -227,9 +233,9 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o1",
@@ -252,6 +258,7 @@ export const openaiModels = [
 				reasoning: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -267,9 +274,9 @@ export const openaiModels = [
 				reasoning: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o1-mini",
@@ -291,6 +298,7 @@ export const openaiModels = [
 				tools: false,
 				reasoning: false,
 				supportsResponsesApi: false,
+				jsonOutput: false,
 			},
 			{
 				test: "skip",
@@ -306,9 +314,9 @@ export const openaiModels = [
 				tools: false,
 				reasoning: false,
 				supportsResponsesApi: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 		supportsSystemRole: false,
 	},
 	{
@@ -331,6 +339,7 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -346,9 +355,9 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4.1-nano",
@@ -370,6 +379,7 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -385,9 +395,9 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o3",
@@ -408,6 +418,7 @@ export const openaiModels = [
 				vision: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -422,9 +433,9 @@ export const openaiModels = [
 				vision: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o3-mini",
@@ -445,6 +456,7 @@ export const openaiModels = [
 				vision: false,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -459,9 +471,9 @@ export const openaiModels = [
 				vision: false,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-oss-120b",
@@ -482,6 +494,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -497,9 +510,9 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				stability: "experimental",
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-oss-20b",
@@ -520,6 +533,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -535,9 +549,9 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				stability: "experimental",
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5",
@@ -569,6 +583,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -596,6 +611,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -621,9 +637,9 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5-mini",
@@ -655,6 +671,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -681,6 +698,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -706,9 +724,9 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5-nano",
@@ -740,6 +758,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -766,6 +785,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -791,9 +811,9 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5-chat-latest",
@@ -822,8 +842,8 @@ export const openaiModels = [
 					"presence_penalty",
 					"response_format",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

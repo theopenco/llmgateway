@@ -27,8 +27,6 @@ export async function syncProvidersAndModels() {
 					description: providerDef.description,
 					streaming: providerDef.streaming,
 					cancellation: providerDef.cancellation,
-					jsonOutput:
-						"jsonOutput" in providerDef ? providerDef.jsonOutput || null : null,
 					color: providerDef.color,
 					website: providerDef.website,
 					announcement: providerDef.announcement,
@@ -41,10 +39,6 @@ export async function syncProvidersAndModels() {
 						description: providerDef.description,
 						streaming: providerDef.streaming,
 						cancellation: providerDef.cancellation,
-						jsonOutput:
-							"jsonOutput" in providerDef
-								? providerDef.jsonOutput || null
-								: null,
 						color: providerDef.color,
 						website: providerDef.website,
 						announcement: providerDef.announcement,
@@ -62,8 +56,6 @@ export async function syncProvidersAndModels() {
 					id: modelDef.id,
 					name: modelDef.name || null,
 					family: modelDef.family,
-					jsonOutput:
-						"jsonOutput" in modelDef ? modelDef.jsonOutput || null : null,
 					free: "free" in modelDef ? modelDef.free || null : null,
 					deprecatedAt: modelDef.deprecatedAt || null,
 					deactivatedAt: modelDef.deactivatedAt || null,
@@ -75,8 +67,6 @@ export async function syncProvidersAndModels() {
 					set: {
 						name: modelDef.name || null,
 						family: modelDef.family,
-						jsonOutput:
-							"jsonOutput" in modelDef ? modelDef.jsonOutput || null : null,
 						free: "free" in modelDef ? modelDef.free || null : null,
 						deprecatedAt: modelDef.deprecatedAt || null,
 						deactivatedAt: modelDef.deactivatedAt || null,

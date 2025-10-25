@@ -1,0 +1,1 @@
+ALTER TABLE "model" DROP COLUMN "json_output";

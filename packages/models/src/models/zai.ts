@@ -20,9 +20,9 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5v",
@@ -44,9 +44,9 @@ export const zaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-air",
@@ -67,9 +67,9 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-x",
@@ -91,9 +91,9 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				stability: "unstable", // unstable due to high limits
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-airx",
@@ -114,9 +114,9 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-flash",
@@ -137,9 +137,9 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.6",
@@ -160,9 +160,9 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4-32b-0414-128k",
@@ -183,8 +183,8 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

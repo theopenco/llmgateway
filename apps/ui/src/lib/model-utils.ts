@@ -50,7 +50,7 @@ export function getModelCapabilities(model: ModelDefinition): string[] {
 	if (provider?.reasoning) {
 		capabilities.push("Reasoning");
 	}
-	if (model.jsonOutput) {
+	if (provider?.jsonOutput) {
 		capabilities.push("JSON Output");
 	}
 
