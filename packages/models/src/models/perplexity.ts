@@ -5,8 +5,6 @@ export const perplexityModels = [
 		id: "sonar-reasoning-pro",
 		name: "Sonar Reasoning Pro",
 		family: "perplexity",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "perplexity",
@@ -29,8 +27,6 @@ export const perplexityModels = [
 		id: "sonar-pro",
 		name: "Sonar Pro",
 		family: "perplexity",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "perplexity",
@@ -53,8 +49,6 @@ export const perplexityModels = [
 		id: "sonar",
 		name: "Sonar",
 		family: "perplexity",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "perplexity",

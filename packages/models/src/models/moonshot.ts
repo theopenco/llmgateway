@@ -5,8 +5,6 @@ export const moonshotModels = [
 		id: "kimi-k2",
 		name: "Kimi K2",
 		family: "moonshot",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",

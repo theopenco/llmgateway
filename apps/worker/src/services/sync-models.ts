@@ -57,8 +57,6 @@ export async function syncProvidersAndModels() {
 					name: modelDef.name || null,
 					family: modelDef.family,
 					free: "free" in modelDef ? modelDef.free || null : null,
-					deprecatedAt: modelDef.deprecatedAt || null,
-					deactivatedAt: modelDef.deactivatedAt || null,
 					output: "output" in modelDef ? modelDef.output || null : null,
 					status: "active",
 				})
@@ -68,8 +66,6 @@ export async function syncProvidersAndModels() {
 						name: modelDef.name || null,
 						family: modelDef.family,
 						free: "free" in modelDef ? modelDef.free || null : null,
-						deprecatedAt: modelDef.deprecatedAt || null,
-						deactivatedAt: modelDef.deactivatedAt || null,
 						output: "output" in modelDef ? modelDef.output || null : null,
 						updatedAt: new Date(),
 					},
@@ -139,6 +135,14 @@ export async function syncProvidersAndModels() {
 										? (mapping.test as "skip" | "only" | null) || null
 										: null,
 								status: "active",
+								deprecatedAt:
+									"deprecatedAt" in mapping
+										? mapping.deprecatedAt || null
+										: null,
+								deactivatedAt:
+									"deactivatedAt" in mapping
+										? mapping.deactivatedAt || null
+										: null,
 								updatedAt: new Date(),
 							})
 							.where(eq(modelProviderMapping.id, existingMapping.id));
@@ -185,6 +189,12 @@ export async function syncProvidersAndModels() {
 							supportedParameters:
 								"supportedParameters" in mapping
 									? (mapping.supportedParameters as string[] | null) || null
+									: null,
+							deprecatedAt:
+								"deprecatedAt" in mapping ? mapping.deprecatedAt || null : null,
+							deactivatedAt:
+								"deactivatedAt" in mapping
+									? mapping.deactivatedAt || null
 									: null,
 							test:
 								"test" in mapping

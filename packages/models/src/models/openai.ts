@@ -5,8 +5,6 @@ export const openaiModels = [
 		id: "gpt-4o-mini",
 		name: "GPT-4o Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -42,8 +40,6 @@ export const openaiModels = [
 		id: "gpt-4",
 		name: "GPT-4",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -88,8 +84,6 @@ export const openaiModels = [
 		id: "gpt-4o",
 		name: "GPT-4o",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -128,8 +122,6 @@ export const openaiModels = [
 		id: "gpt-3.5-turbo",
 		name: "GPT-3.5 Turbo",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -164,8 +156,6 @@ export const openaiModels = [
 		id: "gpt-4-turbo",
 		name: "GPT-4 Turbo",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -201,8 +191,6 @@ export const openaiModels = [
 		id: "gpt-4.1",
 		name: "GPT-4.1",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -241,8 +229,6 @@ export const openaiModels = [
 		id: "o1",
 		name: "o1",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -282,8 +268,6 @@ export const openaiModels = [
 		id: "o1-mini",
 		name: "o1 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -323,8 +307,6 @@ export const openaiModels = [
 		id: "gpt-4.1-mini",
 		name: "GPT-4.1 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -363,8 +345,6 @@ export const openaiModels = [
 		id: "gpt-4.1-nano",
 		name: "GPT-4.1 Nano",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -403,8 +383,6 @@ export const openaiModels = [
 		id: "o3",
 		name: "o3",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -441,8 +419,6 @@ export const openaiModels = [
 		id: "o3-mini",
 		name: "o3 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -479,8 +455,6 @@ export const openaiModels = [
 		id: "gpt-oss-120b",
 		name: "GPT OSS 120B",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",
@@ -518,8 +492,6 @@ export const openaiModels = [
 		id: "gpt-oss-20b",
 		name: "GPT OSS 20B",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",
@@ -557,8 +529,6 @@ export const openaiModels = [
 		id: "gpt-5",
 		name: "GPT-5",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -645,8 +615,6 @@ export const openaiModels = [
 		id: "gpt-5-mini",
 		name: "GPT-5 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -732,8 +700,6 @@ export const openaiModels = [
 		id: "gpt-5-nano",
 		name: "GPT-5 Nano",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -819,8 +785,6 @@ export const openaiModels = [
 		id: "gpt-5-chat-latest",
 		name: "GPT-5 Chat Latest",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",

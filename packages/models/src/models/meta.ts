@@ -5,8 +5,6 @@ export const metaModels = [
 		id: "llama-3.1-8b-instruct",
 		name: "Llama 3.1 8B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "aws-bedrock",
@@ -66,8 +64,6 @@ export const metaModels = [
 		id: "llama-3.1-70b-instruct",
 		name: "Llama 3.1 70B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "aws-bedrock",
@@ -88,8 +84,6 @@ export const metaModels = [
 		id: "llama-3.2-11b-instruct",
 		name: "Llama 3.2 11B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "inference.net",
@@ -110,8 +104,6 @@ export const metaModels = [
 		id: "llama-3.1-nemotron-ultra-253b",
 		name: "Llama 3.1 Nemotron Ultra 253B",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -132,8 +124,6 @@ export const metaModels = [
 		id: "llama-guard-4-12b",
 		name: "Llama Guard 4 12B",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",
@@ -154,8 +144,6 @@ export const metaModels = [
 		id: "llama-3.3-70b-instruct",
 		name: "Llama 3.3 70B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -176,8 +164,6 @@ export const metaModels = [
 		id: "llama-3.1-405b-instruct",
 		name: "Llama 3.1 405B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -221,8 +207,6 @@ export const metaModels = [
 		id: "llama-4-scout",
 		name: "Llama 4 Scout",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "together.ai",
@@ -243,8 +227,6 @@ export const metaModels = [
 		id: "llama-4-scout-17b-instruct",
 		name: "Llama 4 Scout 17B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				stability: "unstable",
@@ -267,8 +249,6 @@ export const metaModels = [
 		id: "llama-4-maverick-17b-instruct",
 		name: "Llama 4 Maverick 17B Instruct",
 		family: "meta",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				stability: "unstable",

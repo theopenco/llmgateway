@@ -597,8 +597,6 @@ export const model = pgTable(
 		name: text(),
 		family: text().notNull(),
 		free: boolean(),
-		deprecatedAt: timestamp(),
-		deactivatedAt: timestamp(),
 		output: json().$type<string[]>(),
 		status: text({
 			enum: ["active", "inactive"],
@@ -650,6 +648,8 @@ export const modelProviderMapping = pgTable(
 		test: text({
 			enum: ["skip", "only"],
 		}),
+		deprecatedAt: timestamp(),
+		deactivatedAt: timestamp(),
 		status: text({
 			enum: ["active", "inactive"],
 		})

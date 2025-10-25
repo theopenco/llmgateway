@@ -5,8 +5,6 @@ export const xaiModels = [
 		id: "grok-3",
 		name: "Grok-3",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -28,8 +26,6 @@ export const xaiModels = [
 		id: "grok-3-mini",
 		name: "Grok-3 Mini",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "xai",
@@ -50,8 +46,6 @@ export const xaiModels = [
 		id: "grok-3-fast",
 		name: "Grok-3 Fast",
 		family: "xai",
-		deprecatedAt: new Date("2025-08-08"),
-		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				test: "skip",
@@ -66,6 +60,8 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deprecatedAt: new Date("2025-08-08"),
+				deactivatedAt: new Date("2025-09-15"),
 			},
 		],
 	},
@@ -73,8 +69,6 @@ export const xaiModels = [
 		id: "grok-3-mini-fast",
 		name: "Grok-3 Mini Fast",
 		family: "xai",
-		deprecatedAt: new Date("2025-08-08"),
-		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				providerId: "xai",
@@ -88,6 +82,8 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deprecatedAt: new Date("2025-08-08"),
+				deactivatedAt: new Date("2025-09-15"),
 			},
 		],
 	},
@@ -95,8 +91,6 @@ export const xaiModels = [
 		id: "grok-2-1212",
 		name: "Grok-2 (1212)",
 		family: "xai",
-		deprecatedAt: new Date("2025-08-08"),
-		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				test: "skip",
@@ -111,6 +105,8 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deprecatedAt: new Date("2025-08-08"),
+				deactivatedAt: new Date("2025-09-15"),
 			},
 		],
 	},
@@ -118,8 +114,6 @@ export const xaiModels = [
 		id: "grok-2-vision-1212",
 		name: "Grok-2 Vision (1212)",
 		family: "xai",
-		deprecatedAt: new Date("2025-08-08"),
-		deactivatedAt: new Date("2025-09-15"),
 		providers: [
 			{
 				providerId: "xai",
@@ -134,6 +128,8 @@ export const xaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deprecatedAt: new Date("2025-08-08"),
+				deactivatedAt: new Date("2025-09-15"),
 			},
 		],
 	},
@@ -141,8 +137,6 @@ export const xaiModels = [
 		id: "grok-4-0709",
 		name: "Grok 4 (0709)",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -165,8 +159,6 @@ export const xaiModels = [
 		id: "grok-4",
 		name: "Grok 4",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "xai",
@@ -188,8 +180,6 @@ export const xaiModels = [
 		id: "grok-4-fast-reasoning",
 		name: "Grok 4 Fast Reasoning",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "xai",
@@ -212,8 +202,6 @@ export const xaiModels = [
 		id: "grok-4-fast-non-reasoning",
 		name: "Grok 4 Fast Non-Reasoning",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "xai",
@@ -236,8 +224,6 @@ export const xaiModels = [
 		id: "grok-code-fast-1",
 		name: "Grok Code Fast 1",
 		family: "xai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",

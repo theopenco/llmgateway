@@ -5,8 +5,6 @@ export const nousresearchModels = [
 		id: "hermes-3-llama-405b",
 		name: "Hermes 3 Llama 405B",
 		family: "nousresearch",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
