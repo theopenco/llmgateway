@@ -52,7 +52,7 @@ export const openaiModels = [
 				inputPrice: 30.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
 				requestPrice: 0,
-				contextSize: 128000,
+				contextSize: 8192,
 				maxOutput: 8192,
 				streaming: true,
 				vision: false,
