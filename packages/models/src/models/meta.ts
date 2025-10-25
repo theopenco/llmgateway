@@ -31,6 +31,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 			{
 				providerId: "inference.net",
@@ -177,6 +178,7 @@ export const metaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
 	},

@@ -18,6 +18,7 @@ export const nousresearchModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
 	},

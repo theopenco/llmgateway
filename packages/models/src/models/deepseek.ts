@@ -31,6 +31,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
 	},
