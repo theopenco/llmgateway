@@ -6,8 +6,6 @@ export const routewayModels = [
 		name: "DeepSeek R1T2 Chimera (Free)",
 		family: "deepseek",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -30,8 +28,6 @@ export const routewayModels = [
 		name: "GLM-4.5 Air (Free)",
 		family: "glm",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -54,8 +50,6 @@ export const routewayModels = [
 		name: "Kimi Dev 72B (Free)",
 		family: "kimi",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -78,8 +72,6 @@ export const routewayModels = [
 		name: "Mistral Small 3 (Free)",
 		family: "mistral",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -102,8 +94,6 @@ export const routewayModels = [
 		name: "GPT OSS 20B (Free)",
 		family: "gpt-oss",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -126,8 +116,6 @@ export const routewayModels = [
 		name: "Meta Llama 3.3 70B Instruct (Free)",
 		family: "meta",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -150,8 +138,6 @@ export const routewayModels = [
 		name: "Meta Llama 4 Scout (Free)",
 		family: "meta",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -174,8 +160,6 @@ export const routewayModels = [
 		name: "Meta Llama 4 Maverick (Free)",
 		family: "meta",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -198,8 +182,6 @@ export const routewayModels = [
 		name: "Nemotron Nano 9B V2 (Free)",
 		family: "nvidia",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",

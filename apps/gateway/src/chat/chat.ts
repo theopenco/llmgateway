@@ -548,12 +548,28 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Check if model is deactivated
-	if (modelInfo.deactivatedAt && new Date() > modelInfo.deactivatedAt) {
+	// Filter out deactivated provider mappings
+	const now = new Date();
+	const activeProviders = modelInfo.providers.filter(
+		(provider) =>
+			!(
+				(provider as ProviderModelMapping).deactivatedAt &&
+				now > (provider as ProviderModelMapping).deactivatedAt!
+			),
+	);
+
+	// Check if all providers are deactivated
+	if (activeProviders.length === 0) {
 		throw new HTTPException(410, {
 			message: `Model ${requestedModel} has been deactivated and is no longer available`,
 		});
 	}
+
+	// Update modelInfo to only include active providers
+	modelInfo = {
+		...modelInfo,
+		providers: activeProviders,
+	};
 
 	if (
 		response_format?.type === "json_object" ||
@@ -868,18 +884,21 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
-			// Skip deprecated models
-			if (modelDef.deprecatedAt && new Date() > modelDef.deprecatedAt) {
-				continue;
-			}
-
 			// Check if any of the model's providers are available
 			const availableModelProviders = modelDef.providers.filter((provider) =>
 				availableProviders.includes(provider.providerId),
 			);
 
-			// Filter by context size requirement and reasoning capability if needed
+			// Filter by context size requirement, reasoning capability, and deprecation status
 			const suitableProviders = availableModelProviders.filter((provider) => {
+				// Skip deprecated provider mappings
+				if (
+					(provider as ProviderModelMapping).deprecatedAt &&
+					new Date() > (provider as ProviderModelMapping).deprecatedAt!
+				) {
+					return false;
+				}
+
 				// Use the provider's context size, defaulting to a reasonable value if not specified
 				const modelContextSize = provider.contextSize ?? 8192;
 				const contextSizeMet = modelContextSize >= requiredContextSize;

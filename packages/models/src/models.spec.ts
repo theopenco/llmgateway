@@ -352,9 +352,15 @@ describe("getCheapestModelForProvider", () => {
 				),
 			);
 
-			if (modelWithProvider && modelWithProvider.deprecatedAt) {
-				// If the model has a deprecatedAt date, it should be in the future
-				expect(new Date() <= modelWithProvider.deprecatedAt).toBe(true);
+			if (modelWithProvider) {
+				// Check if any provider mapping has a deprecatedAt date
+				const providerMapping = modelWithProvider.providers.find(
+					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+				) as ProviderModelMapping | undefined;
+				if (providerMapping?.deprecatedAt) {
+					// If the provider mapping has a deprecatedAt date, it should be in the future
+					expect(new Date() <= providerMapping.deprecatedAt).toBe(true);
+				}
 			}
 		}
 	});

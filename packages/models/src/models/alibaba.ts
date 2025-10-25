@@ -5,8 +5,6 @@ export const alibabaModels = [
 		id: "qwen-max",
 		name: "Qwen Max",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -27,8 +25,6 @@ export const alibabaModels = [
 		id: "qwen-max-latest",
 		name: "Qwen Max Latest",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -49,8 +45,6 @@ export const alibabaModels = [
 		id: "qwen-plus",
 		name: "Qwen Plus",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -71,8 +65,6 @@ export const alibabaModels = [
 		id: "qwen-plus-latest",
 		name: "Qwen Plus Latest",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -93,8 +85,6 @@ export const alibabaModels = [
 		id: "qwen-flash",
 		name: "Qwen Flash",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -115,8 +105,6 @@ export const alibabaModels = [
 		id: "qwen-omni-turbo",
 		name: "Qwen Omni Turbo",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -137,8 +125,6 @@ export const alibabaModels = [
 		id: "qwen-turbo",
 		name: "Qwen Turbo",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -159,8 +145,6 @@ export const alibabaModels = [
 		id: "qwen3-coder-plus",
 		name: "Qwen3 Coder Plus",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -182,8 +166,6 @@ export const alibabaModels = [
 		id: "qwen-qwq-32b",
 		name: "Qwen QwQ 32B",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -204,8 +186,6 @@ export const alibabaModels = [
 		id: "qwen3-235b-a22b-instruct-2507",
 		name: "Qwen3 235B A22B Instruct 2507",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -227,8 +207,6 @@ export const alibabaModels = [
 		id: "qwen3-235b-a22b-thinking-2507",
 		name: "Qwen3 235B A22B Thinking 2507",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -251,8 +229,6 @@ export const alibabaModels = [
 		id: "qwen3-14b",
 		name: "Qwen3 14B",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -273,8 +249,6 @@ export const alibabaModels = [
 		id: "qwen3-32b",
 		name: "Qwen3 32B",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -295,8 +269,6 @@ export const alibabaModels = [
 		id: "qwen3-30b-a3b",
 		name: "Qwen3 30B A3B",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -317,8 +289,6 @@ export const alibabaModels = [
 		id: "qwen25-coder-7b",
 		name: "Qwen2.5 Coder 7B",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -339,8 +309,6 @@ export const alibabaModels = [
 		id: "qwen25-32b-instruct",
 		name: "Qwen2.5 32B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: new Date("2025-09-10"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -354,6 +322,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2025-09-10"),
 			},
 		],
 	},
@@ -361,8 +330,6 @@ export const alibabaModels = [
 		id: "qwen25-72b-instruct",
 		name: "Qwen2.5 72B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -383,8 +350,6 @@ export const alibabaModels = [
 		id: "qwen2-vl-72b-instruct",
 		name: "Qwen2 VL 72B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: new Date("2025-09-10"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -398,6 +363,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2025-09-10"),
 			},
 		],
 	},
@@ -405,8 +371,6 @@ export const alibabaModels = [
 		id: "qwen2-5-vl-72b-instruct",
 		name: "Qwen2.5 VL 72B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -427,8 +391,6 @@ export const alibabaModels = [
 		id: "qwen3-coder-480b-a35b-instruct",
 		name: "Qwen3 Coder 480B A35B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -449,8 +411,6 @@ export const alibabaModels = [
 		id: "qwen3-coder-30b-a3b-instruct",
 		name: "Qwen3 Coder 30B A3B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -471,8 +431,6 @@ export const alibabaModels = [
 		id: "qwen3-30b-a3b-instruct-2507",
 		name: "Qwen3 30B A3B Instruct 2507",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -493,8 +451,6 @@ export const alibabaModels = [
 		id: "qwen3-30b-a3b-thinking-2507",
 		name: "Qwen3 30B A3B Thinking 2507",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -516,8 +472,6 @@ export const alibabaModels = [
 		id: "qwen-vl-max",
 		name: "Qwen VL Max",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -538,8 +492,6 @@ export const alibabaModels = [
 		id: "qwen-vl-plus",
 		name: "Qwen VL Plus",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -560,8 +512,6 @@ export const alibabaModels = [
 		id: "qwen3-next-80b-a3b-thinking",
 		name: "Qwen3 Next 80B A3B Thinking",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -584,8 +534,6 @@ export const alibabaModels = [
 		id: "qwen3-next-80b-a3b-instruct",
 		name: "Qwen3 Next 80B A3B Instruct",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "alibaba",
@@ -606,8 +554,6 @@ export const alibabaModels = [
 		id: "qwen3-max",
 		name: "Qwen3 Max",
 		family: "alibaba",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",

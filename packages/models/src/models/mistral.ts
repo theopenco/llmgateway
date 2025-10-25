@@ -5,8 +5,6 @@ export const mistralModels = [
 		id: "mistral-large-latest",
 		name: "Mistral Large Latest",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "mistral",
@@ -27,8 +25,6 @@ export const mistralModels = [
 		id: "mixtral-8x7b-instruct-together",
 		name: "Mixtral 8x7B Instruct",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "together.ai",
@@ -49,8 +45,6 @@ export const mistralModels = [
 		id: "mistral-7b-instruct-together",
 		name: "Mistral 7B Instruct",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "together.ai",
@@ -71,8 +65,6 @@ export const mistralModels = [
 		id: "pixtral-large-latest",
 		name: "Pixtral Large Latest",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "mistral",
