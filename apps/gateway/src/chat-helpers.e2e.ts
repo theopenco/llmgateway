@@ -64,7 +64,7 @@ export const filteredModels = models
 		const allDeactivated = model.providers.every(
 			(provider) =>
 				(provider as ProviderModelMapping).deactivatedAt &&
-				new Date() > (provider as ProviderModelMapping).deactivatedAt,
+				new Date() > (provider as ProviderModelMapping).deactivatedAt!,
 		);
 		return !allDeactivated;
 	})
