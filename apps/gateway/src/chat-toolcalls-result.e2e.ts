@@ -23,7 +23,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 	});
 
 	test.each(toolCallModels)(
-		"tool calls with result $model",
+		"tool calls res $model",
 		getTestOptions(),
 		async ({ model }) => {
 			const requestId = generateTestRequestId();

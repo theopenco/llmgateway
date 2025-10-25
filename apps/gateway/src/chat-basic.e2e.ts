@@ -29,60 +29,56 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	test.each(testModels)(
-		"basic completions $model",
-		getTestOptions(),
-		async ({ model }) => {
-			const requestId = generateTestRequestId();
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-request-id": requestId,
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "system",
-							content: "You are a helpful assistant.",
-						},
-						{
-							role: "user",
-							content: "Hello, just reply 'OK'!",
-						},
-					],
-				}),
-			});
+	test.each(testModels)("basic $model", getTestOptions(), async ({ model }) => {
+		const requestId = generateTestRequestId();
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": requestId,
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: model,
+				messages: [
+					{
+						role: "system",
+						content: "You are a helpful assistant.",
+					},
+					{
+						role: "user",
+						content: "Hello, just reply 'OK'!",
+					},
+				],
+			}),
+		});
 
-			const json = await res.json();
-			if (logMode) {
-				console.log("response:", JSON.stringify(json, null, 2));
-			}
+		const json = await res.json();
+		if (logMode) {
+			console.log("response:", JSON.stringify(json, null, 2));
+		}
 
-			expect(res.status).toBe(200);
-			validateResponse(json);
+		expect(res.status).toBe(200);
+		validateResponse(json);
 
-			const log = await validateLogByRequestId(requestId);
-			expect(log.streamed).toBe(false);
+		const log = await validateLogByRequestId(requestId);
+		expect(log.streamed).toBe(false);
 
-			expect(json).toHaveProperty("usage");
-			expect(json.usage).toHaveProperty("prompt_tokens");
-			expect(json.usage).toHaveProperty("completion_tokens");
-			expect(json.usage).toHaveProperty("total_tokens");
-			expect(typeof json.usage.prompt_tokens).toBe("number");
-			expect(typeof json.usage.completion_tokens).toBe("number");
-			expect(typeof json.usage.total_tokens).toBe("number");
-			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
-			expect(json.usage.completion_tokens).toBeGreaterThan(0);
-			expect(json.usage.total_tokens).toBeGreaterThan(0);
+		expect(json).toHaveProperty("usage");
+		expect(json.usage).toHaveProperty("prompt_tokens");
+		expect(json.usage).toHaveProperty("completion_tokens");
+		expect(json.usage).toHaveProperty("total_tokens");
+		expect(typeof json.usage.prompt_tokens).toBe("number");
+		expect(typeof json.usage.completion_tokens).toBe("number");
+		expect(typeof json.usage.total_tokens).toBe("number");
+		expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+		expect(json.usage.completion_tokens).toBeGreaterThan(0);
+		expect(json.usage.total_tokens).toBeGreaterThan(0);
 
-			// expect(log.inputCost).not.toBeNull();
-			// expect(log.outputCost).not.toBeNull();
-			// expect(log.cost).not.toBeNull();
-		},
-	);
+		// expect(log.inputCost).not.toBeNull();
+		// expect(log.outputCost).not.toBeNull();
+		// expect(log.cost).not.toBeNull();
+	});
 
 	if (process.env.EXPERIMENTAL) {
 		test.each(providerModels)(
