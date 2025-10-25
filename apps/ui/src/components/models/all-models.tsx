@@ -518,7 +518,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				color: "text-orange-500",
 			});
 		}
-		if (model?.jsonOutput) {
+		if (provider.jsonOutput) {
 			capabilities.push({
 				icon: Braces,
 				label: "JSON Output",
