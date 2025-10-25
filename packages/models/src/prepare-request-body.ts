@@ -577,8 +577,7 @@ export async function prepareRequestBody(
 			}
 
 			// Enable thinking/reasoning content exposure for Google models that support reasoning
-			// Note: google-vertex has stricter validation and doesn't support thinkingConfig for all models
-			if (supportsReasoning && usedProvider === "google-ai-studio") {
+			if (supportsReasoning) {
 				requestBody.generationConfig.thinkingConfig = {
 					includeThoughts: true,
 				};
