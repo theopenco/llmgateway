@@ -8,6 +8,7 @@ export const providerLogoUrls: Partial<
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
+	"google-vertex": ProviderIcons["google-vertex"],
 	"inference.net": ProviderIcons["inference.net"],
 	"together.ai": ProviderIcons["together.ai"],
 	cloudrift: ProviderIcons.cloudrift,
