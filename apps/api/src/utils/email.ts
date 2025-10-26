@@ -118,8 +118,10 @@ export function generateTrialStartedEmailHtml(
 			Great news! Your 7-day Pro trial for <strong>${escapeHtml(organizationName)}</strong> has started. You now have access to all Pro features including:
 		</p>
 		<ul style="font-size: 16px; margin-bottom: 20px; padding-left: 20px;">
-			<li>Provider API key management</li>
+			<li>Provider API key management (bring your own keys)</li>
+			<li>No fees on credit top-ups</li>
 			<li>Extended data retention (90 days)</li>
+			<li>Team management</li>
 			<li>Advanced analytics and insights</li>
 			<li>Priority support</li>
 		</ul>
@@ -161,15 +163,6 @@ export function generateSubscriptionCancelledEmailHtml(
 		<p style="font-size: 16px; margin-bottom: 20px;">
 			We're sorry to see you go. Your Pro subscription for <strong>${escapeHtml(organizationName)}</strong> has been cancelled and your organization has been downgraded to the free plan.
 		</p>
-		<p style="font-size: 16px; margin-bottom: 20px;">
-			You will no longer have access to Pro features including:
-		</p>
-		<ul style="font-size: 16px; margin-bottom: 20px; padding-left: 20px;">
-			<li>Provider API key management</li>
-			<li>Extended data retention (90 days)</li>
-			<li>Advanced analytics and insights</li>
-			<li>Priority support</li>
-		</ul>
 		<p style="font-size: 16px; margin-bottom: 20px;">
 			You can continue using LLMGateway with our free plan features, or you can resubscribe to Pro at any time from your dashboard.
 		</p>
