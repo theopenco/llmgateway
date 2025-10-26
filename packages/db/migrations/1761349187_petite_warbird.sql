@@ -1,0 +1,1 @@
+ALTER TABLE "provider" DROP COLUMN "json_output";

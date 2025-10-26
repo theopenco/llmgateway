@@ -51,6 +51,9 @@ export function getProviderEndpoint(
 			case "google-ai-studio":
 				url = "https://generativelanguage.googleapis.com";
 				break;
+			case "google-vertex":
+				url = "https://aiplatform.googleapis.com";
+				break;
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
@@ -138,6 +141,22 @@ export function getProviderEndpoint(
 			const baseEndpoint = modelName
 				? `${url}/v1beta/models/${modelName}:${endpoint}`
 				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			const queryParams = [];
+			if (token) {
+				queryParams.push(`key=${token}`);
+			}
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
+		}
+		case "google-vertex": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = modelName
+				? `${url}/v1/publishers/google/models/${modelName}:${endpoint}`
+				: `${url}/v1/publishers/google/models/gemini-2.5-flash-lite:${endpoint}`;
 			const queryParams = [];
 			if (token) {
 				queryParams.push(`key=${token}`);

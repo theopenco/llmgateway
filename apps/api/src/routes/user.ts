@@ -445,9 +445,12 @@ user.openapi(completeOnboarding, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
-	await updateBrevoContactAttributes(updatedUser.email, {
-		ONBOARDING_COMPLETED: true,
-	});
+	// Only update Brevo if email is verified (contact exists in Brevo)
+	if (updatedUser.emailVerified) {
+		await updateBrevoContactAttributes(updatedUser.email, {
+			ONBOARDING_COMPLETED: true,
+		});
+	}
 
 	return c.json({
 		user: {

@@ -5,8 +5,6 @@ export const nousresearchModels = [
 		id: "hermes-3-llama-405b",
 		name: "Hermes 3 Llama 405B",
 		family: "nousresearch",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "nebius",
@@ -19,8 +17,9 @@ export const nousresearchModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

@@ -5,8 +5,6 @@ export const moonshotModels = [
 		id: "kimi-k2",
 		name: "Kimi K2",
 		family: "moonshot",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",
@@ -20,6 +18,7 @@ export const moonshotModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "novita",
@@ -32,6 +31,7 @@ export const moonshotModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "moonshot",
@@ -45,6 +45,7 @@ export const moonshotModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "cloudrift",
@@ -58,6 +59,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				test: "skip",
+				jsonOutput: true,
 			},
 			{
 				providerId: "nebius",
@@ -70,8 +72,8 @@ export const moonshotModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

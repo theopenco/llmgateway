@@ -5,6 +5,7 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	openai: "LLM_OPENAI_API_KEY",
 	anthropic: "LLM_ANTHROPIC_API_KEY",
 	"google-ai-studio": "LLM_GOOGLE_AI_STUDIO_API_KEY",
+	"google-vertex": "LLM_GOOGLE_VERTEX_API_KEY",
 	"inference.net": "LLM_INFERENCE_NET_API_KEY",
 	"together.ai": "LLM_TOGETHER_AI_API_KEY",
 	cloudrift: "LLM_CLOUD_RIFT_API_KEY",

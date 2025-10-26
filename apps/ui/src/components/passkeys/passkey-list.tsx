@@ -40,16 +40,6 @@ export function PasskeyList() {
 
 			void refetch();
 		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error ? error.message : "Error deleting passkey");
-			toast({
-				title: errorMessage,
-				variant: "destructive",
-			});
-		},
 	});
 
 	if (isLoading) {

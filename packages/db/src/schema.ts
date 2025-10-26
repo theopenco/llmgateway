@@ -564,7 +564,6 @@ export const provider = pgTable(
 		description: text().notNull(),
 		streaming: boolean(),
 		cancellation: boolean(),
-		jsonOutput: boolean(),
 		color: text(),
 		website: text(),
 		announcement: text(),
@@ -597,10 +596,7 @@ export const model = pgTable(
 			.$onUpdate(() => new Date()),
 		name: text(),
 		family: text().notNull(),
-		jsonOutput: boolean(),
 		free: boolean(),
-		deprecatedAt: timestamp(),
-		deactivatedAt: timestamp(),
 		output: json().$type<string[]>(),
 		status: text({
 			enum: ["active", "inactive"],
@@ -652,6 +648,8 @@ export const modelProviderMapping = pgTable(
 		test: text({
 			enum: ["skip", "only"],
 		}),
+		deprecatedAt: timestamp(),
+		deactivatedAt: timestamp(),
 		status: text({
 			enum: ["active", "inactive"],
 		})

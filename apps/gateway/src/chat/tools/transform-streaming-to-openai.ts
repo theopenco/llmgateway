@@ -209,7 +209,8 @@ export function transformStreamingToOpenai(
 			}
 			break;
 		}
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const hasText = parts.some((part: any) => part.text && !part.thought);
 			const hasThought = parts.some((part: any) => part.thought && part.text);

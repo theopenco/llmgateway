@@ -6,8 +6,6 @@ export const routewayModels = [
 		name: "DeepSeek R1T2 Chimera (Free)",
 		family: "deepseek",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -21,17 +19,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-air-free",
 		name: "GLM-4.5 Air (Free)",
 		family: "glm",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -45,17 +41,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "kimi-dev-72b-free",
 		name: "Kimi Dev 72B (Free)",
 		family: "kimi",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -69,17 +63,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "mistral-small-3-free",
 		name: "Mistral Small 3 (Free)",
 		family: "mistral",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -93,17 +85,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-oss-20b-free",
 		name: "GPT OSS 20B (Free)",
 		family: "gpt-oss",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -117,17 +107,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "llama-3.3-70b-instruct-free",
 		name: "Meta Llama 3.3 70B Instruct (Free)",
 		family: "meta",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -141,17 +129,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "llama-4-scout-free",
 		name: "Meta Llama 4 Scout (Free)",
 		family: "meta",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -165,17 +151,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "llama-4-maverick-free",
 		name: "Meta Llama 4 Maverick (Free)",
 		family: "meta",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -189,17 +173,15 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "nemotron-nano-9b-v2",
 		name: "Nemotron Nano 9B V2 (Free)",
 		family: "nvidia",
 		free: true,
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "routeway",
@@ -213,8 +195,8 @@ export const routewayModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

@@ -363,6 +363,11 @@ async function createBrevoContact(
 			}
 		}
 
+		logger.debug("Attempting to create/update Brevo contact", {
+			email,
+			attributes: contactAttributes,
+		});
+
 		const response = await fetch("https://api.brevo.com/v3/contacts", {
 			method: "POST",
 			headers: {
@@ -382,16 +387,18 @@ async function createBrevoContact(
 		});
 
 		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(`Brevo API error: ${response.status} - ${error}`);
+			const errorText = await response.text();
+			throw new Error(`Brevo API error: ${response.status} - ${errorText}`);
 		}
 
 		logger.info("Successfully created/updated Brevo contact", { email });
 	} catch (error) {
-		logger.error(
-			"Failed to create Brevo contact",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Failed to create Brevo contact", {
+			...(error instanceof Error ? { err: error } : { error }),
+			email,
+			name,
+			attributes,
+		});
 	}
 }
 
@@ -407,6 +414,11 @@ export async function updateBrevoContactAttributes(
 	}
 
 	try {
+		logger.debug("Attempting to update Brevo contact attributes", {
+			email,
+			attributes,
+		});
+
 		const response = await fetch(
 			`https://api.brevo.com/v3/contacts/${encodeURIComponent(email)}`,
 			{
@@ -422,8 +434,19 @@ export async function updateBrevoContactAttributes(
 		);
 
 		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(`Brevo API error: ${response.status} - ${error}`);
+			const errorText = await response.text();
+
+			if (response.status === 404) {
+				logger.warn("Brevo contact not found, skipping attribute update", {
+					email,
+					attributes,
+					status: response.status,
+					error: errorText,
+				});
+				return;
+			}
+
+			throw new Error(`Brevo API error: ${response.status} - ${errorText}`);
 		}
 
 		logger.info("Successfully updated Brevo contact attributes", {
@@ -431,10 +454,11 @@ export async function updateBrevoContactAttributes(
 			attributes,
 		});
 	} catch (error) {
-		logger.error(
-			"Failed to update Brevo contact attributes",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Failed to update Brevo contact attributes", {
+			...(error instanceof Error ? { err: error } : { error }),
+			email,
+			attributes,
+		});
 	}
 }
 
@@ -497,8 +521,24 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						email: string;
 						name?: string | null;
 					}) => {
-						// Add verified email to Brevo CRM
-						await createBrevoContact(user.email, user.name || undefined);
+						// Fetch the user's onboarding status to include in Brevo
+						const dbUser = await db.query.user.findFirst({
+							where: {
+								id: {
+									eq: user.id,
+								},
+							},
+							columns: {
+								onboardingCompleted: true,
+							},
+						});
+
+						// Add verified email to Brevo CRM with onboarding status
+						await createBrevoContact(user.email, user.name || undefined, {
+							...(dbUser?.onboardingCompleted && {
+								ONBOARDING_COMPLETED: true,
+							}),
+						});
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;

@@ -115,23 +115,29 @@ modelsApi.openapi(listModels, async (c) => {
 		const excludeDeprecated = query.exclude_deprecated || false;
 		const currentDate = new Date();
 
-		// Filter models based on deactivation and deprecation status
+		// Filter models based on deactivation and deprecation status of their provider mappings
 		const filteredModels = modelsList.filter((model: ModelDefinition) => {
-			// Filter out deactivated models by default (unless explicitly included)
-			if (
-				!includeDeactivated &&
-				model.deactivatedAt &&
-				currentDate > model.deactivatedAt
-			) {
+			// Check if all provider mappings are deactivated
+			const allDeactivated = model.providers.every(
+				(provider) =>
+					(provider as ProviderModelMapping).deactivatedAt &&
+					currentDate > (provider as ProviderModelMapping).deactivatedAt!,
+			);
+
+			// Filter out models where all providers are deactivated (unless explicitly included)
+			if (!includeDeactivated && allDeactivated) {
 				return false;
 			}
 
-			// Filter out deprecated models if requested
-			if (
-				excludeDeprecated &&
-				model.deprecatedAt &&
-				currentDate > model.deprecatedAt
-			) {
+			// Check if all provider mappings are deprecated
+			const allDeprecated = model.providers.every(
+				(provider) =>
+					(provider as ProviderModelMapping).deprecatedAt &&
+					currentDate > (provider as ProviderModelMapping).deprecatedAt!,
+			);
+
+			// Filter out models where all providers are deprecated if requested
+			if (excludeDeprecated && allDeprecated) {
 				return false;
 			}
 
@@ -225,10 +231,23 @@ modelsApi.openapi(listModels, async (c) => {
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
 				// Add model-level capabilities
-				json_output: model.jsonOutput || false,
+				json_output:
+					model.providers.some(
+						(p) => (p as ProviderModelMapping).jsonOutput === true,
+					) || false,
 				free: model.free || false,
-				deprecated_at: model.deprecatedAt?.toISOString(),
-				deactivated_at: model.deactivatedAt?.toISOString(),
+				// Calculate earliest deprecatedAt from all provider mappings
+				deprecated_at: model.providers
+					.map((p) => (p as ProviderModelMapping).deprecatedAt)
+					.filter((d): d is Date => d !== undefined)
+					.sort((a, b) => a.getTime() - b.getTime())[0]
+					?.toISOString(),
+				// Calculate earliest deactivatedAt from all provider mappings
+				deactivated_at: model.providers
+					.map((p) => (p as ProviderModelMapping).deactivatedAt)
+					.filter((d): d is Date => d !== undefined)
+					.sort((a, b) => a.getTime() - b.getTime())[0]
+					?.toISOString(),
 				stability: model.stability,
 			};
 		});

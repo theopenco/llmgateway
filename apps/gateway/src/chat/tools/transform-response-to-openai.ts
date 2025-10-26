@@ -25,7 +25,8 @@ export function transformResponseToOpenai(
 	let transformedResponse = json;
 
 	switch (usedProvider) {
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",

@@ -18,6 +18,7 @@ export function extractTokenUsage(
 
 	switch (provider) {
 		case "google-ai-studio":
+		case "google-vertex":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount ?? null;
 				completionTokens = data.usageMetadata.candidatesTokenCount ?? null;

@@ -7,6 +7,7 @@ import { PostHogProvider } from "posthog-js/react";
 import { useMemo, useEffect } from "react";
 
 import { Toaster } from "@/lib/components/toaster";
+import { toast } from "@/lib/components/use-toast";
 import { AppConfigProvider } from "@/lib/config";
 
 import type { AppConfig } from "@/lib/config-server";
@@ -18,6 +19,25 @@ interface ProvidersProps {
 	config: AppConfig;
 }
 
+function extractErrorMessage(error: unknown): string {
+	if (typeof error === "object" && error !== null) {
+		const err = error as Record<string, unknown>;
+		if (err.error && typeof err.error === "object") {
+			const nestedError = err.error as Record<string, unknown>;
+			if (typeof nestedError.message === "string") {
+				return nestedError.message;
+			}
+		}
+		if (typeof err.message === "string") {
+			return err.message;
+		}
+	}
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return "An unknown error occurred.";
+}
+
 export function Providers({ children, config }: ProvidersProps) {
 	const queryClient = useMemo(
 		() =>
@@ -27,6 +47,12 @@ export function Providers({ children, config }: ProvidersProps) {
 						refetchOnWindowFocus: false,
 						staleTime: 5 * 60 * 1000, // 5 minutes
 						retry: false,
+					},
+					mutations: {
+						onError: (error) => {
+							const errorMessage = extractErrorMessage(error);
+							toast({ title: errorMessage, variant: "destructive" });
+						},
 					},
 				},
 			}),

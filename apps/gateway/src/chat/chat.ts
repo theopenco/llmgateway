@@ -530,9 +530,9 @@ chat.openapi(completions, async (c) => {
 					maxOutput: 4096,
 					streaming: true,
 					vision: false,
+					jsonOutput: true,
 				},
 			],
-			jsonOutput: true,
 		};
 	} else {
 		modelInfo =
@@ -548,18 +548,46 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Check if model is deactivated
-	if (modelInfo.deactivatedAt && new Date() > modelInfo.deactivatedAt) {
+	// Filter out deactivated provider mappings
+	const now = new Date();
+	const activeProviders = modelInfo.providers.filter(
+		(provider) =>
+			!(
+				(provider as ProviderModelMapping).deactivatedAt &&
+				now > (provider as ProviderModelMapping).deactivatedAt!
+			),
+	);
+
+	// Check if all providers are deactivated
+	if (activeProviders.length === 0) {
 		throw new HTTPException(410, {
 			message: `Model ${requestedModel} has been deactivated and is no longer available`,
 		});
 	}
 
+	// Update modelInfo to only include active providers
+	modelInfo = {
+		...modelInfo,
+		providers: activeProviders,
+	};
+
 	if (
 		response_format?.type === "json_object" ||
 		response_format?.type === "json_schema"
 	) {
-		if (!(modelInfo as ModelDefinition).jsonOutput) {
+		// Filter providers by requestedProvider if specified
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		// Check if the provider(s) support JSON output
+		const supportsJsonOutput = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
+		);
+
+		if (!supportsJsonOutput) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support JSON output mode`,
 			});
@@ -569,7 +597,7 @@ chat.openapi(completions, async (c) => {
 		if (response_format?.type === "json_schema") {
 			// For non-auto/custom models, check if the provider supports json_schema
 			if (requestedModel !== "auto" && requestedModel !== "custom") {
-				const supportsJsonSchema = modelInfo.providers.some(
+				const supportsJsonSchema = providersToCheck.some(
 					(provider) =>
 						(provider as ProviderModelMapping).jsonOutputSchema === true,
 				);
@@ -856,18 +884,21 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
-			// Skip deprecated models
-			if (modelDef.deprecatedAt && new Date() > modelDef.deprecatedAt) {
-				continue;
-			}
-
 			// Check if any of the model's providers are available
 			const availableModelProviders = modelDef.providers.filter((provider) =>
 				availableProviders.includes(provider.providerId),
 			);
 
-			// Filter by context size requirement and reasoning capability if needed
+			// Filter by context size requirement, reasoning capability, and deprecation status
 			const suitableProviders = availableModelProviders.filter((provider) => {
+				// Skip deprecated provider mappings
+				if (
+					(provider as ProviderModelMapping).deprecatedAt &&
+					new Date() > (provider as ProviderModelMapping).deprecatedAt!
+				) {
+					return false;
+				}
+
 				// Use the provider's context size, defaulting to a reasonable value if not specified
 				const modelContextSize = provider.contextSize ?? 8192;
 				const contextSizeMet = modelContextSize >= requiredContextSize;
@@ -1329,7 +1360,9 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			providerKey?.baseUrl || undefined,
 			usedModel,
-			usedProvider === "google-ai-studio" ? usedToken : undefined,
+			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
+				? usedToken
+				: undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
@@ -1976,6 +2009,7 @@ chat.openapi(completions, async (c) => {
 			let reasoningTokens = null;
 			let cachedTokens = null;
 			let streamingToolCalls = null;
+			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
@@ -2245,6 +2279,7 @@ chat.openapi(completions, async (c) => {
 								data: "[DONE]",
 								id: String(eventId++),
 							});
+							doneSent = true;
 
 							processedLength = eventEnd;
 						} else {
@@ -2328,7 +2363,10 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// For Google providers, add usage information when available
-							if (usedProvider === "google-ai-studio") {
+							if (
+								usedProvider === "google-ai-studio" ||
+								usedProvider === "google-vertex"
+							) {
 								const usage = extractTokenUsage(
 									data,
 									usedProvider,
@@ -2411,6 +2449,7 @@ chat.openapi(completions, async (c) => {
 							// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 							const contentChunk = extractContent(
 								usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex" ||
 									usedProvider === "anthropic"
 									? data
 									: transformedData,
@@ -2431,6 +2470,7 @@ chat.openapi(completions, async (c) => {
 							// use raw data. For others, use transformed OpenAI format.
 							const reasoningContentChunk = extractReasoning(
 								usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex" ||
 									usedProvider === "anthropic"
 									? data
 									: transformedData,
@@ -2489,6 +2529,7 @@ chat.openapi(completions, async (c) => {
 							// Handle provider-specific finish reason extraction
 							switch (usedProvider) {
 								case "google-ai-studio":
+								case "google-vertex":
 									if (data.candidates?.[0]?.finishReason) {
 										const googleFinishReason = data.candidates[0].finishReason;
 										// Check if there are function calls in this response
@@ -2607,6 +2648,7 @@ chat.openapi(completions, async (c) => {
 							data: "[DONE]",
 							id: String(eventId++),
 						});
+						doneSent = true;
 					} catch (sseError) {
 						logger.error(
 							"Failed to send error SSE",
@@ -2725,6 +2767,7 @@ chat.openapi(completions, async (c) => {
 							data: "[DONE]",
 							id: String(eventId++),
 						});
+						doneSent = true;
 					} catch (sseError) {
 						logger.error(
 							"Failed to send upstream error SSE",
@@ -2794,8 +2837,17 @@ chat.openapi(completions, async (c) => {
 								data: JSON.stringify(finalUsageChunk),
 								id: String(eventId++),
 							});
+						} catch (error) {
+							logger.error(
+								"Error sending final usage chunk",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+						}
+					}
 
-							// Send final [DONE] if we haven't already
+					// Always send [DONE] at the end of streaming if not already sent
+					if (!doneSent) {
+						try {
 							await writeSSEAndCache({
 								event: "done",
 								data: "[DONE]",
@@ -2803,7 +2855,7 @@ chat.openapi(completions, async (c) => {
 							});
 						} catch (error) {
 							logger.error(
-								"Error sending final usage chunk",
+								"Error sending [DONE] event",
 								error instanceof Error ? error : new Error(String(error)),
 							);
 						}
@@ -2821,6 +2873,7 @@ chat.openapi(completions, async (c) => {
 						completion: fullContent,
 						toolResults: streamingToolCalls || undefined,
 					},
+					reasoningTokens,
 				);
 
 				const baseLogEntry = createLogEntry(
@@ -3221,6 +3274,7 @@ chat.openapi(completions, async (c) => {
 			completion: content,
 			toolResults: toolResults,
 		},
+		reasoningTokens,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers

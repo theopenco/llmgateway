@@ -61,6 +61,7 @@ const schema = z.object({
 	used_model: z.string(),
 	used_provider: z.string(),
 	response_size: z.number(),
+	hasError: z.boolean().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -334,6 +335,7 @@ export async function batchProcessLogs(): Promise<void> {
 					used_model: log.usedModel,
 					used_provider: log.usedProvider,
 					response_size: log.responseSize,
+					hasError: log.hasError,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -362,11 +364,13 @@ export async function batchProcessLogs(): Promise<void> {
 				// Log each processed log with JSON format
 				logger.info("Processing log", {
 					kind: "log-process",
+					status: row.hasError ? "error" : row.cached ? "cached" : "success",
 					logId: row.id,
 					requestId: row.request_id,
 					organizationId: row.organization_id,
 					projectId: row.project_id,
 					cost: row.cost,
+					error: !!row.hasError,
 					cached: row.cached,
 					apiKeyId: row.api_key_id,
 					projectMode: row.project_mode,

@@ -5,8 +5,6 @@ export const openaiModels = [
 		id: "gpt-4o-mini",
 		name: "GPT-4o Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -21,6 +19,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "azure",
@@ -33,16 +32,14 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4",
 		name: "GPT-4",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -51,7 +48,7 @@ export const openaiModels = [
 				inputPrice: 30.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
 				requestPrice: 0,
-				contextSize: 128000,
+				contextSize: 8192,
 				maxOutput: 8192,
 				streaming: true,
 				vision: false,
@@ -66,6 +63,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: false,
 			},
 			{
 				test: "skip",
@@ -78,16 +76,14 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "gpt-4o",
 		name: "GPT-4o",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -103,6 +99,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -117,16 +114,14 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-3.5-turbo",
 		name: "GPT-3.5 Turbo",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -140,6 +135,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: false,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -152,16 +148,14 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4-turbo",
 		name: "GPT-4 Turbo",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -176,6 +170,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -188,16 +183,14 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4.1",
 		name: "GPT-4.1",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -212,6 +205,7 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -227,16 +221,14 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o1",
 		name: "o1",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -252,6 +244,7 @@ export const openaiModels = [
 				reasoning: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -267,16 +260,14 @@ export const openaiModels = [
 				reasoning: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o1-mini",
 		name: "o1 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -291,6 +282,7 @@ export const openaiModels = [
 				tools: false,
 				reasoning: false,
 				supportsResponsesApi: false,
+				jsonOutput: false,
 			},
 			{
 				test: "skip",
@@ -306,17 +298,15 @@ export const openaiModels = [
 				tools: false,
 				reasoning: false,
 				supportsResponsesApi: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 		supportsSystemRole: false,
 	},
 	{
 		id: "gpt-4.1-mini",
 		name: "GPT-4.1 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -331,6 +321,7 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -346,16 +337,14 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-4.1-nano",
 		name: "GPT-4.1 Nano",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -370,6 +359,7 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -385,16 +375,14 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o3",
 		name: "o3",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -408,6 +396,7 @@ export const openaiModels = [
 				vision: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -422,16 +411,14 @@ export const openaiModels = [
 				vision: true,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "o3-mini",
 		name: "o3 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -445,6 +432,7 @@ export const openaiModels = [
 				vision: false,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -459,16 +447,14 @@ export const openaiModels = [
 				vision: false,
 				tools: false,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-oss-120b",
 		name: "GPT OSS 120B",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",
@@ -482,6 +468,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -497,16 +484,14 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				stability: "experimental",
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-oss-20b",
 		name: "GPT OSS 20B",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "groq",
@@ -520,6 +505,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -535,16 +521,14 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				stability: "experimental",
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5",
 		name: "GPT-5",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -569,6 +553,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -596,6 +581,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -621,16 +607,14 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5-mini",
 		name: "GPT-5 Mini",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -655,6 +639,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -681,6 +666,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -706,16 +692,14 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5-nano",
 		name: "GPT-5 Nano",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -740,6 +724,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -766,6 +751,7 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
@@ -791,16 +777,14 @@ export const openaiModels = [
 					"tools",
 					"tool_choice",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "gpt-5-chat-latest",
 		name: "GPT-5 Chat Latest",
 		family: "openai",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "openai",
@@ -822,8 +806,8 @@ export const openaiModels = [
 					"presence_penalty",
 					"response_format",
 				],
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

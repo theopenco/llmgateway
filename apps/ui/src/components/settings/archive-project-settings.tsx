@@ -50,19 +50,6 @@ export function ArchiveProjectSettings({
 			// Redirect to organization dashboard
 			router.push(`/dashboard/${orgId}`);
 		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "Failed to archive the project. Please try again.");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		},
 	});
 
 	const handleArchiveProject = async () => {
@@ -71,7 +58,7 @@ export function ArchiveProjectSettings({
 				params: { path: { id: projectId } },
 			});
 		} catch {
-			// Error is handled in onError callback
+			// Error is handled by global error handler
 		}
 	};
 

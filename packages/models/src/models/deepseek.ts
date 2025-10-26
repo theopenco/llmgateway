@@ -5,8 +5,6 @@ export const deepseekModels = [
 		id: "deepseek-v3",
 		name: "DeepSeek V3",
 		family: "deepseek",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -19,6 +17,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 			{
 				providerId: "nebius",
@@ -31,16 +30,15 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
+				deactivatedAt: new Date("2025-11-03"),
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "deepseek-r1",
 		name: "DeepSeek R1",
 		family: "deepseek",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "deepseek",
@@ -53,6 +51,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 			{
 				providerId: "routeway-discount",
@@ -67,16 +66,14 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "deepseek-r1-0528",
 		name: "DeepSeek R1 (0528)",
 		family: "deepseek",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -90,6 +87,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: false,
 				stability: "unstable" as const,
+				jsonOutput: false,
 			},
 			{
 				providerId: "deepseek",
@@ -102,6 +100,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 			{
 				providerId: "nebius",
@@ -115,16 +114,14 @@ export const deepseekModels = [
 				vision: false,
 				tools: false,
 				stability: "unstable" as const,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "deepseek-r1-distill-llama-70b",
 		name: "DeepSeek R1 Distill Llama 70B",
 		family: "deepseek",
-		deprecatedAt: undefined,
-		deactivatedAt: new Date("2025-10-09"),
 		stability: "beta" as const,
 		providers: [
 			{
@@ -138,16 +135,15 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
+				deactivatedAt: new Date("2025-10-09"),
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "deepseek-v3.1",
 		name: "DeepSeek V3.1",
 		family: "deepseek",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "deepseek",
@@ -161,6 +157,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "routeway-discount",
@@ -176,6 +173,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "canopywave",
@@ -190,8 +188,8 @@ export const deepseekModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

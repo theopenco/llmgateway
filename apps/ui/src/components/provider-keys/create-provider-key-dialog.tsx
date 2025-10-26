@@ -249,18 +249,6 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
-				onError: (error: any) => {
-					setIsValidating(false);
-					const errorMessage =
-						error?.error?.message ||
-						error?.message ||
-						(error instanceof Error ? error.message : "Failed to create key");
-					toast({
-						title: "Error",
-						description: errorMessage,
-						variant: "destructive",
-					});
-				},
 			},
 		);
 	};

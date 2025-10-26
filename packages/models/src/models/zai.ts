@@ -5,8 +5,6 @@ export const zaiModels = [
 		id: "glm-4.5",
 		name: "GLM-4.5",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -20,16 +18,14 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5v",
 		name: "GLM-4.5V",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -44,16 +40,14 @@ export const zaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-air",
 		name: "GLM-4.5 Air",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -67,16 +61,14 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-x",
 		name: "GLM-4.5 X",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -91,16 +83,14 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				stability: "unstable", // unstable due to high limits
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-airx",
 		name: "GLM-4.5 AirX",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -114,16 +104,14 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.5-flash",
 		name: "GLM-4.5 Flash",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -137,16 +125,14 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4.6",
 		name: "GLM-4.6",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -160,16 +146,14 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "glm-4-32b-0414-128k",
 		name: "GLM-4 32B (0414-128k)",
 		family: "glm",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "zai",
@@ -183,8 +167,8 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 ] as const satisfies ModelDefinition[];

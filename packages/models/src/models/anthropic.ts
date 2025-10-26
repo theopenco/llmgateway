@@ -5,8 +5,6 @@ export const anthropicModels = [
 		id: "claude-3-7-sonnet",
 		name: "Claude 3.7 Sonnet",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -45,8 +43,6 @@ export const anthropicModels = [
 		id: "claude-3-5-haiku-20241022",
 		name: "Claude 3.5 Haiku (2024-10-22)",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "anthropic",
@@ -82,8 +78,6 @@ export const anthropicModels = [
 		id: "claude-3-7-sonnet-20250219",
 		name: "Claude 3.7 Sonnet (2025-02-19)",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -124,8 +118,6 @@ export const anthropicModels = [
 		id: "claude-3-5-sonnet-20241022",
 		name: "Claude 3.5 Sonnet (2024-10-22)",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: new Date("2025-10-22T00:00:00Z"),
 		providers: [
 			{
 				test: "skip",
@@ -140,6 +132,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				deactivatedAt: new Date("2025-10-22T00:00:00Z"),
 			},
 			{
 				test: "skip",
@@ -153,6 +146,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				deactivatedAt: new Date("2025-10-22T00:00:00Z"),
 			},
 		],
 	},
@@ -160,8 +154,6 @@ export const anthropicModels = [
 		id: "claude-2.1",
 		name: "Claude 2.1",
 		family: "anthropic",
-		deprecatedAt: new Date("2025-06-15T00:00:00Z"),
-		deactivatedAt: new Date("2025-07-21T16:00:00Z"),
 		providers: [
 			{
 				providerId: "anthropic",
@@ -174,6 +166,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				deprecatedAt: new Date("2025-06-15T00:00:00Z"),
+				deactivatedAt: new Date("2025-07-21T16:00:00Z"),
 			},
 		],
 	},
@@ -181,8 +175,6 @@ export const anthropicModels = [
 		id: "claude-sonnet-4-20250514",
 		name: "Claude Sonnet 4 (2025-05-14)",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -238,8 +230,6 @@ export const anthropicModels = [
 		id: "claude-sonnet-4-5",
 		name: "Claude Sonnet 4.5",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -294,8 +284,6 @@ export const anthropicModels = [
 		id: "claude-haiku-4-5",
 		name: "Claude Haiku 4.5",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "anthropic",
@@ -316,8 +304,6 @@ export const anthropicModels = [
 		id: "claude-opus-4-20250514",
 		name: "Claude Opus 4 (2025-05-14)",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -373,8 +359,6 @@ export const anthropicModels = [
 		id: "claude-opus-4-1-20250805",
 		name: "Claude Opus 4.1",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -430,8 +414,6 @@ export const anthropicModels = [
 		id: "claude-3-5-sonnet-20240620",
 		name: "Claude 3.5 Sonnet (Old)",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -453,8 +435,6 @@ export const anthropicModels = [
 		id: "claude-3-5-sonnet",
 		name: "Claude 3.5 Sonnet",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -476,8 +456,6 @@ export const anthropicModels = [
 		id: "claude-3-5-haiku",
 		name: "Claude 3.5 Haiku",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "anthropic",
@@ -511,8 +489,6 @@ export const anthropicModels = [
 		id: "claude-3-opus",
 		name: "Claude 3 Opus",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				test: "skip",
@@ -534,8 +510,6 @@ export const anthropicModels = [
 		id: "claude-3-haiku",
 		name: "Claude 3 Haiku",
 		family: "anthropic",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "anthropic",

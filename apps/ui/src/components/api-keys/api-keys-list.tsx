@@ -221,15 +221,6 @@ export function ApiKeysList({
 
 					toast({ title: "API key deleted successfully." });
 				},
-				onError: (error: any) => {
-					const errorMessage =
-						error?.error?.message ||
-						error?.message ||
-						(error instanceof Error
-							? error.message
-							: "Failed to delete API key.");
-					toast({ title: errorMessage, variant: "destructive" });
-				},
 			},
 		);
 	};
@@ -264,15 +255,6 @@ export function ApiKeysList({
 						description: "The API key status has been updated.",
 					});
 				},
-				onError: (error: any) => {
-					const errorMessage =
-						error?.error?.message ||
-						error?.message ||
-						(error instanceof Error
-							? error.message
-							: "Failed to update API key.");
-					toast({ title: errorMessage, variant: "destructive" });
-				},
 			},
 		);
 	};
@@ -301,15 +283,6 @@ export function ApiKeysList({
 						title: "API Key Usage Limit Updated",
 						description: "The API key usage limit has been updated.",
 					});
-				},
-				onError: (error: any) => {
-					const errorMessage =
-						error?.error?.message ||
-						error?.message ||
-						(error instanceof Error
-							? error.message
-							: "Failed to update API key.");
-					toast({ title: errorMessage, variant: "destructive" });
 				},
 			},
 		);

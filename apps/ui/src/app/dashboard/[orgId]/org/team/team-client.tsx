@@ -79,66 +79,42 @@ export function TeamClient() {
 			return;
 		}
 
-		try {
-			await addMemberMutation.mutateAsync({
-				params: {
-					path: {
-						organizationId,
-					},
+		await addMemberMutation.mutateAsync({
+			params: {
+				path: {
+					organizationId,
 				},
-				body: { email, role },
-			});
-			toast({
-				title: "Success",
-				description: "Team member added successfully",
-			});
-			setEmail("");
-			setRole("developer");
-			setIsAddDialogOpen(false);
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error ? error.message : "Failed to add member");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		}
+			},
+			body: { email, role },
+		});
+		toast({
+			title: "Success",
+			description: "Team member added successfully",
+		});
+		setEmail("");
+		setRole("developer");
+		setIsAddDialogOpen(false);
 	};
 
 	const handleUpdateRole = async (
 		memberId: string,
 		newRole: "owner" | "admin" | "developer",
 	) => {
-		try {
-			await updateMemberMutation.mutateAsync({
-				params: {
-					path: {
-						organizationId,
-						memberId,
-					},
+		await updateMemberMutation.mutateAsync({
+			params: {
+				path: {
+					organizationId,
+					memberId,
 				},
-				body: {
-					role: newRole,
-				},
-			});
-			toast({
-				title: "Success",
-				description: "Role updated successfully",
-			});
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error ? error.message : "Failed to update role");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		}
+			},
+			body: {
+				role: newRole,
+			},
+		});
+		toast({
+			title: "Success",
+			description: "Role updated successfully",
+		});
 	};
 
 	const handleRemoveMember = async (memberId: string, memberName: string) => {
@@ -150,30 +126,18 @@ export function TeamClient() {
 			return;
 		}
 
-		try {
-			await removeMemberMutation.mutateAsync({
-				params: {
-					path: {
-						organizationId,
-						memberId,
-					},
+		await removeMemberMutation.mutateAsync({
+			params: {
+				path: {
+					organizationId,
+					memberId,
 				},
-			});
-			toast({
-				title: "Success",
-				description: "Team member removed successfully",
-			});
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error ? error.message : "Failed to remove member");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		}
+			},
+		});
+		toast({
+			title: "Success",
+			description: "Team member removed successfully",
+		});
 	};
 
 	return (

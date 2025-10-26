@@ -86,6 +86,10 @@ export interface ProviderModelMapping {
 	 */
 	parallelToolCalls?: boolean;
 	/**
+	 * Whether this specific model supports JSON output mode for this provider
+	 */
+	jsonOutput?: boolean;
+	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
 	jsonOutputSchema?: boolean;
@@ -105,6 +109,14 @@ export interface ProviderModelMapping {
 	 * - experimental: Early stage, use with caution
 	 */
 	stability?: StabilityLevel;
+	/**
+	 * Date when the model mapping will be deprecated (still usable but filtered from selection algorithms)
+	 */
+	deprecatedAt?: Date;
+	/**
+	 * Date when the model mapping will be deactivated (returns error when requested)
+	 */
+	deactivatedAt?: Date;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
@@ -131,21 +143,9 @@ export interface ModelDefinition {
 	 */
 	providers: ProviderModelMapping[];
 	/**
-	 * Whether the model supports JSON output mode
-	 */
-	jsonOutput?: boolean;
-	/**
 	 * Whether this model is free to use
 	 */
 	free?: boolean;
-	/**
-	 * Date when the model will be deprecated (still usable but filtered from selection algorithms)
-	 */
-	deprecatedAt?: Date;
-	/**
-	 * Date when the model will be deactivated (returns error when requested)
-	 */
-	deactivatedAt?: Date;
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */

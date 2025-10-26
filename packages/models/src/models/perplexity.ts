@@ -5,8 +5,6 @@ export const perplexityModels = [
 		id: "sonar-reasoning-pro",
 		name: "Sonar Reasoning Pro",
 		family: "perplexity",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "perplexity",
@@ -21,16 +19,14 @@ export const perplexityModels = [
 				vision: false,
 				tools: false,
 				test: "skip",
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "sonar-pro",
 		name: "Sonar Pro",
 		family: "perplexity",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "perplexity",
@@ -45,16 +41,14 @@ export const perplexityModels = [
 				vision: false,
 				tools: false,
 				test: "skip",
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "sonar",
 		name: "Sonar",
 		family: "perplexity",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "perplexity",
@@ -69,8 +63,8 @@ export const perplexityModels = [
 				vision: false,
 				tools: false,
 				test: "skip",
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];

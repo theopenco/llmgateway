@@ -1,12 +1,27 @@
 "use client";
 
-import { Copy, Check, AlertTriangle } from "lucide-react";
+import {
+	Copy,
+	Check,
+	AlertTriangle,
+	Zap,
+	Eye,
+	Wrench,
+	MessageSquare,
+	Braces,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 import { getProviderIcon } from "@/lib/components/providers-icons";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import { formatContextSize } from "@/lib/utils";
 
 import type {
@@ -128,7 +143,7 @@ export function ProviderCard({
 					</div>
 				</div>
 
-				<div className="grid grid-cols-3 gap-4 text-sm">
+				<div className="grid grid-cols-3 gap-4 text-sm mb-4">
 					<div>
 						<div className="text-muted-foreground mb-1">Context</div>
 						<div className="font-mono">
@@ -213,6 +228,79 @@ export function ProviderCard({
 							)}
 						</div>
 					</div>
+				</div>
+
+				<div className="border-t pt-4">
+					<div className="text-muted-foreground text-sm mb-2">Capabilities</div>
+					<TooltipProvider delayDuration={300}>
+						<div className="flex flex-wrap gap-2">
+							{provider.streaming && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs">
+											<Zap className="h-3.5 w-3.5" />
+											<span>Streaming</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports streaming responses</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.vision && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 text-xs">
+											<Eye className="h-3.5 w-3.5" />
+											<span>Vision</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports vision and image inputs</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.tools && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 text-xs">
+											<Wrench className="h-3.5 w-3.5" />
+											<span>Tools</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports function calling and tools</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.reasoning && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-300 text-xs">
+											<MessageSquare className="h-3.5 w-3.5" />
+											<span>Reasoning</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports extended reasoning</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.jsonOutput && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-50 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 text-xs">
+											<Braces className="h-3.5 w-3.5" />
+											<span>JSON Output</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+						</div>
+					</TooltipProvider>
 				</div>
 			</CardContent>
 		</Card>

@@ -521,7 +521,8 @@ export async function prepareRequestBody(
 
 			break;
 		}
-		case "google-ai-studio": {
+		case "google-ai-studio":
+		case "google-vertex": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
@@ -564,6 +565,15 @@ export async function prepareRequestBody(
 			}
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
+			}
+
+			// Handle JSON output mode for Google
+			if (response_format?.type === "json_object") {
+				requestBody.generationConfig.responseMimeType = "application/json";
+			} else if (response_format?.type === "json_schema") {
+				requestBody.generationConfig.responseMimeType = "application/json";
+				// Note: Google supports responseSchema but we'd need to convert from JSON Schema to Google's format
+				// For now, we just set the MIME type for basic JSON mode
 			}
 
 			// Enable thinking/reasoning content exposure for Google models that support reasoning

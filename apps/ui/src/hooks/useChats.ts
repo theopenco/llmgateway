@@ -55,15 +55,6 @@ export function useCreateChat() {
 			queryClient.invalidateQueries({ queryKey });
 			toast({ title: "Chat created successfully" });
 		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "An error occurred. Please try again.");
-			toast({ title: errorMessage, variant: "destructive" });
-		},
 	});
 }
 
@@ -76,15 +67,6 @@ export function useUpdateChat() {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			queryClient.invalidateQueries({ queryKey });
 			toast({ title: "Chat updated successfully" });
-		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "An error occurred. Please try again.");
-			toast({ title: errorMessage, variant: "destructive" });
 		},
 	});
 }
@@ -99,15 +81,6 @@ export function useDeleteChat() {
 			queryClient.invalidateQueries({ queryKey });
 			toast({ title: "Chat deleted successfully" });
 		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "An error occurred. Please try again.");
-			toast({ title: errorMessage, variant: "destructive" });
-		},
 	});
 }
 
@@ -119,15 +92,6 @@ export function useAddMessage() {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			queryClient.invalidateQueries({ queryKey });
-		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "An error occurred. Please try again.");
-			toast({ title: errorMessage, variant: "destructive" });
 		},
 	});
 }

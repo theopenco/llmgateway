@@ -27,8 +27,6 @@ export async function syncProvidersAndModels() {
 					description: providerDef.description,
 					streaming: providerDef.streaming,
 					cancellation: providerDef.cancellation,
-					jsonOutput:
-						"jsonOutput" in providerDef ? providerDef.jsonOutput || null : null,
 					color: providerDef.color,
 					website: providerDef.website,
 					announcement: providerDef.announcement,
@@ -41,10 +39,6 @@ export async function syncProvidersAndModels() {
 						description: providerDef.description,
 						streaming: providerDef.streaming,
 						cancellation: providerDef.cancellation,
-						jsonOutput:
-							"jsonOutput" in providerDef
-								? providerDef.jsonOutput || null
-								: null,
 						color: providerDef.color,
 						website: providerDef.website,
 						announcement: providerDef.announcement,
@@ -62,11 +56,7 @@ export async function syncProvidersAndModels() {
 					id: modelDef.id,
 					name: modelDef.name || null,
 					family: modelDef.family,
-					jsonOutput:
-						"jsonOutput" in modelDef ? modelDef.jsonOutput || null : null,
 					free: "free" in modelDef ? modelDef.free || null : null,
-					deprecatedAt: modelDef.deprecatedAt || null,
-					deactivatedAt: modelDef.deactivatedAt || null,
 					output: "output" in modelDef ? modelDef.output || null : null,
 					status: "active",
 				})
@@ -75,11 +65,7 @@ export async function syncProvidersAndModels() {
 					set: {
 						name: modelDef.name || null,
 						family: modelDef.family,
-						jsonOutput:
-							"jsonOutput" in modelDef ? modelDef.jsonOutput || null : null,
 						free: "free" in modelDef ? modelDef.free || null : null,
-						deprecatedAt: modelDef.deprecatedAt || null,
-						deactivatedAt: modelDef.deactivatedAt || null,
 						output: "output" in modelDef ? modelDef.output || null : null,
 						updatedAt: new Date(),
 					},
@@ -149,6 +135,14 @@ export async function syncProvidersAndModels() {
 										? (mapping.test as "skip" | "only" | null) || null
 										: null,
 								status: "active",
+								deprecatedAt:
+									"deprecatedAt" in mapping
+										? mapping.deprecatedAt || null
+										: null,
+								deactivatedAt:
+									"deactivatedAt" in mapping
+										? mapping.deactivatedAt || null
+										: null,
 								updatedAt: new Date(),
 							})
 							.where(eq(modelProviderMapping.id, existingMapping.id));
@@ -195,6 +189,12 @@ export async function syncProvidersAndModels() {
 							supportedParameters:
 								"supportedParameters" in mapping
 									? (mapping.supportedParameters as string[] | null) || null
+									: null,
+							deprecatedAt:
+								"deprecatedAt" in mapping ? mapping.deprecatedAt || null : null,
+							deactivatedAt:
+								"deactivatedAt" in mapping
+									? mapping.deactivatedAt || null
 									: null,
 							test:
 								"test" in mapping

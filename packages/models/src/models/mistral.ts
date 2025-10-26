@@ -5,8 +5,6 @@ export const mistralModels = [
 		id: "mistral-large-latest",
 		name: "Mistral Large Latest",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "mistral",
@@ -19,16 +17,14 @@ export const mistralModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 	{
 		id: "mixtral-8x7b-instruct-together",
 		name: "Mixtral 8x7B Instruct",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "together.ai",
@@ -41,16 +37,14 @@ export const mistralModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "mistral-7b-instruct-together",
 		name: "Mistral 7B Instruct",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "together.ai",
@@ -63,16 +57,14 @@ export const mistralModels = [
 				streaming: true,
 				vision: false,
 				tools: false,
+				jsonOutput: true,
 			},
 		],
-		jsonOutput: true,
 	},
 	{
 		id: "pixtral-large-latest",
 		name: "Pixtral Large Latest",
 		family: "mistral",
-		deprecatedAt: undefined,
-		deactivatedAt: undefined,
 		providers: [
 			{
 				providerId: "mistral",
@@ -85,8 +77,8 @@ export const mistralModels = [
 				streaming: true,
 				vision: true,
 				tools: false,
+				jsonOutput: false,
 			},
 		],
-		jsonOutput: false,
 	},
 ] as const satisfies ModelDefinition[];
