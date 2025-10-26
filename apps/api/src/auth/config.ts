@@ -4,7 +4,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
-import nodemailer from "nodemailer";
+
+import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -15,13 +16,6 @@ const uiUrl = process.env.UI_URL || "http://localhost:3002";
 const originUrls =
 	process.env.ORIGIN_URLS ||
 	"http://localhost:3002,http://localhost:3003,http://localhost:4002";
-const smtpHost = process.env.SMTP_HOST;
-const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASS;
-const smtpFromEmail =
-	process.env.SMTP_FROM_EMAIL || "contact@email.llmgateway.io";
-const replyToEmail = process.env.SMTP_REPLY_TO_EMAIL || "contact@llmgateway.io";
 const isHosted = process.env.HOSTED === "true";
 
 export const redisClient = new Redis({
@@ -542,48 +536,57 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
-						if (!smtpHost || !smtpUser || !smtpPass) {
-							const isDev = process.env.NODE_ENV === "development";
-							const maskedUrl = isDev
-								? url
-								: url.replace(
-										/token=[^&]+/,
-										`token=${token.slice(0, 4)}...${token.slice(-4)}`,
-									);
 
-							logger.info("Email verification link generated", {
-								...(isDev ? { url } : { maskedUrl }),
-								userId: user.id,
-							});
-							logger.error(
-								"SMTP configuration is not set. Email verification will not work.",
-							);
-							return;
-						}
+						// Log verification link for development/debugging
+						const isDev = process.env.NODE_ENV === "development";
+						const maskedUrl = isDev
+							? url
+							: url.replace(
+									/token=[^&]+/,
+									`token=${token.slice(0, 4)}...${token.slice(-4)}`,
+								);
 
-						const transporter = nodemailer.createTransport({
-							host: smtpHost,
-							port: smtpPort,
-							secure: smtpPort === 465,
-							auth: {
-								user: smtpUser,
-								pass: smtpPass,
-							},
+						logger.info("Email verification link generated", {
+							...(isDev ? { url } : { maskedUrl }),
+							userId: user.id,
 						});
 
+						const html = `
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Verify your email address</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+	<div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+		<h1 style="color: #2563eb; margin-top: 0;">Welcome to LLMGateway!</h1>
+		<p style="font-size: 16px; margin-bottom: 20px;">
+			Please click the link below to verify your email address:
+		</p>
+		<div style="text-align: center; margin: 30px 0;">
+			<a href="${url}" style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 500;">Verify Email</a>
+		</div>
+		<p style="font-size: 14px; color: #666; margin-top: 30px;">
+			If you didn't create an account, you can safely ignore this email.
+		</p>
+		<p style="font-size: 14px; color: #666;">
+			Have feedback? Let us know by replying to this email – we might also have some free credits for you!
+		</p>
+	</div>
+	<div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
+		<p>LLMGateway - Your LLM API Gateway Platform</p>
+	</div>
+</body>
+</html>
+						`.trim();
+
 						try {
-							await transporter.sendMail({
-								from: smtpFromEmail,
-								replyTo: replyToEmail,
+							await sendTransactionalEmail({
 								to: user.email,
 								subject: "Verify your email address",
-								html: `
-						<h1>Welcome to LLMGateway!</h1>
-						<p>Please click the link below to verify your email address:</p>
-						<a href="${url}">Verify Email</a>
-						<p>If you didn't create an account, you can safely ignore this email.</p>
-						<p>Have feedback? Let us know by replying to this email – we might also have some free credits for you!</p>
-					`,
+								html,
 							});
 						} catch (error) {
 							logger.error(

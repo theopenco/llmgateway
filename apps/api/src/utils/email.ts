@@ -22,6 +22,18 @@ export async function sendTransactionalEmail({
 	subject,
 	html,
 }: TransactionalEmailOptions): Promise<void> {
+	// In non-production environments, just log the email content
+	if (process.env.NODE_ENV !== "production") {
+		logger.info("Email content (not sent in non-production)", {
+			to,
+			subject,
+			html,
+			from: smtpFromEmail,
+			replyTo: replyToEmail,
+		});
+		return;
+	}
+
 	if (!smtpHost || !smtpUser || !smtpPass) {
 		logger.error(
 			"SMTP configuration is not set. Transactional email will not be sent.",
