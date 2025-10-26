@@ -2,6 +2,21 @@ import nodemailer from "nodemailer";
 
 import { logger } from "@llmgateway/logger";
 
+/**
+ * Escapes HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(text: string): string {
+	const htmlEscapeMap: Record<string, string> = {
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"'": "&#x27;",
+		"/": "&#x2F;",
+	};
+	return text.replace(/[&<>"'/]/g, (char) => htmlEscapeMap[char] || char);
+}
+
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
 const smtpUser = process.env.SMTP_USER;
@@ -100,7 +115,7 @@ export function generateTrialStartedEmailHtml(
 			Hi there,
 		</p>
 		<p style="font-size: 16px; margin-bottom: 20px;">
-			Great news! Your 7-day Pro trial for <strong>${organizationName}</strong> has started. You now have access to all Pro features including:
+			Great news! Your 7-day Pro trial for <strong>${escapeHtml(organizationName)}</strong> has started. You now have access to all Pro features including:
 		</p>
 		<ul style="font-size: 16px; margin-bottom: 20px; padding-left: 20px;">
 			<li>Provider API key management</li>
@@ -144,7 +159,7 @@ export function generateSubscriptionCancelledEmailHtml(
 			Hi there,
 		</p>
 		<p style="font-size: 16px; margin-bottom: 20px;">
-			We're sorry to see you go. Your Pro subscription for <strong>${organizationName}</strong> has been cancelled and your organization has been downgraded to the free plan.
+			We're sorry to see you go. Your Pro subscription for <strong>${escapeHtml(organizationName)}</strong> has been cancelled and your organization has been downgraded to the free plan.
 		</p>
 		<p style="font-size: 16px; margin-bottom: 20px;">
 			You will no longer have access to Pro features including:

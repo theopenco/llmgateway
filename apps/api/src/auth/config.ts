@@ -537,20 +537,6 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
 
-						// Log verification link for development/debugging
-						const isDev = process.env.NODE_ENV === "development";
-						const maskedUrl = isDev
-							? url
-							: url.replace(
-									/token=[^&]+/,
-									`token=${token.slice(0, 4)}...${token.slice(-4)}`,
-								);
-
-						logger.info("Email verification link generated", {
-							...(isDev ? { url } : { maskedUrl }),
-							userId: user.id,
-						});
-
 						const html = `
 <!DOCTYPE html>
 <html>
