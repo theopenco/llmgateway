@@ -36,10 +36,6 @@ export function PaymentStatusHandler({
 				variant: "destructive",
 			});
 		}
-
-		// Clear the cookie after showing the toast
-		document.cookie =
-			"payment-status=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
 	}, [paymentStatus, toast]);
 
 	return null; // This component only handles side effects, no UI

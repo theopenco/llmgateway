@@ -1,6 +1,3 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
@@ -24,27 +21,10 @@ interface BillingPageProps {
 	}>;
 }
 
-export default async function BillingPage({
-	params,
-	searchParams,
-}: BillingPageProps) {
-	const { orgId } = await params;
+export default async function BillingPage({ searchParams }: BillingPageProps) {
 	const { success, canceled } = await searchParams;
 
-	if (success || canceled) {
-		const cookieStore = await cookies();
-		if (success) {
-			cookieStore.set("payment-status", "success", { maxAge: 10 }); // 10 seconds
-		} else if (canceled) {
-			cookieStore.set("payment-status", "canceled", { maxAge: 10 });
-		}
-
-		const basePath = `/dashboard/${orgId}/org/billing`;
-		redirect(basePath as any);
-	}
-
-	const cookieStore = await cookies();
-	const paymentStatus = cookieStore.get("payment-status")?.value;
+	const paymentStatus = success ? "success" : canceled ? "canceled" : undefined;
 
 	return (
 		<div className="flex flex-col">
