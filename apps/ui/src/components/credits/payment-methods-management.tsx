@@ -83,17 +83,6 @@ export function PaymentMethodsManagement() {
 						description: "Default payment method updated",
 					});
 				},
-				onError: (error: any) => {
-					const errorMessage =
-						error?.error?.message ||
-						error?.message ||
-						(error instanceof Error ? error.message : "An error occurred");
-					toast({
-						title: "Error",
-						description: errorMessage,
-						variant: "destructive",
-					});
-				},
 			},
 		);
 	};
@@ -118,17 +107,6 @@ export function PaymentMethodsManagement() {
 					toast({
 						title: "Success",
 						description: "Payment method deleted",
-					});
-				},
-				onError: (error: any) => {
-					const errorMessage =
-						error?.error?.message ||
-						error?.message ||
-						(error instanceof Error ? error.message : "An error occurred");
-					toast({
-						title: "Error",
-						description: errorMessage,
-						variant: "destructive",
 					});
 				},
 			},

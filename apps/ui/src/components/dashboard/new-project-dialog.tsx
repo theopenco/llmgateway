@@ -70,31 +70,6 @@ export function NewProjectDialog({
 				description: `${data.project.name} has been created.`,
 			});
 		},
-		onError: (error: any) => {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "An unexpected error occurred. Please try again.");
-
-			// Check if it's a max projects limit error
-			if (errorMessage.includes("maximum") || errorMessage.includes("limit")) {
-				toast({
-					title: "Project limit reached",
-					description:
-						"You've reached the maximum number of projects for your plan. Please contact us to upgrade to Enterprise.",
-					variant: "destructive",
-				});
-			} else {
-				// Generic error toast
-				toast({
-					title: "Failed to create project",
-					description: errorMessage,
-					variant: "destructive",
-				});
-			}
-		},
 	});
 
 	const handleSubmit = async (e: React.FormEvent) => {
@@ -121,8 +96,7 @@ export function NewProjectDialog({
 				setIsOpen(false);
 			}
 		} catch (error) {
-			// Error is already handled by the mutation's onError callback
-			// But we can add additional logging if needed
+			// Error is handled by global error handler
 			console.error("Failed to create project:", error);
 		}
 	};

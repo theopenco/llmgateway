@@ -115,18 +115,6 @@ export function ApiKeyStep() {
 				title: "API key created",
 				description: "Your API key has been created successfully.",
 			});
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "Failed to create API key. Please try again.");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
 		} finally {
 			setIsLoading(false);
 		}

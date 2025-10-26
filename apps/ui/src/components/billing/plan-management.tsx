@@ -52,29 +52,15 @@ export function PlanManagement() {
 			return;
 		}
 
-		try {
-			await cancelSubscriptionMutation.mutateAsync({});
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
-			});
-			toast({
-				title: "Subscription Canceled",
-				description:
-					"Your Pro subscription has been canceled. You'll retain access until the end of your billing period.",
-			});
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "Failed to cancel subscription. Please try again.");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		}
+		await cancelSubscriptionMutation.mutateAsync({});
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+		});
+		toast({
+			title: "Subscription Canceled",
+			description:
+				"Your Pro subscription has been canceled. You'll retain access until the end of your billing period.",
+		});
 	};
 
 	const handleResumeSubscription = async () => {
@@ -86,29 +72,15 @@ export function PlanManagement() {
 			return;
 		}
 
-		try {
-			await resumeSubscriptionMutation.mutateAsync({});
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
-			});
-			toast({
-				title: "Subscription Resumed",
-				description:
-					"Your Pro subscription has been resumed. You'll continue to have access to all Pro features.",
-			});
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "Failed to resume subscription. Please try again.");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		}
+		await resumeSubscriptionMutation.mutateAsync({});
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+		});
+		toast({
+			title: "Subscription Resumed",
+			description:
+				"Your Pro subscription has been resumed. You'll continue to have access to all Pro features.",
+		});
 	};
 
 	const handleUpgradeToYearly = async () => {
@@ -120,29 +92,15 @@ export function PlanManagement() {
 			return;
 		}
 
-		try {
-			await upgradeToYearlyMutation.mutateAsync({});
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
-			});
-			toast({
-				title: "Upgraded to Yearly",
-				description:
-					"Your subscription has been upgraded to yearly billing. You'll save money on future billing cycles!",
-			});
-		} catch (error: any) {
-			const errorMessage =
-				error?.error?.message ||
-				error?.message ||
-				(error instanceof Error
-					? error.message
-					: "Failed to upgrade to yearly plan. Please try again.");
-			toast({
-				title: "Error",
-				description: errorMessage,
-				variant: "destructive",
-			});
-		}
+		await upgradeToYearlyMutation.mutateAsync({});
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+		});
+		toast({
+			title: "Upgraded to Yearly",
+			description:
+				"Your subscription has been upgraded to yearly billing. You'll save money on future billing cycles!",
+		});
 	};
 
 	if (!selectedOrganization) {
