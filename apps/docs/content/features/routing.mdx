@@ -120,6 +120,28 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	the API will return an error.
 </Callout>
 
+### Exclude Reasoning Models
+
+When using auto routing, you can exclude reasoning models from selection by setting the `no_reasoning` parameter to `true`. This is useful when you want faster responses or need to avoid the additional cost and latency of reasoning models:
+
+```bash
+# Auto route excluding reasoning models
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "no_reasoning": true
+  }'
+```
+
+<Callout type="info">
+	The `no_reasoning` parameter only works with auto routing (`"model": "auto"`).
+	If no non-reasoning models are available that meet your request requirements,
+	the API will return an error.
+</Callout>
+
 <Callout type="success">
 	Auto routing analyzes your payload and automatically chooses between
 	cost-effective models for simple requests and more powerful models for complex

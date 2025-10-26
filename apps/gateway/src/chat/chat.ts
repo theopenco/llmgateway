@@ -225,6 +225,11 @@ const completionsRequestSchema = z.object({
 			"When used with auto routing, only route to free models (models with zero input and output pricing)",
 		example: false,
 	}),
+	no_reasoning: z.boolean().optional().default(false).openapi({
+		description:
+			"When used with auto routing, exclude reasoning models from selection",
+		example: false,
+	}),
 });
 
 const completions = createRoute({
@@ -387,6 +392,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		free_models_only,
+		no_reasoning,
 	} = validationResult.data;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
@@ -903,6 +909,14 @@ chat.openapi(completions, async (c) => {
 				const modelContextSize = provider.contextSize ?? 8192;
 				const contextSizeMet = modelContextSize >= requiredContextSize;
 
+				// If no_reasoning is true, exclude reasoning models
+				if (
+					no_reasoning &&
+					(provider as ProviderModelMapping).reasoning === true
+				) {
+					return false;
+				}
+
 				// If reasoning_effort is specified, only include providers that support reasoning
 				if (reasoning_effort !== undefined) {
 					return (
@@ -965,6 +979,12 @@ chat.openapi(completions, async (c) => {
 					message:
 						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
 				});
+			} else if (no_reasoning) {
+				// If no non-reasoning models are available, return error
+				throw new HTTPException(400, {
+					message:
+						"No non-reasoning models are available for auto routing. Remove no_reasoning parameter or use a specific model.",
+				});
 			}
 		} else {
 			if (free_models_only) {
@@ -972,6 +992,12 @@ chat.openapi(completions, async (c) => {
 				throw new HTTPException(400, {
 					message:
 						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
+				});
+			} else if (no_reasoning) {
+				// If no_reasoning is true but no suitable model found, return error
+				throw new HTTPException(400, {
+					message:
+						"No non-reasoning models are available for auto routing. Remove no_reasoning parameter or use a specific model.",
 				});
 			}
 			// Default fallback if no suitable model is found - use cheapest allowed model
