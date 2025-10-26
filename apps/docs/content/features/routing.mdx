@@ -71,7 +71,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ## Optimized Auto Routing
 
-Our most powerful feature is **optimized auto routing**, which automatically selects the best model for your specific use case without you having to specify a model at all.
+Auto routing automatically selects the best model for your specific use case without you having to specify a model at all.
 
 ### Current Implementation
 
@@ -119,6 +119,22 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	"auto"`). If no free models are available that meet your request requirements,
 	the API will return an error.
 </Callout>
+
+### Reasoning models only
+
+Just specify the `reasoning_effort` value and only a model which supports reasoning will be chosen. This parameter is not specific to the auto model.
+
+```bash
+# Auto route only to reasoning models
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "reasoning_effort": "medium"
+  }'
+```
 
 ### Exclude Reasoning Models
 
