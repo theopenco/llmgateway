@@ -7,6 +7,11 @@ import { logger } from "@llmgateway/logger";
 
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
+import {
+	generateSubscriptionCancelledEmailHtml,
+	generateTrialStartedEmailHtml,
+	sendTransactionalEmail,
+} from "./utils/email.js";
 
 import type { ServerTypes } from "./vars.js";
 import type Stripe from "stripe";
@@ -802,6 +807,17 @@ async function handleSubscriptionDeleted(
 		})
 		.where(eq(tables.organization.id, organizationId));
 
+	// Send subscription cancelled email
+	await sendTransactionalEmail({
+		to: result.organization.billingEmail,
+		subject: "Your LLMGateway Subscription Has Been Cancelled",
+		html: generateSubscriptionCancelledEmailHtml(result.organization.name),
+	});
+
+	logger.info(
+		`Sent subscription cancelled email to ${result.organization.billingEmail} for organization ${organizationId}`,
+	);
+
 	// Track subscription cancellation in PostHog
 	posthog.groupIdentify({
 		groupType: "organization",
@@ -884,6 +900,19 @@ async function handleSubscriptionCreated(
 		logger.info(
 			`Successfully updated organization ${organizationId} with subscription ${subscription.id}. Trial active: ${hasTrialPeriod}`,
 		);
+
+		// Send trial started email if this is a trial subscription
+		if (hasTrialPeriod && trialEndDate) {
+			await sendTransactionalEmail({
+				to: organization.billingEmail,
+				subject: "Welcome to Your LLMGateway Pro Trial",
+				html: generateTrialStartedEmailHtml(organization.name, trialEndDate),
+			});
+
+			logger.info(
+				`Sent trial started email to ${organization.billingEmail} for organization ${organizationId}`,
+			);
+		}
 
 		// Track subscription creation in PostHog
 		posthog.groupIdentify({
