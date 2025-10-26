@@ -32,13 +32,7 @@ import Footer from "@/components/landing/footer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/lib/components/card";
+import { Card, CardContent } from "@/lib/components/card";
 import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { getProviderIcon } from "@/lib/components/providers-icons";
@@ -67,6 +61,8 @@ import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
 
 import { models, providers } from "@llmgateway/models";
+
+import { ModelCard } from "./model-card";
 
 import type {
 	ModelDefinition,
@@ -178,24 +174,44 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		}));
 
 		const filteredModels = baseModels.filter((model) => {
-			// Enhanced search filter - ignore hyphens and spaces for better matching
+			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
 			if (searchQuery) {
-				const normalizeString = (str: string) =>
-					str.toLowerCase().replace(/[-\s]/g, "");
-				const normalizedQuery = normalizeString(searchQuery);
+				const normalize = (str: string) =>
+					str
+						.toLowerCase()
+						.normalize("NFD")
+						.replace(/[\u0300-\u036f]/g, "") // strip accents
+						.replace(/[^a-z0-9]/g, "");
 
-				const matchesName = normalizeString(model.name || model.id).includes(
-					normalizedQuery,
-				);
-				const matchesId = normalizeString(model.id).includes(normalizedQuery);
-				const matchesFamily = normalizeString(model.family).includes(
-					normalizedQuery,
-				);
-				const matchesAlias = model.aliases?.some((alias) =>
-					normalizeString(alias).includes(normalizedQuery),
-				);
+				const queryTokens = searchQuery
+					.trim()
+					.toLowerCase()
+					.split(/\s+/)
+					.map((t) => t.replace(/[^a-z0-9]/g, ""))
+					.filter(Boolean);
 
-				if (!matchesName && !matchesId && !matchesFamily && !matchesAlias) {
+				const providerStrings = (model.providerDetails || []).flatMap((p) => [
+					p.provider.providerId,
+					p.providerInfo?.name || "",
+				]);
+				const haystackParts = [
+					model.name || "",
+					model.id,
+					model.family,
+					...(model.aliases || []),
+					...providerStrings,
+				];
+				const haystack = normalize(haystackParts.join(" "));
+				const normalizedQuery = normalize(searchQuery);
+
+				const containsAllTokens = queryTokens.every((t) =>
+					haystack.includes(t),
+				);
+				const containsPhrase = normalizedQuery
+					? haystack.includes(normalizedQuery)
+					: true;
+
+				if (!(containsAllTokens || containsPhrase)) {
 					return false;
 				}
 			}
@@ -1136,249 +1152,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 			{modelsWithProviders.map((model) => (
-				<Card
+				<ModelCard
 					key={model.id}
-					className="flex flex-col cursor-pointer hover:shadow-lg transition-shadow"
-					onClick={() => router.push(`/models/${encodeURIComponent(model.id)}`)}
-				>
-					<CardHeader>
-						<div className="flex items-start justify-between gap-2">
-							<div className="flex-1 min-w-0">
-								<CardTitle className="text-base leading-tight flex items-center gap-2 flex-wrap">
-									{model.name || model.id}
-									{shouldShowStabilityWarning(model.stability) && (
-										<AlertTriangle className="h-4 w-4 text-orange-500" />
-									)}
-									{model.free && (
-										<Badge
-											variant="secondary"
-											className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
-										>
-											<Gift className="h-3 w-3 mr-1" />
-											Free
-										</Badge>
-									)}
-								</CardTitle>
-								<CardDescription className="text-sm mt-1">
-									<Badge variant="outline" className="text-xs">
-										{model.family}
-									</Badge>
-								</CardDescription>
-							</div>
-						</div>
-					</CardHeader>
-
-					<CardContent className="flex-1 space-y-4">
-						<div className="flex items-center justify-between gap-2">
-							<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all flex-1">
-								{model.id}
-							</code>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-6 w-6 p-0 shrink-0"
-								onClick={(e) => {
-									e.stopPropagation();
-									copyToClipboard(model.id);
-								}}
-								title="Copy model ID"
-							>
-								{copiedModel === model.id ? (
-									<Check className="h-3 w-3 text-green-600" />
-								) : (
-									<Copy className="h-3 w-3" />
-								)}
-							</Button>
-						</div>
-
-						<div className="space-y-3">
-							<div>
-								<div className="text-sm font-medium mb-2">Providers:</div>
-								<div className="flex flex-wrap gap-2">
-									{model.providerDetails.map(({ provider, providerInfo }) => (
-										<div
-											key={provider.providerId}
-											className="flex items-center gap-1"
-										>
-											<div className="w-5 h-5 flex items-center justify-center">
-												{(() => {
-													const ProviderIcon = getProviderIcon(
-														provider.providerId,
-													);
-													console.log(provider.providerId, ProviderIcon);
-													return ProviderIcon ? (
-														<ProviderIcon className="w-4 h-4" />
-													) : (
-														<div
-															className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
-															style={{
-																backgroundColor:
-																	providerInfo?.color || "#6b7280",
-															}}
-														>
-															{(providerInfo?.name || provider.providerId)
-																.charAt(0)
-																.toUpperCase()}
-														</div>
-													);
-												})()}
-											</div>
-											<Badge
-												variant="secondary"
-												className="text-xs"
-												style={{ borderColor: providerInfo?.color }}
-											>
-												{providerInfo?.name || provider.providerId}
-											</Badge>
-											{hasProviderStabilityWarning(provider) && (
-												<AlertTriangle className="h-3 w-3 text-orange-500" />
-											)}
-										</div>
-									))}
-								</div>
-							</div>
-
-							<div className="grid grid-cols-2 gap-4 text-sm">
-								<div>
-									<div className="font-medium mb-1">Context Size:</div>
-									{model.providerDetails.map(({ provider }) => (
-										<div
-											key={provider.providerId}
-											className="text-muted-foreground"
-										>
-											{provider.contextSize
-												? formatContextSize(provider.contextSize)
-												: "—"}
-										</div>
-									))}
-								</div>
-
-								<div>
-									<div className="font-medium mb-1">Pricing:</div>
-									{model.providerDetails.map(({ provider }) => (
-										<div
-											key={provider.providerId}
-											className="text-muted-foreground text-xs space-y-1"
-										>
-											<div>
-												In:{" "}
-												{typeof formatPrice(
-													provider.inputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(provider.inputPrice, provider.discount) +
-													"/M"
-												) : (
-													<span className="inline-block">
-														{formatPrice(
-															provider.inputPrice,
-															provider.discount,
-														)}
-														<span>/M</span>
-													</span>
-												)}
-											</div>
-											<div>
-												Out:{" "}
-												{typeof formatPrice(
-													provider.outputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(provider.outputPrice, provider.discount) +
-													"/M"
-												) : (
-													<span className="inline-block">
-														{formatPrice(
-															provider.outputPrice,
-															provider.discount,
-														)}
-														<span>/M</span>
-													</span>
-												)}
-											</div>
-										</div>
-									))}
-								</div>
-							</div>
-
-							<div>
-								<div className="font-medium mb-2 text-sm">Capabilities:</div>
-								{model.providerDetails.map(({ provider }) => (
-									<div key={provider.providerId} className="flex gap-2 mb-1">
-										{getCapabilityIcons(provider, model).map(
-											({ icon: Icon, label, color }) => (
-												<Tooltip key={label}>
-													<TooltipTrigger asChild>
-														<div
-															className="flex items-center gap-1 cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-1 -m-1"
-															tabIndex={0}
-															role="button"
-															aria-label={`Model capability: ${label}`}
-														>
-															<Icon className={`h-4 w-4 ${color}`} />
-															<span className="text-xs text-muted-foreground">
-																{label}
-															</span>
-														</div>
-													</TooltipTrigger>
-													<TooltipContent
-														className="bg-popover text-popover-foreground border border-border shadow-md"
-														side="top"
-														align="center"
-														avoidCollisions={true}
-													>
-														<p>Model supports {label.toLowerCase()}</p>
-													</TooltipContent>
-												</Tooltip>
-											),
-										)}
-									</div>
-								))}
-							</div>
-
-							<div>
-								<div className="font-medium mb-2 text-sm">Stability:</div>
-								{(() => {
-									const stabilityProps = getStabilityBadgeProps(
-										model.stability,
-									);
-									return stabilityProps ? (
-										<Badge
-											variant={stabilityProps.variant}
-											className="text-xs px-2 py-1"
-										>
-											{stabilityProps.label}
-										</Badge>
-									) : (
-										<Badge variant="outline" className="text-xs px-2 py-1">
-											STABLE
-										</Badge>
-									);
-								})()}
-							</div>
-
-							<div className="pt-4 border-t">
-								<Button
-									variant="outline"
-									size="sm"
-									className="w-full gap-2"
-									title={`Try ${model.name || model.id} in playground`}
-									onClick={(e) => e.stopPropagation()}
-									asChild
-								>
-									<a
-										href={`${config.playgroundUrl}?model=${encodeURIComponent(`${model.providers[0]?.providerId}/${model.id}`)}`}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<Play className="h-3 w-3" />
-										Try in Playground
-									</a>
-								</Button>
-							</div>
-						</div>
-					</CardContent>
-				</Card>
+					shouldShowStabilityWarning={shouldShowStabilityWarning}
+					getCapabilityIcons={getCapabilityIcons}
+					model={model}
+					goToModel={() =>
+						router.push(`/models/${encodeURIComponent(model.id)}`)
+					}
+					formatPrice={formatPrice}
+				/>
 			))}
 		</div>
 	);

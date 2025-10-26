@@ -623,7 +623,7 @@ export const AWSBedrockIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	>
 		<style type="text/css">
 			{
-				"\n\t.st0{fill:#252F3E;}\n\t.st1{fill-rule:evenodd;clip-rule:evenodd;fill:#FF9900;}\n"
+				"\n\t.st0{fill:currentColor;}\n\t.st1{fill-rule:evenodd;clip-rule:evenodd;fill:#FF9900;}\n"
 			}
 		</style>
 		<g>

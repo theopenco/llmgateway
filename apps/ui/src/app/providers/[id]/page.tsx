@@ -25,7 +25,6 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		notFound();
 	}
 
-	// Get models for this provider
 	const providerModels = modelDefinitions.filter((model) =>
 		model.providers.some((p) => p.providerId === provider.id),
 	);

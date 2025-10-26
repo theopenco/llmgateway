@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
 	typedRoutes: true,
 	reactStrictMode: true,
 	reactCompiler: true,
+	experimental: {
+		turbopackFileSystemCacheForDev: true,
+		// turbopackFileSystemCacheForBuild: true,
+	},
 	async redirects() {
 		return [
 			{

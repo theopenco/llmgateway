@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
+	experimental: {
+		turbopackFileSystemCacheForDev: true,
+		// turbopackFileSystemCacheForBuild: true,
+	},
 };
 
 export default nextConfig;
