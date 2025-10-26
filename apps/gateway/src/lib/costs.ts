@@ -34,6 +34,7 @@ export function calculateCosts(
 		completion?: string;
 		toolResults?: ToolCall[];
 	},
+	reasoningTokens: number | null = null,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -182,8 +183,9 @@ export function calculateCosts(
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
 	const inputCost = uncachedPromptTokens * inputPrice * discountMultiplier;
-	const outputCost =
-		calculatedCompletionTokens * outputPrice * discountMultiplier;
+	// For Google models, reasoning tokens are billed at the output token rate
+	const totalOutputTokens = calculatedCompletionTokens + (reasoningTokens || 0);
+	const outputCost = totalOutputTokens * outputPrice * discountMultiplier;
 	const cachedInputCost = cachedTokens
 		? cachedTokens * cachedInputPrice * discountMultiplier
 		: 0;

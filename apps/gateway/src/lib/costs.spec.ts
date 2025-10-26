@@ -251,4 +251,45 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBeGreaterThan(0);
 		expect(result.estimatedCost).toBe(true);
 	});
+
+	it("should include reasoning tokens in output cost calculation", () => {
+		// Test with Google model that has reasoning tokens
+		const result = calculateCosts(
+			"gemini-2.5-pro",
+			"google-ai-studio",
+			1000,
+			500,
+			null,
+			undefined,
+			200, // 200 reasoning tokens
+		);
+
+		// For Google: gemini-2.5-pro
+		// inputPrice: 1.25 / 1e6
+		// outputPrice: 10.0 / 1e6
+		// Total output tokens should be 500 + 200 = 700
+		expect(result.inputCost).toBeCloseTo(0.00125); // 1000 * 1.25e-6
+		expect(result.outputCost).toBeCloseTo(0.007); // 700 * 10.0e-6
+		expect(result.totalCost).toBeCloseTo(0.00825); // 0.00125 + 0.007
+		expect(result.promptTokens).toBe(1000);
+		expect(result.completionTokens).toBe(500);
+		expect(result.estimatedCost).toBe(false);
+	});
+
+	it("should handle null reasoning tokens gracefully", () => {
+		const result = calculateCosts(
+			"gemini-2.5-pro",
+			"google-ai-studio",
+			1000,
+			500,
+			null,
+			undefined,
+			null, // No reasoning tokens
+		);
+
+		// Should calculate costs normally with just completion tokens
+		expect(result.inputCost).toBeCloseTo(0.00125); // 1000 * 1.25e-6
+		expect(result.outputCost).toBeCloseTo(0.005); // 500 * 10.0e-6
+		expect(result.totalCost).toBeCloseTo(0.00625); // 0.00125 + 0.005
+	});
 });

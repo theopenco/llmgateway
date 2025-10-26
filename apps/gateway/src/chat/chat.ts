@@ -2873,6 +2873,7 @@ chat.openapi(completions, async (c) => {
 						completion: fullContent,
 						toolResults: streamingToolCalls || undefined,
 					},
+					reasoningTokens,
 				);
 
 				const baseLogEntry = createLogEntry(
@@ -3273,6 +3274,7 @@ chat.openapi(completions, async (c) => {
 			completion: content,
 			toolResults: toolResults,
 		},
+		reasoningTokens,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
