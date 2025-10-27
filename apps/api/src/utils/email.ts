@@ -21,8 +21,7 @@ const smtpHost = process.env.SMTP_HOST;
 const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
 const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
-const smtpFromEmail =
-	process.env.SMTP_FROM_EMAIL || "contact@email.llmgateway.io";
+const smtpFromEmail = process.env.SMTP_FROM_EMAIL || "contact@llmgateway.io";
 const replyToEmail = process.env.SMTP_REPLY_TO_EMAIL || "contact@llmgateway.io";
 
 export interface TransactionalEmailOptions {
@@ -93,6 +92,7 @@ export function generateTrialStartedEmailHtml(
 	organizationName: string,
 	trialEndDate: Date,
 ): string {
+	const escapedOrgName = escapeHtml(organizationName);
 	const formattedEndDate = trialEndDate.toLocaleDateString("en-US", {
 		year: "numeric",
 		month: "long",
@@ -131,7 +131,8 @@ export function generateTrialStartedEmailHtml(
 								</p>
 
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									Thank you for upgrading to <strong>LLMGateway Pro</strong>! You now have access to all our premium
+									Thank you for upgrading <strong>${escapedOrgName}</strong> to <strong>LLMGateway Pro</strong>!
+									You now have access to all our premium
 									features designed to give you more control, flexibility, and insights.
 								</p>
 
