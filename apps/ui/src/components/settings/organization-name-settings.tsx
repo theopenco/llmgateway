@@ -17,9 +17,9 @@ export function OrganizationNameSettings() {
 
 	const api = useApi();
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: () => {
+		onSuccess: async () => {
 			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			await queryClient.refetchQueries({ queryKey });
 		},
 	});
 
