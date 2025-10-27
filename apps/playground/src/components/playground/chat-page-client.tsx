@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useRef } from "react";
 
 // Removed API key manager for playground; we rely on server-set cookie
@@ -43,6 +43,7 @@ export default function ChatPageClient({
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const router = useRouter();
+	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
 	const mapped = useMemo(
@@ -200,6 +201,11 @@ export default function ChatPageClient({
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+
+	const returnUrl = useMemo(() => {
+		const search = searchParams.toString();
+		return search ? `${pathname}?${search}` : pathname;
+	}, [pathname, searchParams]);
 
 	// Track which project has had its key ensured to prevent duplicate calls
 	const ensuredProjectRef = useRef<string | null>(null);
@@ -431,7 +437,7 @@ export default function ChatPageClient({
 					</div>
 				</div>
 			</div>
-			<AuthDialog open={showAuthDialog} />
+			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
 	);
 }

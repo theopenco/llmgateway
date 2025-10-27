@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, KeySquare } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -31,12 +31,24 @@ const formSchema = z.object({
 		.min(8, { message: "Password must be at least 8 characters" }),
 });
 
+function getSafeRedirectUrl(url: string | null): string {
+	if (!url) {
+		return "/";
+	}
+	if (url.startsWith("/") && !url.startsWith("//")) {
+		return url;
+	}
+	return "/";
+}
+
 export default function Login() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
+	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
 
 	useUser({
 		redirectTo: "/",
@@ -81,7 +93,7 @@ export default function Login() {
 						email: values.email,
 					});
 					toast.success("Login successful");
-					router.push("/");
+					router.push(returnUrl);
 				},
 				onError: (ctx) => {
 					toast.error(ctx.error.message || "An unknown error occurred", {
@@ -121,7 +133,7 @@ export default function Login() {
 			}
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast.success("Login successful");
-			router.push("/");
+			router.push(returnUrl);
 		} catch (error: unknown) {
 			toast.error(
 				(error as Error)?.message || "Failed to sign in with passkey",

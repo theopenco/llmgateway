@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { X } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useRef } from "react";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -46,6 +46,7 @@ export default function GroupChatClient({
 }: GroupChatClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const router = useRouter();
+	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
 	const mapped = useMemo(
@@ -74,6 +75,11 @@ export default function GroupChatClient({
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+
+	const returnUrl = useMemo(() => {
+		const search = searchParams.toString();
+		return search ? `${pathname}?${search}` : pathname;
+	}, [pathname, searchParams]);
 
 	const ensuredProjectRef = useRef<string | null>(null);
 
@@ -503,7 +509,7 @@ export default function GroupChatClient({
 					</div>
 				</div>
 			</div>
-			<AuthDialog open={showAuthDialog} />
+			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
 	);
 }
