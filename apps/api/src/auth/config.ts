@@ -491,6 +491,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 		secret: process.env.AUTH_SECRET || "your-secret-key",
 		database: drizzleAdapter(db, {
 			provider: "pg",
+			usePlural: false,
 			schema: {
 				user: tables.user,
 				session: tables.session,
