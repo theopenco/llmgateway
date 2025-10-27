@@ -24,7 +24,7 @@
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.0",
-		"@hono/swagger-ui": "^0.5.1",
+		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.2",
 		"@llmgateway/cache": "workspace:*",
