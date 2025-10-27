@@ -27,6 +27,11 @@ export function OrganizationNameSettings() {
 
 	const [nameError, setNameError] = useState<string>("");
 
+	React.useEffect(() => {
+		setName(selectedOrganization?.name || "");
+		setNameError("");
+	}, [selectedOrganization?.id]);
+
 	if (!selectedOrganization) {
 		return (
 			<div className="space-y-2">
@@ -54,7 +59,7 @@ export function OrganizationNameSettings() {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: selectedOrganization.id } },
-				body: { name },
+				body: { name: name.trim() },
 			});
 
 			toast({
