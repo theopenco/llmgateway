@@ -41,7 +41,7 @@
 		"concurrently": "^9.2.1",
 		"cross-env-shell": "7.0.3",
 		"dotenv": "16.5.0",
-		"esbuild-fix-imports-plugin": "1.0.22",
+		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",
 		"eslint-import-resolver-typescript": "4.4.4",
 		"eslint-plugin-import": "2.32.0",
