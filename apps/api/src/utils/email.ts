@@ -28,12 +28,18 @@ export interface TransactionalEmailOptions {
 	to: string;
 	subject: string;
 	html: string;
+	attachments?: Array<{
+		filename: string;
+		content: Buffer;
+		contentType?: string;
+	}>;
 }
 
 export async function sendTransactionalEmail({
 	to,
 	subject,
 	html,
+	attachments,
 }: TransactionalEmailOptions): Promise<void> {
 	// In non-production environments, just log the email content
 	if (process.env.NODE_ENV !== "production") {
@@ -41,6 +47,10 @@ export async function sendTransactionalEmail({
 			to,
 			subject,
 			html,
+			attachments: attachments?.map((a) => ({
+				filename: a.filename,
+				size: a.content.length,
+			})),
 			from: smtpFromEmail,
 			replyTo: replyToEmail,
 		});
@@ -74,11 +84,17 @@ export async function sendTransactionalEmail({
 			to,
 			subject,
 			html,
+			attachments: attachments?.map((att) => ({
+				filename: att.filename,
+				content: att.content,
+				contentType: att.contentType,
+			})),
 		});
 
 		logger.info("Transactional email sent successfully", {
 			to,
 			subject,
+			hasAttachments: !!attachments?.length,
 		});
 	} catch (error) {
 		logger.error(

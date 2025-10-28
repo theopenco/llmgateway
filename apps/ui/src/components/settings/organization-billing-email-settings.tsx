@@ -7,6 +7,7 @@ import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Separator } from "@/lib/components/separator";
+import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
@@ -26,6 +27,15 @@ export function OrganizationBillingEmailSettings() {
 	const [billingEmail, setBillingEmail] = useState<string>(
 		selectedOrganization?.billingEmail || "",
 	);
+	const [billingCompany, setBillingCompany] = useState<string>(
+		selectedOrganization?.billingCompany || "",
+	);
+	const [billingAddress, setBillingAddress] = useState<string>(
+		selectedOrganization?.billingAddress || "",
+	);
+	const [billingNotes, setBillingNotes] = useState<string>(
+		selectedOrganization?.billingNotes || "",
+	);
 
 	const [emailError, setEmailError] = useState<string>("");
 
@@ -37,9 +47,9 @@ export function OrganizationBillingEmailSettings() {
 	if (!selectedOrganization) {
 		return (
 			<div className="space-y-2">
-				<h3 className="text-lg font-medium">Billing Email</h3>
+				<h3 className="text-lg font-medium">Billing Information</h3>
 				<p className="text-muted-foreground text-sm">
-					Please select an organization to configure billing email settings.
+					Please select an organization to configure billing settings.
 				</p>
 			</div>
 		);
@@ -61,17 +71,22 @@ export function OrganizationBillingEmailSettings() {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: selectedOrganization.id } },
-				body: { billingEmail },
+				body: {
+					billingEmail,
+					billingCompany,
+					billingAddress,
+					billingNotes,
+				},
 			});
 
 			toast({
 				title: "Settings saved",
-				description: "Your billing email has been updated.",
+				description: "Your billing information has been updated.",
 			});
 		} catch {
 			toast({
 				title: "Error",
-				description: "Failed to save billing email settings.",
+				description: "Failed to save billing settings.",
 				variant: "destructive",
 			});
 		}
@@ -80,10 +95,9 @@ export function OrganizationBillingEmailSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<h3 className="text-lg font-medium">Billing Email</h3>
+				<h3 className="text-lg font-medium">Billing Information</h3>
 				<p className="text-muted-foreground text-sm">
-					Configure the email address used for billing communications and
-					receipts
+					Configure billing details for invoices and receipts
 				</p>
 				{selectedOrganization && (
 					<p className="text-muted-foreground text-sm mt-1">
@@ -112,8 +126,50 @@ export function OrganizationBillingEmailSettings() {
 						<p className="text-sm text-destructive">{emailError}</p>
 					)}
 					<p className="text-sm text-muted-foreground">
-						This email will be used for all billing-related communications,
-						invoices, and receipts from Stripe.
+						This email will be used for all billing-related communications and
+						invoices.
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="billingCompany">Company Name (Optional)</Label>
+					<Input
+						id="billingCompany"
+						type="text"
+						placeholder="Acme Corporation"
+						value={billingCompany}
+						onChange={(e) => setBillingCompany(e.target.value)}
+					/>
+					<p className="text-sm text-muted-foreground">
+						Company name to appear on invoices.
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="billingAddress">Billing Address (Optional)</Label>
+					<Textarea
+						id="billingAddress"
+						placeholder="123 Main Street&#10;Suite 100&#10;San Francisco, CA 94105&#10;United States"
+						value={billingAddress}
+						onChange={(e) => setBillingAddress(e.target.value)}
+						rows={4}
+					/>
+					<p className="text-sm text-muted-foreground">
+						Full billing address to appear on invoices.
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="billingNotes">Invoice Notes (Optional)</Label>
+					<Textarea
+						id="billingNotes"
+						placeholder="Additional notes to appear at the bottom of invoices (e.g., VAT number, purchase order number)"
+						value={billingNotes}
+						onChange={(e) => setBillingNotes(e.target.value)}
+						rows={3}
+					/>
+					<p className="text-sm text-muted-foreground">
+						Optional notes to include at the bottom of invoices.
 					</p>
 				</div>
 			</div>

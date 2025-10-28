@@ -36,6 +36,7 @@
 		"hono": "^4.10.3",
 		"hono-openapi": "^0.4.6",
 		"ioredis": "5.7.0",
+		"jspdf": "3.0.3",
 		"nodemailer": "^7.0.9",
 		"openai": "^5.19.1",
 		"posthog-node": "5.8.2",
