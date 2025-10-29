@@ -133,7 +133,7 @@ jobs:
       packages: write
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests-${{ matrix.app }}-*
@@ -297,7 +297,7 @@ jobs:
       packages: write
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests-unified-*
