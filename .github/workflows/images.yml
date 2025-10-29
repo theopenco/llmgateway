@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload digest (main branch only)
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: digests-${{ matrix.app }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
@@ -279,7 +279,7 @@ jobs:
 
       - name: Upload digest (main branch only)
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: digests-unified-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
