@@ -26,6 +26,7 @@ const messageSchema = z.object({
 	content: z.string().nullable(),
 	images: z.string().nullable(), // JSON string
 	reasoning: z.string().nullable(), // Reasoning content
+	tools: z.string().nullable(), // JSON string of tool parts
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
 });
@@ -46,6 +47,7 @@ const createMessageSchema = z
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
 		reasoning: z.string().optional(), // Reasoning content
+		tools: z.string().optional(), // Tool parts JSON
 	})
 	.refine((data) => data.content || data.images, {
 		message: "Either content or images must be provided",
@@ -285,6 +287,7 @@ chats.openapi(getChat, async (c) => {
 				content: message.content,
 				images: message.images,
 				reasoning: message.reasoning,
+				tools: (message as any).tools ?? null,
 				sequence: message.sequence,
 				createdAt: message.createdAt.toISOString(),
 			})),
@@ -517,6 +520,7 @@ chats.openapi(addMessage, async (c) => {
 			content: body.content || null,
 			images: body.images || null,
 			reasoning: body.reasoning || null,
+			tools: body.tools || null,
 			sequence: nextSequence,
 		})
 		.returning();
@@ -535,6 +539,7 @@ chats.openapi(addMessage, async (c) => {
 				content: newMessage.content,
 				images: newMessage.images,
 				reasoning: newMessage.reasoning,
+				tools: (newMessage as any).tools ?? null,
 				sequence: newMessage.sequence,
 				createdAt: newMessage.createdAt.toISOString(),
 			},

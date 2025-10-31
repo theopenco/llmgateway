@@ -16,8 +16,9 @@
 		"start": "next start"
 	},
 	"dependencies": {
-		"@ai-sdk/openai": "2.0.53",
-		"@ai-sdk/react": "2.0.78",
+		"@ai-sdk/mcp": "1.0.0-beta.9",
+		"@ai-sdk/openai": "3.0.0-beta.45",
+		"@ai-sdk/react": "3.0.0-beta.91",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/ai-sdk-provider": "2.3.1",
 		"@llmgateway/models": "workspace:*",
@@ -41,7 +42,7 @@
 		"@stripe/react-stripe-js": "5.2.0",
 		"@stripe/stripe-js": "8.1.0",
 		"@tanstack/react-query": "^5.90.5",
-		"ai": "5.0.78",
+		"ai": "6.0.0-beta.88",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
 		"better-auth": "1.3.30",

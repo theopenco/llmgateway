@@ -2,9 +2,10 @@
 
 import { useChat } from "@ai-sdk/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 
 // Removed API key manager for playground; we rely on server-set cookie
+import { getStoredGithubMcpToken } from "@/components/connectors/github-connector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
@@ -63,6 +64,21 @@ export default function ChatPageClient({
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const chatIdRef = useRef(currentChatId);
 
+	const [githubToken, setGithubToken] = useState<string | null>(null);
+
+	useEffect(() => {
+		// initial read
+		setGithubToken(getStoredGithubMcpToken());
+		// react to changes from other tabs/components
+		const onStorage = (e: StorageEvent) => {
+			if (e.key === "github_mcp_token") {
+				setGithubToken(e.newValue);
+			}
+		};
+		window.addEventListener("storage", onStorage);
+		return () => window.removeEventListener("storage", onStorage);
+	}, []);
+
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: (e) => {
@@ -93,10 +109,8 @@ export default function ChatPageClient({
 
 				// Handle file parts (AI SDK format for images)
 				const fileParts = (message.parts as any[])
-					.filter(
-						(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
-					)
-					.map((p: any) => {
+					.filter((p) => p.type === "file" && p.mediaType?.startsWith("image/"))
+					.map((p) => {
 						const { dataUrl } = parseImageFile(p);
 						return {
 							type: "image_url",
@@ -106,6 +120,11 @@ export default function ChatPageClient({
 
 				const images = [...imageUrlParts, ...fileParts];
 
+				// Extract tool parts (AI SDK dynamic tool UI parts)
+				const toolParts = (message.parts as any[]).filter(
+					(p: any) => p.type === "dynamic-tool",
+				);
+
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
 					body: {
@@ -113,7 +132,8 @@ export default function ChatPageClient({
 						content: textContent || undefined,
 						images: images.length > 0 ? JSON.stringify(images) : undefined,
 						reasoning: reasoningContent || undefined,
-					},
+						tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					} as any,
 				});
 			},
 		});
@@ -121,6 +141,24 @@ export default function ChatPageClient({
 	useEffect(() => {
 		chatIdRef.current = currentChatId;
 	}, [currentChatId]);
+
+	const sendMessageWithHeaders = useCallback(
+		(message: any, options?: any) => {
+			const mergedOptions = {
+				...options,
+				headers: {
+					...(options?.headers || {}),
+					...(githubToken ? { "x-github-token": githubToken } : {}),
+				},
+				body: {
+					...(options?.body || {}),
+					...(githubToken ? { githubToken } : {}),
+				},
+			};
+			return sendMessage(message, mergedOptions);
+		},
+		[sendMessage, githubToken],
+	);
 
 	// Chat API hooks
 	const createChat = useCreateChat();
@@ -182,6 +220,18 @@ export default function ChatPageClient({
 							parts.push(...imageParts);
 						} catch (error) {
 							console.error("Failed to parse images:", error);
+						}
+					}
+
+					// Add tool parts if present
+					if ((msg as any).tools) {
+						try {
+							const parsedTools = JSON.parse((msg as any).tools);
+							if (Array.isArray(parsedTools)) {
+								parts.push(...parsedTools.map((t: any) => ({ ...t })));
+							}
+						} catch (error) {
+							console.error("Failed to parse tools:", error);
 						}
 					}
 
@@ -422,8 +472,7 @@ export default function ChatPageClient({
 							messages={messages}
 							supportsImages={supportsImages}
 							supportsImageGen={supportsImageGen}
-							sendMessage={sendMessage}
-							userApiKey={null}
+							sendMessage={sendMessageWithHeaders}
 							selectedModel={selectedModel}
 							text={text}
 							setText={setText}

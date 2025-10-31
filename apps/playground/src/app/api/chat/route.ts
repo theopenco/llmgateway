@@ -1,8 +1,15 @@
 // import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { streamText, type UIMessage, convertToModelMessages } from "ai";
+import {
+	streamText,
+	type UIMessage,
+	convertToModelMessages,
+	// ToolLoopAgent,
+	// createAgentUIStreamResponse,
+} from "ai";
 import { cookies } from "next/headers";
 
 import { getUser } from "@/lib/getUser";
+import { getGithubMcpTools } from "@/lib/mcp/github";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -60,6 +67,8 @@ export async function POST(req: Request) {
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
+	const githubTokenHeader = req.headers.get("x-github-token") || undefined;
+	const githubTokenBody = (body as any)?.githubToken || undefined;
 
 	// Prefer explicit apiKey or header, else read from httpOnly cookie set by backend.
 	// Accept both api.llmgateway cookie and current-domain cookie for local dev.
@@ -96,16 +105,52 @@ export async function POST(req: Request) {
 	}
 
 	try {
-		// Default streaming chat path
+		// If a GitHub token is provided, use the Agent UI flow with tools + approval support
+		const tokenForMcp = githubTokenHeader || githubTokenBody;
+		if (tokenForMcp) {
+			const { tools, client: githubMCPClient } = await getGithubMcpTools(
+				tokenForMcp as string,
+			);
+			// const agent = new ToolLoopAgent({
+			// 	model: llmgateway.chat(selectedModel),
+			// 	instructions:
+			// 		"You are a helpful GitHub assistant. Use the available tools. Ask for confirmation before write operations.",
+			// 	tools,
+			// });
+
+			// return await createAgentUIStreamResponse({
+			// 	agent,
+			// 	messages: messages,
+			// 	onFinish: () => {
+			// 		// Close MCP client if it exists
+			// 		if (githubMCPClient) {
+			// 			githubMCPClient.close();
+			// 		}
+			// 	},
+			// });
+
+			const result = streamText({
+				model: llmgateway.chat(selectedModel),
+				messages: convertToModelMessages(messages),
+				tools,
+				onFinish: () => {
+					// Close MCP client if it exists
+					if (githubMCPClient) {
+						githubMCPClient.close();
+					}
+				},
+			});
+
+			return result.toUIMessageStreamResponse({ sendReasoning: true });
+		}
+
+		// Default streaming chat path (no tools)
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
 			messages: convertToModelMessages(messages),
-			// tools,
 		});
 
-		return result.toUIMessageStreamResponse({
-			sendReasoning: true,
-		});
+		return result.toUIMessageStreamResponse({ sendReasoning: true });
 	} catch {
 		return new Response(
 			JSON.stringify({ error: "LLM Gateway request failed" }),

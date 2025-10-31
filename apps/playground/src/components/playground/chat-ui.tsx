@@ -1,9 +1,18 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy, GlobeIcon } from "lucide-react";
+import { AlertCircle, RefreshCcw, Copy, GlobeIcon, Plug } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
+// import {
+// 	Confirmation,
+// 	ConfirmationAccepted,
+// 	ConfirmationAction,
+// 	ConfirmationActions,
+// 	ConfirmationRejected,
+// 	ConfirmationRequest,
+// 	ConfirmationTitle,
+// } from "@/components/ai-elements/confirmation";
 import {
 	Conversation,
 	ConversationContent,
@@ -37,9 +46,10 @@ import {
 	Tool,
 	ToolContent,
 	ToolHeader,
-	ToolOutput,
 	ToolInput,
+	ToolOutput,
 } from "@/components/ai-elements/tool";
+import { ConnectorsDialog } from "@/components/connectors/connectors-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
@@ -60,7 +70,6 @@ interface ChatUIProps {
 		message: UIMessage,
 		options?: ChatRequestOptions,
 	) => Promise<void>;
-	userApiKey: string | null;
 	selectedModel: string;
 	text: string;
 	setText: (text: string) => void;
@@ -119,7 +128,6 @@ export const ChatUI = ({
 	supportsImages,
 	supportsImageGen,
 	sendMessage,
-	userApiKey,
 	selectedModel,
 	text,
 	setText,
@@ -195,13 +203,13 @@ export const ChatUI = ({
 										.join("");
 									const toolParts = m.parts.filter(
 										(p) => p.type === "dynamic-tool",
-									) as any[];
+									);
 									// Combine all image parts (both image_url and file types)
 									const imageParts = m.parts.filter(
 										(p: any) =>
 											(p.type === "image_url" && p.image_url?.url) ||
 											(p.type === "file" && p.mediaType?.startsWith("image/")),
-									) as any[];
+									);
 									const reasoningContent = m.parts
 										.filter((p) => p.type === "reasoning")
 										.map((p) => p.text)
@@ -224,18 +232,84 @@ export const ChatUI = ({
 												</Reasoning>
 											) : null}
 
+											{toolParts.map((tool) => (
+												<Tool key={tool.toolCallId}>
+													<ToolHeader
+														type={tool.type as `tool-${string}`}
+														state={tool.state}
+													/>
+													<ToolContent>
+														<ToolInput input={tool.input} />
+														{/* <Confirmation
+															approval={tool.approval}
+															state={tool.state}
+														>
+															<ConfirmationTitle>
+																<ConfirmationRequest>
+																	This tool requires your approval to proceed.
+																</ConfirmationRequest>
+																<ConfirmationAccepted>
+																	<CheckIcon className="size-4 text-green-600 dark:text-green-400" />
+																	<span>Accepted</span>
+																</ConfirmationAccepted>
+																<ConfirmationRejected>
+																	<XIcon className="size-4 text-destructive" />
+																	<span>Rejected</span>
+																</ConfirmationRejected>
+															</ConfirmationTitle>
+															<ConfirmationActions>
+																<ConfirmationAction
+																	onClick={async () => {
+																		try {
+																			addToolApprovalResponse({
+																				id: tool.approval!.id,
+																				approved: false,
+																			});
+																		} catch {
+																			toast.error("Failed to submit rejection");
+																		}
+																	}}
+																	variant="outline"
+																>
+																	Reject
+																</ConfirmationAction>
+																<ConfirmationAction
+																	onClick={async () => {
+																		try {
+																			addToolApprovalResponse({
+																				approved: true,
+																				id: tool.approval!.id,
+																			});
+																		} catch {
+																			toast.error("Failed to submit approval");
+																		}
+																	}}
+																	variant="default"
+																>
+																	Accept
+																</ConfirmationAction>
+															</ConfirmationActions>
+														</Confirmation> */}
+														<ToolOutput
+															errorText={tool.errorText}
+															output={tool.output}
+														/>
+													</ToolContent>
+												</Tool>
+											))}
+
+											{/* Then assistant text */}
 											{textContent ? <Response>{textContent}</Response> : null}
+
+											{/* Images after text */}
 											{imageParts.length > 0 ? (
 												<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
 													{imageParts.map((part: any, idx: number) => {
 														const { base64Only, mediaType } =
 															parseImagePartToDataUrl(part);
-
-														// Skip rendering if parsing failed
 														if (!base64Only) {
 															return null;
 														}
-
 														return (
 															<ImageZoom key={idx}>
 																<Image
@@ -248,23 +322,6 @@ export const ChatUI = ({
 													})}
 												</div>
 											) : null}
-											{isLastMessage &&
-												(status === "submitted" || status === "streaming") && (
-													<Loader />
-												)}
-
-											{toolParts.map((tool) => (
-												<Tool key={tool.toolCallId}>
-													<ToolHeader type={tool.type} state={tool.state} />
-													<ToolContent>
-														<ToolInput input={tool.input} />
-														<ToolOutput
-															errorText={tool.errorText}
-															output={tool.output}
-														/>
-													</ToolContent>
-												</Tool>
-											))}
 
 											{isLastMessage && (
 												<Actions className="mt-2">
@@ -355,7 +412,6 @@ export const ChatUI = ({
 								},
 								{
 									body: {
-										apiKey: userApiKey,
 										model: selectedModel,
 									},
 								},
@@ -410,6 +466,14 @@ export const ChatUI = ({
 								</TooltipTrigger>
 								<TooltipContent>coming soon</TooltipContent>
 							</Tooltip>
+							<ConnectorsDialog
+								trigger={
+									<PromptInputButton variant="ghost">
+										<Plug size={16} />
+										<span>Connectors</span>
+									</PromptInputButton>
+								}
+							/>
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
 							{status === "streaming" ? (
