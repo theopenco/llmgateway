@@ -652,4 +652,65 @@ describe("e2e individual tests", () => {
 			expect(log.streamed).toBe(false);
 		},
 	);
+
+	test(
+		"Auto-routing filters models by JSON output support",
+		getTestOptions({ completions: false }),
+		async () => {
+			const { orgId, projectId, token } = await createTestData("auto-json");
+
+			await db
+				.update(tables.organization)
+				.set({ credits: "1000" })
+				.where(eq(tables.organization.id, orgId));
+
+			await db
+				.update(tables.project)
+				.set({ mode: "credits" })
+				.where(eq(tables.project.id, projectId));
+
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{
+							role: "user",
+							content: "Respond with JSON containing a greeting message",
+						},
+					],
+					response_format: { type: "json_object" },
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			validateResponse(json);
+
+			const log = await validateLogByRequestId(requestId);
+			expect(log.requestedModel).toBe("auto");
+			expect(log.usedProvider).toBeTruthy();
+			expect(log.usedModel).toBeTruthy();
+
+			// Verify that the selected model supports JSON output
+			const usedModelDef = models.find((m) => m.id === log.usedModelMapping);
+			expect(usedModelDef).toBeDefined();
+
+			const usedProviderMapping = usedModelDef?.providers.find(
+				(p) => (p as any).providerId === log.usedProvider,
+			);
+			expect(usedProviderMapping).toBeDefined();
+			expect((usedProviderMapping as any).jsonOutput).toBe(true);
+
+			// Verify the content is valid JSON
+			const content = json.choices[0].message.content;
+			expect(() => JSON.parse(content)).not.toThrow();
+		},
+	);
 });

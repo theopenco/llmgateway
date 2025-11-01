@@ -909,6 +909,16 @@ chat.openapi(completions, async (c) => {
 				const modelContextSize = provider.contextSize ?? 8192;
 				const contextSizeMet = modelContextSize >= requiredContextSize;
 
+				// If JSON output is requested, only include providers that support it
+				if (
+					response_format?.type === "json_object" ||
+					response_format?.type === "json_schema"
+				) {
+					if ((provider as ProviderModelMapping).jsonOutput !== true) {
+						return false;
+					}
+				}
+
 				// If no_reasoning is true, exclude reasoning models
 				if (
 					no_reasoning &&
