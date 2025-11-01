@@ -2939,6 +2939,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 reasoning: string | null;
+                                tools: string | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -3058,6 +3059,7 @@ export interface paths {
                         content?: string;
                         images?: string;
                         reasoning?: string;
+                        tools?: string;
                     };
                 };
             };
@@ -3076,6 +3078,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 reasoning: string | null;
+                                tools: string | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;

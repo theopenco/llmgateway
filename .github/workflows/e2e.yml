@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload shard results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: e2e-results-${{ matrix.shard }}
           path: e2e-results-${{ matrix.shard }}.blob
@@ -113,7 +113,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download all shard results
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: ./e2e-results
           pattern: e2e-results-*
