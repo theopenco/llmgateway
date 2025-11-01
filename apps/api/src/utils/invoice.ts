@@ -4,6 +4,15 @@ import { logger } from "@llmgateway/logger";
 
 import { sendTransactionalEmail } from "./email.js";
 
+function escapeHtml(unsafe: string): string {
+	return unsafe
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
+}
+
 export interface InvoiceLineItem {
 	description: string;
 	amount: number;
@@ -16,12 +25,26 @@ export interface InvoiceData {
 	billingEmail: string;
 	billingCompany?: string | null;
 	billingAddress?: string | null;
+	billingTaxId?: string | null;
 	billingNotes?: string | null;
 	lineItems: InvoiceLineItem[];
 	currency: string;
 }
 
 export function generateInvoicePDF(data: InvoiceData): Buffer {
+	// Validate required fields
+	if (!data.lineItems || data.lineItems.length === 0) {
+		throw new Error("Invoice must contain at least one line item");
+	}
+	if (data.lineItems.some((item) => item.amount < 0)) {
+		throw new Error("Line item amounts must be non-negative");
+	}
+
+	// Use empty strings for optional fields if not provided
+	const invoiceNumber = data.invoiceNumber || "";
+	const organizationName = data.organizationName || "";
+	const billingEmail = data.billingEmail || "";
+
 	// eslint-disable-next-line new-cap
 	const doc = new jsPDF();
 	const pageWidth = doc.internal.pageSize.getWidth();
@@ -34,7 +57,7 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 	yPos += 15;
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
-	doc.text(`Invoice Number: ${data.invoiceNumber}`, 20, yPos);
+	doc.text(`Invoice Number: ${invoiceNumber}`, 20, yPos);
 	yPos += 6;
 	doc.text(
 		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,
@@ -55,9 +78,9 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 		yPos += 6;
 	}
 
-	doc.text(data.organizationName, 20, yPos);
+	doc.text(organizationName, 20, yPos);
 	yPos += 6;
-	doc.text(data.billingEmail, 20, yPos);
+	doc.text(billingEmail, 20, yPos);
 	yPos += 6;
 
 	if (data.billingAddress) {
@@ -66,6 +89,11 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 			doc.text(line, 20, yPos);
 			yPos += 6;
 		}
+	}
+
+	if (data.billingTaxId) {
+		doc.text(`Tax ID: ${data.billingTaxId}`, 20, yPos);
+		yPos += 6;
 	}
 
 	yPos += 10;
@@ -131,12 +159,15 @@ export async function generateAndEmailInvoice(
 	try {
 		const pdfBuffer = generateInvoicePDF(data);
 
+		const escapedInvoiceNumber = escapeHtml(data.invoiceNumber);
+		const escapedCurrency = escapeHtml(data.currency);
+
 		await sendTransactionalEmail({
 			to: data.billingEmail,
-			subject: `Invoice ${data.invoiceNumber} - LLMGateway`,
+			subject: `Invoice ${escapedInvoiceNumber} - LLMGateway`,
 			attachments: [
 				{
-					filename: `invoice-${data.invoiceNumber}.pdf`,
+					filename: `invoice-${escapedInvoiceNumber}.pdf`,
 					content: pdfBuffer,
 					contentType: "application/pdf",
 				},
@@ -147,7 +178,7 @@ export async function generateAndEmailInvoice(
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Invoice ${data.invoiceNumber}</title>
+		<title>Invoice ${escapedInvoiceNumber}</title>
 	</head>
 	<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #ffffff;">
 		<table role="presentation" style="width: 100%; border-collapse: collapse;">
@@ -156,7 +187,7 @@ export async function generateAndEmailInvoice(
 					<table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse;">
 						<tr>
 							<td style="background-color: #000000; padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;">
-								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Invoice ${data.invoiceNumber}</h1>
+								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Invoice ${escapedInvoiceNumber}</h1>
 							</td>
 						</tr>
 						<tr>
@@ -168,9 +199,9 @@ export async function generateAndEmailInvoice(
 									Please find your invoice attached to this email.
 								</p>
 								<p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #666666;">
-									<strong>Invoice Number:</strong> ${data.invoiceNumber}<br>
+									<strong>Invoice Number:</strong> ${escapedInvoiceNumber}<br>
 									<strong>Date:</strong> ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}<br>
-									<strong>Total:</strong> ${data.currency} ${data.lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}
+									<strong>Total:</strong> ${escapedCurrency} ${data.lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}
 								</p>
 							</td>
 						</tr>

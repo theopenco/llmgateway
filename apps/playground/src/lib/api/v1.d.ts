@@ -1951,6 +1951,7 @@ export interface paths {
                                 billingEmail: string;
                                 billingCompany: string | null;
                                 billingAddress: string | null;
+                                billingTaxId: string | null;
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
@@ -2000,6 +2001,7 @@ export interface paths {
                                 billingEmail: string;
                                 billingCompany: string | null;
                                 billingAddress: string | null;
+                                billingTaxId: string | null;
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
@@ -2150,6 +2152,7 @@ export interface paths {
                         billingEmail?: string;
                         billingCompany?: string;
                         billingAddress?: string;
+                        billingTaxId?: string;
                         billingNotes?: string;
                         /** @enum {string} */
                         retentionLevel?: "retain" | "none";
@@ -2176,6 +2179,7 @@ export interface paths {
                                 billingEmail: string;
                                 billingCompany: string | null;
                                 billingAddress: string | null;
+                                billingTaxId: string | null;
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */

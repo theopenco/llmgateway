@@ -17,6 +17,7 @@ const organizationSchema = z.object({
 	billingEmail: z.string(),
 	billingCompany: z.string().nullable(),
 	billingAddress: z.string().nullable(),
+	billingTaxId: z.string().nullable(),
 	billingNotes: z.string().nullable(),
 	credits: z.string(),
 	plan: z.enum(["free", "pro"]),
@@ -49,6 +50,7 @@ const updateOrganizationSchema = z.object({
 	billingEmail: z.string().email().optional(),
 	billingCompany: z.string().optional(),
 	billingAddress: z.string().optional(),
+	billingTaxId: z.string().optional(),
 	billingNotes: z.string().optional(),
 	retentionLevel: z.enum(["retain", "none"]).optional(),
 	autoTopUpEnabled: z.boolean().optional(),
@@ -334,6 +336,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingEmail,
 		billingCompany,
 		billingAddress,
+		billingTaxId,
 		billingNotes,
 		retentionLevel,
 		autoTopUpEnabled,
@@ -369,6 +372,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingEmail !== undefined ||
 		billingCompany !== undefined ||
 		billingAddress !== undefined ||
+		billingTaxId !== undefined ||
 		billingNotes !== undefined ||
 		retentionLevel !== undefined ||
 		autoTopUpEnabled !== undefined ||
@@ -394,6 +398,9 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (billingAddress !== undefined) {
 		updateData.billingAddress = billingAddress;
+	}
+	if (billingTaxId !== undefined) {
+		updateData.billingTaxId = billingTaxId;
 	}
 	if (billingNotes !== undefined) {
 		updateData.billingNotes = billingNotes;

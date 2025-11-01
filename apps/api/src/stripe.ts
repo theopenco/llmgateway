@@ -285,37 +285,64 @@ async function handleCheckoutSessionCompleted(
 			`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
 		);
 
-		// Create transaction record for subscription start
-		const [transaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: "subscription_start",
-				amount: ((session.amount_total || 0) / 100).toString(),
-				currency: (session.currency || "USD").toUpperCase(),
-				status: "completed",
-				stripeInvoiceId: session.invoice as string,
-				description: "Pro subscription started via Stripe Checkout",
-			})
-			.returning();
+		// Check for existing transaction to avoid duplicates
+		const stripeInvoiceId = session.invoice as string | undefined;
+		const existing = stripeInvoiceId
+			? await db.query.transaction.findFirst({
+					where: {
+						stripeInvoiceId: {
+							eq: stripeInvoiceId,
+						},
+					},
+				})
+			: null;
 
-		// Generate and email invoice
-		await generateAndEmailInvoice({
-			invoiceNumber: transaction.id,
-			invoiceDate: new Date(),
-			organizationName: organization.name,
-			billingEmail: organization.billingEmail,
-			billingCompany: organization.billingCompany,
-			billingAddress: organization.billingAddress,
-			billingNotes: organization.billingNotes,
-			lineItems: [
-				{
-					description: "Pro Subscription",
-					amount: (session.amount_total || 0) / 100,
-				},
-			],
-			currency: (session.currency || "USD").toUpperCase(),
-		});
+		if (!existing) {
+			// Create transaction record for subscription start
+			const [transaction] = await db
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "subscription_start",
+					amount: ((session.amount_total || 0) / 100).toString(),
+					currency: (session.currency || "USD").toUpperCase(),
+					status: "completed",
+					stripeInvoiceId: stripeInvoiceId,
+					description: "Pro subscription started via Stripe Checkout",
+				})
+				.returning();
+
+			// Generate and email invoice
+			try {
+				await generateAndEmailInvoice({
+					invoiceNumber: transaction.id,
+					invoiceDate: new Date(),
+					organizationName: organization.name,
+					billingEmail: organization.billingEmail,
+					billingCompany: organization.billingCompany,
+					billingAddress: organization.billingAddress,
+					billingTaxId: organization.billingTaxId,
+					billingNotes: organization.billingNotes,
+					lineItems: [
+						{
+							description: "Pro Subscription",
+							amount: (session.amount_total || 0) / 100,
+						},
+					],
+					currency: (session.currency || "USD").toUpperCase(),
+				});
+			} catch (e) {
+				logger.error(
+					"Invoice email failed (checkout); suppressing webhook failure",
+					e as Error,
+				);
+			}
+		} else {
+			logger.info(
+				"Subscription transaction already exists for invoice; skipping duplicate insert/email",
+				{ stripeInvoiceId },
+			);
+		}
 
 		// Track subscription creation in PostHog
 		posthog.groupIdentify({
@@ -450,6 +477,7 @@ async function handlePaymentIntentSucceeded(
 		billingEmail: organization.billingEmail,
 		billingCompany: organization.billingCompany,
 		billingAddress: organization.billingAddress,
+		billingTaxId: organization.billingTaxId,
 		billingNotes: organization.billingNotes,
 		lineItems: [
 			{

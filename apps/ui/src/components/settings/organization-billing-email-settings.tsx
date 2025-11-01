@@ -33,11 +33,27 @@ export function OrganizationBillingEmailSettings() {
 	const [billingAddress, setBillingAddress] = useState<string>(
 		selectedOrganization?.billingAddress || "",
 	);
+	const [billingTaxId, setBillingTaxId] = useState<string>(
+		selectedOrganization?.billingTaxId || "",
+	);
 	const [billingNotes, setBillingNotes] = useState<string>(
 		selectedOrganization?.billingNotes || "",
 	);
 
 	const [emailError, setEmailError] = useState<string>("");
+
+	// Sync state when organization changes
+	React.useEffect(() => {
+		if (!selectedOrganization) {
+			return;
+		}
+		setBillingEmail(selectedOrganization.billingEmail || "");
+		setBillingCompany(selectedOrganization.billingCompany || "");
+		setBillingAddress(selectedOrganization.billingAddress || "");
+		setBillingTaxId(selectedOrganization.billingTaxId || "");
+		setBillingNotes(selectedOrganization.billingNotes || "");
+		setEmailError("");
+	}, [selectedOrganization?.id]);
 
 	const validateEmail = (email: string): boolean => {
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -75,6 +91,7 @@ export function OrganizationBillingEmailSettings() {
 					billingEmail,
 					billingCompany,
 					billingAddress,
+					billingTaxId,
 					billingNotes,
 				},
 			});
@@ -156,6 +173,20 @@ export function OrganizationBillingEmailSettings() {
 					/>
 					<p className="text-sm text-muted-foreground">
 						Full billing address to appear on invoices.
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="billingTaxId">Tax ID / VAT Number (Optional)</Label>
+					<Input
+						id="billingTaxId"
+						type="text"
+						placeholder="GB123456789 or VAT-123456789"
+						value={billingTaxId}
+						onChange={(e) => setBillingTaxId(e.target.value)}
+					/>
+					<p className="text-sm text-muted-foreground">
+						Tax identification number to appear on invoices.
 					</p>
 				</div>
 
