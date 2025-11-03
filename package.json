@@ -58,7 +58,7 @@
 		"typescript": "5.9.2",
 		"vite": "^7.1.11",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.2.3"
+		"vitest": "^4.0.5"
 	},
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
