@@ -66,7 +66,7 @@
 		"openapi-fetch": "0.15.0",
 		"openapi-react-query": "0.5.1",
 		"posthog-js": "1.280.1",
-		"posthog-node": "5.10.3",
+		"posthog-node": "5.10.4",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
 		"react": "^19.2.0",
