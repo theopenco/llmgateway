@@ -47,6 +47,7 @@ export const mistralModels = [
 		family: "mistral",
 		providers: [
 			{
+				deactivatedAt: new Date("13-11-2025"),
 				providerId: "together.ai",
 				modelName: "mistralai/mistral-7b-instruct-v0.1",
 				inputPrice: 0.06 / 1e6,
