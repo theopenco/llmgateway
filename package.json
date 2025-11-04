@@ -54,11 +54,11 @@
 		"sort-package-json": "3.4.0",
 		"tsc-watch": "7.1.1",
 		"tsx": "4.20.6",
-		"turbo": "^2.5.8",
+		"turbo": "^2.6.0",
 		"typescript": "5.9.2",
 		"vite": "^7.1.11",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.2.3"
+		"vitest": "^4.0.5"
 	},
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
