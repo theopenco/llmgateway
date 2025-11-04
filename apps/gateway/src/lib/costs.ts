@@ -170,7 +170,7 @@ export function calculateCosts(
 
 	const inputPrice = providerInfo.inputPrice || 0;
 	const outputPrice = providerInfo.outputPrice || 0;
-	const cachedInputPrice = providerInfo.cachedInputPrice || 0;
+	const cachedInputPrice = providerInfo.cachedInputPrice ?? inputPrice;
 	const requestPrice = providerInfo.requestPrice || 0;
 	const discount = providerInfo.discount || 0;
 	const discountMultiplier = 1 - discount;

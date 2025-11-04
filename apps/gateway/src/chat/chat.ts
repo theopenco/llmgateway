@@ -1529,6 +1529,17 @@ chat.openapi(completions, async (c) => {
 					rawCachedResponseData, // Raw SSE data from cached response (same for both)
 				);
 
+				// Calculate costs for cached response
+				const costs = calculateCosts(
+					usedModel,
+					usedProvider,
+					promptTokens || null,
+					completionTokens || null,
+					cachedTokens || null,
+					undefined,
+					reasoningTokens || null,
+				);
+
 				await insertLog({
 					...baseLogEntry,
 					duration: 0, // No processing time for cached response
@@ -1547,13 +1558,13 @@ chat.openapi(completions, async (c) => {
 					streamed: true,
 					canceled: false,
 					errorDetails: null,
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
+					inputCost: costs.inputCost ?? 0,
+					outputCost: costs.outputCost ?? 0,
+					cachedInputCost: costs.cachedInputCost ?? 0,
+					requestCost: costs.requestCost ?? 0,
+					cost: costs.totalCost ?? 0,
+					estimatedCost: costs.estimatedCost,
+					discount: costs.discount ?? null,
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
@@ -1621,6 +1632,17 @@ chat.openapi(completions, async (c) => {
 					cachedResponse, // upstream response is same as cached response
 				);
 
+				// Calculate costs for cached response
+				const cachedCosts = calculateCosts(
+					usedModel,
+					usedProvider,
+					cachedResponse.usage?.prompt_tokens || null,
+					cachedResponse.usage?.completion_tokens || null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
+					undefined,
+					cachedResponse.usage?.reasoning_tokens || null,
+				);
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
@@ -1635,18 +1657,19 @@ chat.openapi(completions, async (c) => {
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
 					totalTokens: cachedResponse.usage?.total_tokens || null,
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
-					cachedTokens: null,
+					cachedTokens:
+						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
 					errorDetails: null,
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
+					inputCost: cachedCosts.inputCost ?? 0,
+					outputCost: cachedCosts.outputCost ?? 0,
+					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
+					requestCost: cachedCosts.requestCost ?? 0,
+					cost: cachedCosts.totalCost ?? 0,
+					estimatedCost: cachedCosts.estimatedCost,
+					discount: cachedCosts.discount ?? null,
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
 				});
