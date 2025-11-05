@@ -1,11 +1,22 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { generateInvoicePDF } from "./invoice.js";
+import { generateAndEmailInvoice, generateInvoicePDF } from "./invoice.js";
 
 import type { InvoiceData } from "./invoice.js";
+
+vi.mock("./email.js", () => ({
+	sendTransactionalEmail: vi.fn(),
+}));
+
+vi.mock("@llmgateway/logger", () => ({
+	logger: {
+		info: vi.fn(),
+		error: vi.fn(),
+	},
+}));
 
 describe("generateInvoicePDF", () => {
 	const baseInvoiceData: InvoiceData = {
@@ -305,5 +316,66 @@ describe("generateInvoicePDF", () => {
 
 		expect(pdfBuffer).toBeInstanceOf(Buffer);
 		expect(pdfBuffer.length).toBeGreaterThan(0);
+	});
+});
+
+describe("generateAndEmailInvoice", () => {
+	const baseInvoiceData: InvoiceData = {
+		invoiceNumber: "INV-2025-001",
+		invoiceDate: new Date("2025-01-15"),
+		organizationName: "Test Organization",
+		billingEmail: "billing@example.com",
+		lineItems: [
+			{ description: "API Usage - January 2025", amount: 100.5 },
+			{ description: "Premium Features", amount: 50.0 },
+		],
+		currency: "USD",
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("should not send email when total amount is 0", async () => {
+		const { sendTransactionalEmail } = await import("./email.js");
+		const { logger } = await import("@llmgateway/logger");
+
+		const zeroAmountData: InvoiceData = {
+			...baseInvoiceData,
+			lineItems: [
+				{ description: "Free item 1", amount: 0 },
+				{ description: "Free item 2", amount: 0 },
+			],
+		};
+
+		await generateAndEmailInvoice(zeroAmountData);
+
+		expect(sendTransactionalEmail).not.toHaveBeenCalled();
+		expect(logger.info).toHaveBeenCalledWith(
+			"Skipping invoice email for zero amount",
+			{
+				invoiceNumber: "INV-2025-001",
+			},
+		);
+	});
+
+	it("should send email when total amount is greater than 0", async () => {
+		const { sendTransactionalEmail } = await import("./email.js");
+
+		await generateAndEmailInvoice(baseInvoiceData);
+
+		expect(sendTransactionalEmail).toHaveBeenCalledOnce();
+		expect(sendTransactionalEmail).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: "billing@example.com",
+				subject: "Invoice INV-2025-001 - LLMGateway",
+				attachments: expect.arrayContaining([
+					expect.objectContaining({
+						filename: "invoice-INV-2025-001.pdf",
+						contentType: "application/pdf",
+					}),
+				]),
+			}),
+		);
 	});
 });

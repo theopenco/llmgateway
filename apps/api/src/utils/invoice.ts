@@ -157,6 +157,15 @@ export async function generateAndEmailInvoice(
 	data: InvoiceData,
 ): Promise<void> {
 	try {
+		const total = data.lineItems.reduce((sum, item) => sum + item.amount, 0);
+
+		if (total === 0) {
+			logger.info("Skipping invoice email for zero amount", {
+				invoiceNumber: data.invoiceNumber,
+			});
+			return;
+		}
+
 		const pdfBuffer = generateInvoicePDF(data);
 
 		const escapedInvoiceNumber = escapeHtml(data.invoiceNumber);
