@@ -59,7 +59,6 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "routeway-discount",
-				stability: "unstable" as const,
 				modelName: "claude-3-5-haiku-20241022-v1:0",
 				inputPrice: 0.8 / 1e6,
 				outputPrice: 4.0 / 1e6,
@@ -97,7 +96,6 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
-				stability: "unstable" as const,
 				modelName: "claude-3-7-sonnet-20250219-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -194,7 +192,6 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
-				stability: "unstable" as const,
 				modelName: "claude-sonnet-4-20250514-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -249,7 +246,6 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
-				stability: "unstable" as const,
 				modelName: "claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -323,7 +319,6 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
-				stability: "unstable" as const,
 				modelName: "claude-opus-4-20250514-v1:0",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,
@@ -378,7 +373,6 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "routeway-discount",
-				stability: "unstable" as const,
 				modelName: "claude-opus-4-1-20250805-v1:0",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 75.0 / 1e6,
