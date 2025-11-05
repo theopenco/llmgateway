@@ -291,7 +291,7 @@ export function ContactFormEnterprise() {
 										)}
 									/>
 
-									<div className="flex items-center justify-between pt-2">
+									<div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:justify-between pt-2">
 										<p className="text-sm text-muted-foreground">
 											<span className="text-destructive">*</span> Required
 											fields
