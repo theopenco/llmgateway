@@ -717,6 +717,23 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Determine image size limit based on organization plan
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: {
+				eq: project.organizationId,
+			},
+		},
+	});
+
+	// Get image size limits from environment variables or use defaults
+	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 10;
+	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
+
+	// Determine max image size based on plan
+	const userPlan = organization?.plan || "free";
+	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
+
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
@@ -1728,6 +1745,8 @@ chat.openapi(completions, async (c) => {
 		reasoning_effort,
 		supportsReasoning,
 		process.env.NODE_ENV === "production",
+		maxImageSizeMB,
+		userPlan,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody

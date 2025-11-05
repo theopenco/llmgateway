@@ -51,6 +51,8 @@ export async function prepareRequestBody(
 	reasoning_effort?: "minimal" | "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd = false,
+	maxImageSizeMB = 20,
+	userPlan: "free" | "pro" | null = null,
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
@@ -345,6 +347,8 @@ export async function prepareRequestBody(
 				isProd,
 				usedProvider,
 				usedModel,
+				maxImageSizeMB,
+				userPlan,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -531,6 +535,8 @@ export async function prepareRequestBody(
 			requestBody.contents = await transformGoogleMessages(
 				processedMessages,
 				isProd,
+				maxImageSizeMB,
+				userPlan,
 			);
 
 			// Transform tools from OpenAI format to Google format
