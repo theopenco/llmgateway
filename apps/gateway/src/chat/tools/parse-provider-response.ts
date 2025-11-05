@@ -199,39 +199,14 @@ export function parseProviderResponse(
 			const promptBlockReason = json.promptFeedback?.blockReason;
 			const googleFinishReason = json.candidates?.[0]?.finishReason;
 
-			// Check if there are function calls in this response
-			const hasFunctionCalls = json.candidates?.[0]?.content?.parts?.some(
-				(part: any) => part.functionCall,
-			);
-
-			// Map Google finish reasons to OpenAI format
-			// Google finish reasons: STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER, PROHIBITED_CONTENT, BLOCKLIST, SPII
-			// Prompt feedback block reasons: SAFETY, PROHIBITED_CONTENT, BLOCKLIST, etc.
+			// Preserve the original Google finish reason for logging
+			// Use promptBlockReason if present, otherwise use googleFinishReason
 			if (promptBlockReason) {
-				// Content was blocked at the prompt level (before generation)
-				finishReason =
-					promptBlockReason === "SAFETY" ||
-					promptBlockReason === "PROHIBITED_CONTENT" ||
-					promptBlockReason === "BLOCKLIST" ||
-					promptBlockReason === "OTHER"
-						? "content_filter"
-						: "stop";
+				finishReason = promptBlockReason;
+			} else if (googleFinishReason) {
+				finishReason = googleFinishReason;
 			} else {
-				finishReason = googleFinishReason
-					? googleFinishReason === "STOP"
-						? hasFunctionCalls
-							? "tool_calls"
-							: "stop"
-						: googleFinishReason === "MAX_TOKENS"
-							? "length"
-							: googleFinishReason === "SAFETY" ||
-								  googleFinishReason === "PROHIBITED_CONTENT" ||
-								  googleFinishReason === "RECITATION" ||
-								  googleFinishReason === "BLOCKLIST" ||
-								  googleFinishReason === "SPII"
-								? "content_filter"
-								: "stop" // Safe fallback for OTHER or unknown reasons
-					: null;
+				finishReason = null;
 			}
 
 			// Debug logging for finish reason mapping
@@ -241,7 +216,6 @@ export function parseProviderResponse(
 					{
 						promptBlockReason,
 						googleFinishReason,
-						hasFunctionCalls,
 						candidateFinishReason: json.candidates?.[0]?.finishReason,
 						hasPromptFeedback: !!json.promptFeedback,
 						candidateKeys: json.candidates?.[0]

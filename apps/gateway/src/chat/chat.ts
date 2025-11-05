@@ -2598,28 +2598,11 @@ chat.openapi(completions, async (c) => {
 							switch (usedProvider) {
 								case "google-ai-studio":
 								case "google-vertex":
-									if (data.candidates?.[0]?.finishReason) {
-										const googleFinishReason = data.candidates[0].finishReason;
-										// Check if there are function calls in this response
-										const hasFunctionCalls =
-											data.candidates?.[0]?.content?.parts?.some(
-												(part: any) => part.functionCall,
-											);
-										// Map Google finish reasons to OpenAI format
-										finishReason =
-											googleFinishReason === "STOP"
-												? hasFunctionCalls
-													? "tool_calls"
-													: "stop"
-												: googleFinishReason === "MAX_TOKENS"
-													? "length"
-													: googleFinishReason === "SAFETY" ||
-														  googleFinishReason === "PROHIBITED_CONTENT" ||
-														  googleFinishReason === "RECITATION" ||
-														  googleFinishReason === "BLOCKLIST" ||
-														  googleFinishReason === "SPII"
-														? "content_filter"
-														: "stop"; // Safe fallback for OTHER or unknown reasons
+									// Preserve original Google finish reason for logging
+									if (data.promptFeedback?.blockReason) {
+										finishReason = data.promptFeedback.blockReason;
+									} else if (data.candidates?.[0]?.finishReason) {
+										finishReason = data.candidates[0].finishReason;
 									}
 									break;
 								case "anthropic":
@@ -3441,9 +3424,18 @@ chat.openapi(completions, async (c) => {
 
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
 	// Exclude content_filter responses as they are intentionally empty (blocked by provider)
+	// For Google, check for original finish reasons that indicate content filtering
+	const isGoogleContentFilter =
+		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
+		(finishReason === "SAFETY" ||
+			finishReason === "PROHIBITED_CONTENT" ||
+			finishReason === "RECITATION" ||
+			finishReason === "BLOCKLIST" ||
+			finishReason === "SPII");
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "content_filter" &&
+		!isGoogleContentFilter &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 		(!content || content.trim() === "") &&
 		(!toolResults || toolResults.length === 0);

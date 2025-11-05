@@ -43,7 +43,26 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
 			break;
-		default: // OpenAI format (also used by inference.net and google-ai-studio after transformation)
+		case "google-ai-studio":
+		case "google-vertex":
+			// Google finish reasons (original format, not mapped to OpenAI)
+			if (finishReason === "STOP") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (finishReason === "MAX_TOKENS") {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (
+				finishReason === "SAFETY" ||
+				finishReason === "PROHIBITED_CONTENT" ||
+				finishReason === "RECITATION" ||
+				finishReason === "BLOCKLIST" ||
+				finishReason === "SPII"
+			) {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
+			break;
+		default: // OpenAI format (also used by inference.net and other providers)
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}

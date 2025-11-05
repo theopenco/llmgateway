@@ -1,6 +1,7 @@
 import { format, formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
+	TriangleAlert,
 	AudioWaveform,
 	Ban,
 	CheckCircle2,
@@ -54,6 +55,10 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 		StatusIcon = AlertCircle;
 		color = "text-red-500";
 		bgColor = "bg-red-100";
+	} else if (log.unifiedFinishReason === "content_filter") {
+		StatusIcon = TriangleAlert;
+		color = "text-orange-500";
+		bgColor = "bg-orange-100";
 	} else if (
 		log.unifiedFinishReason !== "completed" &&
 		log.unifiedFinishReason !== "tool_calls"
@@ -86,7 +91,13 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								))}
 						</p>
 						<Badge
-							variant={log.hasError ? "destructive" : "default"}
+							variant={
+								log.hasError
+									? "destructive"
+									: log.unifiedFinishReason === "content_filter"
+										? "destructive"
+										: "default"
+							}
 							className="flex-shrink-0"
 						>
 							{log.unifiedFinishReason}
