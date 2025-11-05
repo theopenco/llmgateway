@@ -960,27 +960,20 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
-				// If reasoning_effort is specified, only include providers that support reasoning
-				if (reasoning_effort !== undefined) {
-					// Also check for tool support if tools are specified
-					if (tools !== undefined || tool_choice !== undefined) {
-						return (
-							contextSizeMet &&
-							(provider as ProviderModelMapping).reasoning === true &&
-							(provider as ProviderModelMapping).tools === true
-						);
-					}
-					return (
-						contextSizeMet &&
-						(provider as ProviderModelMapping).reasoning === true
-					);
+				// Check reasoning capability if reasoning_effort is specified
+				if (
+					reasoning_effort !== undefined &&
+					(provider as ProviderModelMapping).reasoning !== true
+				) {
+					return false;
 				}
 
-				// If tools or tool_choice is specified, only include providers that support tools
-				if (tools !== undefined || tool_choice !== undefined) {
-					return (
-						contextSizeMet && (provider as ProviderModelMapping).tools === true
-					);
+				// Check tool capability if tools or tool_choice is specified
+				if (
+					(tools !== undefined || tool_choice !== undefined) &&
+					(provider as ProviderModelMapping).tools !== true
+				) {
+					return false;
 				}
 
 				return contextSizeMet;
