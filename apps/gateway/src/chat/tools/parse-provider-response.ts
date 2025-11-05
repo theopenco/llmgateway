@@ -1,3 +1,5 @@
+import { logger } from "@llmgateway/logger";
+
 import { estimateTokens } from "./estimate-tokens.js";
 
 import type { ImageObject } from "./types.js";
@@ -125,6 +127,25 @@ export function parseProviderResponse(
 		}
 		case "google-ai-studio":
 		case "google-vertex": {
+			// Debug logging at the start to capture raw response structure
+			// Only log as error if there's no promptFeedback explaining why candidates are missing
+			if (
+				(!json.candidates || json.candidates.length === 0) &&
+				!json.promptFeedback?.blockReason
+			) {
+				logger.error(
+					"[parse-provider-response] Google response missing candidates",
+					{
+						hasCandidates: !!json.candidates,
+						candidatesLength: json.candidates?.length || 0,
+						hasPromptFeedback: !!json.promptFeedback,
+						promptBlockReason: json.promptFeedback?.blockReason,
+						responseKeys: Object.keys(json),
+						fullResponse: JSON.stringify(json, null, 2),
+					},
+				);
+			}
+
 			// Extract content and reasoning content from Google response parts
 			const parts = json.candidates?.[0]?.content?.parts || [];
 			const contentParts = parts.filter((part: any) => !part.thought);
@@ -133,6 +154,19 @@ export function parseProviderResponse(
 			content = contentParts.map((part: any) => part.text).join("") || null;
 			reasoningContent =
 				reasoningParts.map((part: any) => part.text).join("") || null;
+
+			// Debug logging to identify parsing issues
+			if (!content && !reasoningContent && parts.length > 0) {
+				logger.error(
+					"[parse-provider-response] Google response has parts but no text extracted",
+					{
+						partsCount: parts.length,
+						partsStructure: JSON.stringify(parts, null, 2),
+						candidatesCount: json.candidates?.length || 0,
+						firstCandidate: JSON.stringify(json.candidates?.[0], null, 2),
+					},
+				);
+			}
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
@@ -161,23 +195,61 @@ export function parseProviderResponse(
 				toolResults = null;
 			}
 
+			// Check for prompt feedback block reason (when content is blocked before generation)
+			const promptBlockReason = json.promptFeedback?.blockReason;
 			const googleFinishReason = json.candidates?.[0]?.finishReason;
+
 			// Check if there are function calls in this response
 			const hasFunctionCalls = json.candidates?.[0]?.content?.parts?.some(
 				(part: any) => part.functionCall,
 			);
+
 			// Map Google finish reasons to OpenAI format
-			finishReason = googleFinishReason
-				? googleFinishReason === "STOP"
-					? hasFunctionCalls
-						? "tool_calls"
-						: "stop"
-					: googleFinishReason === "MAX_TOKENS"
-						? "length"
-						: googleFinishReason === "SAFETY"
-							? "content_filter"
-							: "stop" // Safe fallback for unknown reasons
-				: null;
+			// Google finish reasons: STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER, PROHIBITED_CONTENT, BLOCKLIST, SPII
+			// Prompt feedback block reasons: SAFETY, PROHIBITED_CONTENT, BLOCKLIST, etc.
+			if (promptBlockReason) {
+				// Content was blocked at the prompt level (before generation)
+				finishReason =
+					promptBlockReason === "SAFETY" ||
+					promptBlockReason === "PROHIBITED_CONTENT" ||
+					promptBlockReason === "BLOCKLIST" ||
+					promptBlockReason === "OTHER"
+						? "content_filter"
+						: "stop";
+			} else {
+				finishReason = googleFinishReason
+					? googleFinishReason === "STOP"
+						? hasFunctionCalls
+							? "tool_calls"
+							: "stop"
+						: googleFinishReason === "MAX_TOKENS"
+							? "length"
+							: googleFinishReason === "SAFETY" ||
+								  googleFinishReason === "PROHIBITED_CONTENT" ||
+								  googleFinishReason === "RECITATION" ||
+								  googleFinishReason === "BLOCKLIST" ||
+								  googleFinishReason === "SPII"
+								? "content_filter"
+								: "stop" // Safe fallback for OTHER or unknown reasons
+					: null;
+			}
+
+			// Debug logging for finish reason mapping
+			if (!finishReason) {
+				logger.error(
+					"[parse-provider-response] Google response missing finish reason",
+					{
+						promptBlockReason,
+						googleFinishReason,
+						hasFunctionCalls,
+						candidateFinishReason: json.candidates?.[0]?.finishReason,
+						hasPromptFeedback: !!json.promptFeedback,
+						candidateKeys: json.candidates?.[0]
+							? Object.keys(json.candidates[0])
+							: [],
+					},
+				);
+			}
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;

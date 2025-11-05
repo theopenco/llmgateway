@@ -2613,9 +2613,13 @@ chat.openapi(completions, async (c) => {
 													: "stop"
 												: googleFinishReason === "MAX_TOKENS"
 													? "length"
-													: googleFinishReason === "SAFETY"
+													: googleFinishReason === "SAFETY" ||
+														  googleFinishReason === "PROHIBITED_CONTENT" ||
+														  googleFinishReason === "RECITATION" ||
+														  googleFinishReason === "BLOCKLIST" ||
+														  googleFinishReason === "SPII"
 														? "content_filter"
-														: "stop"; // Safe fallback for unknown reasons
+														: "stop"; // Safe fallback for OTHER or unknown reasons
 									}
 									break;
 								case "anthropic":
@@ -2981,6 +2985,27 @@ chat.openapi(completions, async (c) => {
 					finishReason = "stop";
 				}
 
+				// Enhanced logging for Google models streaming to debug missing responses
+				if (
+					usedProvider === "google-ai-studio" ||
+					usedProvider === "google-vertex"
+				) {
+					logger.debug("Google model streaming response completed", {
+						usedProvider,
+						usedModel,
+						hasContent: !!fullContent,
+						contentLength: fullContent.length,
+						finishReason,
+						promptTokens: calculatedPromptTokens,
+						completionTokens: calculatedCompletionTokens,
+						totalTokens: calculatedTotalTokens,
+						reasoningTokens,
+						streamingError: streamingError ? String(streamingError) : null,
+						canceled,
+						hasToolCalls: !!streamingToolCalls && streamingToolCalls.length > 0,
+					});
+				}
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
@@ -3317,6 +3342,24 @@ chat.openapi(completions, async (c) => {
 		images,
 	} = parseProviderResponse(usedProvider, json, messages);
 
+	// Enhanced logging for Google models to debug missing responses
+	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+		logger.debug("Google model response parsed", {
+			usedProvider,
+			usedModel,
+			hasContent: !!content,
+			contentLength: content?.length || 0,
+			finishReason,
+			promptTokens,
+			completionTokens,
+			reasoningTokens,
+			hasToolResults: !!toolResults,
+			toolResultsCount: toolResults?.length || 0,
+			rawCandidates: json.candidates,
+			rawUsageMetadata: json.usageMetadata,
+		});
+	}
+
 	// Debug: Log images found in response
 	logger.debug("Gateway - parseProviderResponse extracted images", { images });
 	logger.debug("Gateway - Used provider", { usedProvider });
@@ -3397,8 +3440,10 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
+	// Exclude content_filter responses as they are intentionally empty (blocked by provider)
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
+		finishReason !== "content_filter" &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 		(!content || content.trim() === "") &&
 		(!toolResults || toolResults.length === 0);
