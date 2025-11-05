@@ -649,6 +649,32 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Check if tools are specified but model doesn't support them
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		(tools !== undefined || tool_choice !== undefined) &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		// Filter providers by requestedProvider if specified
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		// Check if any provider for this model supports tools
+		const supportsTools = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).tools === true,
+		);
+
+		if (!supportsTools) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
+			});
+		}
+	}
+
 	let usedProvider = requestedProvider;
 	let usedModel = requestedModel;
 
