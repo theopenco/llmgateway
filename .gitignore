@@ -16,3 +16,4 @@ llmgateway_data
 *.txt
 docker-compose-override-*.yml
 benchmark_results.json
+*.pdf
