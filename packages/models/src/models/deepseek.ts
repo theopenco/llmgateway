@@ -21,6 +21,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "nebius",
+				stability: "unstable" as const,
 				modelName: "deepseek-ai/DeepSeek-V3",
 				inputPrice: 0.5 / 1e6,
 				outputPrice: 1.5 / 1e6,

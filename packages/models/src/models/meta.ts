@@ -212,6 +212,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "together.ai",
+				stability: "unstable" as const,
 				modelName: "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
 				inputPrice: 0.18 / 1e6,
 				outputPrice: 0.59 / 1e6,

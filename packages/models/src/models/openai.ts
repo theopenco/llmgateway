@@ -270,6 +270,7 @@ export const openaiModels = [
 		family: "openai",
 		providers: [
 			{
+				stability: "unstable" as const,
 				providerId: "openai",
 				modelName: "o1-mini",
 				inputPrice: 1.1 / 1e6,
