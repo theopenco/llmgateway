@@ -141,6 +141,104 @@ describe("e2e individual tests", () => {
 	);
 
 	test(
+		"Tool calls error for unsupported model",
+		getTestOptions({ completions: false }),
+		async () => {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
+				console.log(
+					"Skipping tool calls error test - no OpenAI API key provided",
+				);
+				return;
+			}
+
+			const { token } = await createTestData("tool-error");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "openai/o1",
+					messages: [
+						{
+							role: "user",
+							content: "What's the weather?",
+						},
+					],
+					tools: [
+						{
+							type: "function",
+							function: {
+								name: "get_weather",
+								description: "Get the weather in a location",
+								parameters: {
+									type: "object",
+									properties: {
+										location: {
+											type: "string",
+											description: "The location to get weather for",
+										},
+									},
+									required: ["location"],
+								},
+							},
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+
+			const text = await res.text();
+			expect(text).toContain("does not support tool calls");
+		},
+	);
+
+	test(
+		"Tool choice error for unsupported model",
+		getTestOptions({ completions: false }),
+		async () => {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
+				console.log(
+					"Skipping tool choice error test - no OpenAI API key provided",
+				);
+				return;
+			}
+
+			const { token } = await createTestData("tool-choice-error");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "openai/o1",
+					messages: [
+						{
+							role: "user",
+							content: "Hello",
+						},
+					],
+					tool_choice: "auto",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+
+			const text = await res.text();
+			expect(text).toContain("does not support tool calls");
+		},
+	);
+
+	test(
 		"JSON output mode error when 'json' not mentioned in messages",
 		getTestOptions({ completions: false }),
 		async () => {

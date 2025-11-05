@@ -53,7 +53,7 @@ export class HealthChecker {
 	public async performHealthChecks(
 		options: HealthCheckOptions = {},
 	): Promise<HealthCheckResult> {
-		const { skipChecks = [], timeoutMs = 5000 } = options;
+		const { skipChecks = [], timeoutMs = 3000 } = options;
 		const { redisClient, db, logger } = this.dependencies;
 
 		const health: HealthCheckResult = {

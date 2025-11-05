@@ -23,7 +23,7 @@ interface CacheRateChartProps {
 }
 
 const CustomTooltip = ({
-	active,
+	active: _active,
 	payload,
 	label,
 }: TooltipProps<number, string> & {

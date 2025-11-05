@@ -5,11 +5,9 @@
 
 @custom-variant dark (&:is(.dark *));
 
-body {
-	@apply m-0;
-}
-
 :root {
+	--font-mono: var(--font-geist-mono);
+	--font-sans: var(--font-inter);
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.141 0.005 285.823);
 	--card: oklch(1 0 0);
@@ -141,8 +139,11 @@ body {
 	* {
 		@apply border-border outline-ring/50;
 	}
+
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-background text-foreground m-0;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
 	}
 
 	@keyframes accordion-down {

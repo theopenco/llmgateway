@@ -178,7 +178,9 @@ export function ApiKeyStep() {
 									</div>
 									<div className="rounded-md bg-background p-4 border">
 										<div className="flex items-center justify-between">
-											<p className="text-sm font-medium break-all">{apiKey}</p>
+											<p className="text-sm font-medium truncate text-ellipsis max-w-[200px]">
+												{apiKey}
+											</p>
 											<Button
 												variant="ghost"
 												size="sm"

@@ -1174,7 +1174,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			<main>
 				{children}
 				<div
-					className={cn("container mx-auto px-4 md:px-0 pb-8 space-y-6", {
+					className={cn("container mx-auto px-4 pb-8 space-y-6", {
 						"pt-40": children,
 					})}
 				>

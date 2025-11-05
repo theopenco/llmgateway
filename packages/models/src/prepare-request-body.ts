@@ -51,6 +51,8 @@ export async function prepareRequestBody(
 	reasoning_effort?: "minimal" | "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd = false,
+	maxImageSizeMB = 20,
+	userPlan: "free" | "pro" | null = null,
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
@@ -345,6 +347,8 @@ export async function prepareRequestBody(
 				isProd,
 				usedProvider,
 				usedModel,
+				maxImageSizeMB,
+				userPlan,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -531,6 +535,8 @@ export async function prepareRequestBody(
 			requestBody.contents = await transformGoogleMessages(
 				processedMessages,
 				isProd,
+				maxImageSizeMB,
+				userPlan,
 			);
 
 			// Transform tools from OpenAI format to Google format
@@ -601,6 +607,20 @@ export async function prepareRequestBody(
 						getThinkingBudget(reasoning_effort);
 				}
 			}
+
+			// Set all safety settings to BLOCK_NONE to disable content filtering
+			requestBody.safetySettings = [
+				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+				{
+					category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+					threshold: "BLOCK_NONE",
+				},
+				{
+					category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+					threshold: "BLOCK_NONE",
+				},
+			];
 
 			break;
 		}

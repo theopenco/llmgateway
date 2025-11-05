@@ -649,6 +649,32 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Check if tools are specified but model doesn't support them
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		(tools !== undefined || tool_choice !== undefined) &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		// Filter providers by requestedProvider if specified
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		// Check if any provider for this model supports tools
+		const supportsTools = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).tools === true,
+		);
+
+		if (!supportsTools) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
+			});
+		}
+	}
+
 	let usedProvider = requestedProvider;
 	let usedModel = requestedModel;
 
@@ -716,6 +742,23 @@ chat.openapi(completions, async (c) => {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
+
+	// Determine image size limit based on organization plan
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: {
+				eq: project.organizationId,
+			},
+		},
+	});
+
+	// Get image size limits from environment variables or use defaults
+	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 10;
+	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
+
+	// Determine max image size based on plan
+	const userPlan = organization?.plan || "free";
+	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
 
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
@@ -917,12 +960,20 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
-				// If reasoning_effort is specified, only include providers that support reasoning
-				if (reasoning_effort !== undefined) {
-					return (
-						contextSizeMet &&
-						(provider as ProviderModelMapping).reasoning === true
-					);
+				// Check reasoning capability if reasoning_effort is specified
+				if (
+					reasoning_effort !== undefined &&
+					(provider as ProviderModelMapping).reasoning !== true
+				) {
+					return false;
+				}
+
+				// Check tool capability if tools or tool_choice is specified
+				if (
+					(tools !== undefined || tool_choice !== undefined) &&
+					(provider as ProviderModelMapping).tools !== true
+				) {
+					return false;
 				}
 
 				return contextSizeMet;
@@ -1529,6 +1580,17 @@ chat.openapi(completions, async (c) => {
 					rawCachedResponseData, // Raw SSE data from cached response (same for both)
 				);
 
+				// Calculate costs for cached response
+				const costs = calculateCosts(
+					usedModel,
+					usedProvider,
+					promptTokens || null,
+					completionTokens || null,
+					cachedTokens || null,
+					undefined,
+					reasoningTokens || null,
+				);
+
 				await insertLog({
 					...baseLogEntry,
 					duration: 0, // No processing time for cached response
@@ -1547,13 +1609,13 @@ chat.openapi(completions, async (c) => {
 					streamed: true,
 					canceled: false,
 					errorDetails: null,
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
+					inputCost: costs.inputCost ?? 0,
+					outputCost: costs.outputCost ?? 0,
+					cachedInputCost: costs.cachedInputCost ?? 0,
+					requestCost: costs.requestCost ?? 0,
+					cost: costs.totalCost ?? 0,
+					estimatedCost: costs.estimatedCost,
+					discount: costs.discount ?? null,
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
@@ -1621,6 +1683,17 @@ chat.openapi(completions, async (c) => {
 					cachedResponse, // upstream response is same as cached response
 				);
 
+				// Calculate costs for cached response
+				const cachedCosts = calculateCosts(
+					usedModel,
+					usedProvider,
+					cachedResponse.usage?.prompt_tokens || null,
+					cachedResponse.usage?.completion_tokens || null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
+					undefined,
+					cachedResponse.usage?.reasoning_tokens || null,
+				);
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
@@ -1635,18 +1708,19 @@ chat.openapi(completions, async (c) => {
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
 					totalTokens: cachedResponse.usage?.total_tokens || null,
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
-					cachedTokens: null,
+					cachedTokens:
+						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
 					errorDetails: null,
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
+					inputCost: cachedCosts.inputCost ?? 0,
+					outputCost: cachedCosts.outputCost ?? 0,
+					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
+					requestCost: cachedCosts.requestCost ?? 0,
+					cost: cachedCosts.totalCost ?? 0,
+					estimatedCost: cachedCosts.estimatedCost,
+					discount: cachedCosts.discount ?? null,
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
 				});
@@ -1705,6 +1779,8 @@ chat.openapi(completions, async (c) => {
 		reasoning_effort,
 		supportsReasoning,
 		process.env.NODE_ENV === "production",
+		maxImageSizeMB,
+		userPlan,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2556,24 +2632,11 @@ chat.openapi(completions, async (c) => {
 							switch (usedProvider) {
 								case "google-ai-studio":
 								case "google-vertex":
-									if (data.candidates?.[0]?.finishReason) {
-										const googleFinishReason = data.candidates[0].finishReason;
-										// Check if there are function calls in this response
-										const hasFunctionCalls =
-											data.candidates?.[0]?.content?.parts?.some(
-												(part: any) => part.functionCall,
-											);
-										// Map Google finish reasons to OpenAI format
-										finishReason =
-											googleFinishReason === "STOP"
-												? hasFunctionCalls
-													? "tool_calls"
-													: "stop"
-												: googleFinishReason === "MAX_TOKENS"
-													? "length"
-													: googleFinishReason === "SAFETY"
-														? "content_filter"
-														: "stop"; // Safe fallback for unknown reasons
+									// Preserve original Google finish reason for logging
+									if (data.promptFeedback?.blockReason) {
+										finishReason = data.promptFeedback.blockReason;
+									} else if (data.candidates?.[0]?.finishReason) {
+										finishReason = data.candidates[0].finishReason;
 									}
 									break;
 								case "anthropic":
@@ -2939,6 +3002,27 @@ chat.openapi(completions, async (c) => {
 					finishReason = "stop";
 				}
 
+				// Enhanced logging for Google models streaming to debug missing responses
+				if (
+					usedProvider === "google-ai-studio" ||
+					usedProvider === "google-vertex"
+				) {
+					logger.debug("Google model streaming response completed", {
+						usedProvider,
+						usedModel,
+						hasContent: !!fullContent,
+						contentLength: fullContent.length,
+						finishReason,
+						promptTokens: calculatedPromptTokens,
+						completionTokens: calculatedCompletionTokens,
+						totalTokens: calculatedTotalTokens,
+						reasoningTokens,
+						streamingError: streamingError ? String(streamingError) : null,
+						canceled,
+						hasToolCalls: !!streamingToolCalls && streamingToolCalls.length > 0,
+					});
+				}
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
@@ -3275,6 +3359,24 @@ chat.openapi(completions, async (c) => {
 		images,
 	} = parseProviderResponse(usedProvider, json, messages);
 
+	// Enhanced logging for Google models to debug missing responses
+	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+		logger.debug("Google model response parsed", {
+			usedProvider,
+			usedModel,
+			hasContent: !!content,
+			contentLength: content?.length || 0,
+			finishReason,
+			promptTokens,
+			completionTokens,
+			reasoningTokens,
+			hasToolResults: !!toolResults,
+			toolResultsCount: toolResults?.length || 0,
+			rawCandidates: json.candidates,
+			rawUsageMetadata: json.usageMetadata,
+		});
+	}
+
 	// Debug: Log images found in response
 	logger.debug("Gateway - parseProviderResponse extracted images", { images });
 	logger.debug("Gateway - Used provider", { usedProvider });
@@ -3355,8 +3457,19 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
+	// Exclude content_filter responses as they are intentionally empty (blocked by provider)
+	// For Google, check for original finish reasons that indicate content filtering
+	const isGoogleContentFilter =
+		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
+		(finishReason === "SAFETY" ||
+			finishReason === "PROHIBITED_CONTENT" ||
+			finishReason === "RECITATION" ||
+			finishReason === "BLOCKLIST" ||
+			finishReason === "SPII");
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
+		finishReason !== "content_filter" &&
+		!isGoogleContentFilter &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 		(!content || content.trim() === "") &&
 		(!toolResults || toolResults.length === 0);

@@ -1,3 +1,5 @@
+import { logger } from "@llmgateway/logger";
+
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
@@ -211,6 +213,24 @@ export function transformStreamingToOpenai(
 		}
 		case "google-ai-studio":
 		case "google-vertex": {
+			// Debug logging for Google streaming chunks
+			// Only log as error if there's no promptFeedback explaining why candidates are missing
+			if (
+				(!data.candidates || data.candidates.length === 0) &&
+				!data.promptFeedback?.blockReason
+			) {
+				logger.error(
+					"[transform-streaming-to-openai] Google streaming chunk missing candidates",
+					{
+						hasCandidates: !!data.candidates,
+						candidatesLength: data.candidates?.length || 0,
+						hasPromptFeedback: !!data.promptFeedback,
+						promptBlockReason: data.promptFeedback?.blockReason,
+						dataKeys: Object.keys(data),
+					},
+				);
+			}
+
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const hasText = parts.some((part: any) => part.text && !part.thought);
 			const hasThought = parts.some((part: any) => part.thought && part.text);
@@ -299,12 +319,45 @@ export function transformStreamingToOpenai(
 							}
 						: null,
 				};
-			} else if (data.candidates?.[0]?.finishReason) {
-				const finishReason = data.candidates[0].finishReason;
+			} else if (
+				data.promptFeedback?.blockReason ||
+				data.candidates?.[0]?.finishReason
+			) {
+				// Handle prompt feedback block reason (when content is blocked before generation)
+				const promptBlockReason = data.promptFeedback?.blockReason;
+				const finishReason = data.candidates?.[0]?.finishReason;
 				// Check if there are function calls in this response
 				const hasFunctionCalls = data.candidates?.[0]?.content?.parts?.some(
 					(part: any) => part.functionCall,
 				);
+
+				let mappedFinishReason: string;
+				if (promptBlockReason) {
+					// Content was blocked at the prompt level (before generation)
+					mappedFinishReason =
+						promptBlockReason === "SAFETY" ||
+						promptBlockReason === "PROHIBITED_CONTENT" ||
+						promptBlockReason === "BLOCKLIST" ||
+						promptBlockReason === "OTHER"
+							? "content_filter"
+							: "stop";
+				} else {
+					mappedFinishReason =
+						finishReason === "STOP"
+							? hasFunctionCalls
+								? "tool_calls"
+								: "stop"
+							: finishReason === "MAX_TOKENS"
+								? "length"
+								: finishReason === "SAFETY" ||
+									  finishReason === "PROHIBITED_CONTENT" ||
+									  finishReason === "RECITATION" ||
+									  finishReason === "BLOCKLIST" ||
+									  finishReason === "SPII"
+									? "content_filter"
+									: "stop";
+				}
+
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -312,20 +365,11 @@ export function transformStreamingToOpenai(
 					model: data.modelVersion || usedModel,
 					choices: [
 						{
-							index: data.candidates[0].index || 0,
+							index: data.candidates?.[0]?.index || 0,
 							delta: {
 								role: "assistant",
 							},
-							finish_reason:
-								finishReason === "STOP"
-									? hasFunctionCalls
-										? "tool_calls"
-										: "stop"
-									: finishReason === "MAX_TOKENS"
-										? "length"
-										: finishReason === "SAFETY"
-											? "content_filter"
-											: "stop",
+							finish_reason: mappedFinishReason,
 						},
 					],
 					usage: data.usageMetadata

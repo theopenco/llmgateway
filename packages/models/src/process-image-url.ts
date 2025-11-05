@@ -1,11 +1,44 @@
 import { logger } from "@llmgateway/logger";
 
 /**
+ * Generates a user-friendly error message for image size limits
+ */
+function getImageSizeErrorMessage(
+	maxSizeMB: number,
+	actualSizeMB: number,
+	userPlan: "free" | "pro" | null,
+): string {
+	const isHosted = process.env.HOSTED === "true";
+	const isPaidMode = process.env.PAID_MODE === "true";
+
+	// Get the pro limit for upgrade messaging
+	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
+
+	let message = `Image size (${actualSizeMB.toFixed(1)}MB) exceeds your current limit of ${maxSizeMB}MB.`;
+
+	// Only show upgrade message in hosted paid mode
+	if (isHosted && isPaidMode) {
+		if (userPlan === "free") {
+			message += ` Upgrade to Pro plan for ${proLimitMB}MB image uploads.`;
+		} else if (userPlan === "pro") {
+			message += ` Contact us for Business or Enterprise plans with higher limits.`;
+		} else {
+			// When plan is unknown, provide generic upgrade message
+			message += ` Upgrade your plan for higher limits (Pro: ${proLimitMB}MB).`;
+		}
+	}
+
+	return message;
+}
+
+/**
  * Processes an image URL or data URL and converts it to base64
  */
 export async function processImageUrl(
 	url: string,
 	isProd = false,
+	maxSizeMB = 20,
+	userPlan: "free" | "pro" | null = null,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.startsWith("data:")) {
@@ -29,9 +62,17 @@ export async function processImageUrl(
 
 		// Validate size (estimate: base64 adds ~33% overhead)
 		const estimatedSize = (base64Data.length * 3) / 4;
-		if (estimatedSize > 20 * 1024 * 1024) {
-			logger.warn("Data URL image size exceeds limit", { estimatedSize });
-			throw new Error("Image size exceeds 20MB limit");
+		const maxSizeBytes = maxSizeMB * 1024 * 1024;
+		if (estimatedSize > maxSizeBytes) {
+			const actualSizeMB = estimatedSize / (1024 * 1024);
+			logger.warn("Data URL image size exceeds limit", {
+				estimatedSize,
+				maxSizeMB,
+				actualSizeMB,
+			});
+			throw new Error(
+				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
+			);
 		}
 
 		return {
@@ -58,13 +99,21 @@ export async function processImageUrl(
 			throw new Error(`Failed to fetch image: HTTP ${response.status}`);
 		}
 
-		// Check content length (20MB = 20 * 1024 * 1024 bytes)
+		// Calculate max size in bytes once
+		const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+		// Check content length
 		const contentLength = response.headers.get("content-length");
-		if (contentLength && parseInt(contentLength, 10) > 20 * 1024 * 1024) {
+		if (contentLength && parseInt(contentLength, 10) > maxSizeBytes) {
+			const actualSizeMB = parseInt(contentLength, 10) / (1024 * 1024);
 			logger.warn("Image size exceeds limit via Content-Length", {
 				contentLength,
+				maxSizeMB,
+				actualSizeMB,
 			});
-			throw new Error("Image size exceeds 20MB limit");
+			throw new Error(
+				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
+			);
 		}
 
 		const contentType = response.headers.get("content-type");
@@ -79,11 +128,16 @@ export async function processImageUrl(
 		const arrayBuffer = await response.arrayBuffer();
 
 		// Check actual size after download
-		if (arrayBuffer.byteLength > 20 * 1024 * 1024) {
+		if (arrayBuffer.byteLength > maxSizeBytes) {
+			const actualSizeMB = arrayBuffer.byteLength / (1024 * 1024);
 			logger.warn("Image size exceeds limit after download", {
 				size: arrayBuffer.byteLength,
+				maxSizeMB,
+				actualSizeMB,
 			});
-			throw new Error("Image size exceeds 20MB limit");
+			throw new Error(
+				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
+			);
 		}
 
 		// Convert arrayBuffer to base64 using browser-compatible API

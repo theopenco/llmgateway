@@ -1,10 +1,10 @@
-// import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
 	streamText,
 	type UIMessage,
 	convertToModelMessages,
-	// ToolLoopAgent,
-	// createAgentUIStreamResponse,
+	ToolLoopAgent,
+	createAgentUIStreamResponse,
+	stepCountIs,
 } from "ai";
 import { cookies } from "next/headers";
 
@@ -14,7 +14,6 @@ import { getGithubMcpTools } from "@/lib/mcp/github";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
 import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
-// import type { experimental_MCPClient } from "ai";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -25,9 +24,6 @@ interface ChatRequestBody {
 	provider?: string; // optional provider override
 	mode?: "image" | "chat"; // optional hint to force image generation path
 }
-
-// let githubMCP: experimental_MCPClient | null = null;
-// let tools: any | null = null;
 
 export async function POST(req: Request) {
 	const user = await getUser();
@@ -41,24 +37,6 @@ export async function POST(req: Request) {
 	const body = await req.json();
 	const { messages, model, apiKey, provider }: ChatRequestBody = body;
 
-	// if (!githubMCP) {
-	// 	const transport = new StreamableHTTPClientTransport(
-	// 		new URL("https://api.githubcopilot.com/mcp"),
-	// 		{
-	// 			requestInit: {
-	// 				method: "POST",
-	// 				headers: {
-	// 					Authorization: `Bearer ${githubToken}`,
-	// 				},
-	// 			},
-	// 		},
-	// 	);
-	// 	githubMCP = await experimental_createMCPClient({ transport });
-	// 	if (!tools) {
-	// 		tools = await githubMCP.tools();
-	// 	}
-	// }
-
 	if (!messages || !Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
 			status: 400,
@@ -70,8 +48,6 @@ export async function POST(req: Request) {
 	const githubTokenHeader = req.headers.get("x-github-token") || undefined;
 	const githubTokenBody = (body as any)?.githubToken || undefined;
 
-	// Prefer explicit apiKey or header, else read from httpOnly cookie set by backend.
-	// Accept both api.llmgateway cookie and current-domain cookie for local dev.
 	const cookieStore = await cookies();
 	const cookieApiKey =
 		cookieStore.get("llmgateway_playground_key")?.value ||
@@ -105,43 +81,28 @@ export async function POST(req: Request) {
 	}
 
 	try {
-		// If a GitHub token is provided, use the Agent UI flow with tools + approval support
 		const tokenForMcp = githubTokenHeader || githubTokenBody;
 		if (tokenForMcp) {
 			const { tools, client: githubMCPClient } = await getGithubMcpTools(
 				tokenForMcp as string,
 			);
-			// const agent = new ToolLoopAgent({
-			// 	model: llmgateway.chat(selectedModel),
-			// 	instructions:
-			// 		"You are a helpful GitHub assistant. Use the available tools. Ask for confirmation before write operations.",
-			// 	tools,
-			// });
-
-			// return await createAgentUIStreamResponse({
-			// 	agent,
-			// 	messages: messages,
-			// 	onFinish: () => {
-			// 		// Close MCP client if it exists
-			// 		if (githubMCPClient) {
-			// 			githubMCPClient.close();
-			// 		}
-			// 	},
-			// });
-
-			const result = streamText({
+			const agent = new ToolLoopAgent({
 				model: llmgateway.chat(selectedModel),
-				messages: convertToModelMessages(messages),
+				instructions:
+					"You are a helpful GitHub assistant. Use the available tools.",
 				tools,
-				onFinish: () => {
-					// Close MCP client if it exists
+				stopWhen: stepCountIs(10),
+			});
+
+			return await createAgentUIStreamResponse({
+				agent,
+				messages: messages,
+				onFinish: async () => {
 					if (githubMCPClient) {
-						githubMCPClient.close();
+						await githubMCPClient.close();
 					}
 				},
 			});
-
-			return result.toUIMessageStreamResponse({ sendReasoning: true });
 		}
 
 		// Default streaming chat path (no tools)

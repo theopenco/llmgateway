@@ -13,6 +13,8 @@ import {
 export async function transformGoogleMessages(
 	messages: BaseMessage[],
 	isProd = false,
+	maxImageSizeMB = 20,
+	userPlan: "free" | "pro" | null = null,
 ): Promise<GoogleMessage[]> {
 	return await Promise.all(
 		messages.map(async (m) => ({
@@ -31,6 +33,8 @@ export async function transformGoogleMessages(
 									const { data, mimeType } = await processImageUrl(
 										imageUrl,
 										isProd,
+										maxImageSizeMB,
+										userPlan,
 									);
 									return {
 										inline_data: {

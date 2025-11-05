@@ -9,13 +9,13 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 const inter = Inter({
-	variable: "--font-inter-sans",
+	variable: "--font-inter",
 	subsets: ["latin"],
 	display: "swap",
 });
 
 const geistMono = Geist_Mono({
-	variable: "--font-geist-mono",
+	variable: "--font-mono",
 	subsets: ["latin"],
 });
 

@@ -1,6 +1,7 @@
 import { format, formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
+	TriangleAlert,
 	AudioWaveform,
 	Ban,
 	CheckCircle2,
@@ -54,6 +55,10 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 		StatusIcon = AlertCircle;
 		color = "text-red-500";
 		bgColor = "bg-red-100";
+	} else if (log.unifiedFinishReason === "content_filter") {
+		StatusIcon = TriangleAlert;
+		color = "text-orange-500";
+		bgColor = "bg-orange-100";
 	} else if (
 		log.unifiedFinishReason !== "completed" &&
 		log.unifiedFinishReason !== "tool_calls"
@@ -86,7 +91,13 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								))}
 						</p>
 						<Badge
-							variant={log.hasError ? "destructive" : "default"}
+							variant={
+								log.hasError
+									? "destructive"
+									: log.unifiedFinishReason === "content_filter"
+										? "destructive"
+										: "default"
+							}
 							className="flex-shrink-0"
 						>
 							{log.unifiedFinishReason}
@@ -155,13 +166,21 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<h4 className="text-sm font-medium">Request Details</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Project ID</div>
-								<div className="font-mono text-xs">{log.projectId}</div>
+								<div className="font-mono text-xs break-all">
+									{log.projectId}
+								</div>
 								<div className="text-muted-foreground">API Key</div>
-								<div className="font-mono text-xs">{log.apiKeyId}</div>
+								<div className="font-mono text-xs break-all">
+									{log.apiKeyId}
+								</div>
 								<div className="text-muted-foreground">Requested Model</div>
-								<div>{log.requestedModel}</div>
+								<div className="font-mono text-xs break-all">
+									{log.requestedModel}
+								</div>
 								<div className="text-muted-foreground">Used Model</div>
-								<div>{log.usedModel}</div>
+								<div className="font-mono text-xs break-all">
+									{log.usedModel}
+								</div>
 								{log.usedModelMapping && (
 									<>
 										<div className="text-muted-foreground">
@@ -319,15 +338,25 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 									{format(log.createdAt!, "dd.MM.yyyy HH:mm:ss")}
 								</div>
 								<div className="text-muted-foreground">Request ID</div>
-								<div className="font-mono text-xs">{log.requestId}</div>
+								<div className="font-mono text-xs break-all">
+									{log.requestId}
+								</div>
 								<div className="text-muted-foreground">Source</div>
-								<div className="font-mono text-xs">{log.source || "-"}</div>
+								<div className="font-mono text-xs break-all">
+									{log.source || "-"}
+								</div>
 								<div className="text-muted-foreground">Project ID</div>
-								<div className="font-mono text-xs">{log.projectId}</div>
+								<div className="font-mono text-xs break-all">
+									{log.projectId}
+								</div>
 								<div className="text-muted-foreground">Organization ID</div>
-								<div className="font-mono text-xs">{log.organizationId}</div>
+								<div className="font-mono text-xs break-all">
+									{log.organizationId}
+								</div>
 								<div className="text-muted-foreground">API Key ID</div>
-								<div className="font-mono text-xs">{log.apiKeyId}</div>
+								<div className="font-mono text-xs break-all">
+									{log.apiKeyId}
+								</div>
 								<div className="text-muted-foreground">Mode</div>
 								<div>{log.mode || "?"}</div>
 								<div className="text-muted-foreground">Used Mode</div>
@@ -496,7 +525,10 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										<div className="space-y-2">
 											{Array.isArray(log.toolResults) ? (
 												log.toolResults.map((toolCall, index: number) => (
-													<div key={index} className="rounded-md border p-3">
+													<div
+														key={index}
+														className="rounded-md border p-3 overflow-scroll"
+													>
 														<div className="grid gap-2 text-xs">
 															<div className="flex justify-between">
 																<span className="font-medium">

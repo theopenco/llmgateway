@@ -20,6 +20,8 @@ export async function transformAnthropicMessages(
 	isProd = false,
 	provider?: string,
 	_model?: string,
+	maxImageSizeMB = 20,
+	userPlan: "free" | "pro" | null = null,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -93,6 +95,8 @@ export async function transformAnthropicMessages(
 							const { data, mimeType } = await processImageUrl(
 								part.image_url.url,
 								isProd,
+								maxImageSizeMB,
+								userPlan,
 							);
 							return {
 								type: "image",

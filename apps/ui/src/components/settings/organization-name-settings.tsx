@@ -30,7 +30,7 @@ export function OrganizationNameSettings() {
 	React.useEffect(() => {
 		setName(selectedOrganization?.name || "");
 		setNameError("");
-	}, [selectedOrganization?.id]);
+	}, [selectedOrganization?.id, selectedOrganization?.name]);
 
 	if (!selectedOrganization) {
 		return (
