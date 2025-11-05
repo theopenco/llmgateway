@@ -1,6 +1,6 @@
 {
-  "id": "26e684c5-1df4-40d2-9779-ddd00b57c157",
-  "prevId": "09b8d32f-8302-46c3-a643-afc538e5c33f",
+  "id": "26acb8bd-5c2e-417c-acd6-8f05d0ec9bf5",
+  "prevId": "3fef0f0b-2baa-481d-9fe7-92441ab314d3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1053,6 +1053,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "tools": {
+          "name": "tools",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "sequence": {
           "name": "sequence",
           "type": "integer",
@@ -1939,6 +1945,12 @@
         },
         "billing_address": {
           "name": "billing_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_tax_id": {
+          "name": "billing_tax_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2944,7 +2956,15 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "transaction_stripe_invoice_id_unique": {
+          "name": "transaction_stripe_invoice_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stripe_invoice_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
