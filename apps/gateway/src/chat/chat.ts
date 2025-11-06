@@ -1956,6 +1956,94 @@ chat.openapi(completions, async (c) => {
 						id: String(eventId++),
 					});
 					return;
+				} else if (error instanceof Error) {
+					// Handle fetch errors (timeout, connection failures, etc.)
+					const errorMessage = error.message;
+					logger.error("Fetch error", {
+						error: errorMessage,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+
+					// Log the error in the database
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						rawBody,
+						null, // No response for fetch error
+						requestBody, // The request that resulted in error
+						null, // No upstream response for fetch error
+					);
+
+					await insertLog({
+						...baseLogEntry,
+						duration: Date.now() - startTime,
+						timeToFirstToken: null, // Not applicable for error case
+						timeToFirstReasoningToken: null, // Not applicable for error case
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: true,
+						canceled: false,
+						errorDetails: {
+							statusCode: 0,
+							statusText: error.name,
+							responseText: errorMessage,
+						},
+						cachedInputCost: null,
+						requestCost: null,
+						discount: null,
+						cached: false,
+						toolResults: null,
+					});
+
+					// Send error event to the client
+					await writeSSEAndCache({
+						event: "error",
+						data: JSON.stringify({
+							error: {
+								message: `Failed to connect to provider: ${errorMessage}`,
+								type: "upstream_error",
+								code: "fetch_failed",
+							},
+						}),
+						id: String(eventId++),
+					});
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					return;
 				} else {
 					throw error;
 				}
@@ -3115,6 +3203,7 @@ chat.openapi(completions, async (c) => {
 	c.req.raw.signal.addEventListener("abort", onAbort);
 
 	let canceled = false;
+	let fetchError: Error | null = null;
 	let res;
 	try {
 		const headers = getProviderHeaders(usedProvider, usedToken);
@@ -3128,6 +3217,9 @@ chat.openapi(completions, async (c) => {
 	} catch (error) {
 		if (error instanceof Error && error.name === "AbortError") {
 			canceled = true;
+		} else if (error instanceof Error) {
+			// Capture fetch errors (timeout, connection failures, etc.)
+			fetchError = error;
 		} else {
 			throw error;
 		}
@@ -3137,6 +3229,95 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const duration = Date.now() - startTime;
+
+	// Handle fetch errors (timeout, connection failures, etc.)
+	if (fetchError) {
+		const errorMessage = fetchError.message;
+		logger.error("Fetch error", {
+			error: errorMessage,
+			usedProvider,
+			requestedProvider,
+			usedModel,
+			initialRequestedModel,
+		});
+
+		// Log the error in the database
+		const baseLogEntry = createLogEntry(
+			requestId,
+			project,
+			apiKey,
+			providerKey?.id,
+			usedModelFormatted,
+			usedModelMapping,
+			usedProvider,
+			initialRequestedModel,
+			requestedProvider,
+			messages,
+			temperature,
+			max_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
+			reasoning_effort,
+			response_format,
+			tools,
+			tool_choice,
+			source,
+			customHeaders,
+			debugMode,
+			rawBody,
+			null, // No response for fetch error
+			requestBody, // The request that resulted in error
+			null, // No upstream response for fetch error
+		);
+
+		await insertLog({
+			...baseLogEntry,
+			duration,
+			timeToFirstToken: null, // Not applicable for error case
+			timeToFirstReasoningToken: null, // Not applicable for error case
+			responseSize: 0,
+			content: null,
+			reasoningContent: null,
+			finishReason: "upstream_error",
+			promptTokens: null,
+			completionTokens: null,
+			totalTokens: null,
+			reasoningTokens: null,
+			cachedTokens: null,
+			hasError: true,
+			streamed: false,
+			canceled: false,
+			errorDetails: {
+				statusCode: 0,
+				statusText: fetchError.name,
+				responseText: errorMessage,
+			},
+			cachedInputCost: null,
+			requestCost: null,
+			estimatedCost: false,
+			discount: null,
+			cached: false,
+			toolResults: null,
+		});
+
+		// Return error response
+		return c.json(
+			{
+				error: {
+					message: `Failed to connect to provider: ${errorMessage}`,
+					type: "upstream_error",
+					param: null,
+					code: "fetch_failed",
+					requestedProvider,
+					usedProvider,
+					requestedModel: initialRequestedModel,
+					usedModel,
+				},
+			},
+			502,
+		);
+	}
 
 	// If the request was canceled, log it and return a response
 	if (canceled) {
