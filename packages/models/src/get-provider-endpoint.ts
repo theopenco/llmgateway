@@ -153,10 +153,18 @@ export function getProviderEndpoint(
 				: baseEndpoint;
 		}
 		case "google-vertex": {
+			const projectId = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			const region = process.env.LLM_GOOGLE_VERTEX_REGION || "global";
+
+			if (!projectId) {
+				throw new Error(
+					"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex provider",
+				);
+			}
+
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = modelName
-				? `${url}/v1/publishers/google/models/${modelName}:${endpoint}`
-				: `${url}/v1/publishers/google/models/gemini-2.5-flash-lite:${endpoint}`;
+			const model = modelName || "gemini-2.5-flash-lite";
+			const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 			const queryParams = [];
 			if (token) {
 				queryParams.push(`key=${token}`);
