@@ -153,18 +153,30 @@ export function getProviderEndpoint(
 				: baseEndpoint;
 		}
 		case "google-vertex": {
-			const projectId = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			const region = process.env.LLM_GOOGLE_VERTEX_REGION || "global";
-
-			if (!projectId) {
-				throw new Error(
-					"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex provider",
-				);
-			}
-
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const model = modelName || "gemini-2.5-flash-lite";
-			const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+
+			// Special handling for some models which require project ID and location
+			let baseEndpoint: string;
+			if (
+				modelName === "gemini-2.5-flash-preview-09-2025" ||
+				modelName === "gemini-2.5-flash-lite-preview-09-2025"
+			) {
+				const projectId = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+				const region = process.env.LLM_GOOGLE_VERTEX_REGION || "global";
+
+				if (!projectId) {
+					throw new Error(
+						"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for gemini-2.5-flash-preview-09-2025",
+					);
+				}
+
+				baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+			} else {
+				// Standard endpoint for other models
+				baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
+			}
+
 			const queryParams = [];
 			if (token) {
 				queryParams.push(`key=${token}`);
