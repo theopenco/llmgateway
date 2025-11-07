@@ -13,7 +13,7 @@ export interface FeeCalculationInput {
 	cardCountry?: string;
 }
 
-const STRIPE_FIXED_FEE = 0.35;
+const STRIPE_FIXED_FEE = 0.3;
 const STRIPE_PERCENTAGE_FEE = 0.029;
 const INTERNATIONAL_FEE_PERCENTAGE = 0.015;
 const FREE_PLAN_FEE_PERCENTAGE = 0.05;
@@ -21,18 +21,23 @@ const FREE_PLAN_FEE_PERCENTAGE = 0.05;
 export function calculateFees(input: FeeCalculationInput): FeeBreakdown {
 	const { amount, organizationPlan, cardCountry } = input;
 
-	const stripeFee = STRIPE_FIXED_FEE + amount * STRIPE_PERCENTAGE_FEE;
-
 	const isInternationalCard = cardCountry && cardCountry !== "US";
-	const internationalFee = isInternationalCard
-		? amount * INTERNATIONAL_FEE_PERCENTAGE
-		: 0;
 
+	const totalPercentageFees =
+		STRIPE_PERCENTAGE_FEE +
+		(isInternationalCard ? INTERNATIONAL_FEE_PERCENTAGE : 0) +
+		(organizationPlan === "free" ? FREE_PLAN_FEE_PERCENTAGE : 0);
+
+	const totalAmount = (amount + STRIPE_FIXED_FEE) / (1 - totalPercentageFees);
+
+	const stripeFee = totalAmount * STRIPE_PERCENTAGE_FEE + STRIPE_FIXED_FEE;
+	const internationalFee = isInternationalCard
+		? totalAmount * INTERNATIONAL_FEE_PERCENTAGE
+		: 0;
 	const planFee =
-		organizationPlan === "free" ? amount * FREE_PLAN_FEE_PERCENTAGE : 0;
+		organizationPlan === "free" ? totalAmount * FREE_PLAN_FEE_PERCENTAGE : 0;
 
 	const totalFees = stripeFee + internationalFee + planFee;
-	const totalAmount = amount + totalFees;
 
 	return {
 		baseAmount: amount,

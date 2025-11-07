@@ -212,7 +212,7 @@ function AutoTopUpSettings() {
 									<span>${feeData.baseAmount.toFixed(2)}</span>
 								</div>
 								<div className="flex justify-between">
-									<span>Stripe fees ($0.35 + 2.9%)</span>
+									<span>Stripe fees ($0.30 + 2.9%)</span>
 									<span>${feeData.stripeFee.toFixed(2)}</span>
 								</div>
 								{feeData.internationalFee > 0 && (
