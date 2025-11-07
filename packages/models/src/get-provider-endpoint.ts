@@ -156,12 +156,14 @@ export function getProviderEndpoint(
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const model = modelName || "gemini-2.5-flash-lite";
 
-			// Special handling for some models which require project ID and location
+			// Special handling for some models which require a non-global location
 			let baseEndpoint: string;
 			if (
-				modelName === "gemini-2.5-flash-preview-09-2025" ||
-				modelName === "gemini-2.5-flash-lite-preview-09-2025"
+				model === "gemini-2.0-flash-lite" ||
+				model === "gemini-2.5-flash-lite"
 			) {
+				baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
+			} else {
 				const projectId = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 				const region = process.env.LLM_GOOGLE_VERTEX_REGION || "global";
 
@@ -172,9 +174,6 @@ export function getProviderEndpoint(
 				}
 
 				baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
-			} else {
-				// Standard endpoint for other models
-				baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
 			}
 
 			const queryParams = [];
