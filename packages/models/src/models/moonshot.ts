@@ -76,4 +76,25 @@ export const moonshotModels = [
 			},
 		],
 	},
+	{
+		id: "kimi-k2-thinking",
+		name: "Kimi K2 Thinking",
+		family: "moonshot",
+		providers: [
+			{
+				providerId: "moonshot",
+				modelName: "kimi-k2-thinking",
+				inputPrice: 0.6 / 1e6,
+				outputPrice: 2.5 / 1e6,
+				cachedInputPrice: 0.15 / 1e6,
+				requestPrice: 0,
+				contextSize: 262144,
+				maxOutput: 262144,
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
