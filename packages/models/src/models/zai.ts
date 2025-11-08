@@ -165,7 +165,7 @@ export const zaiModels = [
 				contextSize: 202752,
 				maxOutput: undefined,
 				streaming: true,
-				reasoning: false,
+				reasoning: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,

@@ -16,6 +16,7 @@ export const minimaxModels = [
 				contextSize: 196608,
 				maxOutput: undefined,
 				streaming: true,
+				reasoning: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
