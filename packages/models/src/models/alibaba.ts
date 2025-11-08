@@ -578,4 +578,25 @@ export const alibabaModels = [
 			},
 		],
 	},
+	{
+		id: "qwen3-coder",
+		name: "Qwen3 Coder",
+		family: "alibaba",
+		providers: [
+			{
+				providerId: "canopywave",
+				modelName: "qwen/qwen3-coder",
+				inputPrice: 0.22 / 1e6,
+				outputPrice: 0.95 / 1e6,
+				discount: 0.75,
+				requestPrice: 0,
+				contextSize: 262000,
+				maxOutput: 8192,
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
