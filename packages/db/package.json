@@ -30,14 +30,14 @@
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
-		"drizzle-orm": "1.0.0-beta.1-57a367f",
+		"drizzle-orm": "1.0.0-beta.1",
 		"nanoid": "5.1.5",
 		"pg": "^8.16.3",
 		"zod": "3.25.75"
 	},
 	"devDependencies": {
 		"@types/pg": "^8.15.5",
-		"drizzle-kit": "1.0.0-beta.1-57a367f",
+		"drizzle-kit": "1.0.0-beta.1",
 		"ioredis": "5.7.0"
 	}
 }
