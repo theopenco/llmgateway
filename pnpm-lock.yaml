@@ -151,7 +151,7 @@ importers:
         version: 4.10.3
       hono-openapi:
         specifier: ^0.4.6
-        version: 0.4.8(@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75))(hono@4.10.3)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
+        version: 0.4.8(@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75))(hono@4.10.3)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -174,8 +174,8 @@ importers:
         specifier: 3.25.75
         version: 3.25.75
       zod-openapi:
-        specifier: ^4.2.4
-        version: 4.2.4(zod@3.25.75)
+        specifier: ^5.4.3
+        version: 5.4.3(zod@3.25.75)
     devDependencies:
       '@types/nodemailer':
         specifier: 7.0.2
@@ -303,7 +303,7 @@ importers:
         version: 4.10.3
       hono-openapi:
         specifier: ^0.4.6
-        version: 0.4.8(@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75))(hono@4.10.3)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75)
+        version: 0.4.8(@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75))(hono@4.10.3)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -317,8 +317,8 @@ importers:
         specifier: 3.25.75
         version: 3.25.75
       zod-openapi:
-        specifier: ^4.2.4
-        version: 4.2.4(zod@3.25.75)
+        specifier: ^5.4.3
+        version: 5.4.3(zod@3.25.75)
 
   apps/playground:
     dependencies:
@@ -9237,11 +9237,11 @@ packages:
     resolution: {integrity: sha512-AyeEbWOu/TAXdxlV9wmGcR0+yh2j3vYPGOECcIj2S7MkrLyC7ne+oye2BKTItt0ii2PHk4cDy+95+LshzbXnGg==}
     engines: {node: '>=12.20'}
 
-  zod-openapi@4.2.4:
-    resolution: {integrity: sha512-tsrQpbpqFCXqVXUzi3TPwFhuMtLN3oNZobOtYnK6/5VkXsNdnIgyNr4r8no4wmYluaxzN3F7iS+8xCW8BmMQ8g==}
-    engines: {node: '>=18'}
+  zod-openapi@5.4.3:
+    resolution: {integrity: sha512-6kJ/gJdvHZtuxjYHoMtkl2PixCwRuZ/s79dVkEr7arHvZGXfx7Cvh53X3HfJ5h9FzGelXOXlnyjwfX0sKEPByw==}
+    engines: {node: '>=20'}
     peerDependencies:
-      zod: ^3.21.4
+      zod: ^3.25.74 || ^4.0.0
 
   zod-to-json-schema@3.24.6:
     resolution: {integrity: sha512-h/z3PKvcTcTetyjl1fkj79MHNEjm+HpD6NXheWjzOekY7kV+lwDYnHw+ivHkijnCSMz1yJaWBD9vu/Fcmk+vEg==}
@@ -15808,7 +15808,7 @@ snapshots:
 
   highlightjs-vue@1.0.0: {}
 
-  hono-openapi@0.4.8(@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75))(hono@4.10.3)(openapi-types@12.1.3)(zod-openapi@4.2.4(zod@3.25.75))(zod@3.25.75):
+  hono-openapi@0.4.8(@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75))(hono@4.10.3)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75):
     dependencies:
       json-schema-walker: 2.0.0
       openapi-types: 12.1.3
@@ -15816,7 +15816,7 @@ snapshots:
       '@hono/zod-validator': 0.7.2(hono@4.10.3)(zod@3.25.75)
       hono: 4.10.3
       zod: 3.25.75
-      zod-openapi: 4.2.4(zod@3.25.75)
+      zod-openapi: 5.4.3(zod@3.25.75)
 
   hono@4.10.3: {}
 
@@ -18992,7 +18992,7 @@ snapshots:
 
   yocto-queue@1.2.1: {}
 
-  zod-openapi@4.2.4(zod@3.25.75):
+  zod-openapi@5.4.3(zod@3.25.75):
     dependencies:
       zod: 3.25.75
 

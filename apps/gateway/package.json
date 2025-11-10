@@ -43,6 +43,6 @@
 		"redis": "5.8.2",
 		"worker": "workspace:*",
 		"zod": "3.25.75",
-		"zod-openapi": "^4.2.4"
+		"zod-openapi": "^5.4.3"
 	}
 }

@@ -42,7 +42,7 @@
 		"posthog-node": "5.10.4",
 		"stripe": "18.1.1",
 		"zod": "3.25.75",
-		"zod-openapi": "^4.2.4"
+		"zod-openapi": "^5.4.3"
 	},
 	"devDependencies": {
 		"@types/nodemailer": "7.0.2"
