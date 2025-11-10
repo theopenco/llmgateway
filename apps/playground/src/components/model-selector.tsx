@@ -150,16 +150,21 @@ export function ModelSelector({
 			mapping: ProviderModelMapping;
 			provider?: ProviderDefinition;
 		}[] = [];
+		const now = new Date();
 		for (const m of models) {
 			if (m.id === "custom") {
 				continue;
 			}
 			for (const mp of m.providers) {
-				out.push({
-					model: m,
-					mapping: mp,
-					provider: providers.find((p) => p.id === mp.providerId),
-				});
+				const isDeactivated =
+					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
+				if (!isDeactivated) {
+					out.push({
+						model: m,
+						mapping: mp,
+						provider: providers.find((p) => p.id === mp.providerId),
+					});
+				}
 			}
 		}
 		return out;
@@ -308,8 +313,13 @@ export function ModelSelector({
 											const selectedMapping = selectedModel.providers.find(
 												(p) => p.providerId === selectedProviderId,
 											);
-											return selectedMapping &&
-												isModelUnstable(selectedMapping, selectedModel) ? (
+											const isUnstable =
+												selectedMapping &&
+												isModelUnstable(selectedMapping, selectedModel);
+											const isDeprecated =
+												selectedMapping?.deprecatedAt &&
+												new Date(selectedMapping.deprecatedAt) <= new Date();
+											return isUnstable || isDeprecated ? (
 												<AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-yellow-600 dark:text-yellow-500" />
 											) : null;
 										})()}
@@ -548,6 +558,9 @@ export function ModelSelector({
 												: null;
 											const entryKey = `${mapping.providerId}-${model.id}`;
 											const isUnstable = isModelUnstable(mapping, model);
+											const isDeprecated =
+												mapping.deprecatedAt &&
+												new Date(mapping.deprecatedAt) <= new Date();
 											return (
 												<CommandItem
 													key={entryKey}
@@ -578,7 +591,7 @@ export function ModelSelector({
 																	<span className="font-medium truncate">
 																		{model.name}
 																	</span>
-																	{isUnstable && (
+																	{(isUnstable || isDeprecated) && (
 																		<AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-yellow-600 dark:text-yellow-500" />
 																	)}
 																</div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, Filter } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Filter } from "lucide-react";
 import * as React from "react";
 
 // import { Badge } from "@/lib/components/badge";
@@ -104,16 +104,21 @@ export function ModelSelector({
 			mapping: ProviderModelMapping;
 			provider?: ProviderDefinition;
 		}[] = [];
+		const now = new Date();
 		for (const m of models) {
 			if (m.id === "custom") {
 				continue;
 			}
 			for (const mp of m.providers) {
-				out.push({
-					model: m,
-					mapping: mp,
-					provider: providers.find((p) => p.id === mp.providerId),
-				});
+				const isDeactivated =
+					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
+				if (!isDeactivated) {
+					out.push({
+						model: m,
+						mapping: mp,
+						provider: providers.find((p) => p.id === mp.providerId),
+					});
+				}
 			}
 		}
 		return out;
@@ -239,9 +244,22 @@ export function ModelSelector({
 								) : null;
 							})()}
 							<div className="flex flex-col items-start">
-								<span className="font-medium max-w-40 truncate">
-									{selectedModel.name}
-								</span>
+								<div className="flex items-center gap-1">
+									<span className="font-medium max-w-40 truncate">
+										{selectedModel.name}
+									</span>
+									{(() => {
+										const mapping = selectedModel.providers.find(
+											(p) => p.providerId === selectedProviderId,
+										);
+										const isDeprecated =
+											mapping?.deprecatedAt &&
+											new Date(mapping.deprecatedAt) <= new Date();
+										return isDeprecated ? (
+											<AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500" />
+										) : null;
+									})()}
+								</div>
 								<span className="text-xs text-muted-foreground">
 									{
 										(
@@ -445,6 +463,9 @@ export function ModelSelector({
 											? getProviderIcon(provider.id)
 											: null;
 										const entryKey = `${mapping.providerId}-${model.id}`;
+										const isDeprecated =
+											mapping.deprecatedAt &&
+											new Date(mapping.deprecatedAt) <= new Date();
 										return (
 											<CommandItem
 												key={entryKey}
@@ -469,7 +490,14 @@ export function ModelSelector({
 															<ProviderIcon className="h-6 w-6 flex-shrink-0" />
 														) : null}
 														<div className="flex flex-col">
-															<span className="font-medium">{model.name}</span>
+															<div className="flex items-center gap-1">
+																<span className="font-medium">
+																	{model.name}
+																</span>
+																{isDeprecated && (
+																	<AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500" />
+																)}
+															</div>
 															<span className="text-xs text-muted-foreground">
 																{provider?.name}
 															</span>
