@@ -1,6 +1,6 @@
 "use client";
 
-import { Link2, Plug } from "lucide-react";
+import { Link2, Plug, Eye, EyeOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ export function GithubConnector() {
 
 	const [token, setToken] = useState<string>("");
 	const [saved, setSaved] = useState<boolean>(false);
+	const [showToken, setShowToken] = useState<boolean>(false);
 
 	useEffect(() => {
 		const existing = getStoredGithubMcpToken();
@@ -88,12 +89,27 @@ export function GithubConnector() {
 
 			<div className="flex flex-col gap-2">
 				<Label htmlFor="github-mcp-token">GitHub MCP Token</Label>
-				<Input
-					id="github-mcp-token"
-					placeholder="ghu_xxx or fine-grained PAT"
-					value={token}
-					onChange={(e) => setToken(e.currentTarget.value)}
-				/>
+				<div className="relative">
+					<Input
+						id="github-mcp-token"
+						placeholder="ghu_xxx or fine-grained PAT"
+						value={token}
+						onChange={(e) => setToken(e.currentTarget.value)}
+						type={showToken ? "text" : "password"}
+					/>
+					<button
+						type="button"
+						aria-label={showToken ? "Hide token" : "Show token"}
+						className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+						onClick={() => setShowToken((v) => !v)}
+					>
+						{showToken ? (
+							<EyeOff className="size-4" />
+						) : (
+							<Eye className="size-4" />
+						)}
+					</button>
+				</div>
 				<div className="flex items-center gap-2">
 					<Button onClick={handleSave} disabled={!isTokenPresent}>
 						Save token

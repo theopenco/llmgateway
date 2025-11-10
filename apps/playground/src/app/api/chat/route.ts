@@ -2,8 +2,6 @@ import {
 	streamText,
 	type UIMessage,
 	convertToModelMessages,
-	ToolLoopAgent,
-	createAgentUIStreamResponse,
 	stepCountIs,
 } from "ai";
 import { cookies } from "next/headers";
@@ -86,22 +84,22 @@ export async function POST(req: Request) {
 			const { tools, client: githubMCPClient } = await getGithubMcpTools(
 				tokenForMcp as string,
 			);
-			const agent = new ToolLoopAgent({
+
+			const result = await streamText({
 				model: llmgateway.chat(selectedModel),
-				instructions:
-					"You are a helpful GitHub assistant. Use the available tools.",
+				messages: convertToModelMessages(messages),
 				tools,
 				stopWhen: stepCountIs(10),
-			});
-
-			return await createAgentUIStreamResponse({
-				agent,
-				messages: messages,
 				onFinish: async () => {
 					if (githubMCPClient) {
 						await githubMCPClient.close();
 					}
 				},
+			});
+
+			return result.toUIMessageStreamResponse({
+				sendReasoning: true,
+				sendSources: true,
 			});
 		}
 
