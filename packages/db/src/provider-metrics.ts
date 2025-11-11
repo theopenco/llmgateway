@@ -1,4 +1,4 @@
-import { and, desc, gte, sql, sum } from "drizzle-orm";
+import { and, gte, sql, sum } from "drizzle-orm";
 
 import { db } from "./db.js";
 import { modelProviderMappingHistory } from "./schema.js";

@@ -9,8 +9,8 @@ export interface ProviderMetrics {
 	totalRequests: number;
 }
 
-interface ProviderScore {
-	provider: AvailableModelProvider;
+interface ProviderScore<T extends AvailableModelProvider> {
+	provider: T;
 	score: number;
 	price: number;
 	uptime?: number;
@@ -31,7 +31,7 @@ const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
  * Considers price, uptime, and latency metrics.
  *
  * @param availableModelProviders - List of available providers
- * @param modelWithPricing - Model pricing information
+ * @param modelWithPricing - Model pricing information (must have id property)
  * @param metricsMap - Optional map of provider metrics from last N minutes
  * @returns Best provider based on scoring, or null if none available
  */
@@ -39,7 +39,7 @@ export function getCheapestFromAvailableProviders<
 	T extends AvailableModelProvider,
 >(
 	availableModelProviders: T[],
-	modelWithPricing: ModelWithPricing,
+	modelWithPricing: ModelWithPricing & { id: string },
 	metricsMap?: Map<string, ProviderMetrics>,
 ): T | null {
 	if (availableModelProviders.length === 0) {
@@ -75,7 +75,7 @@ export function getCheapestFromAvailableProviders<
 	}
 
 	// Calculate scores for each provider
-	const providerScores: ProviderScore[] = [];
+	const providerScores: ProviderScore<T>[] = [];
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
@@ -105,15 +105,11 @@ export function getCheapestFromAvailableProviders<
 	const minPrice = Math.min(...prices);
 	const maxPrice = Math.max(...prices);
 
-	const uptimes = providerScores.map(
-		(p) => p.uptime ?? DEFAULT_UPTIME,
-	);
+	const uptimes = providerScores.map((p) => p.uptime ?? DEFAULT_UPTIME);
 	const minUptime = Math.min(...uptimes);
 	const maxUptime = Math.max(...uptimes);
 
-	const latencies = providerScores.map(
-		(p) => p.latency ?? DEFAULT_LATENCY,
-	);
+	const latencies = providerScores.map((p) => p.latency ?? DEFAULT_LATENCY);
 	const minLatency = Math.min(...latencies);
 	const maxLatency = Math.max(...latencies);
 
@@ -159,7 +155,7 @@ export function getCheapestFromAvailableProviders<
  */
 function selectByPriceOnly<T extends AvailableModelProvider>(
 	stableProviders: T[],
-	modelWithPricing: ModelWithPricing,
+	modelWithPricing: ModelWithPricing & { id: string },
 ): T {
 	let cheapestProvider = stableProviders[0];
 	let lowestPrice = Number.MAX_VALUE;
