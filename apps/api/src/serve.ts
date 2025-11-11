@@ -9,7 +9,11 @@ import { logger } from "@llmgateway/logger";
 
 import { redisClient } from "./auth/config.js";
 import { app } from "./index.js";
-import { sendInstallationBeacon } from "./lib/beacon.js";
+import {
+	sendInstallationBeacon,
+	startDailyBeacon,
+	stopDailyBeacon,
+} from "./lib/beacon.js";
 
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 
@@ -46,6 +50,9 @@ async function startServer() {
 	// This runs in the background and won't block startup
 	void sendInstallationBeacon();
 
+	// Start daily beacon schedule to track active installations
+	startDailyBeacon();
+
 	logger.info("Server listening", { port });
 
 	return serve({
@@ -81,6 +88,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");
+
+		logger.info("Stopping daily beacon schedule");
+		stopDailyBeacon();
 
 		logger.info("Closing database connection");
 		await closeDatabase();

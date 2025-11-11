@@ -8,6 +8,59 @@ interface BeaconData {
 	type: string;
 	timestamp: string;
 	version: string;
+	providers: string[];
+}
+
+/**
+ * List of provider API key environment variables to track
+ */
+const PROVIDER_ENV_VARS = [
+	"LLM_LLMGATEWAY_API_KEY",
+	"LLM_OPENAI_API_KEY",
+	"LLM_ANTHROPIC_API_KEY",
+	"LLM_GOOGLE_AI_STUDIO_API_KEY",
+	"LLM_GOOGLE_VERTEX_API_KEY",
+	"LLM_INFERENCE_NET_API_KEY",
+	"LLM_TOGETHER_AI_API_KEY",
+	"LLM_CLOUD_RIFT_API_KEY",
+	"LLM_MISTRAL_API_KEY",
+	"LLM_MOONSHOT_API_KEY",
+	"LLM_NOVITA_AI_API_KEY",
+	"LLM_X_AI_API_KEY",
+	"LLM_GROQ_API_KEY",
+	"LLM_DEEPSEEK_API_KEY",
+	"LLM_PERPLEXITY_API_KEY",
+	"LLM_ALIBABA_API_KEY",
+	"LLM_NEBIUS_API_KEY",
+	"LLM_NANO_GPT_API_KEY",
+	"LLM_Z_AI_API_KEY",
+	"LLM_ROUTEWAY_API_KEY",
+	"LLM_ROUTEWAY_DISCOUNT_API_KEY",
+	"LLM_AWS_BEDROCK_API_KEY",
+	"LLM_AZURE_API_KEY",
+	"LLM_CANOPY_WAVE_API_KEY",
+] as const;
+
+/**
+ * Detects which provider API keys are configured in the environment
+ * Returns a list of provider names (without the LLM_ prefix and _API_KEY suffix)
+ */
+function detectConfiguredProviders(): string[] {
+	const configuredProviders: string[] = [];
+
+	for (const envVar of PROVIDER_ENV_VARS) {
+		if (process.env[envVar]) {
+			// Extract provider name: LLM_OPENAI_API_KEY -> openai
+			const providerName = envVar
+				.replace(/^LLM_/, "")
+				.replace(/_API_KEY$/, "")
+				.toLowerCase()
+				.replace(/_/g, "-");
+			configuredProviders.push(providerName);
+		}
+	}
+
+	return configuredProviders;
 }
 
 /**
@@ -72,17 +125,61 @@ export async function sendInstallationBeacon(): Promise<void> {
 			logger.info("Created new self-hosted installation record");
 		}
 
+		const providers = detectConfiguredProviders();
+
 		await sendBeacon({
 			uuid: installation.uuid,
 			type: installation.type,
 			timestamp: new Date().toISOString(),
 			version: process.env.APP_VERSION || "v0.0.0-unknown",
+			providers,
 		});
 
-		logger.info("Installation beacon sent successfully");
+		logger.info("Installation beacon sent successfully", {
+			providersCount: providers.length,
+		});
 	} catch (error) {
 		logger.warn("Failed to send installation beacon", {
 			error: error instanceof Error ? error : new Error(String(error)),
 		});
+	}
+}
+
+let beaconInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Starts the daily beacon schedule
+ * Sends a beacon once per day (24 hours) to track active installations
+ */
+export function startDailyBeacon(): void {
+	// Skip if telemetry is disabled or in CI
+	if (process.env.CI || process.env.TELEMETRY_ACTIVE !== "true") {
+		return;
+	}
+
+	// Clear any existing interval
+	if (beaconInterval) {
+		clearInterval(beaconInterval);
+	}
+
+	// Send beacon every 24 hours (86400000 ms)
+	const DAILY_INTERVAL = 24 * 60 * 60 * 1000;
+
+	beaconInterval = setInterval(() => {
+		logger.info("Sending daily installation beacon");
+		void sendInstallationBeacon();
+	}, DAILY_INTERVAL);
+
+	logger.info("Daily beacon schedule started (runs every 24 hours)");
+}
+
+/**
+ * Stops the daily beacon schedule
+ */
+export function stopDailyBeacon(): void {
+	if (beaconInterval) {
+		clearInterval(beaconInterval);
+		beaconInterval = null;
+		logger.info("Daily beacon schedule stopped");
 	}
 }

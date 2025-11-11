@@ -14,6 +14,7 @@ const beaconDataSchema = z.object({
 	type: z.string().min(1, "Type is required"),
 	timestamp: z.string().datetime("Must be a valid ISO datetime"),
 	version: z.string().min(1, "Version is required"),
+	providers: z.array(z.string()).default([]),
 });
 
 const beaconRoute = createRoute({
@@ -125,6 +126,8 @@ beacon.openapi(beaconRoute, async (c) => {
 			client_ip: clientIP,
 			country: regionInfo.country,
 			region: regionInfo.region,
+			providers: beaconData.providers,
+			providers_count: beaconData.providers.length,
 		},
 	});
 
@@ -134,6 +137,7 @@ beacon.openapi(beaconRoute, async (c) => {
 		clientIP,
 		country: regionInfo.country,
 		cloudProvider,
+		providersCount: beaconData.providers.length,
 	});
 
 	return c.json({

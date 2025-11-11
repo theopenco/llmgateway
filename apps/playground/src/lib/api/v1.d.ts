@@ -138,6 +138,8 @@ export interface paths {
                         /** Format: date-time */
                         timestamp: string;
                         version: string;
+                        /** @default [] */
+                        providers?: string[];
                     };
                 };
             };
