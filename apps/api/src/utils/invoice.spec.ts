@@ -249,6 +249,15 @@ describe("generateInvoicePDF", () => {
 		expect(pdfContent).toContain("billing@example.com");
 	});
 
+	it("includes FROM section with default company information", () => {
+		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
+		const pdfContent = pdfBuffer.toString("latin1");
+
+		expect(pdfContent).toContain("FROM:");
+		expect(pdfContent).toContain("Fake Company");
+		expect(pdfContent).toContain("United States");
+	});
+
 	it("includes line item descriptions and amounts", () => {
 		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
 		const pdfContent = pdfBuffer.toString("latin1");
