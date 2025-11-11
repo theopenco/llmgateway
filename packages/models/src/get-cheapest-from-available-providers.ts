@@ -1,12 +1,47 @@
 import type { ProviderModelMapping } from "./models.js";
 import type { AvailableModelProvider, ModelWithPricing } from "./types.js";
 
+export interface ProviderMetrics {
+	providerId: string;
+	modelId: string;
+	uptime: number; // Percentage (0-100)
+	averageLatency: number; // Milliseconds
+	totalRequests: number;
+}
+
+interface ProviderScore {
+	provider: AvailableModelProvider;
+	score: number;
+	price: number;
+	uptime?: number;
+	latency?: number;
+}
+
+// Scoring weights (totaling 1.0)
+const PRICE_WEIGHT = 0.4;
+const UPTIME_WEIGHT = 0.3;
+const LATENCY_WEIGHT = 0.3;
+
+// Default values for providers with no metrics
+const DEFAULT_UPTIME = 95; // Assume 95% uptime if no data
+const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
+
 /**
- * Get the cheapest provider and model from a list of available model providers
+ * Get the best provider from a list of available model providers.
+ * Considers price, uptime, and latency metrics.
+ *
+ * @param availableModelProviders - List of available providers
+ * @param modelWithPricing - Model pricing information
+ * @param metricsMap - Optional map of provider metrics from last N minutes
+ * @returns Best provider based on scoring, or null if none available
  */
 export function getCheapestFromAvailableProviders<
 	T extends AvailableModelProvider,
->(availableModelProviders: T[], modelWithPricing: ModelWithPricing): T | null {
+>(
+	availableModelProviders: T[],
+	modelWithPricing: ModelWithPricing,
+	metricsMap?: Map<string, ProviderMetrics>,
+): T | null {
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -34,6 +69,98 @@ export function getCheapestFromAvailableProviders<
 		return null;
 	}
 
+	// If no metrics provided, fall back to price-only selection
+	if (!metricsMap || metricsMap.size === 0) {
+		return selectByPriceOnly(stableProviders, modelWithPricing);
+	}
+
+	// Calculate scores for each provider
+	const providerScores: ProviderScore[] = [];
+
+	for (const provider of stableProviders) {
+		const providerInfo = modelWithPricing.providers.find(
+			(p) => p.providerId === provider.providerId,
+		);
+		const discount = (providerInfo as ProviderModelMapping)?.discount || 0;
+		const discountMultiplier = 1 - discount;
+		const price =
+			(((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) /
+				2) *
+			discountMultiplier;
+
+		const metricsKey = `${modelWithPricing.id}:${provider.providerId}`;
+		const metrics = metricsMap.get(metricsKey);
+
+		providerScores.push({
+			provider,
+			score: 0, // Will be calculated below
+			price,
+			uptime: metrics?.uptime,
+			latency: metrics?.averageLatency,
+		});
+	}
+
+	// Find min/max values for normalization
+	const prices = providerScores.map((p) => p.price);
+	const minPrice = Math.min(...prices);
+	const maxPrice = Math.max(...prices);
+
+	const uptimes = providerScores.map(
+		(p) => p.uptime ?? DEFAULT_UPTIME,
+	);
+	const minUptime = Math.min(...uptimes);
+	const maxUptime = Math.max(...uptimes);
+
+	const latencies = providerScores.map(
+		(p) => p.latency ?? DEFAULT_LATENCY,
+	);
+	const minLatency = Math.min(...latencies);
+	const maxLatency = Math.max(...latencies);
+
+	// Calculate normalized scores
+	for (const providerScore of providerScores) {
+		// Normalize price (0 = cheapest, 1 = most expensive)
+		const priceRange = maxPrice - minPrice;
+		const priceScore =
+			priceRange > 0 ? (providerScore.price - minPrice) / priceRange : 0;
+
+		// Normalize uptime (0 = best uptime, 1 = worst uptime)
+		const uptime = providerScore.uptime ?? DEFAULT_UPTIME;
+		const uptimeRange = maxUptime - minUptime;
+		const uptimeScore =
+			uptimeRange > 0 ? (maxUptime - uptime) / uptimeRange : 0;
+
+		// Normalize latency (0 = fastest, 1 = slowest)
+		const latency = providerScore.latency ?? DEFAULT_LATENCY;
+		const latencyRange = maxLatency - minLatency;
+		const latencyScore =
+			latencyRange > 0 ? (latency - minLatency) / latencyRange : 0;
+
+		// Calculate weighted score (lower is better)
+		providerScore.score =
+			PRICE_WEIGHT * priceScore +
+			UPTIME_WEIGHT * uptimeScore +
+			LATENCY_WEIGHT * latencyScore;
+	}
+
+	// Select provider with lowest score
+	let bestProvider = providerScores[0];
+	for (const providerScore of providerScores) {
+		if (providerScore.score < bestProvider.score) {
+			bestProvider = providerScore;
+		}
+	}
+
+	return bestProvider.provider;
+}
+
+/**
+ * Fallback function for price-only selection (original behavior)
+ */
+function selectByPriceOnly<T extends AvailableModelProvider>(
+	stableProviders: T[],
+	modelWithPricing: ModelWithPricing,
+): T {
 	let cheapestProvider = stableProviders[0];
 	let lowestPrice = Number.MAX_VALUE;
 

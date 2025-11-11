@@ -18,6 +18,7 @@ import {
 } from "@llmgateway/cache";
 import {
 	cdb as db,
+	getProviderMetricsForCombinations,
 	isCachingEnabled,
 	type InferSelectModel,
 	shortid,
@@ -1011,9 +1012,20 @@ chat.openapi(completions, async (c) => {
 				: selectedProviders;
 
 			if (finalProviders.length > 0) {
+				// Fetch uptime/latency metrics from last 5 minutes for provider selection
+				const metricsCombinations = finalProviders.map((p) => ({
+					modelId: selectedModel.id,
+					providerId: p.providerId,
+				}));
+				const metricsMap = await getProviderMetricsForCombinations(
+					metricsCombinations,
+					5,
+				);
+
 				const cheapestResult = getCheapestFromAvailableProviders(
 					finalProviders,
 					selectedModel,
+					metricsMap,
 				);
 
 				if (cheapestResult) {
@@ -1106,9 +1118,20 @@ chat.openapi(completions, async (c) => {
 			const modelWithPricing = models.find((m) => m.id === usedModel);
 
 			if (modelWithPricing) {
+				// Fetch uptime/latency metrics from last 5 minutes for provider selection
+				const metricsCombinations = availableModelProviders.map((p) => ({
+					modelId: modelWithPricing.id,
+					providerId: p.providerId,
+				}));
+				const metricsMap = await getProviderMetricsForCombinations(
+					metricsCombinations,
+					5,
+				);
+
 				const cheapestResult = getCheapestFromAvailableProviders(
 					availableModelProviders,
 					modelWithPricing,
+					metricsMap,
 				);
 
 				if (cheapestResult) {
