@@ -155,6 +155,15 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 		align: "right",
 	});
 
+	yPos += 15;
+	doc.setFontSize(9);
+	doc.setFont("helvetica", "italic");
+	doc.text(
+		"If applicable, customer should account for the respective VAT reverse charge.",
+		20,
+		yPos,
+	);
+
 	if (data.billingNotes) {
 		yPos += 20;
 		doc.setFontSize(10);

@@ -258,6 +258,15 @@ describe("generateInvoicePDF", () => {
 		expect(pdfContent).toContain("United States");
 	});
 
+	it("includes VAT reverse charge note", () => {
+		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
+		const pdfContent = pdfBuffer.toString("latin1");
+
+		expect(pdfContent).toContain(
+			"If applicable, customer should account for the respective VAT reverse charge.",
+		);
+	});
+
 	it("includes line item descriptions and amounts", () => {
 		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
 		const pdfContent = pdfBuffer.toString("latin1");
