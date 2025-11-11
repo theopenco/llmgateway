@@ -70,6 +70,7 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 	yPos += 15;
 	const fromYPos = yPos;
 
+	// Render FROM column (left side)
 	doc.setFontSize(12);
 	doc.setFont("helvetica", "bold");
 	doc.text("FROM:", 20, yPos);
@@ -82,7 +83,9 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 		doc.text(line, 20, yPos);
 		yPos += 6;
 	}
+	const fromEndY = yPos;
 
+	// Render BILL TO column (right side)
 	yPos = fromYPos;
 	doc.setFontSize(12);
 	doc.setFont("helvetica", "bold");
@@ -115,6 +118,10 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 		doc.text(`Tax ID: ${data.billingTaxId}`, billToX, yPos);
 		yPos += 6;
 	}
+	const billToEndY = yPos;
+
+	// Set yPos to the bottom of the taller column
+	yPos = Math.max(fromEndY, billToEndY);
 
 	yPos += 10;
 	doc.setFontSize(12);
