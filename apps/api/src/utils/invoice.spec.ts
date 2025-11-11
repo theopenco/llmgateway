@@ -47,7 +47,7 @@ describe("generateInvoicePDF", () => {
 			billingCompany: "Example Corp",
 			billingAddress: "123 Main St\nSuite 100\nSan Francisco, CA 94105",
 			billingTaxId: "TAX-123456",
-			billingNotes: "Payment due within 30 days\nThank you for your business",
+			billingNotes: "Custom notes go here.",
 		};
 
 		const pdfBuffer = generateInvoicePDF(dataWithOptionalFields);
