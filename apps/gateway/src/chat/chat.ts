@@ -1191,6 +1191,7 @@ chat.openapi(completions, async (c) => {
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
+	let configIndex = 0; // Index for round-robin environment variables
 
 	if (project.mode === "credits" && usedProvider === "custom") {
 		throw new HTTPException(400, {
@@ -1297,7 +1298,9 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		usedToken = getProviderEnv(usedProvider);
+		const envResult = getProviderEnv(usedProvider);
+		usedToken = envResult.token;
+		configIndex = envResult.configIndex;
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
@@ -1388,7 +1391,9 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			usedToken = getProviderEnv(usedProvider);
+			const envResult = getProviderEnv(usedProvider);
+			usedToken = envResult.token;
+			configIndex = envResult.configIndex;
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -1444,6 +1449,7 @@ chat.openapi(completions, async (c) => {
 			supportsReasoning,
 			hasExistingToolCalls,
 			providerKey?.options || undefined,
+			configIndex,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
