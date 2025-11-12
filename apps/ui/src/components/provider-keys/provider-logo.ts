@@ -27,6 +27,7 @@ export const providerLogoUrls: Partial<
 	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
+	canopywave: ProviderIcons.canopywave,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
