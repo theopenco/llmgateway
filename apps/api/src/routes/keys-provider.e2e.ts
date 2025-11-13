@@ -109,6 +109,7 @@ describe(
 				if (
 					providerId === "routeway" ||
 					providerId === "routeway-discount" ||
+					providerId === "inference.net" ||
 					providerId === "nanogpt"
 				) {
 					return;
