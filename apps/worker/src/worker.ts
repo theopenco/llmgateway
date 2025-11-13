@@ -322,6 +322,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		// Define retention periods in days
 		const FREE_PLAN_RETENTION_DAYS = 3;
 		const PRO_PLAN_RETENTION_DAYS = 7;
+		const CLEANUP_BATCH_SIZE = 1000;
 
 		const now = new Date();
 
@@ -333,71 +334,140 @@ export async function cleanupExpiredLogData(): Promise<void> {
 			now.getTime() - PRO_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
 		);
 
-		await db.transaction(async (tx) => {
-			// Cleanup logs for free plan organizations (older than 3 days)
-			const freePlanResult = await tx
-				.update(log)
-				.set({
-					messages: null,
-					content: null,
-					reasoningContent: null,
-					tools: null,
-					toolChoice: null,
-					toolResults: null,
-					customHeaders: null,
-					rawRequest: null,
-					rawResponse: null,
-					upstreamRequest: null,
-					upstreamResponse: null,
-					dataRetentionCleanedUp: true,
-				})
-				.where(
-					and(
-						sql`${log.organizationId} IN (SELECT id FROM ${organization} WHERE plan = 'free')`,
-						lt(log.createdAt, freePlanCutoff),
-						sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
-					),
-				)
-				.returning({ id: log.id });
+		let totalFreePlanCleaned = 0;
+		let totalProPlanCleaned = 0;
 
-			if (freePlanResult.length > 0) {
-				logger.info(
-					`Cleaned up verbose data from ${freePlanResult.length} logs for free plan organizations (older than ${FREE_PLAN_RETENTION_DAYS} days)`,
-				);
+		// Process free plan organizations in batches
+		let hasMoreFreePlanRecords = true;
+		while (hasMoreFreePlanRecords) {
+			const batchResult = await db.transaction(async (tx) => {
+				// Find IDs of records to clean up (with LIMIT for batching)
+				const recordsToClean = await tx
+					.select({ id: log.id })
+					.from(log)
+					.where(
+						and(
+							sql`${log.organizationId} IN (SELECT id FROM ${organization} WHERE plan = 'free')`,
+							lt(log.createdAt, freePlanCutoff),
+							sql`${log.dataRetentionCleanedUp} = false`,
+							sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
+						),
+					)
+					.limit(CLEANUP_BATCH_SIZE)
+					.for("update", { skipLocked: true });
+
+				if (recordsToClean.length === 0) {
+					return 0;
+				}
+
+				const idsToClean = recordsToClean.map((r) => r.id);
+
+				// Clean up the batch
+				await tx
+					.update(log)
+					.set({
+						messages: null,
+						content: null,
+						reasoningContent: null,
+						tools: null,
+						toolChoice: null,
+						toolResults: null,
+						customHeaders: null,
+						rawRequest: null,
+						rawResponse: null,
+						upstreamRequest: null,
+						upstreamResponse: null,
+						dataRetentionCleanedUp: true,
+					})
+					.where(inArray(log.id, idsToClean));
+
+				return recordsToClean.length;
+			});
+
+			totalFreePlanCleaned += batchResult;
+
+			if (batchResult < CLEANUP_BATCH_SIZE) {
+				hasMoreFreePlanRecords = false;
 			}
 
-			// Cleanup logs for pro plan organizations (older than 7 days)
-			const proPlanResult = await tx
-				.update(log)
-				.set({
-					messages: null,
-					content: null,
-					reasoningContent: null,
-					tools: null,
-					toolChoice: null,
-					toolResults: null,
-					customHeaders: null,
-					rawRequest: null,
-					rawResponse: null,
-					upstreamRequest: null,
-					upstreamResponse: null,
-					dataRetentionCleanedUp: true,
-				})
-				.where(
-					and(
-						sql`${log.organizationId} IN (SELECT id FROM ${organization} WHERE plan = 'pro')`,
-						lt(log.createdAt, proPlanCutoff),
-						sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
-					),
-				)
-				.returning({ id: log.id });
-
-			if (proPlanResult.length > 0) {
+			if (batchResult > 0) {
 				logger.info(
-					`Cleaned up verbose data from ${proPlanResult.length} logs for pro plan organizations (older than ${PRO_PLAN_RETENTION_DAYS} days)`,
+					`Cleaned up ${batchResult} logs in batch for free plan organizations`,
 				);
 			}
-		});
+		}
+
+		if (totalFreePlanCleaned > 0) {
+			logger.info(
+				`Total cleaned up verbose data from ${totalFreePlanCleaned} logs for free plan organizations (older than ${FREE_PLAN_RETENTION_DAYS} days)`,
+			);
+		}
+
+		// Process pro plan organizations in batches
+		let hasMoreProPlanRecords = true;
+		while (hasMoreProPlanRecords) {
+			const batchResult = await db.transaction(async (tx) => {
+				// Find IDs of records to clean up (with LIMIT for batching)
+				const recordsToClean = await tx
+					.select({ id: log.id })
+					.from(log)
+					.where(
+						and(
+							sql`${log.organizationId} IN (SELECT id FROM ${organization} WHERE plan = 'pro')`,
+							lt(log.createdAt, proPlanCutoff),
+							sql`${log.dataRetentionCleanedUp} = false`,
+							sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
+						),
+					)
+					.limit(CLEANUP_BATCH_SIZE)
+					.for("update", { skipLocked: true });
+
+				if (recordsToClean.length === 0) {
+					return 0;
+				}
+
+				const idsToClean = recordsToClean.map((r) => r.id);
+
+				// Clean up the batch
+				await tx
+					.update(log)
+					.set({
+						messages: null,
+						content: null,
+						reasoningContent: null,
+						tools: null,
+						toolChoice: null,
+						toolResults: null,
+						customHeaders: null,
+						rawRequest: null,
+						rawResponse: null,
+						upstreamRequest: null,
+						upstreamResponse: null,
+						dataRetentionCleanedUp: true,
+					})
+					.where(inArray(log.id, idsToClean));
+
+				return recordsToClean.length;
+			});
+
+			totalProPlanCleaned += batchResult;
+
+			if (batchResult < CLEANUP_BATCH_SIZE) {
+				hasMoreProPlanRecords = false;
+			}
+
+			if (batchResult > 0) {
+				logger.info(
+					`Cleaned up ${batchResult} logs in batch for pro plan organizations`,
+				);
+			}
+		}
+
+		if (totalProPlanCleaned > 0) {
+			logger.info(
+				`Total cleaned up verbose data from ${totalProPlanCleaned} logs for pro plan organizations (older than ${PRO_PLAN_RETENTION_DAYS} days)`,
+			);
+		}
 
 		logger.info("Data retention cleanup completed successfully");
 	} catch (error) {
