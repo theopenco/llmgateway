@@ -20,21 +20,22 @@
 		"start": "next start -H 0.0.0.0"
 	},
 	"dependencies": {
+		"babel-plugin-react-compiler": "1.0.0",
 		"class-variance-authority": "^0.7.1",
-		"fumadocs-core": "15.8.1",
-		"fumadocs-mdx": "12.0.3",
-		"fumadocs-openapi": "9.3.13",
-		"fumadocs-ui": "15.8.1",
+		"fumadocs-core": "16.0.11",
+		"fumadocs-mdx": "13.0.8",
+		"fumadocs-openapi": "10.0.6",
+		"fumadocs-ui": "16.0.11",
 		"gateway": "workspace:*",
 		"lucide-react": "^0.544.0",
-		"next": "16.0.1",
+		"next": "16.0.3",
 		"posthog-js": "1.255.1",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
 		"remark": "15.0.1",
 		"remark-gfm": "4.0.1",
 		"remark-mdx": "3.1.1",
-		"shiki": "3.13.0",
+		"shiki": "3.15.0",
 		"tailwind-merge": "^3.3.1"
 	},
 	"devDependencies": {

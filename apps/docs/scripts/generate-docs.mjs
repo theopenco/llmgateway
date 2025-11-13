@@ -1,6 +1,13 @@
-import * as OpenAPI from "fumadocs-openapi";
-import { rimraf } from "rimraf";
 import { cp } from "node:fs/promises";
+
+import { createOpenAPI } from "fumadocs-openapi/server";
+import { generateFiles } from "fumadocs-openapi";
+import { rimraf } from "rimraf";
+
+const openapi = createOpenAPI({
+	input: ["./openapi.json"],
+	proxyUrl: "/api/proxy",
+});
 
 const out = "./content/(api)";
 
@@ -13,13 +20,10 @@ async function generate() {
 
 	await cp("../gateway/openapi.json", "./openapi.json");
 
-	await OpenAPI.generateFiles({
-		input: [
-			process.env.NODE_ENV === "production"
-				? "https://api.llmgateway.io"
-				: "./openapi.json",
-		],
+	await generateFiles({
+		input: openapi,
 		output: out,
+		includeDescription: true,
 	});
 }
 
