@@ -806,4 +806,33 @@ export const openaiModels = [
 			},
 		],
 	},
+	{
+		id: "gpt-5.1",
+		name: "GPT-5.1",
+		family: "openai",
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "gpt-5.1",
+				inputPrice: 1.25 / 1e6,
+				outputPrice: 10.0 / 1e6,
+				cachedInputPrice: 0.125 / 1e6,
+				requestPrice: 0,
+				contextSize: 400000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: false,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+				],
+				jsonOutput: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
