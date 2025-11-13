@@ -349,6 +349,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 					rawResponse: null,
 					upstreamRequest: null,
 					upstreamResponse: null,
+					dataRetentionCleanedUp: true,
 				})
 				.where(
 					and(
@@ -380,6 +381,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 					rawResponse: null,
 					upstreamRequest: null,
 					upstreamResponse: null,
+					dataRetentionCleanedUp: true,
 				})
 				.where(
 					and(

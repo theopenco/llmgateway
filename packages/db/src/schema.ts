@@ -414,6 +414,7 @@ export const log = pgTable(
 		upstreamRequest: jsonb(),
 		upstreamResponse: jsonb(),
 		traceId: text(),
+		dataRetentionCleanedUp: boolean().default(false),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
