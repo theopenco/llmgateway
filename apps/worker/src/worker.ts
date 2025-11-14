@@ -679,6 +679,7 @@ let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
 let activeLoops = 0;
+let stopFailed = false;
 
 // Independent worker loops
 async function runLogQueueLoop() {
@@ -823,7 +824,21 @@ async function runDataRetentionLoop() {
 
 export async function startWorker() {
 	if (isWorkerRunning) {
-		logger.info("Worker is already running");
+		logger.error("Worker is already running");
+		return;
+	}
+
+	if (activeLoops > 0) {
+		logger.error(
+			`Cannot start worker: ${activeLoops} loop(s) from previous worker still active. Please ensure previous worker has fully stopped.`,
+		);
+		return;
+	}
+
+	if (stopFailed) {
+		logger.error(
+			"Cannot start worker: previous worker stop failed. Please ensure all loops from previous worker have exited before starting a new worker.",
+		);
 		return;
 	}
 
@@ -969,10 +984,10 @@ export async function startWorker() {
 	void runDataRetentionLoop();
 }
 
-export async function stopWorker(): Promise<void> {
+export async function stopWorker(): Promise<boolean> {
 	if (!isWorkerRunning) {
 		logger.info("Worker is not running");
-		return;
+		return true;
 	}
 
 	logger.info("Stopping worker...");
@@ -1005,10 +1020,12 @@ export async function stopWorker(): Promise<void> {
 		const elapsed = Date.now() - startTime;
 
 		if (elapsed >= maxWaitTime) {
-			logger.warn(
-				`Timeout reached (${maxWaitTime}ms) while waiting for worker loops to exit. ${activeLoops} loop(s) still active.`,
+			logger.error(
+				`Timeout reached (${maxWaitTime}ms) while waiting for worker loops to exit. ${activeLoops} loop(s) still active. Worker stop failed.`,
 			);
-			break;
+			stopFailed = true;
+			// Keep shouldStop = true and isWorkerRunning = true to prevent new loops from starting
+			return false;
 		}
 
 		// Sleep for a short period before checking again
@@ -1017,11 +1034,11 @@ export async function stopWorker(): Promise<void> {
 		});
 	}
 
-	if (activeLoops === 0) {
-		logger.info("All worker loops have exited successfully");
-	}
+	logger.info("All worker loops have exited successfully");
 
+	// Only set isWorkerRunning = false if all loops exited successfully
 	isWorkerRunning = false;
+	stopFailed = false;
 
 	// Close database and Redis connections
 	try {
@@ -1040,4 +1057,5 @@ export async function stopWorker(): Promise<void> {
 	}
 
 	logger.info("Worker stopped gracefully");
+	return true;
 }
