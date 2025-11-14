@@ -678,126 +678,147 @@ let isWorkerRunning = false;
 let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
+let activeLoops = 0;
 
 // Independent worker loops
 async function runLogQueueLoop() {
+	activeLoops++;
 	logger.info("Starting log queue processing loop...");
-	// eslint-disable-next-line no-unmodified-loop-condition
-	while (!shouldStop) {
-		try {
-			await processLogQueue();
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await processLogQueue();
 
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 1000);
-				});
-			}
-		} catch (error) {
-			logger.error(
-				"Error in log queue loop",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 1000);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in log queue loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
 			}
 		}
+	} finally {
+		activeLoops--;
+		logger.info("Log queue loop stopped");
 	}
-	logger.info("Log queue loop stopped");
 }
 
 async function runAutoTopUpLoop() {
+	activeLoops++;
 	const interval = (process.env.NODE_ENV === "production" ? 120 : 5) * 1000; // 2 minutes in prod, 5 seconds in dev
 	logger.info(
 		`Starting auto top-up loop (interval: ${interval / 1000} seconds)...`,
 	);
 
-	// eslint-disable-next-line no-unmodified-loop-condition
-	while (!shouldStop) {
-		try {
-			await processAutoTopUp();
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await processAutoTopUp();
 
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, interval);
-				});
-			}
-		} catch (error) {
-			logger.error(
-				"Error in auto top-up loop",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in auto top-up loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
 			}
 		}
+	} finally {
+		activeLoops--;
+		logger.info("Auto top-up loop stopped");
 	}
-	logger.info("Auto top-up loop stopped");
 }
 
 async function runBatchProcessLoop() {
+	activeLoops++;
 	const interval = BATCH_PROCESSING_INTERVAL_SECONDS * 1000;
 	logger.info(
 		`Starting batch process loop (interval: ${BATCH_PROCESSING_INTERVAL_SECONDS} seconds)...`,
 	);
 
-	// eslint-disable-next-line no-unmodified-loop-condition
-	while (!shouldStop) {
-		try {
-			await batchProcessLogs();
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await batchProcessLogs();
 
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, interval);
-				});
-			}
-		} catch (error) {
-			logger.error(
-				"Error in batch process loop",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in batch process loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
 			}
 		}
+	} finally {
+		activeLoops--;
+		logger.info("Batch process loop stopped");
 	}
-	logger.info("Batch process loop stopped");
 }
 
 async function runDataRetentionLoop() {
+	activeLoops++;
 	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
 	logger.info(
 		`Starting data retention loop (interval: ${interval / 1000} seconds)...`,
 	);
 
-	// eslint-disable-next-line no-unmodified-loop-condition
-	while (!shouldStop) {
-		try {
-			await cleanupExpiredLogData();
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await cleanupExpiredLogData();
 
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, interval);
-				});
-			}
-		} catch (error) {
-			logger.error(
-				"Error in data retention loop",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in data retention loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
 			}
 		}
+	} finally {
+		activeLoops--;
+		logger.info("Data retention loop stopped");
 	}
-	logger.info("Data retention loop stopped");
 }
 
 export async function startWorker() {
@@ -970,16 +991,34 @@ export async function stopWorker(): Promise<void> {
 		logger.info("Aggregated statistics calculator stopped");
 	}
 
-	// Wait for all loops to finish
+	// Wait for all loops to finish by polling activeLoops counter
 	const maxWaitTime = 15000; // 15 seconds timeout
+	const pollInterval = 100; // 100ms per iteration
 	const startTime = Date.now();
 
-	logger.info("Waiting for all worker loops to finish...");
-	while (Date.now() - startTime < maxWaitTime) {
-		// Give loops time to detect shouldStop and exit gracefully
+	logger.info(
+		`Waiting for all worker loops to finish (active loops: ${activeLoops})...`,
+	);
+
+	// eslint-disable-next-line no-unmodified-loop-condition
+	while (activeLoops > 0) {
+		const elapsed = Date.now() - startTime;
+
+		if (elapsed >= maxWaitTime) {
+			logger.warn(
+				`Timeout reached (${maxWaitTime}ms) while waiting for worker loops to exit. ${activeLoops} loop(s) still active.`,
+			);
+			break;
+		}
+
+		// Sleep for a short period before checking again
 		await new Promise((resolve) => {
-			setTimeout(resolve, 100);
+			setTimeout(resolve, pollInterval);
 		});
+	}
+
+	if (activeLoops === 0) {
+		logger.info("All worker loops have exited successfully");
 	}
 
 	isWorkerRunning = false;
