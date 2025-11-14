@@ -822,7 +822,9 @@ export const openaiModels = [
 				maxOutput: 128000,
 				streaming: true,
 				vision: true,
-				tools: false,
+				tools: true,
+				reasoning: true,
+				reasoningOutput: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
