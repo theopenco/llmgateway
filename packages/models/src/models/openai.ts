@@ -824,7 +824,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				reasoning: true,
-				reasoningOutput: true,
+				reasoningOutput: "omit",
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
