@@ -311,6 +311,14 @@ async function processAutoTopUp(): Promise<void> {
 }
 
 export async function cleanupExpiredLogData(): Promise<void> {
+	// Check if data retention cleanup is enabled
+	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
+		logger.info(
+			"Data retention cleanup is disabled. Set ENABLE_DATA_RETENTION_CLEANUP=true to enable.",
+		);
+		return;
+	}
+
 	const lockAcquired = await acquireLock(DATA_RETENTION_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
