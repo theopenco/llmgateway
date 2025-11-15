@@ -881,7 +881,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportsResponsesApi: true,
-				jsonOutputSchema: true,
+				jsonOutputSchema: false,
 				jsonOutput: true,
 			},
 		],
