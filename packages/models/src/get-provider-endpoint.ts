@@ -310,28 +310,23 @@ export function getProviderEndpoint(
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
-		case "openai":
-			// Use responses endpoint for reasoning models that support responses API
-			// but not when there are existing tool calls in the conversation
-			if (
-				supportsReasoning &&
-				model &&
-				!hasExistingToolCalls &&
-				process.env.USE_RESPONSES_API === "true"
-			) {
+		case "openai": {
+			// Use responses endpoint for models that support responses API
+			if (model) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
 				);
 				const supportsResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-					false;
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
 
 				if (supportsResponsesApi) {
 					return `${url}/v1/responses`;
 				}
 			}
 			return `${url}/v1/chat/completions`;
+		}
 		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":
