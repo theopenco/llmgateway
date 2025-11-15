@@ -2918,9 +2918,7 @@ chat.openapi(completions, async (c) => {
 				let calculatedReasoningTokens = reasoningTokens;
 				if (!reasoningTokens && fullReasoningContent) {
 					try {
-						calculatedReasoningTokens = encode(
-							JSON.stringify(fullReasoningContent),
-						).length;
+						calculatedReasoningTokens = encode(fullReasoningContent).length;
 					} catch (error) {
 						// Fallback to simple estimation if encoding fails
 						logger.error(
@@ -3599,9 +3597,7 @@ chat.openapi(completions, async (c) => {
 	let calculatedReasoningTokens = reasoningTokens;
 	if (!reasoningTokens && reasoningContent) {
 		try {
-			calculatedReasoningTokens = encode(
-				JSON.stringify(reasoningContent),
-			).length;
+			calculatedReasoningTokens = encode(reasoningContent).length;
 		} catch (error) {
 			// Fallback to simple estimation if encoding fails
 			logger.error(
