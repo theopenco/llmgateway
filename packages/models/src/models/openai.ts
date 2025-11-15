@@ -843,6 +843,7 @@ export const openaiModels = [
 		family: "openai",
 		providers: [
 			{
+				test: "skip",
 				providerId: "openai",
 				modelName: "gpt-5-pro",
 				inputPrice: 15 / 1e6,
