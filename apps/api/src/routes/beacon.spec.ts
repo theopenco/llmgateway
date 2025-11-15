@@ -46,6 +46,8 @@ describe("beacon endpoint", () => {
 				client_ip: null, // No IP headers provided
 				country: undefined,
 				region: undefined,
+				providers: [],
+				providers_count: 0,
 			},
 		});
 	});
@@ -84,6 +86,8 @@ describe("beacon endpoint", () => {
 				client_ip: "203.0.113.42",
 				country: "US",
 				region: "California",
+				providers: [],
+				providers_count: 0,
 			},
 		});
 	});
@@ -121,6 +125,8 @@ describe("beacon endpoint", () => {
 				client_ip: "198.51.100.25", // First IP from X-Forwarded-For
 				country: undefined, // GCP doesn't provide country in standard headers
 				region: "us-central1",
+				providers: [],
+				providers_count: 0,
 			},
 		});
 	});
@@ -156,6 +162,45 @@ describe("beacon endpoint", () => {
 				client_ip: "192.0.2.123",
 				country: undefined,
 				region: undefined,
+				providers: [],
+				providers_count: 0,
+			},
+		});
+	});
+
+	it("should track providers correctly", async () => {
+		const beaconData = {
+			uuid: "123e4567-e89b-12d3-a456-426614174000",
+			type: "self-host",
+			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
+			providers: ["openai", "anthropic", "google-vertex"],
+		};
+
+		const response = await app.request("/beacon", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(beaconData),
+		});
+
+		expect(response.status).toBe(200);
+
+		// Verify PostHog was called with providers data
+		expect(posthog.capture).toHaveBeenCalledWith({
+			distinctId: beaconData.uuid,
+			event: "self_hosted_installation_beacon",
+			properties: {
+				installation: beaconData.type,
+				timestamp: beaconData.timestamp,
+				source: "self_hosted_api",
+				version: process.env.APP_VERSION || "v0.0.0-unknown",
+				client_ip: null,
+				country: undefined,
+				region: undefined,
+				providers: ["openai", "anthropic", "google-vertex"],
+				providers_count: 3,
 			},
 		});
 	});
