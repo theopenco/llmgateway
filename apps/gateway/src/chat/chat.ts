@@ -2914,6 +2914,23 @@ chat.openapi(completions, async (c) => {
 						(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
 				}
 
+				// Estimate reasoning tokens if not provided but reasoning content exists
+				let calculatedReasoningTokens = reasoningTokens;
+				if (!reasoningTokens && fullReasoningContent) {
+					try {
+						calculatedReasoningTokens = encode(
+							JSON.stringify(fullReasoningContent),
+						).length;
+					} catch (error) {
+						// Fallback to simple estimation if encoding fails
+						logger.error(
+							"Failed to encode reasoning text in streaming",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+						calculatedReasoningTokens =
+							estimateTokensFromContent(fullReasoningContent);
+					}
+				}
 				// Check if the response finished successfully but has no content, tokens, or tool calls
 				// This indicates an empty response which should be marked as an error
 				// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -3129,7 +3146,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
 					totalTokens: calculatedTotalTokens?.toString() || null,
-					reasoningTokens: reasoningTokens,
+					reasoningTokens: calculatedReasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: streamingError !== null,
 					errorDetails: streamingError
@@ -3578,6 +3595,22 @@ chat.openapi(completions, async (c) => {
 		completionTokens,
 	);
 
+	// Estimate reasoning tokens if not provided but reasoning content exists
+	let calculatedReasoningTokens = reasoningTokens;
+	if (!reasoningTokens && reasoningContent) {
+		try {
+			calculatedReasoningTokens = encode(
+				JSON.stringify(reasoningContent),
+			).length;
+		} catch (error) {
+			// Fallback to simple estimation if encoding fails
+			logger.error(
+				"Failed to encode reasoning text",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
+		}
+	}
 	const costs = calculateCosts(
 		usedModel,
 		usedProvider,
@@ -3679,7 +3712,7 @@ chat.openapi(completions, async (c) => {
 			(
 				(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0)
 			).toString(),
-		reasoningTokens: reasoningTokens,
+		reasoningTokens: calculatedReasoningTokens?.toString() || null,
 		cachedTokens: cachedTokens?.toString() || null,
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,
