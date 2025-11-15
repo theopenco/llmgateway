@@ -1,13 +1,6 @@
 import type { ProviderModelMapping } from "./models.js";
 import type { AvailableModelProvider, ModelWithPricing } from "./types.js";
-
-export interface ProviderMetrics {
-	providerId: string;
-	modelId: string;
-	uptime: number; // Percentage (0-100)
-	averageLatency: number; // Milliseconds
-	totalRequests: number;
-}
+import type { ProviderMetrics } from "@llmgateway/db";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
