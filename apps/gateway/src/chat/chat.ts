@@ -2057,20 +2057,23 @@ chat.openapi(completions, async (c) => {
 
 			if (!res.ok) {
 				const errorResponseText = await res.text();
-				logger.error("Provider error", {
-					status: res.status,
-					errorText: errorResponseText,
-					usedProvider,
-					requestedProvider,
-					usedModel,
-					initialRequestedModel,
-				});
 
 				// Determine the finish reason for error handling
 				const finishReason = getFinishReasonFromError(
 					res.status,
 					errorResponseText,
 				);
+
+				if (finishReason !== "client_error") {
+					logger.error("Provider error", {
+						status: res.status,
+						errorText: errorResponseText,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+				}
 
 				// For client errors, return the original provider error response
 				let errorData;
@@ -3415,20 +3418,22 @@ chat.openapi(completions, async (c) => {
 		// Get the error response text
 		const errorResponseText = await res.text();
 
-		logger.error("Provider error", {
-			status: res.status,
-			errorText: errorResponseText,
-			usedProvider,
-			requestedProvider,
-			usedModel,
-			initialRequestedModel,
-		});
-
 		// Determine the finish reason first
 		const finishReason = getFinishReasonFromError(
 			res.status,
 			errorResponseText,
 		);
+
+		if (finishReason !== "client_error") {
+			logger.error("Provider error", {
+				status: res.status,
+				errorText: errorResponseText,
+				usedProvider,
+				requestedProvider,
+				usedModel,
+				initialRequestedModel,
+			});
+		}
 
 		// Log the error in the database
 		const baseLogEntry = createLogEntry(
