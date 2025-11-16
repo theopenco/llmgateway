@@ -406,12 +406,12 @@ export function ApiKeysList({
 			)}
 
 			{/* Desktop Table */}
-			<div className="hidden md:block">
+			<div className="hidden md:block overflow-x-auto">
 				<Table>
 					<TableHeader>
 						<TableRow>
 							<TableHead>Name</TableHead>
-							<TableHead>API Key</TableHead>
+							<TableHead className="w-40">API Key</TableHead>
 							<TableHead>Status</TableHead>
 							<TableHead>Created</TableHead>
 							<TableHead>Created By</TableHead>
@@ -430,9 +430,11 @@ export function ApiKeysList({
 								<TableCell className="font-medium">
 									<span className="text-sm font-medium">{key.description}</span>
 								</TableCell>
-								<TableCell>
+								<TableCell className="w-40">
 									<div className="flex items-center space-x-2">
-										<span className="font-mono text-xs">{key.maskedToken}</span>
+										<span className="font-mono text-xs truncate">
+											{key.maskedToken}
+										</span>
 									</div>
 								</TableCell>
 								<TableCell>

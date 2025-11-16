@@ -1,0 +1,175 @@
+---
+title: Cursor Integration
+description: Use LLM Gateway with Cursor IDE for AI-powered code editing and chat
+image: guides/cursor/overview.png
+icon: Code
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+Cursor is an AI-powered code editor built on VSCode. You can configure Cursor to use LLM Gateway for enhanced AI capabilities, access to multiple models, and better cost control.
+
+![Cursor with LLM Gateway](/guides/cursor/overview.png)
+
+## Prerequisites
+
+- An LLM Gateway account with an API key
+- Cursor IDE installed
+- Basic understanding of Cursor's AI features
+
+## Setup
+
+Cursor supports OpenAI-compatible API endpoints, making it easy to integrate with LLM Gateway.
+
+<Steps>
+<Step>
+### Get Your API Key
+
+1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+2. Navigate to **API Keys** section
+3. Create a new API key and copy the key
+
+![LLM Gateway API Keys](/guides/cursor/api-key.png)
+
+</Step>
+
+<Step>
+### Configure Cursor Settings
+
+1. Open Cursor and go to **Settings** then Click on "Cursor Settings"
+2. Click on "Models"
+3. Click on "Add OpenAI API Key"
+
+![Cursor Settings](/guides/cursor/settings-1.png)
+
+3. Scroll down to **OpenAI API Key** section
+4. Click on **Add OpenAI API Key**
+
+![Cursor API Key Input](/guides/cursor/settings-2.png)
+
+5. Enter your LLM Gateway API key
+
+6. In the same Models settings, find the **Override OpenAI Base URL** option
+7. Enable the override option
+8. Enter the LLM Gateway endpoint: `https://api.llmgateway.io/v1`
+
+</Step>
+
+<Step>
+### Select Models
+
+1. In the **Models** section, you can now select from available models
+2. Choose any [LLM Gateway supported model](https://llmgateway.io/models):
+
+![Cursor Model Selection](/guides/cursor/model-selection.png)
+
+- For chat: Use models like `gpt-5`, `gpt-4o`, `claude-sonnet-4-5`
+- For provider specific models: Add the provider name before the model name (e.g.
+  `openai/gpt-5`, `anthropic/claude-sonnet-4-5`, `google/gemini-2.0-flash-exp`)
+- For custom models: Add the provider name before the model name (e.g.
+  `custom/my-model`)
+- For discounted models: copy the ids from from the [models page](https://llmgateway.io/models?view=grid&filters=1&discounted=true)
+- For free models: copy the ids from from the [models page](https://llmgateway.io/models?view=grid&filters=1&free=true)
+- For reasoning models: copy the ids from from the [models page](https://llmgateway.io/models?view=grid&filters=1&reasoning=true)
+
+</Step>
+
+<Step>
+### Test the Integration
+
+1. Open any code file in Cursor
+2. Try using the AI chat (Cmd/Ctrl + L)
+3. Or test the autocomplete feature while typing
+
+![Cursor AI Chat](/guides/cursor/test-1.png)
+![Cursor AI Chat 2](/guides/cursor/test-2.png)
+
+All AI requests will now be routed through LLM Gateway.
+
+</Step>
+</Steps>
+
+## Features
+
+Once configured, you can use all of Cursor's AI features with LLM Gateway:
+
+### AI Chat (Cmd/Ctrl + L)
+
+- Ask questions about your code
+- Request code explanations
+- Get debugging help
+- Generate new code
+
+### Inline Edit (Cmd/Ctrl + K)
+
+- Edit code with natural language instructions
+- Refactor functions
+- Add features to existing code
+
+### Autocomplete
+
+- Get intelligent code suggestions as you type
+- Context-aware completions based on your codebase
+
+## Advanced Configuration
+
+### Using Different Models for Different Features
+
+Cursor allows you to configure different models for different features:
+
+1. **Chat Model**: Use a powerful model like `gpt-5` or `claude-sonnet-4-5`
+2. **Autocomplete Model**: Use a faster, cost-effective model like `gpt-4o-mini`
+3. **Provider Specific Model**: Use a provider specific model like `openai/gpt-5`, `anthropic/claude-sonnet-4-5`, `google/gemini-2.0-flash-exp`
+4. **Custom Model**: Use a custom model like `custom/my-model`
+5. **Discounted Model**: Use a discounted model like `routeway-discount/claude-sonnet-4-5`
+6. **Free Model**: Use a free model like `routeway/deepseek-r1t2-chimera-free`
+7. **Reasoning Model**: Use a reasoning model like `canopywave/kimi-k2-thinking` [with 75% off discount](https://llmgateway.io/changelog/canopywave-kimi-k2-thinking-discount)
+
+This gives you the best balance of performance and cost.
+
+### Model Routing
+
+With LLM Gateway's [routing features](/features/routing), you can:
+
+- **Chooses cost-effective models** by default for optimal price-to-performance ratio
+- **Automatically scales to more powerful models** based on your request's context size
+- **Handles large contexts intelligently** by selecting models with appropriate context windows
+
+## Troubleshooting
+
+### Authentication Errors
+
+If you see authentication errors:
+
+- Verify your API key is correct
+- Check that the base URL is set to `https://api.llmgateway.io/v1`
+- Ensure your LLM Gateway account has sufficient credits
+
+### Model Not Found
+
+If you see "model not found" errors:
+
+- Verify the model ID exists in the [models page](https://llmgateway.io/models)
+- Check that you're using the correct model name format
+- Some models may require specific provider configurations in your LLM Gateway dashboard
+
+### Slow Responses
+
+If responses are slow:
+
+- Check your internet connection
+- Monitor your usage in the LLM Gateway dashboard
+- Consider using faster models for autocomplete features
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
+
+## Benefits of Using LLM Gateway with Cursor
+
+- **Multi-Provider Access**: Use models from OpenAI, Anthropic, Google, Open-source models and more
+- **Cost Control**: Track and limit your AI spending with detailed usage analytics
+- **Caching**: Reduce costs with response caching
+- **Analytics**: Monitor usage patterns and costs
