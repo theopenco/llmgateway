@@ -6,6 +6,7 @@ export const sherlockModels = [
 		name: "Sherlock Dash Alpha",
 		family: "sherlock",
 		free: true,
+		rateLimitKind: "high",
 		providers: [
 			{
 				providerId: "sherlock",
@@ -28,6 +29,7 @@ export const sherlockModels = [
 		name: "Sherlock Think Alpha",
 		family: "sherlock",
 		free: true,
+		rateLimitKind: "high",
 		providers: [
 			{
 				providerId: "sherlock",

@@ -149,6 +149,13 @@ export interface ModelDefinition {
 	 */
 	free?: boolean;
 	/**
+	 * Rate limit tier for free models (defaults to 'low' if not specified)
+	 * - low: Standard rate limits for free models
+	 * - high: More generous rate limits for free models
+	 * Only applies when free is true
+	 */
+	rateLimitKind?: "low" | "high";
+	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: ("text" | "image")[];
