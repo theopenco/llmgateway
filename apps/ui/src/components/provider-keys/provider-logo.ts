@@ -1,3 +1,5 @@
+import { VenetianMask } from "lucide-react";
+
 import { ProviderIcons } from "@/lib/components/providers-icons";
 
 import type { ProviderId } from "@llmgateway/models";
@@ -28,6 +30,7 @@ export const providerLogoUrls: Partial<
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	canopywave: ProviderIcons.canopywave,
+	sherlock: VenetianMask,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
