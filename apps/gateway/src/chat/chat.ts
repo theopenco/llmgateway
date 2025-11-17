@@ -231,6 +231,12 @@ const completionsRequestSchema = z.object({
 			"When used with auto routing, exclude reasoning models from selection",
 		example: false,
 	}),
+	// Z.ai specific parameter - not documented in OpenAPI
+	sensitive_word_check: z
+		.object({
+			status: z.enum(["DISABLE", "ENABLE"]),
+		})
+		.optional(),
 });
 
 const completions = createRoute({
@@ -394,6 +400,7 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		free_models_only,
 		no_reasoning,
+		sensitive_word_check,
 	} = validationResult.data;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
@@ -1214,6 +1221,7 @@ chat.openapi(completions, async (c) => {
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
+	let configIndex = 0; // Index for round-robin environment variables
 
 	if (project.mode === "credits" && usedProvider === "custom") {
 		throw new HTTPException(400, {
@@ -1320,7 +1328,9 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		usedToken = getProviderEnv(usedProvider);
+		const envResult = getProviderEnv(usedProvider);
+		usedToken = envResult.token;
+		configIndex = envResult.configIndex;
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
@@ -1411,7 +1421,9 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			usedToken = getProviderEnv(usedProvider);
+			const envResult = getProviderEnv(usedProvider);
+			usedToken = envResult.token;
+			configIndex = envResult.configIndex;
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -1467,6 +1479,7 @@ chat.openapi(completions, async (c) => {
 			supportsReasoning,
 			hasExistingToolCalls,
 			providerKey?.options || undefined,
+			configIndex,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -1804,6 +1817,7 @@ chat.openapi(completions, async (c) => {
 		process.env.NODE_ENV === "production",
 		maxImageSizeMB,
 		userPlan,
+		sensitive_word_check,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2074,20 +2088,23 @@ chat.openapi(completions, async (c) => {
 
 			if (!res.ok) {
 				const errorResponseText = await res.text();
-				logger.error("Provider error", {
-					status: res.status,
-					errorText: errorResponseText,
-					usedProvider,
-					requestedProvider,
-					usedModel,
-					initialRequestedModel,
-				});
 
 				// Determine the finish reason for error handling
 				const finishReason = getFinishReasonFromError(
 					res.status,
 					errorResponseText,
 				);
+
+				if (finishReason !== "client_error") {
+					logger.error("Provider error", {
+						status: res.status,
+						errorText: errorResponseText,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+				}
 
 				// For client errors, return the original provider error response
 				let errorData;
@@ -2931,6 +2948,21 @@ chat.openapi(completions, async (c) => {
 						(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
 				}
 
+				// Estimate reasoning tokens if not provided but reasoning content exists
+				let calculatedReasoningTokens = reasoningTokens;
+				if (!reasoningTokens && fullReasoningContent) {
+					try {
+						calculatedReasoningTokens = encode(fullReasoningContent).length;
+					} catch (error) {
+						// Fallback to simple estimation if encoding fails
+						logger.error(
+							"Failed to encode reasoning text in streaming",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+						calculatedReasoningTokens =
+							estimateTokensFromContent(fullReasoningContent);
+					}
+				}
 				// Check if the response finished successfully but has no content, tokens, or tool calls
 				// This indicates an empty response which should be marked as an error
 				// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -3146,7 +3178,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
 					totalTokens: calculatedTotalTokens?.toString() || null,
-					reasoningTokens: reasoningTokens,
+					reasoningTokens: calculatedReasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: streamingError !== null,
 					errorDetails: streamingError
@@ -3417,20 +3449,22 @@ chat.openapi(completions, async (c) => {
 		// Get the error response text
 		const errorResponseText = await res.text();
 
-		logger.error("Provider error", {
-			status: res.status,
-			errorText: errorResponseText,
-			usedProvider,
-			requestedProvider,
-			usedModel,
-			initialRequestedModel,
-		});
-
 		// Determine the finish reason first
 		const finishReason = getFinishReasonFromError(
 			res.status,
 			errorResponseText,
 		);
+
+		if (finishReason !== "client_error") {
+			logger.error("Provider error", {
+				status: res.status,
+				errorText: errorResponseText,
+				usedProvider,
+				requestedProvider,
+				usedModel,
+				initialRequestedModel,
+			});
+		}
 
 		// Log the error in the database
 		const baseLogEntry = createLogEntry(
@@ -3595,6 +3629,20 @@ chat.openapi(completions, async (c) => {
 		completionTokens,
 	);
 
+	// Estimate reasoning tokens if not provided but reasoning content exists
+	let calculatedReasoningTokens = reasoningTokens;
+	if (!reasoningTokens && reasoningContent) {
+		try {
+			calculatedReasoningTokens = encode(reasoningContent).length;
+		} catch (error) {
+			// Fallback to simple estimation if encoding fails
+			logger.error(
+				"Failed to encode reasoning text",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
+		}
+	}
 	const costs = calculateCosts(
 		usedModel,
 		usedProvider,
@@ -3696,7 +3744,7 @@ chat.openapi(completions, async (c) => {
 			(
 				(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0)
 			).toString(),
-		reasoningTokens: reasoningTokens,
+		reasoningTokens: calculatedReasoningTokens?.toString() || null,
 		cachedTokens: cachedTokens?.toString() || null,
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,

@@ -1,21 +1,29 @@
 import { HTTPException } from "hono/http-exception";
 
+import { getRoundRobinValue } from "@/lib/round-robin-env.js";
+
 import { getProviderEnvVar, type Provider } from "@llmgateway/models";
 
+export interface ProviderEnvResult {
+	token: string;
+	configIndex: number;
+}
+
 /**
- * Get provider token from environment variables
+ * Get provider token from environment variables with round-robin support
+ * Supports comma-separated values in environment variables for load balancing
  * @param usedProvider The provider to get the token for
- * @returns The token for the provider
+ * @returns Object containing the token and the config index used
  */
-export function getProviderEnv(usedProvider: Provider): string {
+export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
 	const envVar = getProviderEnvVar(usedProvider);
 	if (!envVar) {
 		throw new HTTPException(400, {
 			message: `No environment variable set for provider: ${usedProvider}`,
 		});
 	}
-	const token = process.env[envVar];
-	if (!token) {
+	const envValue = process.env[envVar];
+	if (!envValue) {
 		throw new HTTPException(400, {
 			message: `No API key set in environment for provider: ${usedProvider}`,
 		});
@@ -29,5 +37,8 @@ export function getProviderEnv(usedProvider: Provider): string {
 		}
 	}
 
-	return token;
+	// Get the next token using round-robin
+	const result = getRoundRobinValue(envVar, envValue);
+
+	return { token: result.value, configIndex: result.index };
 }

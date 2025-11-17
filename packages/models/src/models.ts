@@ -12,6 +12,7 @@ import { nousresearchModels } from "./models/nousresearch.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { routewayModels } from "./models/routeway.js";
+import { sherlockModels } from "./models/sherlock.js";
 import { xaiModels } from "./models/xai.js";
 import { zaiModels } from "./models/zai.js";
 
@@ -148,6 +149,13 @@ export interface ModelDefinition {
 	 */
 	free?: boolean;
 	/**
+	 * Rate limit tier for free models (defaults to 'low' if not specified)
+	 * - low: Standard rate limits for free models
+	 * - high: More generous rate limits for free models
+	 * Only applies when free is true
+	 */
+	rateLimitKind?: "low" | "high";
+	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: ("text" | "image")[];
@@ -181,5 +189,6 @@ export const models = [
 	...alibabaModels,
 	...nousresearchModels,
 	...routewayModels,
+	...sherlockModels,
 	...zaiModels,
 ] as const satisfies ModelDefinition[];

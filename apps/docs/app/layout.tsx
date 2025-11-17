@@ -1,8 +1,8 @@
 // eslint-disable-next-line import/order
 import "./global.css";
 
-import { RootProvider } from "fumadocs-ui/provider";
-import { Inter } from "next/font/google";
+import { RootProvider } from "fumadocs-ui/provider/next";
+import { Geist_Mono, Inter } from "next/font/google";
 
 import { ConfigProvider } from "@/lib/context";
 import { PostHogProvider } from "@/lib/providers";
@@ -12,6 +12,11 @@ import type { ReactNode } from "react";
 
 const inter = Inter({
 	subsets: ["latin"],
+});
+
+const mono = Geist_Mono({
+	subsets: ["latin"],
+	variable: "--font-mono",
 });
 
 export const dynamic = "force-dynamic";
@@ -32,7 +37,11 @@ export default function Layout({ children }: { children: ReactNode }) {
 	const posthogHost = process.env.POSTHOG_HOST || "";
 
 	return (
-		<html lang="en" className={inter.className} suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.className} ${mono.variable}`}
+			suppressHydrationWarning
+		>
 			<body className="flex flex-col min-h-screen">
 				<ConfigProvider posthogKey={posthogKey} posthogHost={posthogHost}>
 					<PostHogProvider>

@@ -1,10 +1,14 @@
 import { loader } from "fumadocs-core/source";
-import { createOpenAPI, attachFile } from "fumadocs-openapi/server";
+import { lucideIconsPlugin } from "fumadocs-core/source/lucide-icons";
+import { createMDXSource } from "fumadocs-mdx/runtime/next";
+import { createOpenAPI, openapiPlugin } from "fumadocs-openapi/server";
 import { icons } from "lucide-react";
 import { createElement } from "react";
 
 import { customIcons } from "./custom-icons";
-import { docs } from "@/.source";
+import { docs, meta } from "../.source";
+
+import type { InferPageType } from "fumadocs-core/source";
 
 export const source = loader({
 	icon(icon) {
@@ -23,12 +27,29 @@ export const source = loader({
 		return undefined;
 	},
 	baseUrl: "/",
-	source: docs.toFumadocsSource(),
-	pageTree: {
-		attachFile,
-	},
+	source: createMDXSource(docs, meta),
+	plugins: [lucideIconsPlugin(), openapiPlugin()],
 });
 
+export function getPageImage(page: InferPageType<typeof source>) {
+	const segments = [...page.slugs, "image.png"];
+
+	return {
+		segments,
+		url: `/og/docs/${segments.join("/")}`,
+		title: page.data.title,
+		description: page.data.description,
+	};
+}
+
+export async function getLLMText(page: InferPageType<typeof source>) {
+	const processed = await page.data.getText("processed");
+
+	return `# ${page.data.title}
+
+${processed}`;
+}
+
 export const openapi = createOpenAPI({
-	proxyUrl: "/api/proxy",
+	input: ["./openapi.json"],
 });

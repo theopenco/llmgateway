@@ -53,6 +53,7 @@ export async function prepareRequestBody(
 	isProd = false,
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
+	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
@@ -87,28 +88,42 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "openai": {
-			// Check if messages contain existing tool calls or tool results
-			// If so, use Chat Completions API instead of Responses API
-			const hasExistingToolCalls = messages.some(
-				(msg: any) => msg.tool_calls || msg.role === "tool",
-			);
-
-			// Check if the model supports responses API (default to true if reasoning is enabled)
+			// Check if the model supports responses API
 			const providerMapping = modelDef?.providers.find(
 				(p) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
-				process.env.USE_RESPONSES_API === "true" &&
-				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-					false;
+				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+				true;
 
-			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
-				// Transform to responses API format (only when no existing tool calls)
+			if (supportsResponsesApi) {
+				// Transform to responses API format
+				// gpt-5-pro only supports "high" reasoning effort
+				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
+
+				// Transform messages for responses API - remove tool_calls and convert tool results
+				const transformedMessages = processedMessages.map((msg: any) => {
+					const transformed = { ...msg };
+					// Remove tool_calls from assistant messages (not supported in responses API input)
+					if (transformed.tool_calls) {
+						delete transformed.tool_calls;
+					}
+					// Responses API doesn't support tool_call_id in tool messages
+					if (transformed.tool_call_id) {
+						delete transformed.tool_call_id;
+					}
+					// Responses API doesn't support 'tool' role - convert to 'user'
+					if (transformed.role === "tool") {
+						transformed.role = "user";
+					}
+					return transformed;
+				});
+
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedModel,
-					input: processedMessages,
+					input: transformedMessages,
 					reasoning: {
-						effort: reasoning_effort || "medium",
+						effort: reasoning_effort || defaultEffort,
 						summary: "detailed",
 					},
 				};
@@ -210,6 +225,10 @@ export async function prepareRequestBody(
 				requestBody.thinking = {
 					type: "enabled",
 				};
+			}
+			// Add sensitive_word_check if provided (Z.ai specific)
+			if (sensitive_word_check) {
+				requestBody.sensitive_word_check = sensitive_word_check;
 			}
 			break;
 		}

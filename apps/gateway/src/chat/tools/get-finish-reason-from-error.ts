@@ -12,6 +12,15 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// zai content filter
+	if (
+		errorText?.includes(
+			"System detected potentially unsafe or sensitive content in input or generation",
+		)
+	) {
+		return "client_error";
+	}
+
 	// Check for specific client validation errors from providers
 	if (statusCode === 400 && errorText) {
 		// OpenAI JSON format validation error

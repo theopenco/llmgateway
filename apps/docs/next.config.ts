@@ -1,6 +1,10 @@
 import { join } from "path";
 
+import { createMDX } from "fumadocs-mdx/next";
+
 import type { NextConfig } from "next";
+
+const withMDX = createMDX();
 
 const nextConfig: NextConfig = {
 	outputFileTracingRoot: join(__dirname, "../../"),
@@ -10,10 +14,15 @@ const nextConfig: NextConfig = {
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
-	experimental: {
-		// turbopackFileSystemCacheForDev: true,
-		// turbopackFileSystemCacheForBuild: true,
+
+	async rewrites() {
+		return [
+			{
+				source: "/docs/:path*.mdx",
+				destination: "/llms.mdx/:path*",
+			},
+		];
 	},
 };
 
-export default nextConfig;
+export default withMDX(nextConfig);
