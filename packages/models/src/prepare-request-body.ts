@@ -53,6 +53,7 @@ export async function prepareRequestBody(
 	isProd = false,
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
+	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
@@ -224,6 +225,10 @@ export async function prepareRequestBody(
 				requestBody.thinking = {
 					type: "enabled",
 				};
+			}
+			// Add sensitive_word_check if provided (Z.ai specific)
+			if (sensitive_word_check) {
+				requestBody.sensitive_word_check = sensitive_word_check;
 			}
 			break;
 		}

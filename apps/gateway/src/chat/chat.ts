@@ -230,6 +230,12 @@ const completionsRequestSchema = z.object({
 			"When used with auto routing, exclude reasoning models from selection",
 		example: false,
 	}),
+	// Z.ai specific parameter - not documented in OpenAPI
+	sensitive_word_check: z
+		.object({
+			status: z.enum(["DISABLE", "ENABLE"]),
+		})
+		.optional(),
 });
 
 const completions = createRoute({
@@ -393,6 +399,7 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		free_models_only,
 		no_reasoning,
+		sensitive_word_check,
 	} = validationResult.data;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
@@ -1787,6 +1794,7 @@ chat.openapi(completions, async (c) => {
 		process.env.NODE_ENV === "production",
 		maxImageSizeMB,
 		userPlan,
+		sensitive_word_check,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
