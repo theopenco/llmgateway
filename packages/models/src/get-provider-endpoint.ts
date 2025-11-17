@@ -60,7 +60,7 @@ export function getProviderEndpoint(
 			}
 		}
 	}
-	let url: string;
+	let url: string | undefined;
 
 	if (baseUrl) {
 		url = baseUrl;
@@ -129,8 +129,7 @@ export function getProviderEndpoint(
 				url = "https://api.routeway.ai";
 				break;
 			case "routeway-discount":
-				url =
-					process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
+				url = process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL;
 				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
@@ -163,6 +162,9 @@ export function getProviderEndpoint(
 			case "canopywave":
 				url = "https://inference.canopywave.io";
 				break;
+			case "sherlock":
+				url = process.env.LLM_SHERLOCK_BASE_URL;
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -172,6 +174,10 @@ export function getProviderEndpoint(
 			default:
 				throw new Error(`Provider ${provider} requires a baseUrl`);
 		}
+	}
+
+	if (!url) {
+		throw new Error(`Failed to determine base URL for provider ${provider}`);
 	}
 
 	switch (provider) {
@@ -340,6 +346,7 @@ export function getProviderEndpoint(
 		case "routeway-discount":
 		case "nanogpt":
 		case "canopywave":
+		case "sherlock":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
