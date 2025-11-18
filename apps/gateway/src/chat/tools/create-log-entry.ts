@@ -1,7 +1,7 @@
 import { trace } from "@opentelemetry/api";
 
 import type { ApiKey, Project } from "@llmgateway/db";
-import type { OpenAIToolInput } from "@llmgateway/models";
+import type { OpenAIToolInput, RoutingMetadata } from "@llmgateway/models";
 
 /**
  * Creates a partial log entry with common fields to reduce duplication
@@ -29,6 +29,7 @@ export function createLogEntry(
 	source: string | undefined,
 	customHeaders: Record<string, string>,
 	debugMode: boolean,
+	routingMetadata?: RoutingMetadata,
 	rawRequest?: unknown,
 	rawResponse?: unknown,
 	upstreamRequest?: unknown,
@@ -61,6 +62,7 @@ export function createLogEntry(
 		mode: project.mode,
 		source: source || null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
+		routingMetadata: routingMetadata || null,
 		traceId,
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: debugMode ? rawRequest || null : null,

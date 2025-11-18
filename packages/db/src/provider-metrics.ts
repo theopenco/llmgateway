@@ -15,7 +15,7 @@ export interface ProviderMetrics {
  * Fetches uptime and latency metrics for model-provider combinations from the last N minutes.
  *
  * Uptime is calculated as: (successful requests / total requests) * 100
- * Where successful requests = logsCount - upstreamErrorsCount
+ * Where successful requests = logsCount - errorsCount
  *
  * Average latency is calculated as: totalDuration / logsCount (in milliseconds)
  *
@@ -32,7 +32,7 @@ export async function getProviderMetrics(
 			modelId: modelProviderMappingHistory.modelId,
 			providerId: modelProviderMappingHistory.providerId,
 			totalLogs: sum(modelProviderMappingHistory.logsCount),
-			totalErrors: sum(modelProviderMappingHistory.upstreamErrorsCount),
+			totalErrors: sum(modelProviderMappingHistory.errorsCount),
 			totalDuration: sum(modelProviderMappingHistory.totalDuration),
 		})
 		.from(modelProviderMappingHistory)
@@ -101,7 +101,7 @@ export async function getProviderMetricsForCombinations(
 			modelId: modelProviderMappingHistory.modelId,
 			providerId: modelProviderMappingHistory.providerId,
 			totalLogs: sum(modelProviderMappingHistory.logsCount),
-			totalErrors: sum(modelProviderMappingHistory.upstreamErrorsCount),
+			totalErrors: sum(modelProviderMappingHistory.errorsCount),
 			totalDuration: sum(modelProviderMappingHistory.totalDuration),
 		})
 		.from(modelProviderMappingHistory)

@@ -408,6 +408,18 @@ export const log = pgTable(
 		}).notNull(),
 		source: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
+		routingMetadata: json().$type<{
+			availableProviders?: string[];
+			selectedProvider?: string;
+			selectionReason?: string;
+			providerScores?: Array<{
+				providerId: string;
+				score: number;
+				uptime?: number;
+				latency?: number;
+				price?: number;
+			}>;
+		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
 		rawResponse: jsonb(),

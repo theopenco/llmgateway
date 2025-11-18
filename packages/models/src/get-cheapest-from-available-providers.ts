@@ -11,13 +11,32 @@ interface ProviderScore<T extends AvailableModelProvider> {
 }
 
 // Scoring weights (totaling 1.0)
-const PRICE_WEIGHT = 0.4;
-const UPTIME_WEIGHT = 0.3;
+// Prioritize uptime heavily to avoid unreliable providers
+const PRICE_WEIGHT = 0.2;
+const UPTIME_WEIGHT = 0.5;
 const LATENCY_WEIGHT = 0.3;
 
 // Default values for providers with no metrics
 const DEFAULT_UPTIME = 95; // Assume 95% uptime if no data
 const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
+
+export interface RoutingMetadata {
+	availableProviders: string[];
+	selectedProvider: string;
+	selectionReason: string;
+	providerScores: Array<{
+		providerId: string;
+		score: number;
+		uptime?: number;
+		latency?: number;
+		price: number;
+	}>;
+}
+
+export interface ProviderSelectionResult<T extends AvailableModelProvider> {
+	provider: T;
+	metadata: RoutingMetadata;
+}
 
 /**
  * Get the best provider from a list of available model providers.
@@ -26,7 +45,7 @@ const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
  * @param availableModelProviders - List of available providers
  * @param modelWithPricing - Model pricing information (must have id property)
  * @param metricsMap - Optional map of provider metrics from last N minutes
- * @returns Best provider based on scoring, or null if none available
+ * @returns Best provider and routing metadata, or null if none available
  */
 export function getCheapestFromAvailableProviders<
 	T extends AvailableModelProvider,
@@ -34,7 +53,7 @@ export function getCheapestFromAvailableProviders<
 	availableModelProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string },
 	metricsMap?: Map<string, ProviderMetrics>,
-): T | null {
+): ProviderSelectionResult<T> | null {
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -140,7 +159,24 @@ export function getCheapestFromAvailableProviders<
 		}
 	}
 
-	return bestProvider.provider;
+	// Build routing metadata
+	const metadata: RoutingMetadata = {
+		availableProviders: providerScores.map((p) => p.provider.providerId),
+		selectedProvider: bestProvider.provider.providerId,
+		selectionReason: metricsMap ? "weighted-score" : "price-only",
+		providerScores: providerScores.map((p) => ({
+			providerId: p.provider.providerId,
+			score: Number(p.score.toFixed(3)),
+			uptime: p.uptime,
+			latency: p.latency,
+			price: p.price, // Keep full precision for very small prices
+		})),
+	};
+
+	return {
+		provider: bestProvider.provider,
+		metadata,
+	};
 }
 
 /**
@@ -149,9 +185,11 @@ export function getCheapestFromAvailableProviders<
 function selectByPriceOnly<T extends AvailableModelProvider>(
 	stableProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string },
-): T {
+): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestPrice = Number.MAX_VALUE;
+
+	const providerPrices: Array<{ providerId: string; price: number }> = [];
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
@@ -164,11 +202,30 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 				2) *
 			discountMultiplier;
 
+		providerPrices.push({
+			providerId: provider.providerId,
+			price: totalPrice, // Keep full precision for very small prices
+		});
+
 		if (totalPrice < lowestPrice) {
 			lowestPrice = totalPrice;
 			cheapestProvider = provider;
 		}
 	}
 
-	return cheapestProvider;
+	const metadata: RoutingMetadata = {
+		availableProviders: stableProviders.map((p) => p.providerId),
+		selectedProvider: cheapestProvider.providerId,
+		selectionReason: "price-only-no-metrics",
+		providerScores: providerPrices.map((p) => ({
+			providerId: p.providerId,
+			score: 0,
+			price: p.price,
+		})),
+	};
+
+	return {
+		provider: cheapestProvider,
+		metadata,
+	};
 }
