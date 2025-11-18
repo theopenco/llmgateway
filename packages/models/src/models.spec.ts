@@ -462,7 +462,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				);
 
 				expect(cheapestProvider).toBeDefined();
-				expect(cheapestProvider).toMatchObject({
+				expect(cheapestProvider?.provider).toMatchObject({
 					providerId: expect.any(String),
 					modelName: expect.any(String),
 				});

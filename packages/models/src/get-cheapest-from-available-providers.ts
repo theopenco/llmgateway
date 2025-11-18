@@ -86,7 +86,9 @@ export function getCheapestFromAvailableProviders<
 
 	// Epsilon-greedy exploration: randomly select a provider 1% of the time
 	// This ensures all providers get periodic traffic and build up metrics
-	if (Math.random() < EXPLORATION_RATE) {
+	// Skip during tests to keep behavior deterministic
+	const isTest = process.env.NODE_ENV === "test" || process.env.VITEST;
+	if (!isTest && Math.random() < EXPLORATION_RATE) {
 		const randomProvider =
 			stableProviders[Math.floor(Math.random() * stableProviders.length)];
 		return {
