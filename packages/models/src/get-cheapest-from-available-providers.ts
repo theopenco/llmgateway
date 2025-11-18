@@ -20,6 +20,9 @@ const LATENCY_WEIGHT = 0.3;
 const DEFAULT_UPTIME = 95; // Assume 95% uptime if no data
 const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
 
+// Epsilon-greedy exploration: 1% chance to randomly explore
+const EXPLORATION_RATE = 0.01;
+
 export interface RoutingMetadata {
 	availableProviders: string[];
 	selectedProvider: string;
@@ -79,6 +82,22 @@ export function getCheapestFromAvailableProviders<
 
 	if (stableProviders.length === 0) {
 		return null;
+	}
+
+	// Epsilon-greedy exploration: randomly select a provider 1% of the time
+	// This ensures all providers get periodic traffic and build up metrics
+	if (Math.random() < EXPLORATION_RATE) {
+		const randomProvider =
+			stableProviders[Math.floor(Math.random() * stableProviders.length)];
+		return {
+			provider: randomProvider,
+			metadata: {
+				availableProviders: stableProviders.map((p) => p.providerId),
+				selectedProvider: randomProvider.providerId,
+				selectionReason: "random-exploration",
+				providerScores: [],
+			},
+		};
 	}
 
 	// If no metrics provided, fall back to price-only selection
