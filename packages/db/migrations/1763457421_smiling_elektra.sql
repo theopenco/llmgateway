@@ -1,0 +1,6 @@
+ALTER TABLE "model_history" RENAME CONSTRAINT "model_history_modelId_minuteTimestamp_unique" TO "model_history_model_id_minute_timestamp_unique";--> statement-breakpoint
+ALTER TABLE "model_provider_mapping" RENAME CONSTRAINT "model_provider_mapping_modelId_providerId_unique" TO "model_provider_mapping_model_id_provider_id_unique";--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" RENAME CONSTRAINT "model_provider_mapping_history_modelProviderMappingId_minuteTimestamp_unique" TO "model_provider_mapping_history_model_provider_mapping_id_minute_timestamp_unique";--> statement-breakpoint
+ALTER TABLE "provider_key" RENAME CONSTRAINT "provider_key_organizationId_name_unique" TO "provider_key_organization_id_name_unique";--> statement-breakpoint
+ALTER TABLE "organization" RENAME CONSTRAINT "organization_stripeCustomerId_unique" TO "organization_stripe_customer_id_key";--> statement-breakpoint
+ALTER TABLE "organization" RENAME CONSTRAINT "organization_stripeSubscriptionId_unique" TO "organization_stripe_subscription_id_key";
