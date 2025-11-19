@@ -203,6 +203,7 @@ const completionsRequestSchema = z.object({
 		.union([
 			z.literal("auto"),
 			z.literal("none"),
+			z.literal("required"),
 			z.object({
 				type: z.literal("function"),
 				function: z.object({
