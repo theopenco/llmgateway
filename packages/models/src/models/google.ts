@@ -218,6 +218,7 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				discount: 0.2,
@@ -234,6 +235,7 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},

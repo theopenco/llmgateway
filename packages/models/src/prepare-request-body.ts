@@ -18,6 +18,61 @@ import type {
 } from "./types.js";
 
 /**
+ * Converts OpenAI JSON schema format to Google's schema format
+ * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
+ */
+function convertOpenAISchemaToGoogle(schema: any): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	const converted: any = {};
+
+	// Convert type to uppercase
+	if (schema.type) {
+		converted.type = schema.type.toUpperCase();
+	}
+
+	// Copy description if present
+	if (schema.description) {
+		converted.description = schema.description;
+	}
+
+	// Handle object properties
+	if (schema.properties) {
+		converted.properties = {};
+		for (const [key, value] of Object.entries(schema.properties)) {
+			converted.properties[key] = convertOpenAISchemaToGoogle(value);
+		}
+	}
+
+	// Handle array items
+	if (schema.items) {
+		converted.items = convertOpenAISchemaToGoogle(schema.items);
+	}
+
+	// Copy required array if present
+	if (schema.required) {
+		converted.required = schema.required;
+	}
+
+	// Copy enum if present
+	if (schema.enum) {
+		converted.enum = schema.enum;
+	}
+
+	// Copy other common JSON schema properties that Google supports
+	if (schema.format) {
+		converted.format = schema.format;
+	}
+
+	// Note: Google doesn't support additionalProperties in the same way as OpenAI
+	// We skip it here as it's not part of Google's schema format
+
+	return converted;
+}
+
+/**
  * Transforms messages for models that don't support system roles by converting system messages to user messages
  */
 function transformMessagesForNoSystemRole(messages: any[]): any[] {
@@ -597,8 +652,11 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Note: Google supports responseSchema but we'd need to convert from JSON Schema to Google's format
-				// For now, we just set the MIME type for basic JSON mode
+				// Convert OpenAI's JSON schema format to Google's format
+				if (response_format.json_schema?.schema) {
+					requestBody.generationConfig.responseSchema =
+						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+				}
 			}
 
 			// Enable thinking/reasoning content exposure for Google models that support reasoning
