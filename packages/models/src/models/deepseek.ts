@@ -188,7 +188,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				jsonOutputSchema: true,
+				jsonOutputSchema: false,
 				jsonOutput: true,
 			},
 		],
