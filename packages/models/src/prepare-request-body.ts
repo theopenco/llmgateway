@@ -691,6 +691,8 @@ export async function prepareRequestBody(
 				image_config?.aspect_ratio !== undefined ||
 				image_config?.image_size !== undefined
 			) {
+				// Set responseModalities to enable image output
+				requestBody.generationConfig.responseModalities = ["TEXT", "IMAGE"];
 				requestBody.generationConfig.imageConfig = {};
 				if (image_config.aspect_ratio !== undefined) {
 					requestBody.generationConfig.imageConfig.aspectRatio =

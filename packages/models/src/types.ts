@@ -225,6 +225,7 @@ export interface GoogleRequestBody {
 		thinkingConfig?: {
 			includeThoughts: boolean;
 		};
+		responseModalities?: string[];
 		imageConfig?: {
 			aspectRatio?: string;
 			imageSize?: string;
