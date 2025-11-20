@@ -239,6 +239,13 @@ const completionsRequestSchema = z.object({
 			status: z.enum(["DISABLE", "ENABLE"]),
 		})
 		.optional(),
+	// Google image generation config
+	image_config: z
+		.object({
+			aspect_ratio: z.string().optional(),
+			image_size: z.string().optional(),
+		})
+		.optional(),
 });
 
 const completions = createRoute({
@@ -403,6 +410,7 @@ chat.openapi(completions, async (c) => {
 		free_models_only,
 		no_reasoning,
 		sensitive_word_check,
+		image_config,
 	} = validationResult.data;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
@@ -1862,6 +1870,7 @@ chat.openapi(completions, async (c) => {
 		maxImageSizeMB,
 		userPlan,
 		sensitive_word_check,
+		image_config,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody

@@ -225,6 +225,10 @@ export interface GoogleRequestBody {
 		thinkingConfig?: {
 			includeThoughts: boolean;
 		};
+		imageConfig?: {
+			aspectRatio?: string;
+			imageSize?: string;
+		};
 	};
 }
 
@@ -289,6 +293,10 @@ export type RequestBodyPreparer = (
 	reasoning_effort?: "minimal" | "low" | "medium" | "high",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
+	maxImageSizeMB?: number,
+	userPlan?: "free" | "pro" | null,
+	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
+	image_config?: { aspect_ratio?: string; image_size?: string },
 ) => Promise<ProviderRequestBody>;
 
 // Type guards
