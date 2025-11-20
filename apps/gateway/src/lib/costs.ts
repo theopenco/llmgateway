@@ -1,3 +1,4 @@
+import Decimal from "decimal.js";
 import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
@@ -168,15 +169,14 @@ export function calculateCosts(
 		};
 	}
 
-	const inputPrice = providerInfo.inputPrice || 0;
-	const outputPrice = providerInfo.outputPrice || 0;
-	const cachedInputPrice = providerInfo.cachedInputPrice ?? inputPrice;
-	const requestPrice = providerInfo.requestPrice || 0;
-	const discount = providerInfo.discount || 0;
-	const discountMultiplier = 1 - discount;
-
-	// Helper to round to 10 decimal places to avoid floating point precision errors
-	const roundCost = (cost: number) => Math.round(cost * 1e10) / 1e10;
+	const inputPrice = new Decimal(providerInfo.inputPrice || 0);
+	const outputPrice = new Decimal(providerInfo.outputPrice || 0);
+	const cachedInputPrice = new Decimal(
+		providerInfo.cachedInputPrice ?? providerInfo.inputPrice || 0,
+	);
+	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
+	const discount = new Decimal(providerInfo.discount || 0);
+	const discountMultiplier = new Decimal(1).minus(discount);
 
 	// Calculate input cost accounting for cached tokens
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
@@ -185,21 +185,28 @@ export function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
-	const inputCost = roundCost(
-		uncachedPromptTokens * inputPrice * discountMultiplier,
-	);
+	const inputCost = new Decimal(uncachedPromptTokens)
+		.times(inputPrice)
+		.times(discountMultiplier)
+		.toNumber();
 	// For Google models, reasoning tokens are billed at the output token rate
 	const totalOutputTokens = calculatedCompletionTokens + (reasoningTokens || 0);
-	const outputCost = roundCost(
-		totalOutputTokens * outputPrice * discountMultiplier,
-	);
+	const outputCost = new Decimal(totalOutputTokens)
+		.times(outputPrice)
+		.times(discountMultiplier)
+		.toNumber();
 	const cachedInputCost = cachedTokens
-		? roundCost(cachedTokens * cachedInputPrice * discountMultiplier)
+		? new Decimal(cachedTokens)
+				.times(cachedInputPrice)
+				.times(discountMultiplier)
+				.toNumber()
 		: 0;
-	const requestCost = roundCost(requestPrice * discountMultiplier);
-	const totalCost = roundCost(
-		inputCost + outputCost + cachedInputCost + requestCost,
-	);
+	const requestCost = requestPrice.times(discountMultiplier).toNumber();
+	const totalCost = new Decimal(inputCost)
+		.plus(outputCost)
+		.plus(cachedInputCost)
+		.plus(requestCost)
+		.toNumber();
 
 	return {
 		inputCost,
