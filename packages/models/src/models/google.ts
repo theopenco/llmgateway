@@ -14,11 +14,13 @@ export const googleModels = [
 				outputPrice: 10.0 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 1.25 / 1e6,
 						outputPrice: 10.0 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 2.5 / 1e6,
 						outputPrice: 15.0 / 1e6,
@@ -42,11 +44,13 @@ export const googleModels = [
 				outputPrice: 10.0 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 1.25 / 1e6,
 						outputPrice: 10.0 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 2.5 / 1e6,
 						outputPrice: 15.0 / 1e6,
@@ -78,11 +82,13 @@ export const googleModels = [
 				outputPrice: 10.0 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 1.25 / 1e6,
 						outputPrice: 10.0 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 2.5 / 1e6,
 						outputPrice: 15.0 / 1e6,
@@ -108,11 +114,13 @@ export const googleModels = [
 				outputPrice: 10.0 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 1.25 / 1e6,
 						outputPrice: 10.0 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 2.5 / 1e6,
 						outputPrice: 15.0 / 1e6,
@@ -145,11 +153,13 @@ export const googleModels = [
 				outputPrice: 10.0 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 1.25 / 1e6,
 						outputPrice: 10.0 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 2.5 / 1e6,
 						outputPrice: 15.0 / 1e6,
@@ -175,11 +185,13 @@ export const googleModels = [
 				outputPrice: 10.0 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 1.25 / 1e6,
 						outputPrice: 10.0 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 2.5 / 1e6,
 						outputPrice: 15.0 / 1e6,
@@ -453,11 +465,13 @@ export const googleModels = [
 				outputPrice: 12 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 2 / 1e6,
 						outputPrice: 12 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 4 / 1e6,
 						outputPrice: 18 / 1e6,
@@ -481,11 +495,13 @@ export const googleModels = [
 				outputPrice: 12 / 1e6,
 				pricingTiers: [
 					{
+						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: 2 / 1e6,
 						outputPrice: 12 / 1e6,
 					},
 					{
+						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: 4 / 1e6,
 						outputPrice: 18 / 1e6,

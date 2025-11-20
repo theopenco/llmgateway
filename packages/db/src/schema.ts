@@ -397,6 +397,7 @@ export const log = pgTable(
 		requestCost: real(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		pricingTier: text(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),
 		cached: boolean().default(false),
