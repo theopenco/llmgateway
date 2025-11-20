@@ -9,7 +9,6 @@ export function extractTokenUsage(
 	data: any,
 	provider: Provider,
 	fullContent?: string,
-	imageByteSize?: number,
 ) {
 	let promptTokens = null;
 	let completionTokens = null;
@@ -26,25 +25,16 @@ export function extractTokenUsage(
 				// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount ?? null;
 
-				// If candidatesTokenCount is missing and we have content or images, estimate it
-				if (
-					completionTokens === null &&
-					(fullContent || (imageByteSize && imageByteSize > 0))
-				) {
+				// If candidatesTokenCount is missing and we have content, estimate it
+				if (completionTokens === null && fullContent) {
 					const estimation = estimateTokens(
 						provider,
 						[],
-						fullContent || "",
+						fullContent,
 						null,
 						null,
 					);
-					let textTokens = estimation.calculatedCompletionTokens || 0;
-					// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-					let imageTokens = 0;
-					if (imageByteSize && imageByteSize > 0) {
-						imageTokens = 258 + Math.ceil(imageByteSize / 750);
-					}
-					completionTokens = textTokens + imageTokens;
+					completionTokens = estimation.calculatedCompletionTokens;
 				}
 				// Calculate total including reasoning tokens (after potential estimation)
 				totalTokens =
