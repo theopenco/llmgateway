@@ -28,10 +28,15 @@ import { calculateFees } from "@llmgateway/shared";
 
 import {
 	calculateMinutelyHistory,
+	calculateCurrentMinuteHistory,
 	calculateAggregatedStatistics,
 	backfillHistoryIfNeeded,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
+
+// Configuration for current minute history calculation interval (defaults to 5 seconds)
+const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
+	Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_123", {
 	apiVersion: "2025-04-30.basil",
@@ -689,6 +694,7 @@ export async function processLogQueue(): Promise<void> {
 let isWorkerRunning = false;
 let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
+let currentMinuteIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
 let activeLoops = 0;
 let stopFailed = false;
@@ -885,6 +891,9 @@ export async function startWorker() {
 	logger.info("Starting statistics calculator...");
 	logger.info("- Minutely history: runs at the first second of every minute");
 	logger.info(
+		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
 
@@ -933,6 +942,23 @@ export async function startWorker() {
 	};
 
 	scheduleMinutelyHistory();
+
+	// Start current minute history calculation (runs every N seconds for real-time metrics)
+	calculateCurrentMinuteHistory().catch((error) => {
+		logger.error(
+			"Error in initial current minute history calculation",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
+
+	currentMinuteIntervalId = setInterval(() => {
+		calculateCurrentMinuteHistory().catch((error) => {
+			logger.error(
+				"Error in interval current minute history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		});
+	}, CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000);
 
 	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
 	calculateAggregatedStatistics().catch((error) => {
@@ -1010,6 +1036,12 @@ export async function stopWorker(): Promise<boolean> {
 		clearInterval(minutelyIntervalId);
 		minutelyIntervalId = null;
 		logger.info("Minutely history calculator stopped");
+	}
+
+	if (currentMinuteIntervalId) {
+		clearInterval(currentMinuteIntervalId);
+		currentMinuteIntervalId = null;
+		logger.info("Current minute history calculator stopped");
 	}
 
 	if (aggregatedIntervalId) {
