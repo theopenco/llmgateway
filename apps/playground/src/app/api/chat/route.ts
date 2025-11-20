@@ -105,12 +105,8 @@ export async function POST(req: Request) {
 				model: llmgateway.chat(selectedModel),
 				messages: convertToModelMessages(messages),
 				tools,
-				providerOptions: {
-					[selectedModel]: {
-						reasoning_effort: reasoningEffort,
-						...(image_config ? { image_config } : {}),
-					},
-				},
+				...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+				...(image_config ? { image_config } : {}),
 				stopWhen: stepCountIs(10),
 				onFinish: async () => {
 					if (githubMCPClient) {
@@ -129,18 +125,8 @@ export async function POST(req: Request) {
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
 			messages: convertToModelMessages(messages),
-			...(image_config || reasoningEffort
-				? {
-						providerOptions: {
-							[selectedModel]: {
-								...(reasoningEffort
-									? { reasoning_effort: reasoningEffort }
-									: {}),
-								...(image_config ? { image_config } : {}),
-							},
-						},
-					}
-				: {}),
+			...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+			...(image_config ? { image_config } : {}),
 		});
 
 		return result.toUIMessageStreamResponse({ sendReasoning: true });
