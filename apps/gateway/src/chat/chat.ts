@@ -1166,6 +1166,41 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Set routing metadata for direct provider selection (when routing was skipped)
+	if (!routingMetadata && usedProvider && usedProvider !== "llmgateway") {
+		// Determine the selection reason based on how the provider was selected
+		let selectionReason: string;
+		if (requestedProvider && requestedProvider !== "llmgateway") {
+			selectionReason = "direct-provider-specified";
+		} else if (modelInfo.providers.length === 1) {
+			selectionReason = "single-provider-available";
+		} else {
+			selectionReason = "fallback-first-available";
+		}
+
+		// Get price info for the selected provider
+		const selectedProviderInfo = modelInfo.providers.find(
+			(p) => p.providerId === usedProvider,
+		);
+		const price = selectedProviderInfo
+			? (selectedProviderInfo.inputPrice ?? 0) +
+				(selectedProviderInfo.outputPrice ?? 0)
+			: 0;
+
+		routingMetadata = {
+			availableProviders: [usedProvider],
+			selectedProvider: usedProvider,
+			selectionReason,
+			providerScores: [
+				{
+					providerId: usedProvider,
+					score: 1,
+					price,
+				},
+			],
+		};
+	}
+
 	// Update baseModelName to match the final usedModel after routing
 	// Find the model definition that corresponds to the final usedModel
 	let finalModelInfo;
