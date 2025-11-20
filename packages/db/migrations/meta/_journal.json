@@ -463,6 +463,13 @@
       "when": 1763458310774,
       "tag": "1763458310_dark_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "8",
+      "when": 1763639575989,
+      "tag": "1763639575_quiet_blue_blade",
+      "breakpoints": true
     }
   ]
 }
