@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
@@ -168,12 +169,14 @@ export function calculateCosts(
 		};
 	}
 
-	const inputPrice = providerInfo.inputPrice || 0;
-	const outputPrice = providerInfo.outputPrice || 0;
-	const cachedInputPrice = providerInfo.cachedInputPrice ?? inputPrice;
-	const requestPrice = providerInfo.requestPrice || 0;
+	const inputPrice = new Decimal(providerInfo.inputPrice || 0);
+	const outputPrice = new Decimal(providerInfo.outputPrice || 0);
+	const cachedInputPrice = new Decimal(
+		providerInfo.cachedInputPrice ?? providerInfo.inputPrice ?? 0,
+	);
+	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
 	const discount = providerInfo.discount || 0;
-	const discountMultiplier = 1 - discount;
+	const discountMultiplier = new Decimal(1).minus(discount);
 
 	// Calculate input cost accounting for cached tokens
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
@@ -182,22 +185,31 @@ export function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
-	const inputCost = uncachedPromptTokens * inputPrice * discountMultiplier;
+	const inputCost = new Decimal(uncachedPromptTokens)
+		.times(inputPrice)
+		.times(discountMultiplier);
 	// For Google models, reasoning tokens are billed at the output token rate
 	const totalOutputTokens = calculatedCompletionTokens + (reasoningTokens || 0);
-	const outputCost = totalOutputTokens * outputPrice * discountMultiplier;
+	const outputCost = new Decimal(totalOutputTokens)
+		.times(outputPrice)
+		.times(discountMultiplier);
 	const cachedInputCost = cachedTokens
-		? cachedTokens * cachedInputPrice * discountMultiplier
-		: 0;
-	const requestCost = requestPrice * discountMultiplier;
-	const totalCost = inputCost + outputCost + cachedInputCost + requestCost;
+		? new Decimal(cachedTokens)
+				.times(cachedInputPrice)
+				.times(discountMultiplier)
+		: new Decimal(0);
+	const requestCost = requestPrice.times(discountMultiplier);
+	const totalCost = inputCost
+		.plus(outputCost)
+		.plus(cachedInputCost)
+		.plus(requestCost);
 
 	return {
-		inputCost,
-		outputCost,
-		cachedInputCost,
-		requestCost,
-		totalCost,
+		inputCost: inputCost.toNumber(),
+		outputCost: outputCost.toNumber(),
+		cachedInputCost: cachedInputCost.toNumber(),
+		requestCost: requestCost.toNumber(),
+		totalCost: totalCost.toNumber(),
 		promptTokens: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
