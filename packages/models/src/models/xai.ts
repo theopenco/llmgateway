@@ -253,7 +253,7 @@ export const xaiModels = [
 				outputPrice: 15.0 / 1e6,
 				requestPrice: 0,
 				imageInputPrice: undefined,
-				contextSize: 256000,
+				contextSize: 2_000_000,
 				maxOutput: undefined,
 				streaming: true,
 				vision: true,

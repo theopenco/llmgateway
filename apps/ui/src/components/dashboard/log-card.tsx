@@ -236,12 +236,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 																	{score.score.toFixed(2)}
 																	{score.uptime !== undefined && (
 																		<span className="ml-2">
-																			↑{(score.uptime * 100).toFixed(0)}%
+																			↑{score.uptime?.toFixed(0)}%
 																		</span>
 																	)}
 																	{score.latency !== undefined && (
 																		<span className="ml-2">
-																			{score.latency.toFixed(0)}ms
+																			{score.latency?.toFixed(0)}ms
 																		</span>
 																	)}
 																</span>
