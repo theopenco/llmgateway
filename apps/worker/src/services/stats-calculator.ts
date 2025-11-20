@@ -569,6 +569,28 @@ export async function calculateMinutelyHistory() {
 }
 
 /**
+ * Calculate and store real-time history for the current minute.
+ * This is called frequently (e.g., every 5 seconds) to ensure metrics
+ * reflect the latest data for smart routing decisions.
+ */
+export async function calculateCurrentMinuteHistory() {
+	const currentMinuteStart = getCurrentMinuteStart();
+
+	try {
+		const mappingResult = await calculateHistoryForMinute(currentMinuteStart);
+		const modelResult =
+			await calculateModelHistoryForMinute(currentMinuteStart);
+
+		logger.debug(
+			`Updated current minute history for ${currentMinuteStart.toISOString()}: ${mappingResult.activeMappings} active mappings, ${modelResult.activeModels} active models`,
+		);
+	} catch (error) {
+		logger.error("Error calculating current minute history:", error as Error);
+		throw error;
+	}
+}
+
+/**
  * Calculate 5-minute aggregated statistics from historical data
  */
 export async function calculateAggregatedStatistics() {
