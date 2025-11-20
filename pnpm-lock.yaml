@@ -338,8 +338,8 @@ importers:
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.0))
       '@llmgateway/ai-sdk-provider':
-        specifier: 2.4.0
-        version: 2.4.0(ai@5.0.91(zod@3.25.76))(zod@3.25.76)
+        specifier: 2.5.0
+        version: 2.5.0(ai@5.0.91(zod@3.25.76))(zod@3.25.76)
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
@@ -2226,8 +2226,8 @@ packages:
   '@levischuck/tiny-cbor@0.2.11':
     resolution: {integrity: sha512-llBRm4dT4Z89aRsm6u2oEZ8tfwL/2l6BwpZ7JcyieouniDECM5AqNgr/y08zalEIvW3RSK4upYyybDcmjXqAow==}
 
-  '@llmgateway/ai-sdk-provider@2.4.0':
-    resolution: {integrity: sha512-1GxAvN/FKX9oFIz3xz0dDo/2iTz+4PyuSZF64GbnNQPaxESD0bH3oRxqBOQHjbZcUQR6xMOxgYbaxczImiDT/w==}
+  '@llmgateway/ai-sdk-provider@2.5.0':
+    resolution: {integrity: sha512-+qqUSzbnv9o76REpBvU232RpbfW19CJQUN0aw/qd2uJvdBssPvVWC+qW3G0wE3ZV1KQjkCQjHA5Btnyq2wxUIA==}
     engines: {node: '>=18'}
     peerDependencies:
       ai: ^5.0.0-beta.12
@@ -11104,7 +11104,7 @@ snapshots:
 
   '@levischuck/tiny-cbor@0.2.11': {}
 
-  '@llmgateway/ai-sdk-provider@2.4.0(ai@5.0.91(zod@3.25.76))(zod@3.25.76)':
+  '@llmgateway/ai-sdk-provider@2.5.0(ai@5.0.91(zod@3.25.76))(zod@3.25.76)':
     dependencies:
       ai: 5.0.91(zod@3.25.76)
       zod: 3.25.76
