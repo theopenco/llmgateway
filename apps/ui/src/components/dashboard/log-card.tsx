@@ -389,6 +389,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										</div>
 									</>
 								)}
+								{log.pricingTier && (
+									<>
+										<div className="text-muted-foreground">Pricing Tier</div>
+										<div>{log.pricingTier}</div>
+									</>
+								)}
 							</div>
 						</div>
 						<div className="space-y-2">

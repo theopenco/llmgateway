@@ -32,12 +32,14 @@ function getPricingForTokenCount(
 	inputPrice: number;
 	outputPrice: number;
 	cachedInputPrice: number | undefined;
+	tierName: string | undefined;
 } {
 	if (!pricingTiers || pricingTiers.length === 0) {
 		return {
 			inputPrice: baseInputPrice,
 			outputPrice: baseOutputPrice,
 			cachedInputPrice: baseCachedInputPrice,
+			tierName: undefined,
 		};
 	}
 
@@ -48,6 +50,7 @@ function getPricingForTokenCount(
 				inputPrice: tier.inputPrice,
 				outputPrice: tier.outputPrice,
 				cachedInputPrice: tier.cachedInputPrice ?? baseCachedInputPrice,
+				tierName: tier.name,
 			};
 		}
 	}
@@ -58,6 +61,7 @@ function getPricingForTokenCount(
 		inputPrice: lastTier.inputPrice,
 		outputPrice: lastTier.outputPrice,
 		cachedInputPrice: lastTier.cachedInputPrice ?? baseCachedInputPrice,
+		tierName: lastTier.name,
 	};
 }
 
@@ -101,6 +105,7 @@ export function calculateCosts(
 			cachedTokens,
 			estimatedCost: false,
 			discount: undefined,
+			pricingTier: undefined,
 		};
 	}
 
@@ -184,6 +189,7 @@ export function calculateCosts(
 			cachedTokens,
 			estimatedCost: isEstimated,
 			discount: undefined,
+			pricingTier: undefined,
 		};
 	}
 
@@ -209,6 +215,7 @@ export function calculateCosts(
 			cachedTokens,
 			estimatedCost: isEstimated,
 			discount: undefined,
+			pricingTier: undefined,
 		};
 	}
 
@@ -267,5 +274,6 @@ export function calculateCosts(
 		cachedTokens,
 		estimatedCost: isEstimated,
 		discount: discount !== 0 ? discount : undefined,
+		pricingTier: pricing.tierName,
 	};
 }

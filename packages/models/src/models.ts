@@ -27,6 +27,10 @@ export type Model = (typeof models)[number]["providers"][number]["modelName"];
  */
 export interface PricingTier {
 	/**
+	 * Name of the pricing tier (e.g., "128K", "1M")
+	 */
+	name: string;
+	/**
 	 * Maximum number of tokens for this tier (use Infinity for the highest tier)
 	 */
 	upToTokens: number;
