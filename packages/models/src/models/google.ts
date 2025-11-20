@@ -451,6 +451,18 @@ export const googleModels = [
 				modelName: "gemini-3-pro-preview",
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 2 / 1e6,
+						outputPrice: 12 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 4 / 1e6,
+						outputPrice: 18 / 1e6,
+					},
+				],
 				cachedInputPrice: 0.2 / 1e6,
 				requestPrice: 0,
 				contextSize: 1000000,
@@ -467,6 +479,18 @@ export const googleModels = [
 				modelName: "gemini-3-pro-preview",
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 2 / 1e6,
+						outputPrice: 12 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 4 / 1e6,
+						outputPrice: 18 / 1e6,
+					},
+				],
 				cachedInputPrice: 0.2 / 1e6,
 				requestPrice: 0,
 				contextSize: 1000000,

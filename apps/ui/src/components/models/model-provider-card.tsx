@@ -269,6 +269,31 @@ export function ModelProviderCard({
 							</Badge>
 						</div>
 					)}
+					{provider.pricingTiers && provider.pricingTiers.length > 1 && (
+						<div className="mt-3 pt-3 border-t">
+							<div className="text-muted-foreground text-xs mb-2">
+								Tiered Pricing
+							</div>
+							<div className="space-y-2">
+								{provider.pricingTiers.map((tier, index) => (
+									<div
+										key={index}
+										className="flex justify-between items-center text-xs"
+									>
+										<span className="text-muted-foreground">
+											{tier.upToTokens === Infinity
+												? `>${(provider.pricingTiers![index - 1]?.upToTokens || 0) / 1000}K tokens`
+												: `≤${tier.upToTokens / 1000}K tokens`}
+										</span>
+										<span className="font-mono">
+											{formatPrice(tier.inputPrice)} in /{" "}
+											{formatPrice(tier.outputPrice)} out
+										</span>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
 				</div>
 
 				<div className="border-t pt-4 mb-4">
