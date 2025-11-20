@@ -180,15 +180,16 @@ export const testModels = filteredModels
 
 		// Create entries for provider-specific requests using provider/model format
 		for (const provider of model.providers as ProviderModelMapping[]) {
-			// Skip providers marked with test: "skip"
-			if (provider.test === "skip") {
-				continue;
-			}
-
 			// Filter by TEST_MODELS if specified
 			if (specifiedModels) {
 				const providerModelId = `${provider.providerId}/${model.id}`;
 				if (!specifiedModels.includes(providerModelId)) {
+					continue;
+				}
+				// TEST_MODELS takes precedence over test: "skip", so don't skip if model is in TEST_MODELS
+			} else {
+				// Skip providers marked with test: "skip" (only when TEST_MODELS is not specified)
+				if (provider.test === "skip") {
 					continue;
 				}
 			}
@@ -241,33 +242,27 @@ export const providerModels = filteredModels
 		const testCases = [];
 
 		for (const provider of model.providers as ProviderModelMapping[]) {
-			// Skip providers marked with test: "skip"
-			if (provider.test === "skip") {
-				continue;
-			}
-
 			// Filter by TEST_MODELS if specified
 			if (specifiedModels) {
 				const providerModelId = `${provider.providerId}/${model.id}`;
 				if (!specifiedModels.includes(providerModelId)) {
 					continue;
 				}
-			}
+				// TEST_MODELS takes precedence over test: "skip", so don't skip if model is in TEST_MODELS
+			} else {
+				// Skip providers marked with test: "skip" (only when TEST_MODELS is not specified)
+				if (provider.test === "skip") {
+					continue;
+				}
 
-			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS
-			if (
-				(provider.stability === "unstable" ||
-					provider.stability === "experimental") &&
-				!fullMode
-			) {
-				// Allow if provider has test: "only"
-				if (provider.test !== "only") {
-					// Allow if model is specified in TEST_MODELS
-					if (!specifiedModels) {
-						continue;
-					}
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels.includes(providerModelId)) {
+				// Skip unstable providers if not in full mode, unless they have test: "only"
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode
+				) {
+					// Allow if provider has test: "only"
+					if (provider.test !== "only") {
 						continue;
 					}
 				}
