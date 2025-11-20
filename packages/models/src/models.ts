@@ -203,6 +203,10 @@ export interface ModelDefinition {
 	 * Whether this model supports system role messages (defaults to true if not specified)
 	 */
 	supportsSystemRole?: boolean;
+	/**
+	 * Description of the model
+	 */
+	description?: string;
 }
 
 export const models = [
