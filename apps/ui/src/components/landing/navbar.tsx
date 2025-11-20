@@ -72,11 +72,6 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 		{ name: "Pricing", href: "/#pricing" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Models", href: "/models" },
-	];
-
-	const resourcesItems = [
-		{ name: "Blog", href: "/blog" },
-		{ name: "Changelog", href: "/changelog" },
 		{
 			name: "Chat",
 			href:
@@ -84,6 +79,11 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 					? "http://localhost:3003"
 					: "https://chat.llmgateway.io",
 		},
+	];
+
+	const resourcesItems = [
+		{ name: "Blog", href: "/blog" },
+		{ name: "Changelog", href: "/changelog" },
 		{ name: "Providers", href: "/providers" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Compare", href: "/models/compare" },
@@ -100,15 +100,6 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 			title: "Blog",
 			href: "/blog",
 			description: "Product updates, tutorials, benchmarks, and announcements.",
-		},
-		{
-			title: "Chat",
-			href:
-				process.env.NODE_ENV === "development"
-					? "http://localhost:3003"
-					: "https://chat.llmgateway.io",
-			description:
-				"Try models in your browser with streaming and more features.",
 		},
 		{
 			title: "Docs",
@@ -153,7 +144,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 			>
 				<div
 					className={cn(
-						"mx-auto mt-2 max-w-6xl px-6 transition-all duration-300 lg:px-12",
+						"mt-2 mx-auto max-w-7xl px-6 transition-all duration-300",
 						isScrolled &&
 							"bg-background/50 max-w-6xl rounded-2xl border backdrop-blur-lg lg:px-5",
 					)}

@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useApi } from "@/lib/fetch-client";
+import { getErrorMessage } from "@/lib/utils";
 
 export interface Chat {
 	id: string;
@@ -56,13 +57,8 @@ export function useCreateChat() {
 			queryClient.invalidateQueries({ queryKey });
 			toast("Chat created successfully");
 		},
-		onError: (error: { message: string }) => {
-			toast(error.message, {
-				style: {
-					backgroundColor: "var(--destructive)",
-					color: "var(--destructive-foreground)",
-				},
-			});
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }
@@ -77,13 +73,8 @@ export function useUpdateChat() {
 			queryClient.invalidateQueries({ queryKey });
 			toast("Chat updated successfully");
 		},
-		onError: (error: { message: string }) => {
-			toast(error.message, {
-				style: {
-					backgroundColor: "var(--destructive)",
-					color: "var(--destructive-foreground)",
-				},
-			});
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }
@@ -98,13 +89,8 @@ export function useDeleteChat() {
 			queryClient.invalidateQueries({ queryKey });
 			toast("Chat deleted successfully");
 		},
-		onError: (error: { message: string }) => {
-			toast(error.message, {
-				style: {
-					backgroundColor: "var(--destructive)",
-					color: "var(--destructive-foreground)",
-				},
-			});
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }
@@ -118,13 +104,8 @@ export function useAddMessage() {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			queryClient.invalidateQueries({ queryKey });
 		},
-		onError: (error: { message: string }) => {
-			toast(error.message, {
-				style: {
-					backgroundColor: "var(--destructive)",
-					color: "var(--destructive-foreground)",
-				},
-			});
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }
