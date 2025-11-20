@@ -4,6 +4,8 @@ export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
 		name: "GPT-4o Mini",
+		description:
+			"Affordable small model for fast, lightweight tasks with text and vision capabilities.",
 		family: "openai",
 		providers: [
 			{
@@ -40,6 +42,8 @@ export const openaiModels = [
 	{
 		id: "gpt-4",
 		name: "GPT-4",
+		description:
+			"Original GPT-4 model with strong reasoning and tool use capabilities.",
 		family: "openai",
 		providers: [
 			{
@@ -85,6 +89,8 @@ export const openaiModels = [
 	{
 		id: "gpt-4o",
 		name: "GPT-4o",
+		description:
+			"Multimodal flagship model with vision, fast responses, and tool support.",
 		family: "openai",
 		providers: [
 			{
@@ -124,6 +130,8 @@ export const openaiModels = [
 	{
 		id: "gpt-3.5-turbo",
 		name: "GPT-3.5 Turbo",
+		description:
+			"Fast and cost-effective model for simple tasks and conversational applications.",
 		family: "openai",
 		providers: [
 			{
@@ -159,6 +167,8 @@ export const openaiModels = [
 	{
 		id: "gpt-4-turbo",
 		name: "GPT-4 Turbo",
+		description:
+			"Enhanced GPT-4 with vision capabilities and improved performance.",
 		family: "openai",
 		providers: [
 			{
@@ -195,6 +205,7 @@ export const openaiModels = [
 	{
 		id: "gpt-4.1",
 		name: "GPT-4.1",
+		description: "Updated GPT-4 with vision support and parallel tool calls.",
 		family: "openai",
 		providers: [
 			{
@@ -234,6 +245,8 @@ export const openaiModels = [
 	{
 		id: "o1",
 		name: "o1",
+		description:
+			"Advanced reasoning model that thinks before responding for complex problem-solving.",
 		family: "openai",
 		providers: [
 			{
@@ -274,6 +287,8 @@ export const openaiModels = [
 	{
 		id: "o1-mini",
 		name: "o1 Mini",
+		description:
+			"Smaller, faster reasoning model optimized for coding and math tasks.",
 		family: "openai",
 		providers: [
 			{
@@ -315,6 +330,7 @@ export const openaiModels = [
 	{
 		id: "gpt-4.1-mini",
 		name: "GPT-4.1 Mini",
+		description: "Compact version of GPT-4.1 with vision and tool support.",
 		family: "openai",
 		providers: [
 			{
@@ -354,6 +370,8 @@ export const openaiModels = [
 	{
 		id: "gpt-4.1-nano",
 		name: "GPT-4.1 Nano",
+		description:
+			"Ultra-lightweight GPT-4.1 variant for high-volume, cost-sensitive applications.",
 		family: "openai",
 		providers: [
 			{
@@ -393,6 +411,8 @@ export const openaiModels = [
 	{
 		id: "o3",
 		name: "o3",
+		description:
+			"Next-generation reasoning model with enhanced problem-solving capabilities.",
 		family: "openai",
 		providers: [
 			{
@@ -430,6 +450,8 @@ export const openaiModels = [
 	{
 		id: "o3-mini",
 		name: "o3 Mini",
+		description:
+			"Compact o3 reasoning model balancing performance and cost for complex tasks.",
 		family: "openai",
 		providers: [
 			{
@@ -467,6 +489,8 @@ export const openaiModels = [
 	{
 		id: "gpt-oss-120b",
 		name: "GPT OSS 120B",
+		description:
+			"Open-source 120B parameter model with reasoning capabilities via Groq inference.",
 		family: "openai",
 		providers: [
 			{
@@ -503,6 +527,8 @@ export const openaiModels = [
 	{
 		id: "gpt-oss-20b",
 		name: "GPT OSS 20B",
+		description:
+			"Lightweight open-source 20B model with reasoning support for efficient inference.",
 		family: "openai",
 		providers: [
 			{
@@ -539,6 +565,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5",
 		name: "GPT-5",
+		description:
+			"Latest flagship model with reasoning, vision, and enhanced capabilities.",
 		family: "openai",
 		providers: [
 			{
@@ -625,6 +653,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5-mini",
 		name: "GPT-5 Mini",
+		description:
+			"Compact GPT-5 variant with reasoning and vision at reduced cost.",
 		family: "openai",
 		providers: [
 			{
@@ -710,6 +740,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5-nano",
 		name: "GPT-5 Nano",
+		description:
+			"Ultra-efficient GPT-5 variant for high-volume applications with reasoning support.",
 		family: "openai",
 		providers: [
 			{
@@ -795,6 +827,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5-chat-latest",
 		name: "GPT-5 Chat Latest",
+		description:
+			"GPT-5 optimized for conversational interactions without tool calling.",
 		family: "openai",
 		providers: [
 			{
@@ -824,6 +858,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5.1",
 		name: "GPT-5.1",
+		description:
+			"Iterative improvement on GPT-5 with enhanced reasoning and tool support.",
 		family: "openai",
 		providers: [
 			{
@@ -855,6 +891,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5-pro",
 		name: "GPT-5 Pro",
+		description:
+			"Premium GPT-5 tier with extended output limits and advanced reasoning for complex tasks.",
 		family: "openai",
 		providers: [
 			{
@@ -880,6 +918,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5.1-codex",
 		name: "GPT-5.1 Codex",
+		description:
+			"GPT-5.1 specialized for code generation and software development tasks.",
 		family: "openai",
 		providers: [
 			{
@@ -905,6 +945,8 @@ export const openaiModels = [
 	{
 		id: "gpt-5.1-codex-mini",
 		name: "GPT-5.1 Codex mini",
+		description:
+			"Lightweight code-focused model for efficient software development workflows.",
 		family: "openai",
 		providers: [
 			{

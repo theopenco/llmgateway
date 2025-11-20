@@ -4,6 +4,7 @@ export const nousresearchModels = [
 	{
 		id: "hermes-3-llama-405b",
 		name: "Hermes 3 Llama 405B",
+		description: "Nous Research Hermes 3 based on Llama 405B.",
 		family: "nousresearch",
 		providers: [
 			{

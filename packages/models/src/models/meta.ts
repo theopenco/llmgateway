@@ -4,6 +4,7 @@ export const metaModels = [
 	{
 		id: "llama-3.1-8b-instruct",
 		name: "Llama 3.1 8B Instruct",
+		description: "Compact Llama 3.1 for efficient text generation.",
 		family: "meta",
 		providers: [
 			{
@@ -65,6 +66,7 @@ export const metaModels = [
 	{
 		id: "llama-3.1-70b-instruct",
 		name: "Llama 3.1 70B Instruct",
+		description: "Mid-size Llama 3.1 with balanced performance.",
 		family: "meta",
 		providers: [
 			{
@@ -85,6 +87,7 @@ export const metaModels = [
 	{
 		id: "llama-3.2-11b-instruct",
 		name: "Llama 3.2 11B Instruct",
+		description: "Llama 3.2 with improved instruction following.",
 		family: "meta",
 		providers: [
 			{
@@ -106,6 +109,7 @@ export const metaModels = [
 	{
 		id: "llama-3.1-nemotron-ultra-253b",
 		name: "Llama 3.1 Nemotron Ultra 253B",
+		description: "NVIDIA-tuned Llama 3.1 253B for maximum capability.",
 		family: "meta",
 		providers: [
 			{
@@ -126,6 +130,7 @@ export const metaModels = [
 	{
 		id: "llama-guard-4-12b",
 		name: "Llama Guard 4 12B",
+		description: "Safety-focused model for content moderation.",
 		family: "meta",
 		providers: [
 			{
@@ -146,6 +151,7 @@ export const metaModels = [
 	{
 		id: "llama-3.3-70b-instruct",
 		name: "Llama 3.3 70B Instruct",
+		description: "Latest Llama 3.3 70B with enhanced capabilities.",
 		family: "meta",
 		providers: [
 			{
@@ -166,6 +172,7 @@ export const metaModels = [
 	{
 		id: "llama-3.1-405b-instruct",
 		name: "Llama 3.1 405B Instruct",
+		description: "Largest Llama 3.1 model with 405B parameters.",
 		family: "meta",
 		providers: [
 			{
@@ -210,6 +217,7 @@ export const metaModels = [
 	{
 		id: "llama-4-scout",
 		name: "Llama 4 Scout",
+		description: "Llama 4 Scout for efficient multi-turn conversations.",
 		family: "meta",
 		providers: [
 			{
@@ -231,6 +239,7 @@ export const metaModels = [
 	{
 		id: "llama-4-scout-17b-instruct",
 		name: "Llama 4 Scout 17B Instruct",
+		description: "Compact Llama 4 Scout with vision support.",
 		family: "meta",
 		providers: [
 			{
@@ -253,6 +262,7 @@ export const metaModels = [
 	{
 		id: "llama-4-maverick-17b-instruct",
 		name: "Llama 4 Maverick 17B Instruct",
+		description: "Llama 4 Maverick variant with vision capabilities.",
 		family: "meta",
 		providers: [
 			{
