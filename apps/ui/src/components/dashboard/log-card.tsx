@@ -192,6 +192,67 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div className="text-muted-foreground">Provider</div>
 								<div>{log.usedProvider}</div>
 							</div>
+							{log.routingMetadata && (
+								<div className="mt-3">
+									<h5 className="text-xs font-medium text-muted-foreground mb-2">
+										Routing Info
+									</h5>
+									<div className="rounded-md border border-dashed p-2 text-xs space-y-1.5 bg-muted/30">
+										{log.routingMetadata.selectionReason && (
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">Selection</span>
+												<span className="font-mono">
+													{log.routingMetadata.selectionReason}
+												</span>
+											</div>
+										)}
+										{log.routingMetadata.availableProviders &&
+											log.routingMetadata.availableProviders.length > 0 && (
+												<div className="flex justify-between">
+													<span className="text-muted-foreground">
+														Available
+													</span>
+													<span className="font-mono">
+														{log.routingMetadata.availableProviders.join(", ")}
+													</span>
+												</div>
+											)}
+										{log.routingMetadata.providerScores &&
+											log.routingMetadata.providerScores.length > 0 && (
+												<div className="pt-1 border-t border-dashed">
+													<div className="text-muted-foreground mb-1">
+														Scores
+													</div>
+													<div className="space-y-1">
+														{log.routingMetadata.providerScores.map((score) => (
+															<div
+																key={score.providerId}
+																className="flex justify-between items-center"
+															>
+																<span className="font-mono">
+																	{score.providerId}
+																</span>
+																<span className="text-muted-foreground">
+																	{score.score.toFixed(2)}
+																	{score.uptime !== undefined && (
+																		<span className="ml-2">
+																			↑{(score.uptime * 100).toFixed(0)}%
+																		</span>
+																	)}
+																	{score.latency !== undefined && (
+																		<span className="ml-2">
+																			{score.latency.toFixed(0)}ms
+																		</span>
+																	)}
+																</span>
+															</div>
+														))}
+													</div>
+												</div>
+											)}
+									</div>
+								</div>
+							)}
 						</div>
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Response Metrics</h4>

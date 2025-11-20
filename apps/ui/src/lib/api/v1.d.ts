@@ -601,6 +601,18 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                routingMetadata?: {
+                                    availableProviders?: string[];
+                                    selectedProvider?: string;
+                                    selectionReason?: string;
+                                    providerScores?: {
+                                        providerId: string;
+                                        score: number;
+                                        uptime?: number;
+                                        latency?: number;
+                                        price?: number;
+                                    }[];
+                                } | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {

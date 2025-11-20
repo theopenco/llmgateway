@@ -75,6 +75,25 @@ const logSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
 	source: z.string().nullable(),
+	routingMetadata: z
+		.object({
+			availableProviders: z.array(z.string()).optional(),
+			selectedProvider: z.string().optional(),
+			selectionReason: z.string().optional(),
+			providerScores: z
+				.array(
+					z.object({
+						providerId: z.string(),
+						score: z.number(),
+						uptime: z.number().optional(),
+						latency: z.number().optional(),
+						price: z.number().optional(),
+					}),
+				)
+				.optional(),
+		})
+		.nullable()
+		.optional(),
 });
 
 const querySchema = z.object({
