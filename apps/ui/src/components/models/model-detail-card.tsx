@@ -40,9 +40,9 @@ export function ModelDetailCard({ model }: ModelDetailCardProps) {
 		if (price === undefined) {
 			return "—";
 		}
-		const originalPrice = (price * 1e6).toFixed(2);
+		const originalPrice = price * 1e6;
 		if (discount) {
-			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
+			const discountedPrice = price * 1e6 * (1 - discount);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">

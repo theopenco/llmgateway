@@ -169,24 +169,24 @@ export function ModelsList() {
 									)}
 									{provider.inputPrice !== undefined && (
 										<div>
-											Input: ${(provider.inputPrice * 1e6).toFixed(2)} / M
+											Input: ${provider.inputPrice * 1e6} / M
 											tokens
 										</div>
 									)}
 									{provider.outputPrice !== undefined && (
 										<div>
-											Output: ${(provider.outputPrice * 1e6).toFixed(2)} / M
+											Output: ${provider.outputPrice * 1e6} / M
 											tokens
 										</div>
 									)}
 									{provider.imageInputPrice !== undefined && (
 										<div>
-											Image: ${provider.imageInputPrice.toFixed(5)} / input
+											Image: ${provider.imageInputPrice} / input
 										</div>
 									)}
 									{provider.requestPrice !== undefined && (
 										<div>
-											Request: ${(provider.requestPrice * 1000).toFixed(2)} / 1K
+											Request: ${provider.requestPrice * 1000} / 1K
 											requests
 										</div>
 									)}
