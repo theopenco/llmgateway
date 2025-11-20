@@ -23,6 +23,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4o-mini",
 				inputPrice: 0.15 / 1e6,
 				outputPrice: 0.6 / 1e6,
@@ -68,6 +69,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4",
 				inputPrice: 30.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
@@ -104,6 +106,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4o",
 				inputPrice: 2.5 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -140,6 +143,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-35-turbo",
 				inputPrice: 0.5 / 1e6,
 				outputPrice: 1.5 / 1e6,
@@ -175,6 +179,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4-turbo",
 				inputPrice: 10.0 / 1e6,
 				outputPrice: 30.0 / 1e6,
@@ -210,6 +215,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1",
 				inputPrice: 2.0 / 1e6,
 				outputPrice: 8.0 / 1e6,
@@ -249,6 +255,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o1",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
@@ -288,6 +295,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o1-mini",
 				inputPrice: 1.1 / 1e6,
 				outputPrice: 4.4 / 1e6,
@@ -327,6 +335,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1-mini",
 				inputPrice: 0.4 / 1e6,
 				outputPrice: 1.6 / 1e6,
@@ -365,6 +374,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1-nano",
 				inputPrice: 0.1 / 1e6,
 				outputPrice: 0.4 / 1e6,
@@ -402,6 +412,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o3",
 				inputPrice: 2 / 1e6,
 				outputPrice: 8 / 1e6,
@@ -438,6 +449,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o3-mini",
 				inputPrice: 1.1 / 1e6,
 				outputPrice: 4.4 / 1e6,
@@ -584,6 +596,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-5",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -668,6 +681,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-5-mini",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 2 / 1e6,
@@ -752,6 +766,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-5-nano",
 				inputPrice: 0.05 / 1e6,
 				outputPrice: 0.4 / 1e6,
