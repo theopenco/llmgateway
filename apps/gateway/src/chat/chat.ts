@@ -2286,11 +2286,12 @@ chat.openapi(completions, async (c) => {
 			let reasoningTokens = null;
 			let cachedTokens = null;
 			let streamingToolCalls = null;
+			let imageByteSize = 0; // Track total image data size for token estimation
 			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
-			const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
+			// const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
 			try {
@@ -2331,14 +2332,14 @@ chat.openapi(completions, async (c) => {
 						rawUpstreamData += chunk;
 					}
 
-					// Check buffer size to prevent memory exhaustion
-					if (buffer.length > MAX_BUFFER_SIZE) {
-						logger.warn(
-							"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
-						);
-						buffer = "";
-						continue;
-					}
+					// // Check buffer size to prevent memory exhaustion
+					// if (buffer.length > MAX_BUFFER_SIZE) {
+					// 	logger.warn(
+					// 		"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
+					// 	);
+					// 	buffer = "";
+					// 	continue;
+					// }
 
 					// Process SSE events from buffer
 					let processedLength = 0;
@@ -2504,7 +2505,15 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (finalCompletionTokens === null) {
-								finalCompletionTokens = estimateTokensFromContent(fullContent);
+								let textTokens = estimateTokensFromContent(fullContent);
+								// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+								// This is based on Google's image token calculation
+								let imageTokens = 0;
+								if (imageByteSize > 0) {
+									// Base tokens per image (258) + additional tokens based on size
+									imageTokens = 258 + Math.ceil(imageByteSize / 750);
+								}
+								finalCompletionTokens = textTokens + imageTokens;
 							}
 
 							if (finalTotalTokens === null) {
@@ -2648,6 +2657,7 @@ chat.openapi(completions, async (c) => {
 									data,
 									usedProvider,
 									fullContent,
+									imageByteSize,
 								);
 
 								// If we have usage data from Google, add it to the streaming chunk
@@ -2739,6 +2749,22 @@ chat.openapi(completions, async (c) => {
 								if (!firstTokenReceived) {
 									timeToFirstToken = Date.now() - startTime;
 									firstTokenReceived = true;
+								}
+							}
+
+							// Track image data size for Google providers (for token estimation)
+							if (
+								usedProvider === "google-ai-studio" ||
+								usedProvider === "google-vertex"
+							) {
+								const parts = data.candidates?.[0]?.content?.parts || [];
+								for (const part of parts) {
+									if (part.inlineData?.data) {
+										// Base64 string length * 0.75 ≈ actual byte size
+										imageByteSize += Math.ceil(
+											part.inlineData.data.length * 0.75,
+										);
+									}
 								}
 							}
 
@@ -2834,7 +2860,12 @@ chat.openapi(completions, async (c) => {
 							}
 
 							// Extract token usage using helper function
-							const usage = extractTokenUsage(data, usedProvider, fullContent);
+							const usage = extractTokenUsage(
+								data,
+								usedProvider,
+								fullContent,
+								imageByteSize,
+							);
 							if (usage.promptTokens !== null) {
 								promptTokens = usage.promptTokens;
 							}
@@ -2865,7 +2896,13 @@ chat.openapi(completions, async (c) => {
 								}
 
 								if (!completionTokens) {
-									completionTokens = estimateTokensFromContent(fullContent);
+									let textTokens = estimateTokensFromContent(fullContent);
+									// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+									let imageTokens = 0;
+									if (imageByteSize > 0) {
+										imageTokens = 258 + Math.ceil(imageByteSize / 750);
+									}
+									completionTokens = textTokens + imageTokens;
 								}
 
 								totalTokens = (promptTokens || 0) + (completionTokens || 0);
@@ -2975,19 +3012,29 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
-					if (!completionTokens && fullContent) {
+					if (!completionTokens && (fullContent || imageByteSize > 0)) {
 						try {
-							calculatedCompletionTokens = encode(
-								JSON.stringify(fullContent),
-							).length;
+							let textTokens = fullContent
+								? encode(JSON.stringify(fullContent)).length
+								: 0;
+							// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+							let imageTokens = 0;
+							if (imageByteSize > 0) {
+								imageTokens = 258 + Math.ceil(imageByteSize / 750);
+							}
+							calculatedCompletionTokens = textTokens + imageTokens;
 						} catch (error) {
 							// Fallback to simple estimation if encoding fails
 							logger.error(
 								"Failed to encode completion text in streaming",
 								error instanceof Error ? error : new Error(String(error)),
 							);
-							calculatedCompletionTokens =
-								estimateTokensFromContent(fullContent);
+							let textTokens = estimateTokensFromContent(fullContent);
+							let imageTokens = 0;
+							if (imageByteSize > 0) {
+								imageTokens = 258 + Math.ceil(imageByteSize / 750);
+							}
+							calculatedCompletionTokens = textTokens + imageTokens;
 						}
 					}
 
