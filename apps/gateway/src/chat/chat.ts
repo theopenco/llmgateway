@@ -2296,6 +2296,7 @@ chat.openapi(completions, async (c) => {
 			let cachedTokens = null;
 			let streamingToolCalls = null;
 			let imageByteSize = 0; // Track total image data size for token estimation
+			let outputImageCount = 0; // Track number of output images for cost calculation
 			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -2773,6 +2774,7 @@ chat.openapi(completions, async (c) => {
 										imageByteSize += Math.ceil(
 											part.inlineData.data.length * 0.75,
 										);
+										outputImageCount++;
 									}
 								}
 							}
@@ -3209,6 +3211,7 @@ chat.openapi(completions, async (c) => {
 						toolResults: streamingToolCalls || undefined,
 					},
 					reasoningTokens,
+					outputImageCount,
 				);
 
 				const baseLogEntry = createLogEntry(
@@ -3763,6 +3766,7 @@ chat.openapi(completions, async (c) => {
 			toolResults: toolResults,
 		},
 		reasoningTokens,
+		images?.length || 0,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
