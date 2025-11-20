@@ -5,6 +5,7 @@ import {
 	type Model,
 	type ModelDefinition,
 	models,
+	type PricingTier,
 	type ToolCall,
 } from "@llmgateway/models";
 
@@ -16,6 +17,48 @@ interface ChatMessage {
 }
 
 const DEFAULT_TOKENIZER_MODEL = "gpt-4";
+
+/**
+ * Get the appropriate pricing tier based on prompt token count
+ */
+function getPricingForTokenCount(
+	pricingTiers: PricingTier[] | undefined,
+	baseInputPrice: number,
+	baseOutputPrice: number,
+	baseCachedInputPrice: number | undefined,
+	promptTokens: number,
+): {
+	inputPrice: number;
+	outputPrice: number;
+	cachedInputPrice: number | undefined;
+} {
+	if (!pricingTiers || pricingTiers.length === 0) {
+		return {
+			inputPrice: baseInputPrice,
+			outputPrice: baseOutputPrice,
+			cachedInputPrice: baseCachedInputPrice,
+		};
+	}
+
+	// Find the appropriate tier based on prompt tokens
+	for (const tier of pricingTiers) {
+		if (promptTokens <= tier.upToTokens) {
+			return {
+				inputPrice: tier.inputPrice,
+				outputPrice: tier.outputPrice,
+				cachedInputPrice: tier.cachedInputPrice,
+			};
+		}
+	}
+
+	// If no tier matched (shouldn't happen with Infinity), use the last tier
+	const lastTier = pricingTiers[pricingTiers.length - 1];
+	return {
+		inputPrice: lastTier.inputPrice,
+		outputPrice: lastTier.outputPrice,
+		cachedInputPrice: lastTier.cachedInputPrice,
+	};
+}
 
 /**
  * Calculate costs based on model, provider, and token counts
@@ -168,9 +211,18 @@ export function calculateCosts(
 		};
 	}
 
-	const inputPrice = providerInfo.inputPrice || 0;
-	const outputPrice = providerInfo.outputPrice || 0;
-	const cachedInputPrice = providerInfo.cachedInputPrice ?? inputPrice;
+	// Get pricing based on token count (supports tiered pricing)
+	const pricing = getPricingForTokenCount(
+		providerInfo.pricingTiers,
+		providerInfo.inputPrice || 0,
+		providerInfo.outputPrice || 0,
+		providerInfo.cachedInputPrice,
+		calculatedPromptTokens,
+	);
+
+	const inputPrice = pricing.inputPrice;
+	const outputPrice = pricing.outputPrice;
+	const cachedInputPrice = pricing.cachedInputPrice ?? inputPrice;
 	const requestPrice = providerInfo.requestPrice || 0;
 	const discount = providerInfo.discount || 0;
 	const discountMultiplier = 1 - discount;

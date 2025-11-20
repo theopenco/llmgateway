@@ -22,6 +22,28 @@ export type Provider = (typeof providers)[number]["id"];
 
 export type Model = (typeof models)[number]["providers"][number]["modelName"];
 
+/**
+ * Pricing tier for models with context-length based pricing
+ */
+export interface PricingTier {
+	/**
+	 * Maximum number of tokens for this tier (use Infinity for the highest tier)
+	 */
+	upToTokens: number;
+	/**
+	 * Price per input token in USD for this tier
+	 */
+	inputPrice: number;
+	/**
+	 * Price per output token in USD for this tier
+	 */
+	outputPrice: number;
+	/**
+	 * Price per cached input token in USD for this tier
+	 */
+	cachedInputPrice?: number;
+}
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	modelName: string;
@@ -49,6 +71,12 @@ export interface ProviderModelMapping {
 	 * Discount multiplier (0-1), where 0.5 = 50% off
 	 */
 	discount?: number;
+	/**
+	 * Pricing tiers for models with context-length based pricing.
+	 * When set, inputPrice and outputPrice represent the base tier.
+	 * Tiers should be sorted by upToTokens in ascending order.
+	 */
+	pricingTiers?: PricingTier[];
 	/**
 	 * Maximum context window size in tokens
 	 */

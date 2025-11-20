@@ -12,6 +12,18 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 10.0 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 15.0 / 1e6,
+					},
+				],
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -28,6 +40,18 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 10.0 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 15.0 / 1e6,
+					},
+				],
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -52,6 +76,18 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro-preview-05-06",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 10.0 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 15.0 / 1e6,
+					},
+				],
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -70,6 +106,18 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro-preview-05-06",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 10.0 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 15.0 / 1e6,
+					},
+				],
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -95,6 +143,18 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro-preview-06-05",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 10.0 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 15.0 / 1e6,
+					},
+				],
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
@@ -113,6 +173,18 @@ export const googleModels = [
 				modelName: "gemini-2.5-pro-preview-06-05",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
+				pricingTiers: [
+					{
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 10.0 / 1e6,
+					},
+					{
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 15.0 / 1e6,
+					},
+				],
 				requestPrice: 0,
 				contextSize: 1000000,
 				maxOutput: undefined,
