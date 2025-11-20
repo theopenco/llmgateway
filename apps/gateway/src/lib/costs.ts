@@ -84,6 +84,7 @@ export function calculateCosts(
 	},
 	reasoningTokens: number | null = null,
 	outputImageCount = 0,
+	imageSize?: string,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -256,8 +257,10 @@ export function calculateCosts(
 	let outputCost: Decimal;
 	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
 	if (imageOutputPrice && outputImageCount > 0) {
-		// Each image is counted as 1120 tokens for 1K-2K images
-		const TOKENS_PER_IMAGE = 1120;
+		// Token count per image depends on size:
+		// - 1K/2K images: 1120 tokens ($0.134 per image at $120/1M)
+		// - 4K images: 2000 tokens ($0.24 per image at $120/1M)
+		const TOKENS_PER_IMAGE = imageSize === "4K" ? 2000 : 1120;
 		const imageTokens = outputImageCount * TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageTokens);
 

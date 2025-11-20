@@ -3212,6 +3212,7 @@ chat.openapi(completions, async (c) => {
 					},
 					reasoningTokens,
 					outputImageCount,
+					image_config?.image_size,
 				);
 
 				const baseLogEntry = createLogEntry(
@@ -3767,6 +3768,7 @@ chat.openapi(completions, async (c) => {
 		},
 		reasoningTokens,
 		images?.length || 0,
+		image_config?.image_size,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
