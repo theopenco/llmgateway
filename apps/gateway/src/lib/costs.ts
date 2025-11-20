@@ -46,7 +46,7 @@ function getPricingForTokenCount(
 			return {
 				inputPrice: tier.inputPrice,
 				outputPrice: tier.outputPrice,
-				cachedInputPrice: tier.cachedInputPrice,
+				cachedInputPrice: tier.cachedInputPrice ?? baseCachedInputPrice,
 			};
 		}
 	}
@@ -56,7 +56,7 @@ function getPricingForTokenCount(
 	return {
 		inputPrice: lastTier.inputPrice,
 		outputPrice: lastTier.outputPrice,
-		cachedInputPrice: lastTier.cachedInputPrice,
+		cachedInputPrice: lastTier.cachedInputPrice ?? baseCachedInputPrice,
 	};
 }
 
