@@ -3,9 +3,9 @@
 set -eux
 
 curl -X POST --location "http://localhost:4001/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer test-token" \
-    -d '{
+	-H "Content-Type: application/json" \
+	-H "Authorization: Bearer test-token" \
+	-d '{
 	"model": "google-ai-studio/gemini-3-pro-image-preview",
 	"image_config": {
 		"aspect_ratio": "1:1",

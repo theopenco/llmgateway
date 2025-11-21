@@ -73,6 +73,38 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 }
 
 /**
+ * Recursively strips unsupported properties from JSON schema for Google
+ * Google doesn't support additionalProperties, $schema, and some other JSON schema properties
+ */
+function stripUnsupportedSchemaProperties(schema: any): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	if (Array.isArray(schema)) {
+		return schema.map(stripUnsupportedSchemaProperties);
+	}
+
+	const cleaned: any = {};
+
+	for (const [key, value] of Object.entries(schema)) {
+		// Skip unsupported properties
+		if (key === "additionalProperties" || key === "$schema") {
+			continue;
+		}
+
+		// Recursively clean nested objects
+		if (value && typeof value === "object") {
+			cleaned[key] = stripUnsupportedSchemaProperties(value);
+		} else {
+			cleaned[key] = value;
+		}
+	}
+
+	return cleaned;
+}
+
+/**
  * Transforms messages for models that don't support system roles by converting system messages to user messages
  */
 function transformMessagesForNoSystemRole(messages: any[]): any[] {
@@ -619,12 +651,10 @@ export async function prepareRequestBody(
 				requestBody.tools = [
 					{
 						functionDeclarations: tools.map((tool: any) => {
-							// Remove additionalProperties and $schema from parameters as Google doesn't accept them
-							const {
-								additionalProperties: _additionalProperties,
-								$schema: _$schema,
-								...cleanParameters
-							} = tool.function.parameters || {};
+							// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
+							const cleanParameters = stripUnsupportedSchemaProperties(
+								tool.function.parameters || {},
+							);
 							return {
 								name: tool.function.name,
 								description: tool.function.description,
