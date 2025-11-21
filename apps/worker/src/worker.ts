@@ -356,19 +356,21 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		while (hasMoreFreePlanRecords) {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
+				// Use JOIN instead of subquery for better performance with large tables
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
+					.innerJoin(organization, eq(log.organizationId, organization.id))
 					.where(
 						and(
-							sql`${log.organizationId} IN (SELECT id FROM ${organization} WHERE plan = 'free')`,
+							eq(organization.plan, "free"),
 							lt(log.createdAt, freePlanCutoff),
-							sql`${log.dataRetentionCleanedUp} = false`,
+							eq(log.dataRetentionCleanedUp, false),
 							sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { skipLocked: true });
+					.for("update", { of: [log], skipLocked: true });
 
 				if (recordsToClean.length === 0) {
 					return 0;
@@ -422,19 +424,21 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		while (hasMoreProPlanRecords) {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
+				// Use JOIN instead of subquery for better performance with large tables
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
+					.innerJoin(organization, eq(log.organizationId, organization.id))
 					.where(
 						and(
-							sql`${log.organizationId} IN (SELECT id FROM ${organization} WHERE plan = 'pro')`,
+							eq(organization.plan, "pro"),
 							lt(log.createdAt, proPlanCutoff),
-							sql`${log.dataRetentionCleanedUp} = false`,
+							eq(log.dataRetentionCleanedUp, false),
 							sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { skipLocked: true });
+					.for("update", { of: [log], skipLocked: true });
 
 				if (recordsToClean.length === 0) {
 					return 0;

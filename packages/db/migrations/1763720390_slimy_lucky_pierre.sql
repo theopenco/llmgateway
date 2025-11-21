@@ -1,0 +1,2 @@
+CREATE INDEX "log_organization_id_created_at_idx" ON "log" ("organization_id","created_at");--> statement-breakpoint
+CREATE INDEX "log_data_retention_pending_idx" ON "log" ("organization_id","created_at") WHERE data_retention_cleaned_up = false;

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
 	boolean,
 	decimal,
@@ -437,6 +438,15 @@ export const log = pgTable(
 			table.usedModel,
 			table.usedProvider,
 		),
+		// Index for data retention cleanup: filters by organization, date, and cleanup status
+		index("log_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		// Partial index for unprocessed data retention records
+		index("log_data_retention_pending_idx")
+			.on(table.organizationId, table.createdAt)
+			.where(sql`data_retention_cleaned_up = false`),
 	],
 );
 
