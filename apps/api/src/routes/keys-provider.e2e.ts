@@ -8,12 +8,33 @@ import { db, tables } from "@llmgateway/db";
 import {
 	getProviderEnvVar,
 	getTestOptions,
+	models,
 	providers,
 } from "@llmgateway/models";
 
 // Helper function to generate unique IDs for tests
 function generateTestId(): string {
 	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Helper function to check if a provider has any active models
+function hasActiveModels(providerId: string): boolean {
+	const currentDate = new Date();
+	for (const model of models) {
+		for (const providerInfo of model.providers) {
+			if (providerInfo.providerId === providerId) {
+				const deactivatedAt =
+					"deactivatedAt" in providerInfo
+						? (providerInfo.deactivatedAt as Date | undefined)
+						: undefined;
+				const deactivated = deactivatedAt && currentDate >= deactivatedAt;
+				if (!deactivated) {
+					return true;
+				}
+			}
+		}
+	}
+	return false;
 }
 
 describe(
@@ -118,6 +139,13 @@ describe(
 				const envVarValue = envVarName ? process.env[envVarName] : undefined;
 				if (!envVarValue) {
 					console.log(`Skipping ${providerId} test - no API key provided`);
+					return;
+				}
+
+				if (!hasActiveModels(providerId)) {
+					console.log(
+						`Skipping ${providerId} test - no active models available`,
+					);
 					return;
 				}
 

@@ -176,6 +176,12 @@ export function ModelsList() {
 									{provider.imageInputPrice !== undefined && (
 										<div>Image: ${provider.imageInputPrice} / input</div>
 									)}
+									{provider.imageOutputPrice !== undefined && (
+										<div>
+											Image Output: ${provider.imageOutputPrice * 1e6} / M
+											tokens
+										</div>
+									)}
 									{provider.requestPrice !== undefined && (
 										<div>
 											Request: ${provider.requestPrice * 1000} / 1K requests
