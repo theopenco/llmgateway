@@ -259,6 +259,37 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					</div>
+					{provider.imageOutputPrice !== undefined && (
+						<div className="grid grid-cols-3 gap-3 mt-3">
+							<div className="col-span-3">
+								<div className="text-muted-foreground text-xs mb-1">
+									Image Output
+								</div>
+								<div className="font-mono">
+									<div className="space-y-1">
+										<div className="flex items-center gap-2">
+											{provider.discount ? (
+												<>
+													<span className="line-through text-muted-foreground text-xs">
+														{formatPrice(provider.imageOutputPrice)}
+													</span>
+													<span className="text-green-600 font-semibold">
+														{formatPrice(
+															provider.imageOutputPrice *
+																(1 - provider.discount),
+														)}
+													</span>
+												</>
+											) : (
+												formatPrice(provider.imageOutputPrice)
+											)}
+										</div>
+										<span className="text-muted-foreground text-xs">/M</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					)}
 					{provider.discount && (
 						<div className="mt-2">
 							<Badge
