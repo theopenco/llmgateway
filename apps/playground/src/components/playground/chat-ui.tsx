@@ -1,5 +1,12 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy, GlobeIcon, Plug } from "lucide-react";
+import {
+	AlertCircle,
+	RefreshCcw,
+	Copy,
+	GlobeIcon,
+	Plug,
+	Brain,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -539,11 +546,14 @@ export const ChatUI = ({
 									}
 								>
 									<SelectTrigger size="sm" className="min-w-[120px]">
+										<Brain size={16} />
 										<SelectValue placeholder="Reasoning" />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="off">Reasoning off</SelectItem>
-										<SelectItem value="minimal">Minimal</SelectItem>
+										<SelectItem value="off">Auto</SelectItem>
+										{selectedModel.includes("gpt-5") && (
+											<SelectItem value="minimal">Minimal</SelectItem>
+										)}
 										<SelectItem value="low">Low</SelectItem>
 										<SelectItem value="medium">Medium</SelectItem>
 										<SelectItem value="high">High</SelectItem>
