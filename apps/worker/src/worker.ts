@@ -357,6 +357,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// Use JOIN instead of subquery for better performance with large tables
+				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -366,7 +367,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 							eq(organization.plan, "free"),
 							lt(log.createdAt, freePlanCutoff),
 							eq(log.dataRetentionCleanedUp, false),
-							sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
@@ -425,6 +425,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// Use JOIN instead of subquery for better performance with large tables
+				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -434,7 +435,6 @@ export async function cleanupExpiredLogData(): Promise<void> {
 							eq(organization.plan, "pro"),
 							lt(log.createdAt, proPlanCutoff),
 							eq(log.dataRetentionCleanedUp, false),
-							sql`(${log.messages} IS NOT NULL OR ${log.content} IS NOT NULL OR ${log.reasoningContent} IS NOT NULL OR ${log.tools} IS NOT NULL OR ${log.toolChoice} IS NOT NULL OR ${log.toolResults} IS NOT NULL OR ${log.customHeaders} IS NOT NULL OR ${log.rawRequest} IS NOT NULL OR ${log.rawResponse} IS NOT NULL OR ${log.upstreamRequest} IS NOT NULL OR ${log.upstreamResponse} IS NOT NULL)`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
