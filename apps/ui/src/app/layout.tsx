@@ -29,6 +29,9 @@ export const metadata: Metadata = {
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
+	alternates: {
+		canonical: "./",
+	},
 	openGraph: {
 		title: "LLM Gateway",
 		description:

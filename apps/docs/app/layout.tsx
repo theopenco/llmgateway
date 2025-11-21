@@ -29,6 +29,9 @@ export const metadata: Metadata = {
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
+	alternates: {
+		canonical: "./",
+	},
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
