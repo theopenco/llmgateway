@@ -183,6 +183,11 @@ export function ModelSelector({
 				searchText: rootSearchText,
 			});
 
+			// Skip provider entries for auto model - it should only appear as root
+			if (m.id === "auto") {
+				continue;
+			}
+
 			for (const mp of m.providers) {
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
