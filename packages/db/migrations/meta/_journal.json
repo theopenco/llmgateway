@@ -477,6 +477,13 @@
       "when": 1763720390006,
       "tag": "1763720390_slimy_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "8",
+      "when": 1763743503866,
+      "tag": "1763743503_clumsy_pride",
+      "breakpoints": true
     }
   ]
 }
