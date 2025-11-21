@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2b984dae-a52a-41dd-ac66-f0d49fbf8d90",
+  "id": "5a6f2c28-8756-4861-ad9c-9f860e6ba753",
   "prevId": "bc463493-dedc-44ff-a9b4-7d98ff87db1b",
   "ddl": [
     {
@@ -5081,13 +5081,6 @@
     {
       "nameExplicit": true,
       "columns": [
-        {
-          "value": "data_retention_cleaned_up",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
         {
           "value": "created_at",
           "isExpression": false,
