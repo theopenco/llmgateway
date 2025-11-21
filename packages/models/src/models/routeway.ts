@@ -4,6 +4,7 @@ export const routewayModels = [
 	{
 		id: "deepseek-r1t2-chimera-free",
 		name: "DeepSeek R1T2 Chimera (Free)",
+		description: "Free DeepSeek R1T2 Chimera for testing.",
 		family: "deepseek",
 		free: true,
 		providers: [
@@ -26,6 +27,7 @@ export const routewayModels = [
 	{
 		id: "glm-4.5-air-free",
 		name: "GLM-4.5 Air (Free)",
+		description: "Free GLM-4.5 Air model.",
 		family: "glm",
 		free: true,
 		providers: [
@@ -48,6 +50,7 @@ export const routewayModels = [
 	{
 		id: "kimi-dev-72b-free",
 		name: "Kimi Dev 72B (Free)",
+		description: "Free Kimi Dev 72B for development.",
 		family: "kimi",
 		free: true,
 		providers: [
@@ -70,6 +73,7 @@ export const routewayModels = [
 	{
 		id: "mistral-small-3-free",
 		name: "Mistral Small 3 (Free)",
+		description: "Free Mistral Small 3.",
 		family: "mistral",
 		free: true,
 		providers: [
@@ -92,6 +96,7 @@ export const routewayModels = [
 	{
 		id: "gpt-oss-20b-free",
 		name: "GPT OSS 20B (Free)",
+		description: "Free GPT OSS 20B model.",
 		family: "gpt-oss",
 		free: true,
 		providers: [
@@ -114,6 +119,7 @@ export const routewayModels = [
 	{
 		id: "llama-3.3-70b-instruct-free",
 		name: "Meta Llama 3.3 70B Instruct (Free)",
+		description: "Free Llama 3.3 70B.",
 		family: "meta",
 		free: true,
 		providers: [
@@ -136,6 +142,7 @@ export const routewayModels = [
 	{
 		id: "llama-4-scout-free",
 		name: "Meta Llama 4 Scout (Free)",
+		description: "Free Llama 4 Scout.",
 		family: "meta",
 		free: true,
 		providers: [
@@ -158,6 +165,7 @@ export const routewayModels = [
 	{
 		id: "llama-4-maverick-free",
 		name: "Meta Llama 4 Maverick (Free)",
+		description: "Free Llama 4 Maverick.",
 		family: "meta",
 		free: true,
 		providers: [
@@ -180,6 +188,7 @@ export const routewayModels = [
 	{
 		id: "nemotron-nano-9b-v2",
 		name: "Nemotron Nano 9B V2 (Free)",
+		description: "Free NVIDIA Nemotron Nano 9B.",
 		family: "nvidia",
 		free: true,
 		providers: [

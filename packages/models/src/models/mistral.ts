@@ -4,6 +4,7 @@ export const mistralModels = [
 	{
 		id: "mistral-large-latest",
 		name: "Mistral Large Latest",
+		description: "Mistral's flagship large model for complex reasoning tasks.",
 		family: "mistral",
 		providers: [
 			{
@@ -24,6 +25,7 @@ export const mistralModels = [
 	{
 		id: "mixtral-8x7b-instruct-together",
 		name: "Mixtral 8x7B Instruct",
+		description: "Mixture-of-experts model with 8x7B architecture.",
 		family: "mistral",
 		providers: [
 			{
@@ -44,6 +46,7 @@ export const mistralModels = [
 	{
 		id: "mistral-7b-instruct-together",
 		name: "Mistral 7B Instruct",
+		description: "Compact 7B instruction-tuned Mistral model.",
 		family: "mistral",
 		providers: [
 			{
@@ -65,6 +68,7 @@ export const mistralModels = [
 	{
 		id: "pixtral-large-latest",
 		name: "Pixtral Large Latest",
+		description: "Mistral's multimodal model with vision capabilities.",
 		family: "mistral",
 		providers: [
 			{

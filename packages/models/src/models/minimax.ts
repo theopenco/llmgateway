@@ -4,6 +4,7 @@ export const minimaxModels = [
 	{
 		id: "minimax-m2",
 		name: "MiniMax M2",
+		description: "MiniMax M2 model with reasoning and tool support.",
 		family: "minimax",
 		providers: [
 			{

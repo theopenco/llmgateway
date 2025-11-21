@@ -4,6 +4,7 @@ export const xaiModels = [
 	{
 		id: "grok-3",
 		name: "Grok-3",
+		description: "xAI's advanced model with strong reasoning capabilities.",
 		family: "xai",
 		providers: [
 			{
@@ -25,6 +26,7 @@ export const xaiModels = [
 	{
 		id: "grok-3-mini",
 		name: "Grok-3 Mini",
+		description: "Compact Grok-3 for fast, cost-effective inference.",
 		family: "xai",
 		providers: [
 			{
@@ -45,6 +47,7 @@ export const xaiModels = [
 	{
 		id: "grok-3-fast",
 		name: "Grok-3 Fast",
+		description: "Optimized Grok-3 variant for lower latency.",
 		family: "xai",
 		providers: [
 			{
@@ -68,6 +71,7 @@ export const xaiModels = [
 	{
 		id: "grok-3-mini-fast",
 		name: "Grok-3 Mini Fast",
+		description: "Fastest Grok-3 Mini variant.",
 		family: "xai",
 		providers: [
 			{
@@ -90,6 +94,7 @@ export const xaiModels = [
 	{
 		id: "grok-2-1212",
 		name: "Grok-2 (1212)",
+		description: "December 2024 version of Grok-2.",
 		family: "xai",
 		providers: [
 			{
@@ -113,6 +118,7 @@ export const xaiModels = [
 	{
 		id: "grok-2-vision-1212",
 		name: "Grok-2 Vision (1212)",
+		description: "Grok-2 with vision capabilities.",
 		family: "xai",
 		providers: [
 			{
@@ -136,6 +142,7 @@ export const xaiModels = [
 	{
 		id: "grok-4-0709",
 		name: "Grok 4 (0709)",
+		description: "July 2025 version of Grok 4.",
 		family: "xai",
 		providers: [
 			{
@@ -158,6 +165,7 @@ export const xaiModels = [
 	{
 		id: "grok-4",
 		name: "Grok 4",
+		description: "Latest Grok 4 with vision and tool support.",
 		family: "xai",
 		providers: [
 			{
@@ -179,6 +187,7 @@ export const xaiModels = [
 	{
 		id: "grok-4-fast-reasoning",
 		name: "Grok 4 Fast Reasoning",
+		description: "Grok 4 optimized for fast reasoning.",
 		family: "xai",
 		providers: [
 			{
@@ -201,6 +210,7 @@ export const xaiModels = [
 	{
 		id: "grok-4-fast-non-reasoning",
 		name: "Grok 4 Fast Non-Reasoning",
+		description: "Grok 4 without reasoning for faster responses.",
 		family: "xai",
 		providers: [
 			{
@@ -223,6 +233,7 @@ export const xaiModels = [
 	{
 		id: "grok-code-fast-1",
 		name: "Grok Code Fast 1",
+		description: "Grok optimized for code generation tasks.",
 		family: "xai",
 		providers: [
 			{
@@ -244,6 +255,7 @@ export const xaiModels = [
 	{
 		id: "grok-4-1-fast-reasoning",
 		name: "Grok 4.1 Fast Reasoning",
+		description: "Grok 4.1 with fast reasoning and vision support.",
 		family: "xai",
 		providers: [
 			{
@@ -265,6 +277,7 @@ export const xaiModels = [
 	{
 		id: "grok-4-1-fast-non-reasoning",
 		name: "Grok 4.1 Fast Non-Reasoning",
+		description: "Grok 4.1 without reasoning mode.",
 		family: "xai",
 		providers: [
 			{

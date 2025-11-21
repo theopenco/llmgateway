@@ -4,6 +4,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-max",
 		name: "Qwen Max",
+		description: "Alibaba's flagship Qwen model with vision and tool support.",
 		family: "alibaba",
 		providers: [
 			{
@@ -24,6 +25,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-max-latest",
 		name: "Qwen Max Latest",
+		description: "Latest Qwen Max with enhanced capabilities.",
 		family: "alibaba",
 		providers: [
 			{
@@ -44,6 +46,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-plus",
 		name: "Qwen Plus",
+		description: "Mid-tier Qwen model balancing speed and capability.",
 		family: "alibaba",
 		providers: [
 			{
@@ -64,6 +67,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-plus-latest",
 		name: "Qwen Plus Latest",
+		description: "Updated Qwen Plus with extended context support.",
 		family: "alibaba",
 		providers: [
 			{
@@ -84,6 +88,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-flash",
 		name: "Qwen Flash",
+		description: "Fast, cost-effective Qwen for high-volume tasks.",
 		family: "alibaba",
 		providers: [
 			{
@@ -104,6 +109,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-omni-turbo",
 		name: "Qwen Omni Turbo",
+		description: "Multimodal Qwen with vision support.",
 		family: "alibaba",
 		providers: [
 			{
@@ -124,6 +130,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-turbo",
 		name: "Qwen Turbo",
+		description: "Fastest Qwen model for quick responses.",
 		family: "alibaba",
 		providers: [
 			{
@@ -144,6 +151,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-coder-plus",
 		name: "Qwen3 Coder Plus",
+		description: "Advanced Qwen for code generation.",
 		family: "alibaba",
 		providers: [
 			{
@@ -165,6 +173,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-qwq-32b",
 		name: "Qwen QwQ 32B",
+		description: "Qwen 32B reasoning model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -186,6 +195,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-235b-a22b-instruct-2507",
 		name: "Qwen3 235B A22B Instruct 2507",
+		description: "Large Qwen 3 MoE instruction model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -207,6 +217,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-235b-a22b-thinking-2507",
 		name: "Qwen3 235B A22B Thinking 2507",
+		description: "Qwen 3 MoE with reasoning capabilities.",
 		family: "alibaba",
 		providers: [
 			{
@@ -229,6 +240,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-14b",
 		name: "Qwen3 14B",
+		description: "Mid-size Qwen 3 model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -250,6 +262,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-32b",
 		name: "Qwen3 32B",
+		description: "Mid-size Qwen 3 model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -270,6 +283,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-30b-a3b",
 		name: "Qwen3 30B A3B",
+		description: "Mid-size Qwen 3 MoE model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -291,6 +305,7 @@ export const alibabaModels = [
 	{
 		id: "qwen25-coder-7b",
 		name: "Qwen2.5 Coder 7B",
+		description: "Qwen 2.5 code model, 7B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -311,6 +326,7 @@ export const alibabaModels = [
 	{
 		id: "qwen25-32b-instruct",
 		name: "Qwen2.5 32B Instruct",
+		description: "Qwen 2.5 instruction model, 32B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -332,6 +348,7 @@ export const alibabaModels = [
 	{
 		id: "qwen25-72b-instruct",
 		name: "Qwen2.5 72B Instruct",
+		description: "Qwen 2.5 instruction model, 72B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -353,6 +370,7 @@ export const alibabaModels = [
 	{
 		id: "qwen2-vl-72b-instruct",
 		name: "Qwen2 VL 72B Instruct",
+		description: "Vision-language Qwen 2 model, 72B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -374,6 +392,7 @@ export const alibabaModels = [
 	{
 		id: "qwen2-5-vl-72b-instruct",
 		name: "Qwen2.5 VL 72B Instruct",
+		description: "Vision-language Qwen 2.5 model, 72B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -394,6 +413,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-coder-480b-a35b-instruct",
 		name: "Qwen3 Coder 480B A35B Instruct",
+		description: "Code-specialized Qwen 3 MoE, 480B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -414,6 +434,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-coder-30b-a3b-instruct",
 		name: "Qwen3 Coder 30B A3B Instruct",
+		description: "Code-specialized Qwen 3 MoE, 30B size.",
 		family: "alibaba",
 		providers: [
 			{
@@ -434,6 +455,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-30b-a3b-instruct-2507",
 		name: "Qwen3 30B A3B Instruct 2507",
+		description: "Qwen 3 MoE instruction model, July 2025.",
 		family: "alibaba",
 		providers: [
 			{
@@ -454,6 +476,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-30b-a3b-thinking-2507",
 		name: "Qwen3 30B A3B Thinking 2507",
+		description: "Qwen 3 MoE with reasoning, July 2025.",
 		family: "alibaba",
 		providers: [
 			{
@@ -475,6 +498,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-vl-max",
 		name: "Qwen VL Max",
+		description: "Vision-language Qwen flagship model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -495,6 +519,7 @@ export const alibabaModels = [
 	{
 		id: "qwen-vl-plus",
 		name: "Qwen VL Plus",
+		description: "Vision-language Qwen mid-tier model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -515,6 +540,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-next-80b-a3b-thinking",
 		name: "Qwen3 Next 80B A3B Thinking",
+		description: "Preview Qwen 3 Next with reasoning.",
 		family: "alibaba",
 		providers: [
 			{
@@ -537,6 +563,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-next-80b-a3b-instruct",
 		name: "Qwen3 Next 80B A3B Instruct",
+		description: "Preview Qwen 3 Next instruction model.",
 		family: "alibaba",
 		providers: [
 			{
@@ -557,6 +584,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-max",
 		name: "Qwen3 Max",
+		description: "Top-tier Qwen 3 with reasoning and vision support.",
 		family: "alibaba",
 		providers: [
 			{
@@ -581,6 +609,7 @@ export const alibabaModels = [
 	{
 		id: "qwen3-coder",
 		name: "Qwen3 Coder",
+		description: "General Qwen 3 coding model.",
 		family: "alibaba",
 		providers: [
 			{

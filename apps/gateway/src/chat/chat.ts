@@ -239,6 +239,13 @@ const completionsRequestSchema = z.object({
 			status: z.enum(["DISABLE", "ENABLE"]),
 		})
 		.optional(),
+	// Google image generation config
+	image_config: z
+		.object({
+			aspect_ratio: z.string().optional(),
+			image_size: z.string().optional(),
+		})
+		.optional(),
 });
 
 const completions = createRoute({
@@ -403,6 +410,7 @@ chat.openapi(completions, async (c) => {
 		free_models_only,
 		no_reasoning,
 		sensitive_word_check,
+		image_config,
 	} = validationResult.data;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
@@ -1862,6 +1870,7 @@ chat.openapi(completions, async (c) => {
 		maxImageSizeMB,
 		userPlan,
 		sensitive_word_check,
+		image_config,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2287,6 +2296,7 @@ chat.openapi(completions, async (c) => {
 			let cachedTokens = null;
 			let streamingToolCalls = null;
 			let imageByteSize = 0; // Track total image data size for token estimation
+			let outputImageCount = 0; // Track number of output images for cost calculation
 			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -2764,6 +2774,7 @@ chat.openapi(completions, async (c) => {
 										imageByteSize += Math.ceil(
 											part.inlineData.data.length * 0.75,
 										);
+										outputImageCount++;
 									}
 								}
 							}
@@ -3200,6 +3211,8 @@ chat.openapi(completions, async (c) => {
 						toolResults: streamingToolCalls || undefined,
 					},
 					reasoningTokens,
+					outputImageCount,
+					image_config?.image_size,
 				);
 
 				const baseLogEntry = createLogEntry(
@@ -3754,6 +3767,8 @@ chat.openapi(completions, async (c) => {
 			toolResults: toolResults,
 		},
 		reasoningTokens,
+		images?.length || 0,
+		image_config?.image_size,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers

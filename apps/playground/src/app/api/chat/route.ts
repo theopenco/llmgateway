@@ -21,6 +21,20 @@ interface ChatRequestBody {
 	apiKey?: string;
 	provider?: string; // optional provider override
 	mode?: "image" | "chat"; // optional hint to force image generation path
+	image_config?: {
+		aspect_ratio?:
+			| "auto"
+			| "1:1"
+			| "9:16"
+			| "3:4"
+			| "4:3"
+			| "3:2"
+			| "2:3"
+			| "5:4"
+			| "4:5"
+			| "21:9";
+		image_size?: "1K" | "2K" | "4K";
+	};
 }
 
 export async function POST(req: Request) {
@@ -33,7 +47,8 @@ export async function POST(req: Request) {
 	}
 
 	const body = await req.json();
-	const { messages, model, apiKey, provider }: ChatRequestBody = body;
+	const { messages, model, apiKey, provider, image_config }: ChatRequestBody =
+		body;
 
 	if (!messages || !Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
@@ -45,6 +60,7 @@ export async function POST(req: Request) {
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
 	const githubTokenHeader = req.headers.get("x-github-token") || undefined;
 	const githubTokenBody = (body as any)?.githubToken || undefined;
+	const reasoningEffort = (body as any)?.reasoning_effort || undefined;
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
@@ -85,10 +101,12 @@ export async function POST(req: Request) {
 				tokenForMcp as string,
 			);
 
-			const result = await streamText({
+			const result = streamText({
 				model: llmgateway.chat(selectedModel),
 				messages: convertToModelMessages(messages),
 				tools,
+				...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+				...(image_config ? { image_config } : {}),
 				stopWhen: stepCountIs(10),
 				onFinish: async () => {
 					if (githubMCPClient) {
@@ -107,15 +125,16 @@ export async function POST(req: Request) {
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
 			messages: convertToModelMessages(messages),
+			...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+			...(image_config ? { image_config } : {}),
 		});
 
 		return result.toUIMessageStreamResponse({ sendReasoning: true });
-	} catch {
-		return new Response(
-			JSON.stringify({ error: "LLM Gateway request failed" }),
-			{
-				status: 500,
-			},
-		);
+	} catch (error: any) {
+		const message = error.message || "LLM Gateway request failed";
+		const status = error.status || 500;
+		return new Response(JSON.stringify({ error: message, details: error }), {
+			status,
+		});
 	}
 }

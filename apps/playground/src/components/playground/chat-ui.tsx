@@ -54,6 +54,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -76,6 +83,37 @@ interface ChatUIProps {
 	status: ChatStatus;
 	stop: () => void;
 	regenerate: () => void;
+	reasoningEffort: "" | "minimal" | "low" | "medium" | "high";
+	setReasoningEffort: (
+		value: "" | "minimal" | "low" | "medium" | "high",
+	) => void;
+	supportsReasoning: boolean;
+	imageAspectRatio:
+		| "auto"
+		| "1:1"
+		| "9:16"
+		| "3:4"
+		| "4:3"
+		| "3:2"
+		| "2:3"
+		| "5:4"
+		| "4:5"
+		| "21:9";
+	setImageAspectRatio: (
+		value:
+			| "auto"
+			| "1:1"
+			| "9:16"
+			| "3:4"
+			| "4:3"
+			| "3:2"
+			| "2:3"
+			| "5:4"
+			| "4:5"
+			| "21:9",
+	) => void;
+	imageSize: "1K" | "2K" | "4K";
+	setImageSize: (value: "1K" | "2K" | "4K") => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -134,6 +172,13 @@ export const ChatUI = ({
 	status,
 	stop,
 	regenerate,
+	reasoningEffort,
+	setReasoningEffort,
+	supportsReasoning,
+	imageAspectRatio,
+	setImageAspectRatio,
+	imageSize,
+	setImageSize,
 	onUserMessage,
 	isLoading = false,
 	error = null,
@@ -316,10 +361,15 @@ export const ChatUI = ({
 																	base64={base64Only}
 																	mediaType={mediaType}
 																	alt={part.name || "Generated image"}
+																	className="h-[400px] aspect-auto border rounded-lg object-cover"
 																/>
 															</ImageZoom>
 														);
 													})}
+												</div>
+											) : isLastMessage && status === "streaming" ? (
+												<div className="mt-3">
+													<Loader />
 												</div>
 											) : null}
 
@@ -376,7 +426,7 @@ export const ChatUI = ({
 				</Conversation>
 			</div>
 
-			<div className="flex-shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t">
+			<div className="shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t">
 				{error && (
 					<Alert variant="destructive" className="mb-4">
 						<AlertCircle className="h-4 w-4" />
@@ -476,6 +526,83 @@ export const ChatUI = ({
 							/>
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
+							{supportsReasoning && (
+								<Select
+									value={reasoningEffort ? reasoningEffort : "off"}
+									onValueChange={(val) =>
+										setReasoningEffort(
+											val === "off"
+												? ""
+												: ((val as "minimal" | "low" | "medium" | "high") ??
+														""),
+										)
+									}
+								>
+									<SelectTrigger size="sm" className="min-w-[120px]">
+										<SelectValue placeholder="Reasoning" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="off">Reasoning off</SelectItem>
+										<SelectItem value="minimal">Minimal</SelectItem>
+										<SelectItem value="low">Low</SelectItem>
+										<SelectItem value="medium">Medium</SelectItem>
+										<SelectItem value="high">High</SelectItem>
+									</SelectContent>
+								</Select>
+							)}
+							{supportsImageGen && (
+								<>
+									<Select
+										value={imageAspectRatio}
+										onValueChange={(val) =>
+											setImageAspectRatio(
+												val as
+													| "auto"
+													| "1:1"
+													| "9:16"
+													| "3:4"
+													| "4:3"
+													| "3:2"
+													| "2:3"
+													| "5:4"
+													| "4:5"
+													| "21:9",
+											)
+										}
+									>
+										<SelectTrigger size="sm" className="min-w-[110px]">
+											<SelectValue placeholder="Aspect ratio" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="auto">Auto</SelectItem>
+											<SelectItem value="1:1">1:1</SelectItem>
+											<SelectItem value="9:16">9:16</SelectItem>
+											<SelectItem value="3:4">3:4</SelectItem>
+											<SelectItem value="4:3">4:3</SelectItem>
+											<SelectItem value="3:2">3:2</SelectItem>
+											<SelectItem value="2:3">2:3</SelectItem>
+											<SelectItem value="5:4">5:4</SelectItem>
+											<SelectItem value="4:5">4:5</SelectItem>
+											<SelectItem value="21:9">21:9</SelectItem>
+										</SelectContent>
+									</Select>
+									<Select
+										value={imageSize}
+										onValueChange={(val) =>
+											setImageSize(val as "1K" | "2K" | "4K")
+										}
+									>
+										<SelectTrigger size="sm" className="min-w-[80px]">
+											<SelectValue placeholder="Resolution" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="1K">1K</SelectItem>
+											<SelectItem value="2K">2K</SelectItem>
+											<SelectItem value="4K">4K</SelectItem>
+										</SelectContent>
+									</Select>
+								</>
+							)}
 							{status === "streaming" ? (
 								<PromptInputButton onClick={() => stop()} variant="ghost">
 									Stop

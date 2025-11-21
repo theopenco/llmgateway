@@ -33,6 +33,41 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+## Image Configuration
+
+You can customize the generated image using the optional `image_config` parameter:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3-pro-image-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "aspect_ratio": "16:9",
+      "image_size": "4K"
+    }
+  }'
+```
+
+### Parameters
+
+| Parameter      | Type   | Description                                                                                                |
+| -------------- | ------ | ---------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                     |
+| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096) |
+
+<Callout type="info">
+	The `image_config` parameter is currently supported for Google's image
+	generation models (e.g., `gemini-3-pro-image-preview`).
+</Callout>
+
 ## Response Format
 
 Image generation models return responses in the standard chat completions format, with generated images included in the `images` array within the assistant message:

@@ -4,6 +4,8 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-pro",
 		name: "Gemini 2.5 Pro",
+		description:
+			"Google's most capable model with reasoning and multimodal support.",
 		family: "google",
 		providers: [
 			{
@@ -71,6 +73,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-pro-preview-05-06",
 		name: "Gemini 2.5 Pro Preview (05-06)",
+		description: "Preview version of Gemini 2.5 Pro (May 2025).",
 		family: "google",
 		providers: [
 			{
@@ -142,6 +145,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-pro-preview-06-05",
 		name: "Gemini 2.5 Pro Preview (06-05)",
+		description: "Preview version of Gemini 2.5 Pro (June 2025).",
 		family: "google",
 		providers: [
 			{
@@ -213,6 +217,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-preview-04-17",
 		name: "Gemini 2.5 Flash Preview (04-17)",
+		description: "Early preview of fast Gemini 2.5 Flash model.",
 		family: "google",
 		providers: [
 			{
@@ -254,6 +259,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-preview-05-20",
 		name: "Gemini 2.5 Flash Preview (05-20)",
+		description: "May preview of Gemini 2.5 Flash with improved performance.",
 		family: "google",
 		providers: [
 			{
@@ -295,6 +301,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-preview-09-2025",
 		name: "Gemini 2.5 Flash Preview (09-2025)",
+		description: "September preview of Gemini 2.5 Flash with caching.",
 		family: "google",
 		providers: [
 			{
@@ -336,6 +343,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash",
 		name: "Gemini 2.5 Flash",
+		description: "Fast, cost-effective model with reasoning capabilities.",
 		family: "google",
 		providers: [
 			{
@@ -377,6 +385,8 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-lite",
 		name: "Gemini 2.5 Flash Lite",
+		description:
+			"Ultra-lightweight Gemini for high-volume, cost-sensitive tasks.",
 		family: "google",
 		providers: [
 			{
@@ -416,6 +426,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-lite-preview-09-2025",
 		name: "Gemini 2.5 Flash Lite Preview (09-2025)",
+		description: "Preview of lightweight Gemini Flash Lite variant.",
 		family: "google",
 		providers: [
 			{
@@ -455,6 +466,8 @@ export const googleModels = [
 	{
 		id: "gemini-3-pro-preview",
 		name: "Gemini 3 Pro (Preview)",
+		description:
+			"Preview of next-generation Gemini 3 Pro with enhanced capabilities.",
 		family: "google",
 		providers: [
 			{
@@ -522,6 +535,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-image-preview",
 		name: "Gemini 2.5 Flash Image (Preview)",
+		description: "Gemini Flash with native image generation capabilities.",
 		aliases: ["nano banana"],
 		family: "google",
 		output: ["text", "image"],
@@ -563,6 +577,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-image",
 		name: "Gemini 2.5 Flash Image",
+		description: "Production Gemini Flash model for text and image generation.",
 		aliases: ["nano banana"],
 		family: "google",
 		output: ["text", "image"],
@@ -604,6 +619,8 @@ export const googleModels = [
 	{
 		id: "gemini-3-pro-image-preview",
 		name: "Gemini 3 Pro Image (Preview)",
+		description:
+			"Native image generation model optimized for speed, flexibility, and contextual understanding. Text priced same as Gemini 3 Pro, image output at $0.134/image (1K-2K) or $0.24/image (4K).",
 		aliases: ["nano banana", "nano banana 2"],
 		family: "google",
 		output: ["text", "image"],
@@ -611,10 +628,28 @@ export const googleModels = [
 			{
 				test: "skip",
 				discount: 0.2,
+				providerId: "google-ai-studio",
+				modelName: "gemini-3-pro-image-preview",
+				inputPrice: 2 / 1e6,
+				outputPrice: 12 / 1e6,
+				imageOutputPrice: 120 / 1e6,
+				requestPrice: 0,
+				contextSize: 98304,
+				maxOutput: 32768,
+				streaming: true,
+				vision: true,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				test: "skip",
+				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-3-pro-image-preview",
-				inputPrice: 0.3 / 1e6,
-				outputPrice: 30 / 1e6,
+				inputPrice: 2 / 1e6,
+				outputPrice: 12 / 1e6,
+				imageOutputPrice: 120 / 1e6,
 				requestPrice: 0,
 				contextSize: 98304,
 				maxOutput: 32768,
@@ -629,6 +664,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.5-flash-preview-04-17-thinking",
 		name: "Gemini 2.5 Flash Preview Thinking (04-17)",
+		description: "Gemini Flash preview with explicit thinking/reasoning mode.",
 		family: "google",
 		providers: [
 			{
@@ -670,6 +706,7 @@ export const googleModels = [
 	{
 		id: "gemini-1.5-pro",
 		name: "Gemini 1.5 Pro",
+		description: "Previous generation Gemini Pro with multimodal support.",
 		family: "google",
 		providers: [
 			{
@@ -711,6 +748,7 @@ export const googleModels = [
 	{
 		id: "gemini-1.5-flash",
 		name: "Gemini 1.5 Flash",
+		description: "Fast Gemini 1.5 model for quick multimodal tasks.",
 		family: "google",
 		providers: [
 			{
@@ -752,6 +790,7 @@ export const googleModels = [
 	{
 		id: "gemini-1.5-flash-8b",
 		name: "Gemini 1.5 Flash 8B",
+		description: "Compact 8B Gemini Flash for lightweight inference.",
 		family: "google",
 		providers: [
 			{
@@ -793,6 +832,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.0-flash-lite",
 		name: "Gemini 2.0 Flash Lite",
+		description: "Efficient Gemini 2.0 variant for cost-effective processing.",
 		family: "google",
 		providers: [
 			{
@@ -830,6 +870,7 @@ export const googleModels = [
 	{
 		id: "gemini-2.0-flash",
 		name: "Gemini 2.0 Flash",
+		description: "Gemini 2.0 Flash with balanced speed and capability.",
 		family: "google",
 		providers: [
 			{
@@ -867,6 +908,7 @@ export const googleModels = [
 	{
 		id: "gemma-3n-e2b-it",
 		name: "Gemma 3n E2B IT",
+		description: "Compact Gemma 3N instruction-tuned model (2B effective).",
 		family: "google",
 		providers: [
 			{
@@ -888,6 +930,7 @@ export const googleModels = [
 	{
 		id: "gemma-3n-e4b-it",
 		name: "Gemma 3n E4B IT",
+		description: "Gemma 3N instruction-tuned model (4B effective).",
 		family: "google",
 		providers: [
 			{
@@ -909,6 +952,7 @@ export const googleModels = [
 	{
 		id: "gemma-3-1b-it",
 		name: "Gemma 3 1B IT",
+		description: "Tiny 1B Gemma 3 model for edge deployment.",
 		family: "google",
 		providers: [
 			{
@@ -930,6 +974,7 @@ export const googleModels = [
 	{
 		id: "gemma-3-4b-it",
 		name: "Gemma 3 4B IT",
+		description: "Small 4B Gemma 3 model for efficient inference.",
 		family: "google",
 		providers: [
 			{
@@ -951,6 +996,7 @@ export const googleModels = [
 	{
 		id: "gemma-3-12b-it",
 		name: "Gemma 3 12B IT",
+		description: "Medium 12B Gemma 3 model balancing size and capability.",
 		family: "google",
 		providers: [
 			{
@@ -972,6 +1018,7 @@ export const googleModels = [
 	{
 		id: "gemma2-9b-it",
 		name: "Gemma2 9B IT",
+		description: "Gemma 2 9B instruction model via Groq inference.",
 		family: "google",
 		providers: [
 			{
@@ -994,6 +1041,7 @@ export const googleModels = [
 	{
 		id: "gemma-3-27b",
 		name: "Gemma 3 27B",
+		description: "Large 27B Gemma 3 model with vision support.",
 		family: "google",
 		providers: [
 			{
@@ -1014,6 +1062,7 @@ export const googleModels = [
 	{
 		id: "gemma-2-27b-it-together",
 		name: "Gemma 2 27B IT",
+		description: "Gemma 2 27B via Together AI inference.",
 		family: "google",
 		providers: [
 			{

@@ -4,6 +4,7 @@ export const llmgatewayModels = [
 	{
 		id: "custom", // custom provider which expects base URL to be set
 		name: "Custom Model",
+		description: "Custom model endpoint with user-provided base URL.",
 		family: "llmgateway",
 		providers: [
 			{
@@ -30,6 +31,7 @@ export const llmgatewayModels = [
 	{
 		id: "auto", // native automatic routing
 		name: "Auto Route",
+		description: "Automatic model routing based on request characteristics.",
 		family: "llmgateway",
 		providers: [
 			{

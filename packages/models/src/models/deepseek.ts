@@ -4,6 +4,8 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3",
 		name: "DeepSeek V3",
+		description:
+			"Large-scale Chinese AI model with strong multilingual capabilities.",
 		family: "deepseek",
 		providers: [
 			{
@@ -39,6 +41,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1",
 		name: "DeepSeek R1",
+		description: "DeepSeek reasoning model for complex problem-solving.",
 		family: "deepseek",
 		providers: [
 			{
@@ -74,6 +77,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1-0528",
 		name: "DeepSeek R1 (0528)",
+		description: "May 2028 version of DeepSeek R1 reasoning model.",
 		family: "deepseek",
 		providers: [
 			{
@@ -122,6 +126,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-r1-distill-llama-70b",
 		name: "DeepSeek R1 Distill Llama 70B",
+		description: "DeepSeek R1 distilled into Llama 70B architecture.",
 		family: "deepseek",
 		stability: "beta" as const,
 		providers: [
@@ -144,6 +149,8 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3.1",
 		name: "DeepSeek V3.1",
+		description:
+			"Updated DeepSeek V3 with vision, tools, and improved performance.",
 		family: "deepseek",
 		providers: [
 			{

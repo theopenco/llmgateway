@@ -97,6 +97,11 @@ export default async function ModelPage({ params }: PageProps) {
 								<AlertTriangle className="h-6 w-6 md:h-8 md:w-8 text-orange-500" />
 							)}
 						</div>
+						{modelDef.description && (
+							<p className="text-muted-foreground mb-4">
+								{modelDef.description}
+							</p>
+						)}
 						<div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
 							<CopyModelName modelName={decodedName} />
 							{(() => {

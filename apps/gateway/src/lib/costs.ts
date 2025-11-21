@@ -83,6 +83,8 @@ export function calculateCosts(
 		toolResults?: ToolCall[];
 	},
 	reasoningTokens: number | null = null,
+	outputImageCount = 0,
+	imageSize?: string,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -247,11 +249,34 @@ export function calculateCosts(
 	const inputCost = new Decimal(uncachedPromptTokens)
 		.times(inputPrice)
 		.times(discountMultiplier);
+
 	// For Google models, reasoning tokens are billed at the output token rate
 	const totalOutputTokens = calculatedCompletionTokens + (reasoningTokens || 0);
-	const outputCost = new Decimal(totalOutputTokens)
-		.times(outputPrice)
-		.times(discountMultiplier);
+
+	// Calculate output cost, handling separate image output pricing if applicable
+	let outputCost: Decimal;
+	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
+	if (imageOutputPrice && outputImageCount > 0) {
+		// Token count per image depends on size:
+		// - 1K/2K images: 1120 tokens ($0.134 per image at $120/1M)
+		// - 4K images: 2000 tokens ($0.24 per image at $120/1M)
+		const TOKENS_PER_IMAGE = imageSize === "4K" ? 2000 : 1120;
+		const imageTokens = outputImageCount * TOKENS_PER_IMAGE;
+		const textTokens = Math.max(0, totalOutputTokens - imageTokens);
+
+		const textCost = new Decimal(textTokens)
+			.times(outputPrice)
+			.times(discountMultiplier);
+		const imageCost = new Decimal(imageTokens)
+			.times(imageOutputPrice)
+			.times(discountMultiplier);
+
+		outputCost = textCost.plus(imageCost);
+	} else {
+		outputCost = new Decimal(totalOutputTokens)
+			.times(outputPrice)
+			.times(discountMultiplier);
+	}
 	const cachedInputCost = cachedTokens
 		? new Decimal(cachedTokens)
 				.times(cachedInputPrice)

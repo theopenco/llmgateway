@@ -109,6 +109,7 @@ export async function prepareRequestBody(
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
+	image_config?: { aspect_ratio?: string; image_size?: string },
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
@@ -682,6 +683,24 @@ export async function prepareRequestBody(
 					};
 					requestBody.generationConfig.thinkingConfig.thinkingBudget =
 						getThinkingBudget(reasoning_effort);
+				}
+			}
+
+			// Add image generation config if provided
+			if (
+				image_config?.aspect_ratio !== undefined ||
+				image_config?.image_size !== undefined
+			) {
+				// Set responseModalities to enable image output
+				requestBody.generationConfig.responseModalities = ["TEXT", "IMAGE"];
+				requestBody.generationConfig.imageConfig = {};
+				if (image_config.aspect_ratio !== undefined) {
+					requestBody.generationConfig.imageConfig.aspectRatio =
+						image_config.aspect_ratio;
+				}
+				if (image_config.image_size !== undefined) {
+					requestBody.generationConfig.imageConfig.imageSize =
+						image_config.image_size;
 				}
 			}
 
