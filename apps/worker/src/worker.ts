@@ -706,8 +706,7 @@ export async function processLogQueue(): Promise<void> {
 		return;
 	}
 
-	const MAX_RETRIES = 3;
-	const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
+	const MAX_RETRIES = 10;
 
 	try {
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
@@ -752,12 +751,13 @@ export async function processLogQueue(): Promise<void> {
 						: new Error(String(insertError));
 
 				if (attempt < MAX_RETRIES) {
+					const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, 8s, 16s, ...
 					logger.warn(
-						`Failed to insert logs (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${RETRY_DELAYS[attempt]}ms...`,
+						`Failed to insert logs (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms...`,
 						lastError,
 					);
 					await new Promise((resolve) => {
-						setTimeout(resolve, RETRY_DELAYS[attempt]);
+						setTimeout(resolve, delay);
 					});
 				}
 			}
