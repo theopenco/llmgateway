@@ -79,7 +79,7 @@ export async function sendTransactionalEmail({
 
 	try {
 		await transporter.sendMail({
-			from: smtpFromEmail,
+			from: `LLMGateway <${smtpFromEmail}>`,
 			replyTo: replyToEmail,
 			to,
 			subject,
