@@ -66,6 +66,7 @@ const schema = z.object({
 	requested_model: z.string(),
 	requested_provider: z.string().nullable(),
 	used_model: z.string(),
+	used_model_mapping: z.string().nullable(),
 	used_provider: z.string(),
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
@@ -522,6 +523,7 @@ export async function batchProcessLogs(): Promise<void> {
 					requested_model: log.requestedModel,
 					requested_provider: log.requestedProvider,
 					used_model: log.usedModel,
+					used_model_mapping: log.usedModelMapping,
 					used_provider: log.usedProvider,
 					response_size: log.responseSize,
 					hasError: log.hasError,
@@ -569,6 +571,7 @@ export async function batchProcessLogs(): Promise<void> {
 					requestedModel: row.requested_model,
 					requestedProvider: row.requested_provider,
 					usedModel: row.used_model,
+					usedModelMapping: row.used_model_mapping,
 					usedProvider: row.used_provider,
 					responseSize: row.response_size,
 				});
