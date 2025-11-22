@@ -42,18 +42,30 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 		case "google-ai-studio":
 		case "google-vertex": {
 			// Google AI Studio tool calls in streaming
+			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			return (
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => ({
-						id: part.functionCall.name + "_" + Date.now() + "_" + index,
-						type: "function",
-						function: {
-							name: part.functionCall.name,
-							arguments: JSON.stringify(part.functionCall.args || {}),
-						},
-					})) || null
+					.map((part: any, index: number) => {
+						const toolCall: any = {
+							id: part.functionCall.name + "_" + Date.now() + "_" + index,
+							type: "function",
+							function: {
+								name: part.functionCall.name,
+								arguments: JSON.stringify(part.functionCall.args || {}),
+							},
+						};
+						// Include thoughtSignature in extra_content for client to pass back
+						if (part.thoughtSignature) {
+							toolCall.extra_content = {
+								google: {
+									thought_signature: part.thoughtSignature,
+								},
+							};
+						}
+						return toolCall;
+					}) || null
 			);
 		}
 		default: // OpenAI format

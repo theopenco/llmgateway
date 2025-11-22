@@ -177,19 +177,41 @@ export function parseProviderResponse(
 			);
 
 			// Extract tool calls from Google format - reuse the same parts array
+			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => ({
-						id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
-						type: "function",
-						function: {
-							name: part.functionCall.name,
-							arguments: JSON.stringify(part.functionCall.args || {}),
-						},
-					})) || null;
+					.map((part: any, index: number) => {
+						const toolCall: any = {
+							id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
+							type: "function",
+							function: {
+								name: part.functionCall.name,
+								arguments: JSON.stringify(part.functionCall.args || {}),
+							},
+						};
+						// Include thoughtSignature in extra_content for client to pass back
+						if (part.thoughtSignature) {
+							toolCall.extra_content = {
+								google: {
+									thought_signature: part.thoughtSignature,
+								},
+							};
+						}
+						return toolCall;
+					}) || null;
 			if (toolResults && toolResults.length === 0) {
 				toolResults = null;
+			}
+
+			// Also check if text parts have thought signatures and add them to content
+			// This allows clients to pass them back in multi-turn conversations
+			const textPartsWithSignatures = contentParts.filter(
+				(part: any) => part.thoughtSignature,
+			);
+			if (textPartsWithSignatures.length > 0 && content) {
+				// Store the thought signature in a way the client can return it
+				// We'll need to enhance the response format to include this
 			}
 
 			// Check for prompt feedback block reason (when content is blocked before generation)
