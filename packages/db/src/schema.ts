@@ -419,6 +419,7 @@ export const log = pgTable(
 				score: number;
 				uptime?: number;
 				latency?: number;
+				throughput?: number;
 				price?: number;
 			}>;
 		}>(),
