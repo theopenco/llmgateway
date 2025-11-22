@@ -101,6 +101,7 @@ describe("provider-metrics", () => {
 				errorsCount: 10,
 				upstreamErrorsCount: 10,
 				totalDuration: 50000,
+				totalTimeToFirstToken: 50000, // 500ms average latency
 			});
 
 			const metrics = await getProviderMetrics();
@@ -132,6 +133,7 @@ describe("provider-metrics", () => {
 					errorsCount: 5,
 					upstreamErrorsCount: 5,
 					totalDuration: 25000,
+					totalTimeToFirstToken: 25000, // 500ms average latency (75000 / 150)
 				})),
 			);
 
@@ -157,6 +159,7 @@ describe("provider-metrics", () => {
 					errorsCount: 20,
 					upstreamErrorsCount: 20,
 					totalDuration: 100000,
+					totalTimeToFirstToken: 100000, // 1000ms average latency
 				},
 				{
 					modelId: "claude-3-5-sonnet",
@@ -167,6 +170,7 @@ describe("provider-metrics", () => {
 					errorsCount: 10,
 					upstreamErrorsCount: 10,
 					totalDuration: 400000,
+					totalTimeToFirstToken: 400000, // 2000ms average latency
 				},
 			]);
 
@@ -417,6 +421,7 @@ describe("provider-metrics", () => {
 					errorsCount: 5,
 					upstreamErrorsCount: 5,
 					totalDuration: 25000,
+					totalTimeToFirstToken: 25000, // 500ms average latency
 				})),
 			);
 
@@ -520,6 +525,7 @@ describe("provider-metrics", () => {
 				errorsCount: 25,
 				upstreamErrorsCount: 25,
 				totalDuration: 150000,
+				totalTimeToFirstToken: 150000, // 1500ms average latency
 			});
 
 			const metrics = await getProviderMetricsForCombinations([
