@@ -143,7 +143,35 @@ export const organization = pgTable("organization", {
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
+	referralEarnings: decimal().notNull().default("0"),
 });
+
+export const referral = pgTable(
+	"referral",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		referrerOrganizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		referredOrganizationId: text()
+			.notNull()
+			.unique()
+			.references(() => organization.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		index("referral_referrer_organization_id_idx").on(
+			table.referrerOrganizationId,
+		),
+		index("referral_referred_organization_id_idx").on(
+			table.referredOrganizationId,
+		),
+	],
+);
 
 export const transaction = pgTable(
 	"transaction",

@@ -597,6 +597,9 @@ export async function batchProcessLogs(): Promise<void> {
 			}
 
 			// Batch update organization credits within the same transaction
+			// Also calculate referral earnings (1% of spent credits)
+			const referralEarnings = new Map<string, Decimal>();
+
 			for (const [orgId, totalCost] of orgCosts.entries()) {
 				if (totalCost.greaterThan(0)) {
 					const costNumber = totalCost.toNumber();
@@ -609,6 +612,42 @@ export async function batchProcessLogs(): Promise<void> {
 
 					logger.info(
 						`Deducted ${costNumber} credits from organization ${orgId}`,
+					);
+
+					// Check if this org was referred and calculate 1% referral earnings
+					const referral = await tx.query.referral.findFirst({
+						where: {
+							referredOrganizationId: { eq: orgId },
+						},
+					});
+
+					if (referral) {
+						const earnings = totalCost.times(0.01);
+						const currentEarnings =
+							referralEarnings.get(referral.referrerOrganizationId) ||
+							new Decimal(0);
+						referralEarnings.set(
+							referral.referrerOrganizationId,
+							currentEarnings.plus(earnings),
+						);
+					}
+				}
+			}
+
+			// Apply referral earnings to referrer organizations
+			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
+				if (earnings.greaterThan(0)) {
+					const earningsNumber = earnings.toNumber();
+					await tx
+						.update(organization)
+						.set({
+							credits: sql`${organization.credits} + ${earningsNumber}`,
+							referralEarnings: sql`${organization.referralEarnings} + ${earningsNumber}`,
+						})
+						.where(eq(organization.id, referrerOrgId));
+
+					logger.info(
+						`Added ${earningsNumber} referral credits to organization ${referrerOrgId}`,
 					);
 				}
 			}

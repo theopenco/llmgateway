@@ -1976,6 +1976,7 @@ export interface paths {
                                 autoTopUpEnabled: boolean;
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
+                                referralEarnings: string;
                             }[];
                         };
                     };
@@ -2026,6 +2027,7 @@ export interface paths {
                                 autoTopUpEnabled: boolean;
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
+                                referralEarnings: string;
                             };
                         };
                     };
@@ -2204,6 +2206,7 @@ export interface paths {
                                 autoTopUpEnabled: boolean;
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
+                                referralEarnings: string;
                             };
                         };
                     };

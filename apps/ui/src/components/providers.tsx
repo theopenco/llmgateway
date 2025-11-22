@@ -6,6 +6,7 @@ import { ThemeProvider } from "next-themes";
 import { PostHogProvider } from "posthog-js/react";
 import { useMemo, useEffect } from "react";
 
+import { ReferralHandler } from "@/components/referral-handler";
 import { Toaster } from "@/lib/components/toaster";
 import { toast } from "@/lib/components/use-toast";
 import { AppConfigProvider } from "@/lib/config";
@@ -99,6 +100,7 @@ export function Providers({ children, config }: ProvidersProps) {
 					)}
 				</QueryClientProvider>
 				<Toaster />
+				<ReferralHandler />
 			</ThemeProvider>
 		</AppConfigProvider>
 	);

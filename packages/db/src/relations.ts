@@ -22,6 +22,20 @@ export const relations = defineRelations(schema, (r) => ({
 		userOrganizations: r.many.userOrganization(),
 		projects: r.many.project(),
 		providerKeys: r.many.providerKey(),
+		referralsGiven: r.many.referral({
+			from: r.organization.id,
+			to: r.referral.referrerOrganizationId,
+		}),
+	},
+	referral: {
+		referrerOrganization: r.one.organization({
+			from: r.referral.referrerOrganizationId,
+			to: r.organization.id,
+		}),
+		referredOrganization: r.one.organization({
+			from: r.referral.referredOrganizationId,
+			to: r.organization.id,
+		}),
 	},
 	userOrganization: {
 		user: r.one.user({
