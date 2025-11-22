@@ -447,6 +447,7 @@ export const log = pgTable(
 				score: number;
 				uptime?: number;
 				latency?: number;
+				throughput?: number;
 				price?: number;
 			}>;
 		}>(),
@@ -466,14 +467,10 @@ export const log = pgTable(
 			table.usedModel,
 			table.usedProvider,
 		),
-		// Index for data retention cleanup: filters by organization, date, and cleanup status
-		index("log_organization_id_created_at_idx").on(
-			table.organizationId,
-			table.createdAt,
-		),
-		// Partial index for unprocessed data retention records
+		// Partial index for data retention cleanup: project_id first for filtering, then created_at for range
+		// Only indexes rows that need cleanup (data_retention_cleaned_up = false)
 		index("log_data_retention_pending_idx")
-			.on(table.organizationId, table.createdAt)
+			.on(table.projectId, table.createdAt)
 			.where(sql`data_retention_cleaned_up = false`),
 	],
 );

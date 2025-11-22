@@ -8,17 +8,20 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	price: number;
 	uptime?: number;
 	latency?: number;
+	throughput?: number;
 }
 
 // Scoring weights (totaling 1.0)
 // Prioritize uptime heavily to avoid unreliable providers
 const PRICE_WEIGHT = 0.2;
 const UPTIME_WEIGHT = 0.5;
-const LATENCY_WEIGHT = 0.3;
+const THROUGHPUT_WEIGHT = 0.2;
+const LATENCY_WEIGHT = 0.1;
 
 // Default values for providers with no metrics
-const DEFAULT_UPTIME = 95; // Assume 95% uptime if no data
+const DEFAULT_UPTIME = 100; // Assume 100% uptime if no data to avoid penalizing known-good providers
 const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
+const DEFAULT_THROUGHPUT = 50; // Assume 50 tokens/second if no data
 
 // Epsilon-greedy exploration: 1% chance to randomly explore
 const EXPLORATION_RATE = 0.01;
@@ -32,6 +35,7 @@ export interface RoutingMetadata {
 		score: number;
 		uptime?: number;
 		latency?: number;
+		throughput?: number;
 		price: number;
 	}>;
 }
@@ -130,6 +134,7 @@ export function getCheapestFromAvailableProviders<
 			price,
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
+			throughput: metrics?.throughput,
 		});
 	}
 
@@ -141,6 +146,12 @@ export function getCheapestFromAvailableProviders<
 	const uptimes = providerScores.map((p) => p.uptime ?? DEFAULT_UPTIME);
 	const minUptime = Math.min(...uptimes);
 	const maxUptime = Math.max(...uptimes);
+
+	const throughputs = providerScores.map(
+		(p) => p.throughput ?? DEFAULT_THROUGHPUT,
+	);
+	const minThroughput = Math.min(...throughputs);
+	const maxThroughput = Math.max(...throughputs);
 
 	const latencies = providerScores.map((p) => p.latency ?? DEFAULT_LATENCY);
 	const minLatency = Math.min(...latencies);
@@ -159,6 +170,13 @@ export function getCheapestFromAvailableProviders<
 		const uptimeScore =
 			uptimeRange > 0 ? (maxUptime - uptime) / uptimeRange : 0;
 
+		// Normalize throughput (0 = fastest, 1 = slowest)
+		// Higher throughput is better, so we invert
+		const throughput = providerScore.throughput ?? DEFAULT_THROUGHPUT;
+		const throughputRange = maxThroughput - minThroughput;
+		const throughputScore =
+			throughputRange > 0 ? (maxThroughput - throughput) / throughputRange : 0;
+
 		// Normalize latency (0 = fastest, 1 = slowest)
 		const latency = providerScore.latency ?? DEFAULT_LATENCY;
 		const latencyRange = maxLatency - minLatency;
@@ -169,6 +187,7 @@ export function getCheapestFromAvailableProviders<
 		providerScore.score =
 			PRICE_WEIGHT * priceScore +
 			UPTIME_WEIGHT * uptimeScore +
+			THROUGHPUT_WEIGHT * throughputScore +
 			LATENCY_WEIGHT * latencyScore;
 	}
 
@@ -190,6 +209,7 @@ export function getCheapestFromAvailableProviders<
 			score: Number(p.score.toFixed(3)),
 			uptime: p.uptime,
 			latency: p.latency,
+			throughput: p.throughput,
 			price: p.price, // Keep full precision for very small prices
 		})),
 	};

@@ -239,6 +239,11 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 																			↑{score.uptime?.toFixed(0)}%
 																		</span>
 																	)}
+																	{score.throughput !== undefined && (
+																		<span className="ml-2">
+																			{score.throughput?.toFixed(0)}t/s
+																		</span>
+																	)}
 																	{score.latency !== undefined && (
 																		<span className="ml-2">
 																			{score.latency?.toFixed(0)}ms

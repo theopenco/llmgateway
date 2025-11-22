@@ -358,19 +358,23 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// Use JOIN instead of subquery for better performance with large tables
 				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
+				// Use project_id subquery to leverage partial index on (project_id, created_at)
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
-					.innerJoin(organization, eq(log.organizationId, organization.id))
 					.where(
 						and(
-							eq(organization.plan, "free"),
+							sql`${log.projectId} IN (
+								SELECT ${tables.project.id} FROM ${tables.project}
+								INNER JOIN ${organization} ON ${tables.project.organizationId} = ${organization.id}
+								WHERE ${organization.plan} = 'free'
+							)`,
 							lt(log.createdAt, freePlanCutoff),
-							eq(log.dataRetentionCleanedUp, false),
+							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { of: [log], skipLocked: true });
+					.for("update", { skipLocked: true });
 
 				if (recordsToClean.length === 0) {
 					return 0;
@@ -426,19 +430,23 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// Use JOIN instead of subquery for better performance with large tables
 				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
+				// Use project_id subquery to leverage partial index on (project_id, created_at)
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
-					.innerJoin(organization, eq(log.organizationId, organization.id))
 					.where(
 						and(
-							eq(organization.plan, "pro"),
+							sql`${log.projectId} IN (
+								SELECT ${tables.project.id} FROM ${tables.project}
+								INNER JOIN ${organization} ON ${tables.project.organizationId} = ${organization.id}
+								WHERE ${organization.plan} = 'pro'
+							)`,
 							lt(log.createdAt, proPlanCutoff),
-							eq(log.dataRetentionCleanedUp, false),
+							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { of: [log], skipLocked: true });
+					.for("update", { skipLocked: true });
 
 				if (recordsToClean.length === 0) {
 					return 0;

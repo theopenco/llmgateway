@@ -8,6 +8,7 @@ export interface ProviderMetrics {
 	modelId: string;
 	uptime: number; // Percentage (0-100)
 	averageLatency: number; // Milliseconds
+	throughput: number; // Tokens per second (output tokens / duration * 1000)
 	totalRequests: number;
 }
 
@@ -34,6 +35,13 @@ export async function getProviderMetrics(
 			totalLogs: sum(modelProviderMappingHistory.logsCount),
 			totalErrors: sum(modelProviderMappingHistory.errorsCount),
 			totalDuration: sum(modelProviderMappingHistory.totalDuration),
+			totalOutputTokens: sum(modelProviderMappingHistory.totalOutputTokens),
+			totalTimeToFirstToken: sum(
+				modelProviderMappingHistory.totalTimeToFirstToken,
+			),
+			totalTimeToFirstReasoningToken: sum(
+				modelProviderMappingHistory.totalTimeToFirstReasoningToken,
+			),
 		})
 		.from(modelProviderMappingHistory)
 		.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
@@ -48,6 +56,10 @@ export async function getProviderMetrics(
 		const totalLogs = Number(row.totalLogs) || 0;
 		const totalErrors = Number(row.totalErrors) || 0;
 		const totalDuration = Number(row.totalDuration) || 0;
+		const totalOutputTokens = Number(row.totalOutputTokens) || 0;
+		const totalTimeToFirstToken = Number(row.totalTimeToFirstToken) || 0;
+		const totalTimeToFirstReasoningToken =
+			Number(row.totalTimeToFirstReasoningToken) || 0;
 
 		if (totalLogs === 0) {
 			continue; // Skip if no requests in the time window
@@ -55,7 +67,15 @@ export async function getProviderMetrics(
 
 		const successfulRequests = totalLogs - totalErrors;
 		const uptime = (successfulRequests / totalLogs) * 100;
-		const averageLatency = totalDuration / totalLogs;
+		// Use reasoning token time if available, otherwise content token time
+		const effectiveTimeToFirstToken =
+			totalTimeToFirstReasoningToken > 0
+				? totalTimeToFirstReasoningToken
+				: totalTimeToFirstToken;
+		const averageLatency = effectiveTimeToFirstToken / totalLogs;
+		// Throughput in tokens per second (higher is better)
+		const throughput =
+			totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : 0;
 
 		const key = `${row.modelId}:${row.providerId}`;
 		metricsMap.set(key, {
@@ -63,6 +83,7 @@ export async function getProviderMetrics(
 			modelId: row.modelId,
 			uptime,
 			averageLatency,
+			throughput,
 			totalRequests: totalLogs,
 		});
 	}
@@ -103,6 +124,13 @@ export async function getProviderMetricsForCombinations(
 			totalLogs: sum(modelProviderMappingHistory.logsCount),
 			totalErrors: sum(modelProviderMappingHistory.errorsCount),
 			totalDuration: sum(modelProviderMappingHistory.totalDuration),
+			totalOutputTokens: sum(modelProviderMappingHistory.totalOutputTokens),
+			totalTimeToFirstToken: sum(
+				modelProviderMappingHistory.totalTimeToFirstToken,
+			),
+			totalTimeToFirstReasoningToken: sum(
+				modelProviderMappingHistory.totalTimeToFirstReasoningToken,
+			),
 		})
 		.from(modelProviderMappingHistory)
 		.where(
@@ -122,6 +150,10 @@ export async function getProviderMetricsForCombinations(
 		const totalLogs = Number(row.totalLogs) || 0;
 		const totalErrors = Number(row.totalErrors) || 0;
 		const totalDuration = Number(row.totalDuration) || 0;
+		const totalOutputTokens = Number(row.totalOutputTokens) || 0;
+		const totalTimeToFirstToken = Number(row.totalTimeToFirstToken) || 0;
+		const totalTimeToFirstReasoningToken =
+			Number(row.totalTimeToFirstReasoningToken) || 0;
 
 		if (totalLogs === 0) {
 			continue;
@@ -129,7 +161,14 @@ export async function getProviderMetricsForCombinations(
 
 		const successfulRequests = totalLogs - totalErrors;
 		const uptime = (successfulRequests / totalLogs) * 100;
-		const averageLatency = totalDuration / totalLogs;
+		// Use reasoning token time if available, otherwise content token time
+		const effectiveTimeToFirstToken =
+			totalTimeToFirstReasoningToken > 0
+				? totalTimeToFirstReasoningToken
+				: totalTimeToFirstToken;
+		const averageLatency = effectiveTimeToFirstToken / totalLogs;
+		const throughput =
+			totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : 0;
 
 		const key = `${row.modelId}:${row.providerId}`;
 		metricsMap.set(key, {
@@ -137,6 +176,7 @@ export async function getProviderMetricsForCombinations(
 			modelId: row.modelId,
 			uptime,
 			averageLatency,
+			throughput,
 			totalRequests: totalLogs,
 		});
 	}

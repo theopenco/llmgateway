@@ -37,8 +37,9 @@ When you use a model ID without a provider prefix, LLMGateway's intelligent rout
 **Weighted Scoring System** (based on last 5 minutes of metrics):
 
 - **Uptime (50%)** - Prioritizes providers with high reliability and low error rates
-- **Latency (30%)** - Favors providers with faster response times
+- **Throughput (20%)** - Favors providers with higher tokens per second generation speed
 - **Price (20%)** - Considers cost efficiency while maintaining quality
+- **Latency (10%)** - Considers time to first token (uses reasoning token time when available)
 
 The algorithm calculates a weighted score for each available provider and selects the one with the lowest (best) score. All metrics are normalized to ensure fair comparison across providers.
 
@@ -57,7 +58,7 @@ Every request includes detailed routing metadata in the logs, showing:
 
 - Available providers that were considered
 - Selected provider and selection reason
-- Scores for each provider (including uptime, latency, and price)
+- Scores for each provider (including uptime, throughput, latency, and price)
 
 This transparency allows you to understand and debug routing decisions.
 
