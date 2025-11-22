@@ -438,10 +438,10 @@ export const log = pgTable(
 			table.usedModel,
 			table.usedProvider,
 		),
-		// Partial index for data retention cleanup optimized for date range scans
+		// Partial index for data retention cleanup: project_id first for filtering, then created_at for range
 		// Only indexes rows that need cleanup (data_retention_cleaned_up = false)
 		index("log_data_retention_pending_idx")
-			.on(table.createdAt)
+			.on(table.projectId, table.createdAt)
 			.where(sql`data_retention_cleaned_up = false`),
 	],
 );
