@@ -58,7 +58,7 @@ export function ReferralsClient({
 		: "";
 
 	const referralEarnings = selectedOrganization
-		? Number(selectedOrganization.referralEarnings).toFixed(2)
+		? Number(selectedOrganization.referralEarnings).toFixed(8)
 		: "0.00";
 
 	const copyToClipboard = async () => {
