@@ -366,7 +366,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						and(
 							eq(organization.plan, "free"),
 							lt(log.createdAt, freePlanCutoff),
-							eq(log.dataRetentionCleanedUp, false),
+							// Use raw SQL to match partial index condition exactly
+							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
@@ -434,7 +435,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						and(
 							eq(organization.plan, "pro"),
 							lt(log.createdAt, proPlanCutoff),
-							eq(log.dataRetentionCleanedUp, false),
+							// Use raw SQL to match partial index condition exactly
+							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
