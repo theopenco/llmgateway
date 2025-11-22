@@ -6,6 +6,7 @@ import {
 	consumeFromQueue,
 	LOG_QUEUE,
 	closeRedisClient,
+	publishToQueue,
 } from "@llmgateway/cache";
 import {
 	db,
@@ -705,6 +706,9 @@ export async function processLogQueue(): Promise<void> {
 		return;
 	}
 
+	const MAX_RETRIES = 3;
+	const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
+
 	try {
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
 
@@ -734,14 +738,60 @@ export async function processLogQueue(): Promise<void> {
 			}),
 		);
 
-		// Insert logs without processing credits or API key usage - they will be processed in batches
-		// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
-		await db.insert(log).values(processedLogData as LogInsertData[]);
+		// Insert logs with retry logic
+		let lastError: Error | undefined;
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
+				await db.insert(log).values(processedLogData as LogInsertData[]);
+				return; // Success, exit function
+			} catch (insertError) {
+				lastError =
+					insertError instanceof Error
+						? insertError
+						: new Error(String(insertError));
+
+				if (attempt < MAX_RETRIES) {
+					logger.warn(
+						`Failed to insert logs (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${RETRY_DELAYS[attempt]}ms...`,
+						lastError,
+					);
+					await new Promise((resolve) => {
+						setTimeout(resolve, RETRY_DELAYS[attempt]);
+					});
+				}
+			}
+		}
+
+		// All retries exhausted, push messages back to queue for later processing
+		logger.error(
+			`Failed to insert logs after ${MAX_RETRIES + 1} attempts, pushing back to queue`,
+			lastError,
+		);
+
+		// Re-add messages to queue
+		for (const msg of message) {
+			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
+		}
 	} catch (error) {
 		logger.error(
 			"Error processing log message",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+
+		// Re-add messages to queue on unexpected errors
+		try {
+			for (const msg of message) {
+				await publishToQueue(LOG_QUEUE, JSON.parse(msg));
+			}
+		} catch (requeueError) {
+			logger.error(
+				"Failed to re-queue log messages",
+				requeueError instanceof Error
+					? requeueError
+					: new Error(String(requeueError)),
+			);
+		}
 	}
 }
 
