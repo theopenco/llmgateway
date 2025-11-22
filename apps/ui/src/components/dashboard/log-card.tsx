@@ -106,7 +106,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1">
 							<Package className="h-3.5 w-3.5" />
-							<span>{log.usedModel}</span>
+							<span>{log.requestedModel}</span>
+							{log.usedModel && log.usedModel !== log.requestedModel && (
+								<span className="text-muted-foreground/60">
+									→ {log.usedModel}
+								</span>
+							)}
 						</div>
 						<div className="flex items-center gap-1">
 							<Zap className="h-3.5 w-3.5" />
@@ -177,18 +182,23 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div className="font-mono text-xs break-all">
 									{log.requestedModel}
 								</div>
-								<div className="text-muted-foreground">Used Model</div>
+								<div className="text-muted-foreground">
+									Used Model (LLMGateway)
+								</div>
 								<div className="font-mono text-xs break-all">
 									{log.usedModel}
 								</div>
-								{log.usedModelMapping && (
-									<>
-										<div className="text-muted-foreground">
-											Used Model Provider Mapping
-										</div>
-										<div>{log.usedModelMapping}</div>
-									</>
-								)}
+								{log.usedModelMapping &&
+									log.usedModelMapping !== log.usedModel && (
+										<>
+											<div className="text-muted-foreground">
+												Provider Model ID
+											</div>
+											<div className="font-mono text-xs break-all">
+												{log.usedModelMapping}
+											</div>
+										</>
+									)}
 								<div className="text-muted-foreground">Provider</div>
 								<div>{log.usedProvider}</div>
 							</div>
