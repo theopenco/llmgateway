@@ -1,0 +1,1 @@
+CREATE INDEX "log_project_id_used_model_idx" ON "log" ("project_id","used_model");
