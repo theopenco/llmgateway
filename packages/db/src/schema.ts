@@ -472,6 +472,8 @@ export const log = pgTable(
 		index("log_data_retention_pending_idx")
 			.on(table.projectId, table.createdAt)
 			.where(sql`data_retention_cleaned_up = false`),
+		// Index for distinct usedModel queries by project
+		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
 	],
 );
 

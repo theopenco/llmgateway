@@ -707,6 +707,8 @@ export interface paths {
                         "application/json": {
                             /** @description Array of unique model names (extracted from provider/model) */
                             models: string[];
+                            /** @description Array of unique provider names (extracted from provider/model) */
+                            providers: string[];
                         };
                     };
                 };

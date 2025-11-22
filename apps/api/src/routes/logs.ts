@@ -548,6 +548,10 @@ const uniqueModelsGet = createRoute({
 							description:
 								"Array of unique model names (extracted from provider/model)",
 						}),
+						providers: z.array(z.string()).openapi({
+							description:
+								"Array of unique provider names (extracted from provider/model)",
+						}),
 					}),
 				},
 			},
@@ -653,19 +657,31 @@ logs.openapi(uniqueModelsGet, async (c) => {
 
 	const uniqueUsedModels = await dbQuery;
 
-	// Extract model names (part after the slash) from usedModel field
-	const modelNames = uniqueUsedModels
-		.map((row) => {
-			const usedModel = row.usedModel;
-			const slashIndex = usedModel.indexOf("/");
-			return slashIndex !== -1
-				? usedModel.substring(slashIndex + 1)
-				: usedModel;
-		})
-		.filter((model, index, array) => array.indexOf(model) === index) // Remove duplicates
-		.sort();
+	// Extract model names and provider names from usedModel field
+	const modelNames: string[] = [];
+	const providerNames: string[] = [];
+
+	for (const row of uniqueUsedModels) {
+		const usedModel = row.usedModel;
+		const slashIndex = usedModel.indexOf("/");
+		if (slashIndex !== -1) {
+			const provider = usedModel.substring(0, slashIndex);
+			const model = usedModel.substring(slashIndex + 1);
+			if (!providerNames.includes(provider)) {
+				providerNames.push(provider);
+			}
+			if (!modelNames.includes(model)) {
+				modelNames.push(model);
+			}
+		} else {
+			if (!modelNames.includes(usedModel)) {
+				modelNames.push(usedModel);
+			}
+		}
+	}
 
 	return c.json({
-		models: modelNames,
+		models: modelNames.sort(),
+		providers: providerNames.sort(),
 	});
 });
