@@ -29,9 +29,13 @@ interface Transaction {
 
 interface ReferralsClientProps {
 	transactions: Transaction[];
+	referredCount: number;
 }
 
-export function ReferralsClient({ transactions }: ReferralsClientProps) {
+export function ReferralsClient({
+	transactions,
+	referredCount,
+}: ReferralsClientProps) {
 	const { selectedOrganization } = useDashboardContext();
 	const [copied, setCopied] = useState(false);
 	const [origin, setOrigin] = useState("https://llmgateway.io");
@@ -204,15 +208,30 @@ export function ReferralsClient({ transactions }: ReferralsClientProps) {
 
 							<Card>
 								<CardHeader>
-									<CardTitle>Your Earnings</CardTitle>
+									<CardTitle>Your Stats</CardTitle>
 									<CardDescription>
-										Total credits earned from referrals
+										Referral performance and earnings
 									</CardDescription>
 								</CardHeader>
 								<CardContent>
-									<div className="text-3xl font-bold">${referralEarnings}</div>
-									<p className="mt-1 text-sm text-muted-foreground">
-										Lifetime earnings from referred users
+									<div className="grid gap-4 md:grid-cols-2">
+										<div className="rounded-lg border p-4">
+											<div className="text-sm text-muted-foreground">
+												Users Referred
+											</div>
+											<div className="text-2xl font-bold">{referredCount}</div>
+										</div>
+										<div className="rounded-lg border p-4">
+											<div className="text-sm text-muted-foreground">
+												Total Earnings
+											</div>
+											<div className="text-2xl font-bold">
+												${referralEarnings}
+											</div>
+										</div>
+									</div>
+									<p className="mt-4 text-sm text-muted-foreground">
+										Lifetime stats from your referral program
 									</p>
 								</CardContent>
 							</Card>

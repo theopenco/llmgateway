@@ -22,6 +22,10 @@ interface TransactionsData {
 	transactions: Transaction[];
 }
 
+interface ReferralStatsData {
+	referredCount: number;
+}
+
 async function fetchTransactions(orgId: string): Promise<TransactionsData> {
 	const data = await fetchServerData<TransactionsData>(
 		"GET",
@@ -34,6 +38,20 @@ async function fetchTransactions(orgId: string): Promise<TransactionsData> {
 	);
 
 	return data || { transactions: [] };
+}
+
+async function fetchReferralStats(orgId: string): Promise<ReferralStatsData> {
+	const data = await fetchServerData<ReferralStatsData>(
+		"GET",
+		"/orgs/{id}/referral-stats",
+		{
+			params: {
+				path: { id: orgId },
+			},
+		},
+	);
+
+	return data || { referredCount: 0 };
 }
 
 export default async function ReferralsPage({
@@ -60,7 +78,15 @@ export default async function ReferralsPage({
 		);
 	}
 
-	const data = await fetchTransactions(orgId);
+	const [data, stats] = await Promise.all([
+		fetchTransactions(orgId),
+		fetchReferralStats(orgId),
+	]);
 
-	return <ReferralsClient transactions={data.transactions} />;
+	return (
+		<ReferralsClient
+			transactions={data.transactions}
+			referredCount={stats.referredCount}
+		/>
+	);
 }
