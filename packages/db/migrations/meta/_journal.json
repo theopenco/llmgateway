@@ -484,6 +484,13 @@
       "when": 1763803451613,
       "tag": "1763803451_magenta_virginia_dare",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "8",
+      "when": 1763803416907,
+      "tag": "1763803416_condemned_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }
