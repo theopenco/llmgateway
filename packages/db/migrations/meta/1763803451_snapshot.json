@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "5a6f2c28-8756-4861-ad9c-9f860e6ba753",
+  "id": "43c75f08-fa37-432f-9ffe-6cf2e740b43d",
   "prevId": "bc463493-dedc-44ff-a9b4-7d98ff87db1b",
   "ddl": [
     {
@@ -5081,6 +5081,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "created_at",
           "isExpression": false,
