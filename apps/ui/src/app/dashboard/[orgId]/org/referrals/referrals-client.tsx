@@ -155,6 +155,36 @@ export function ReferralsClient({
 
 							<Card>
 								<CardHeader>
+									<CardTitle>Your Stats</CardTitle>
+									<CardDescription>
+										Referral performance and earnings
+									</CardDescription>
+								</CardHeader>
+								<CardContent>
+									<div className="grid gap-4 md:grid-cols-2">
+										<div className="rounded-lg border p-4">
+											<div className="text-sm text-muted-foreground">
+												Users Referred
+											</div>
+											<div className="text-2xl font-bold">{referredCount}</div>
+										</div>
+										<div className="rounded-lg border p-4">
+											<div className="text-sm text-muted-foreground">
+												Total Earnings
+											</div>
+											<div className="text-2xl font-bold">
+												${referralEarnings}
+											</div>
+										</div>
+									</div>
+									<p className="mt-4 text-sm text-muted-foreground">
+										Lifetime stats from your referral program
+									</p>
+								</CardContent>
+							</Card>
+
+							<Card>
+								<CardHeader>
 									<CardTitle>How It Works</CardTitle>
 									<CardDescription>
 										Earn credits by referring new users
@@ -203,36 +233,6 @@ export function ReferralsClient({
 											</ul>
 										</div>
 									</div>
-								</CardContent>
-							</Card>
-
-							<Card>
-								<CardHeader>
-									<CardTitle>Your Stats</CardTitle>
-									<CardDescription>
-										Referral performance and earnings
-									</CardDescription>
-								</CardHeader>
-								<CardContent>
-									<div className="grid gap-4 md:grid-cols-2">
-										<div className="rounded-lg border p-4">
-											<div className="text-sm text-muted-foreground">
-												Users Referred
-											</div>
-											<div className="text-2xl font-bold">{referredCount}</div>
-										</div>
-										<div className="rounded-lg border p-4">
-											<div className="text-sm text-muted-foreground">
-												Total Earnings
-											</div>
-											<div className="text-2xl font-bold">
-												${referralEarnings}
-											</div>
-										</div>
-									</div>
-									<p className="mt-4 text-sm text-muted-foreground">
-										Lifetime stats from your referral program
-									</p>
 								</CardContent>
 							</Card>
 						</>
