@@ -706,7 +706,7 @@ export async function processLogQueue(): Promise<void> {
 		return;
 	}
 
-	const MAX_RETRIES = 10;
+	const MAX_RETRIES = 5;
 
 	try {
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
