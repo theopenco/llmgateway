@@ -126,6 +126,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Transactions",
 	},
 	{
+		href: "org/referrals",
+		label: "Referrals",
+	},
+	{
 		href: "org/policies",
 		label: "Policies",
 	},
