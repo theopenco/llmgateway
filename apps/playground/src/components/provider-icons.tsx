@@ -1,6 +1,8 @@
+import React from "react";
+
 import { cn } from "@/lib/utils";
 
-import type React from "react";
+import type { ProviderId } from "@llmgateway/models";
 
 // Anthropic Icon
 export const AnthropicIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
@@ -805,7 +807,7 @@ export const AWSBedrockIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	>
 		<style type="text/css">
 			{
-				"\n\t.st0{fill:#252F3E;}\n\t.st1{fill-rule:evenodd;clip-rule:evenodd;fill:#FF9900;}\n"
+				"\n\t.st0{fill:currentColor;}\n\t.st1{fill-rule:evenodd;clip-rule:evenodd;fill:#FF9900;}\n"
 			}
 		</style>
 		<g>
@@ -1164,6 +1166,38 @@ export const ProviderIcons = {
 
 // Type for provider icon keys
 export type ProviderIconKey = keyof typeof ProviderIcons;
+
+export const providerLogoUrls: Partial<
+	Record<ProviderId, React.FC<React.SVGProps<SVGSVGElement>>>
+> = {
+	openai: ProviderIcons.openai,
+	anthropic: ProviderIcons.anthropic,
+	"google-ai-studio": ProviderIcons["google-ai-studio"],
+	"google-vertex": ProviderIcons["google-vertex"],
+	"inference.net": ProviderIcons["inference.net"],
+	"together.ai": ProviderIcons["together.ai"],
+	cloudrift: ProviderIcons.cloudrift,
+	mistral: ProviderIcons.mistral,
+	groq: ProviderIcons.groq,
+	xai: ProviderIcons.xai,
+	deepseek: ProviderIcons.deepseek,
+	perplexity: ProviderIcons.perplexity,
+	moonshot: ProviderIcons.moonshot,
+	novita: ProviderIcons.novita,
+	alibaba: ProviderIcons.alibaba,
+	nebius: ProviderIcons.nebius,
+	zai: ProviderIcons.zai,
+	routeway: ProviderIcons.routeway,
+	"routeway-discount": ProviderIcons.routeway,
+	nanogpt: ProviderIcons.nanogpt,
+	"aws-bedrock": ProviderIcons["aws-bedrock"],
+	azure: ProviderIcons.azure,
+	canopywave: ProviderIcons.canopywave,
+};
+
+export const getProviderLogoDarkModeClasses = () => {
+	return "";
+};
 
 // Helper function to get an icon by provider name
 export const getProviderIcon = (

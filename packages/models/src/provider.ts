@@ -26,7 +26,6 @@ export const providerEnvVarMap: Record<Provider, string> = {
 	azure: "LLM_AZURE_API_KEY",
 	canopywave: "LLM_CANOPY_WAVE_API_KEY",
 	custom: "LLM_UNUSED",
-	sherlock: "LLM_SHERLOCK_API_KEY",
 };
 
 export function getProviderEnvVar(

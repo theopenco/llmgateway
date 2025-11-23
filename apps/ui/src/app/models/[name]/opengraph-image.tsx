@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 
 import { getProviderIcon } from "@/lib/components/providers-icons";
 import Logo from "@/lib/icons/Logo";
+import { formatContextSize } from "@/lib/utils";
 
 import {
 	models as modelDefinitions,
@@ -168,10 +169,23 @@ export default async function ModelOgImage({ params }: ImageProps) {
 				value.original !== value.discounted;
 
 			if (hasDiscount) {
-				const percentOff = Math.round((1 - discountMultiplier) * 100);
-				return `${original} → ${discounted} (${percentOff}% off)`;
+				const percentOff = Math.round(discountMultiplier * 100);
+				return (
+					<>
+						<span
+							style={{
+								textDecoration: "line-through",
+								marginRight: 4,
+							}}
+						>
+							{original}
+						</span>{" "}
+						<span style={{ fontWeight: 700 }}>{discounted}</span> (
+						<span style={{ color: "#9CA3AF" }}>{percentOff}% off</span>)
+					</>
+				);
 			}
-			return original;
+			return <span style={{ fontWeight: 700 }}>{original}</span>;
 		};
 
 		// Simplified layout that respects @vercel/og's requirement that
@@ -360,101 +374,147 @@ export default async function ModelOgImage({ params }: ImageProps) {
 					<div
 						style={{
 							display: "flex",
-							flexDirection: "row",
-							justifyContent: "space-between",
-							alignItems: "flex-start",
-							gap: 32,
+							flexDirection: "column",
+							gap: 20,
 						}}
 					>
 						<div
 							style={{
 								display: "flex",
-								flexDirection: "column",
-								gap: 6,
-								fontSize: 16,
+								flexDirection: "row",
+								justifyContent: "flex-start",
+								alignItems: "flex-start",
+								gap: 32,
 							}}
 						>
-							<span style={{ color: "#9CA3AF", fontSize: 14 }}>Context</span>
-							<span>
-								{maxContext
-									? `${(maxContext / 1_000_000).toFixed(1)}M tokens`
-									: "—"}
-							</span>
-							<span
-								style={{
-									color: "#9CA3AF",
-									fontSize: 14,
-								}}
-							>
-								Max output:{" "}
-								{primaryMapping?.maxOutput
-									? `${(primaryMapping.maxOutput / 1000).toFixed(0)}K tokens`
-									: "—"}
-							</span>
-						</div>
-
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "column",
-								gap: 6,
-								fontSize: 16,
-							}}
-						>
-							<span style={{ color: "#9CA3AF", fontSize: 14 }}>
-								Pricing (per 1M tokens)
-							</span>
 							<div
 								style={{
 									display: "flex",
-									flexDirection: "row",
-									gap: 24,
+									flexDirection: "column",
+									gap: 6,
+									fontSize: 16,
 								}}
 							>
+								<span style={{ color: "#9CA3AF", fontSize: 14 }}>Context</span>
+								<span>{maxContext ? formatContextSize(maxContext) : "—"}</span>
+								<span
+									style={{
+										color: "#9CA3AF",
+										fontSize: 14,
+									}}
+								>
+									Max output:{" "}
+									{primaryMapping?.maxOutput
+										? `${formatContextSize(primaryMapping.maxOutput)} tokens`
+										: "—"}
+								</span>
+							</div>
+
+							<div
+								style={{
+									display: "flex",
+									flexDirection: "column",
+									gap: 10,
+									fontSize: 20,
+								}}
+							>
+								<span
+									style={{
+										color: "#9CA3AF",
+										fontSize: 18,
+										fontWeight: 600,
+									}}
+								>
+									Pricing (per 1M tokens)
+								</span>
 								<div
 									style={{
 										display: "flex",
-										flexDirection: "column",
-										gap: 2,
+										flexDirection: "row",
+										gap: 32,
 									}}
 								>
-									<span style={{ color: "#9CA3AF", fontSize: 14 }}>Input</span>
-									<span>
-										{formatDollars(
-											pricing?.input || undefined,
-											primaryMapping?.discount,
-										)}
-									</span>
-								</div>
-								<div
-									style={{
-										display: "flex",
-										flexDirection: "column",
-										gap: 2,
-									}}
-								>
-									<span style={{ color: "#9CA3AF", fontSize: 14 }}>Output</span>
-									<span>
-										{formatDollars(
-											pricing?.output || undefined,
-											primaryMapping?.discount,
-										)}
-									</span>
-								</div>
-								<div
-									style={{
-										display: "flex",
-										flexDirection: "column",
-										gap: 2,
-									}}
-								>
-									<span style={{ color: "#9CA3AF", fontSize: 14 }}>Cached</span>
-									<span>
-										{formatDollars(
-											pricing?.cachedInput || undefined,
-											primaryMapping?.discount,
-										)}
-									</span>
+									<div
+										style={{
+											display: "flex",
+											flexDirection: "column",
+											gap: 4,
+										}}
+									>
+										<span
+											style={{
+												color: "#9CA3AF",
+												fontSize: 18,
+											}}
+										>
+											Input
+										</span>
+										<span
+											style={{
+												fontSize: 24,
+												fontWeight: 700,
+											}}
+										>
+											{formatDollars(
+												pricing?.input || undefined,
+												primaryMapping?.discount,
+											)}
+										</span>
+									</div>
+									<div
+										style={{
+											display: "flex",
+											flexDirection: "column",
+											gap: 4,
+										}}
+									>
+										<span
+											style={{
+												color: "#9CA3AF",
+												fontSize: 18,
+											}}
+										>
+											Output
+										</span>
+										<span
+											style={{
+												fontSize: 24,
+												fontWeight: 700,
+											}}
+										>
+											{formatDollars(
+												pricing?.output || undefined,
+												primaryMapping?.discount,
+											)}
+										</span>
+									</div>
+									<div
+										style={{
+											display: "flex",
+											flexDirection: "column",
+											gap: 4,
+										}}
+									>
+										<span
+											style={{
+												color: "#9CA3AF",
+												fontSize: 18,
+											}}
+										>
+											Cached
+										</span>
+										<span
+											style={{
+												fontSize: 24,
+												fontWeight: 700,
+											}}
+										>
+											{formatDollars(
+												pricing?.cachedInput || undefined,
+												primaryMapping?.discount,
+											)}
+										</span>
+									</div>
 								</div>
 							</div>
 						</div>
@@ -464,7 +524,7 @@ export default async function ModelOgImage({ params }: ImageProps) {
 								display: "flex",
 								flexDirection: "column",
 								gap: 8,
-								maxWidth: 260,
+								maxWidth: 520,
 							}}
 						>
 							<span style={{ color: "#9CA3AF", fontSize: 14 }}>

@@ -76,8 +76,6 @@ jobs:
           LLM_AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           LLM_AZURE_RESOURCE: ${{ secrets.AZURE_RESOURCE }}
           LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
-          LLM_SHERLOCK_BASE_URL: ${{ secrets.LLM_SHERLOCK_BASE_URL }}
-          LLM_SHERLOCK_API_KEY: ${{ secrets.LLM_SHERLOCK_API_KEY }}
 
       - name: Upload shard results
         if: always()

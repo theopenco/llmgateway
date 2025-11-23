@@ -19,7 +19,7 @@ export function ConnectorsDialog({ trigger }: { trigger?: React.ReactNode }) {
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
-			<DialogTrigger asChild>
+			<DialogTrigger className="hidden md:inline-flex" asChild>
 				{trigger ?? (
 					<Button variant="ghost">
 						<Plug className="mr-2 size-4" />

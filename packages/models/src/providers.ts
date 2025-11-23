@@ -289,16 +289,6 @@ export const providers = [
 		website: "https://nano-gpt.com",
 		announcement: null,
 	},
-	{
-		id: "sherlock",
-		name: "Sherlock",
-		description: "Sherlock's OpenAI-compatible large language models",
-		streaming: true,
-		cancellation: true,
-		color: "#1e40af",
-		website: "https://sherlock.ai",
-		announcement: null,
-	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

@@ -1,12 +1,5 @@
 "use client";
-import {
-	AlertCircle,
-	RefreshCcw,
-	Copy,
-	GlobeIcon,
-	Plug,
-	Brain,
-} from "lucide-react";
+import { AlertCircle, RefreshCcw, Copy, Plug, Brain } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -29,12 +22,7 @@ import { Loader } from "@/components/ai-elements/loader";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
 	PromptInput,
-	PromptInputActionAddAttachments,
 	PromptInputActionMenu,
-	PromptInputActionMenuContent,
-	PromptInputActionMenuTrigger,
-	PromptInputAttachment,
-	PromptInputAttachments,
 	PromptInputBody,
 	PromptInputButton,
 	PromptInputSpeechButton,
@@ -67,11 +55,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
@@ -170,7 +153,7 @@ const heroSuggestionGroups = {
 
 export const ChatUI = ({
 	messages,
-	supportsImages,
+	// supportsImages,
 	supportsImageGen,
 	sendMessage,
 	selectedModel,
@@ -441,9 +424,9 @@ export const ChatUI = ({
 					</Alert>
 				)}
 				<PromptInput
-					accept={supportsImages ? "image/*" : undefined}
-					multiple
-					globalDrop
+					// accept={supportsImages ? "image/*" : undefined}
+					// multiple
+					// globalDrop
 					aria-disabled={isLoading || status === "streaming"}
 					onSubmit={async (message) => {
 						if (isLoading || status === "streaming") {
@@ -486,9 +469,9 @@ export const ChatUI = ({
 					}}
 				>
 					<PromptInputBody>
-						<PromptInputAttachments>
+						{/* <PromptInputAttachments>
 							{(attachment) => <PromptInputAttachment data={attachment} />}
-						</PromptInputAttachments>
+						</PromptInputAttachments> */}
 						<PromptInputTextarea
 							ref={textareaRef}
 							value={text}
@@ -499,16 +482,16 @@ export const ChatUI = ({
 					<PromptInputToolbar>
 						<PromptInputTools>
 							<PromptInputActionMenu>
-								<PromptInputActionMenuTrigger />
-								<PromptInputActionMenuContent>
+								{/* <PromptInputActionMenuTrigger /> */}
+								{/* <PromptInputActionMenuContent>
 									<PromptInputActionAddAttachments />
-								</PromptInputActionMenuContent>
+								</PromptInputActionMenuContent> */}
 							</PromptInputActionMenu>
 							<PromptInputSpeechButton
 								onTranscriptionChange={setText}
 								textareaRef={textareaRef}
 							/>
-							<Tooltip delayDuration={400}>
+							{/* <Tooltip delayDuration={400}>
 								<TooltipTrigger asChild>
 									<span className="inline-flex pointer-events-auto">
 										<PromptInputButton
@@ -522,7 +505,7 @@ export const ChatUI = ({
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>coming soon</TooltipContent>
-							</Tooltip>
+							</Tooltip> */}
 							<ConnectorsDialog
 								trigger={
 									<PromptInputButton variant="ghost">

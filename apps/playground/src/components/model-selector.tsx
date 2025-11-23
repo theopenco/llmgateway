@@ -2,16 +2,22 @@
 
 import {
 	AlertTriangle,
+	Braces,
 	Check,
 	ChevronsUpDown,
+	Eye,
 	ExternalLink,
 	Filter,
+	ImagePlus,
 	Info,
+	MessageSquare,
 	Sparkles,
+	Wrench,
+	Zap,
 } from "lucide-react";
 import * as React from "react";
 
-import { getProviderIcon } from "@/components/provider-icons";
+import { getProviderIcon, providerLogoUrls } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -46,8 +52,10 @@ import { cn } from "@/lib/utils";
 import type {
 	ModelDefinition,
 	ProviderDefinition,
+	ProviderId,
 	ProviderModelMapping,
 } from "@llmgateway/models";
+import type { LucideProps } from "lucide-react";
 
 interface ModelSelectorProps {
 	models: ModelDefinition[];
@@ -92,6 +100,30 @@ function getMappingCapabilities(
 		labels.push("Image Generation");
 	}
 	return labels;
+}
+
+function getCapabilityIconConfig(capability: string): {
+	Icon: React.ForwardRefExoticComponent<
+		Omit<LucideProps, "ref"> & React.RefAttributes<SVGSVGElement>
+	> | null;
+	color: string;
+} {
+	switch (capability) {
+		case "Streaming":
+			return { Icon: Zap, color: "text-blue-500" };
+		case "Vision":
+			return { Icon: Eye, color: "text-green-500" };
+		case "Tools":
+			return { Icon: Wrench, color: "text-purple-500" };
+		case "Reasoning":
+			return { Icon: MessageSquare, color: "text-orange-500" };
+		case "JSON Output":
+			return { Icon: Braces, color: "text-cyan-500" };
+		case "Image Generation":
+			return { Icon: ImagePlus, color: "text-pink-500" };
+		default:
+			return { Icon: null, color: "" };
+	}
 }
 
 // helper to check if a model is unstable or experimental
@@ -155,6 +187,111 @@ function getMappingPriceInfo(
 	}
 
 	return { label: original, original };
+}
+
+interface RootAggregateInfo {
+	minInputPrice?: number;
+	minOutputPrice?: number;
+	minCachedInputPrice?: number;
+	maxContextSize?: number;
+	maxOutput?: number;
+	capabilities: string[];
+}
+
+function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
+	const now = new Date();
+
+	let minInputPrice: number | undefined;
+	let minOutputPrice: number | undefined;
+	let minCachedInputPrice: number | undefined;
+	let maxContextSize: number | undefined;
+	let maxOutput: number | undefined;
+	const capabilitySet = new Set<string>();
+
+	const applyDiscount = (price: number | undefined, discount?: number) => {
+		if (price === undefined) {
+			return undefined;
+		}
+		if (price === 0) {
+			return 0;
+		}
+		if (!discount || discount <= 0) {
+			return price;
+		}
+		return price * (1 - discount);
+	};
+
+	for (const mapping of model.providers) {
+		// Skip deactivated providers when computing "best" supported values
+		const isDeactivated =
+			mapping.deactivatedAt && new Date(mapping.deactivatedAt) <= now;
+		if (isDeactivated) {
+			continue;
+		}
+
+		const effectiveInput = applyDiscount(mapping.inputPrice, mapping.discount);
+		if (
+			effectiveInput !== undefined &&
+			(minInputPrice === undefined || effectiveInput < minInputPrice)
+		) {
+			minInputPrice = effectiveInput;
+		}
+
+		const effectiveOutput = applyDiscount(
+			mapping.outputPrice,
+			mapping.discount,
+		);
+		if (
+			effectiveOutput !== undefined &&
+			(minOutputPrice === undefined || effectiveOutput < minOutputPrice)
+		) {
+			minOutputPrice = effectiveOutput;
+		}
+
+		const effectiveCached = applyDiscount(
+			mapping.cachedInputPrice,
+			mapping.discount,
+		);
+		if (
+			effectiveCached !== undefined &&
+			(minCachedInputPrice === undefined ||
+				effectiveCached < minCachedInputPrice)
+		) {
+			minCachedInputPrice = effectiveCached;
+		}
+
+		if (
+			mapping.contextSize !== undefined &&
+			(maxContextSize === undefined || mapping.contextSize > maxContextSize)
+		) {
+			maxContextSize = mapping.contextSize;
+		}
+
+		if (
+			mapping.maxOutput !== undefined &&
+			(maxOutput === undefined || mapping.maxOutput > maxOutput)
+		) {
+			maxOutput = mapping.maxOutput;
+		}
+
+		getMappingCapabilities(mapping, model).forEach((capability) =>
+			capabilitySet.add(capability),
+		);
+	}
+
+	// Ensure image generation capability is included if any provider supports image output
+	if (model.output?.includes("image")) {
+		capabilitySet.add("Image Generation");
+	}
+
+	return {
+		minInputPrice,
+		minOutputPrice,
+		minCachedInputPrice,
+		maxContextSize,
+		maxOutput,
+		capabilities: Array.from(capabilitySet),
+	};
 }
 
 // Removed old ModelItem; we render entries per provider below
@@ -388,6 +525,21 @@ export function ModelSelector({
 		!filters.hideUnstable ||
 		filters.showOnlyRoot;
 
+	const getProviderLogo = (providerId: ProviderId) => {
+		const LogoComponent = providerLogoUrls[providerId];
+
+		if (LogoComponent) {
+			return <LogoComponent className="h-10 w-10 object-contain" />;
+		}
+
+		const IconComponent = getProviderIcon(providerId);
+		return IconComponent ? (
+			<IconComponent className="h-10 w-10" />
+		) : (
+			<div className="h-10 w-10 bg-gray-200 rounded" />
+		);
+	};
+
 	// Keep desktop preview in sync with the currently selected model when opening
 	React.useEffect(() => {
 		if (!open) {
@@ -453,18 +605,7 @@ export function ModelSelector({
 											<Sparkles className="h-5 w-5 shrink-0 text-primary" />
 										);
 									}
-									const provider =
-										selectedProviderDef ||
-										getProviderForModel(selectedModel, providers);
-									const ProviderIcon = provider
-										? getProviderIcon(provider.id)
-										: null;
-									return ProviderIcon ? (
-										<ProviderIcon
-											className="h-5 w-5 shrink-0"
-											style={{ color: provider?.color }}
-										/>
-									) : null;
+									return getProviderLogo(selectedModel.providers[0].providerId);
 								})()}
 								<div className="flex flex-col items-start min-w-0 flex-1">
 									<div className="flex items-center gap-1 max-w-full">
@@ -920,13 +1061,121 @@ export function ModelSelector({
 										</div>
 
 										{!previewEntry.provider ? (
-											<p className="text-xs text-muted-foreground leading-relaxed">
-												This is a root model ID. The Gateway will automatically
-												select the best provider for this model based on
-												availability, performance, and cost. Specific
-												capabilities and pricing will depend on the selected
-												provider.
-											</p>
+											<>
+												<p className="text-xs text-muted-foreground leading-relaxed">
+													This is a root model ID. The Gateway will
+													automatically select the best provider for this model
+													based on availability, performance, and cost. Specific
+													capabilities and pricing will depend on the selected
+													provider.
+												</p>
+
+												{(() => {
+													const aggregate = getRootAggregateInfo(
+														previewEntry.model,
+													);
+
+													const hasPricingOrLimits =
+														aggregate.minInputPrice !== undefined ||
+														aggregate.minOutputPrice !== undefined ||
+														aggregate.maxContextSize !== undefined ||
+														aggregate.maxOutput !== undefined;
+
+													const hasCapabilities =
+														aggregate.capabilities.length > 0;
+
+													if (!hasPricingOrLimits && !hasCapabilities) {
+														return null;
+													}
+
+													return (
+														<div className="space-y-3 pt-3 border-t border-dashed">
+															{hasPricingOrLimits && (
+																<div className="space-y-2">
+																	<h5 className="font-medium text-xs">
+																		Pricing &amp; Limits{" "}
+																		<span className="text-[11px] font-normal text-muted-foreground">
+																			(starts at)
+																		</span>
+																	</h5>
+																	<div className="grid grid-cols-2 gap-3">
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Input
+																			</span>
+																			<p className="text-xs font-mono">
+																				{aggregate.minInputPrice !== undefined
+																					? formatPrice(aggregate.minInputPrice)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-xs font-mono">
+																				{aggregate.minOutputPrice !== undefined
+																					? formatPrice(
+																							aggregate.minOutputPrice,
+																						)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Context
+																			</span>
+																			<p className="text-xs font-mono">
+																				{formatContextSize(
+																					aggregate.maxContextSize,
+																				)}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Max Output
+																			</span>
+																			<p className="text-xs font-mono">
+																				{formatContextSize(aggregate.maxOutput)}
+																			</p>
+																		</div>
+																	</div>
+																</div>
+															)}
+
+															{hasCapabilities && (
+																<div className="space-y-1">
+																	<h5 className="font-medium text-xs">
+																		Capabilities
+																	</h5>
+																	<div className="flex flex-wrap gap-1">
+																		{aggregate.capabilities.map(
+																			(capability) => {
+																				const { Icon, color } =
+																					getCapabilityIconConfig(capability);
+																				return (
+																					<Badge
+																						key={capability}
+																						variant="secondary"
+																						className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																					>
+																						{Icon && (
+																							<Icon
+																								className={`h-3 w-3 ${color}`}
+																							/>
+																						)}
+																						{capability}
+																					</Badge>
+																				);
+																			},
+																		)}
+																	</div>
+																</div>
+															)}
+														</div>
+													);
+												})()}
+											</>
 										) : (
 											<>
 												{previewEntry.provider?.description && (
@@ -1068,15 +1317,22 @@ export function ModelSelector({
 																Capabilities
 															</h5>
 															<div className="flex flex-wrap gap-1">
-																{caps.map((capability) => (
-																	<Badge
-																		key={capability}
-																		variant="secondary"
-																		className="text-[10px] px-1.5 py-0.5"
-																	>
-																		{capability}
-																	</Badge>
-																))}
+																{caps.map((capability) => {
+																	const { Icon, color } =
+																		getCapabilityIconConfig(capability);
+																	return (
+																		<Badge
+																			key={capability}
+																			variant="secondary"
+																			className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																		>
+																			{Icon && (
+																				<Icon className={`h-3 w-3 ${color}`} />
+																			)}
+																			{capability}
+																		</Badge>
+																	);
+																})}
 															</div>
 														</div>
 													) : null;
@@ -1152,11 +1408,105 @@ export function ModelSelector({
 
 							<div className="space-y-4">
 								{!selectedDetails.provider ? (
-									<div className="text-sm text-muted-foreground leading-relaxed">
-										This is a root model ID. The Gateway will automatically
-										select the best provider for this model based on
-										availability, performance, and cost. Specific capabilities
-										and pricing will depend on the selected provider.
+									<div className="space-y-4">
+										<p className="text-sm text-muted-foreground leading-relaxed">
+											This is a root model ID. The Gateway will automatically
+											select the best provider for this model based on
+											availability, performance, and cost. Specific capabilities
+											and pricing will depend on the selected provider.
+										</p>
+
+										{(() => {
+											const aggregate = getRootAggregateInfo(
+												selectedDetails.model,
+											);
+
+											const hasPricingOrLimits =
+												aggregate.minInputPrice !== undefined ||
+												aggregate.minOutputPrice !== undefined ||
+												aggregate.maxContextSize !== undefined ||
+												aggregate.maxOutput !== undefined;
+
+											const hasCapabilities = aggregate.capabilities.length > 0;
+
+											if (!hasPricingOrLimits && !hasCapabilities) {
+												return null;
+											}
+
+											return (
+												<div className="space-y-4">
+													{hasPricingOrLimits && (
+														<div className="space-y-3">
+															<h5 className="font-medium text-sm">
+																Pricing &amp; Limits{" "}
+																<span className="text-xs font-normal text-muted-foreground">
+																	(starts at)
+																</span>
+															</h5>
+															<div className="grid grid-cols-2 gap-3">
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Input
+																	</span>
+																	<p className="text-sm font-mono">
+																		{aggregate.minInputPrice !== undefined
+																			? formatPrice(aggregate.minInputPrice)
+																			: "Unknown"}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Output
+																	</span>
+																	<p className="text-sm font-mono">
+																		{aggregate.minOutputPrice !== undefined
+																			? formatPrice(aggregate.minOutputPrice)
+																			: "Unknown"}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Context
+																	</span>
+																	<p className="text-sm font-mono">
+																		{formatContextSize(
+																			aggregate.maxContextSize,
+																		)}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Max Output
+																	</span>
+																	<p className="text-sm font-mono">
+																		{formatContextSize(aggregate.maxOutput)}
+																	</p>
+																</div>
+															</div>
+														</div>
+													)}
+
+													{hasCapabilities && (
+														<div className="space-y-2">
+															<h5 className="font-medium text-sm">
+																Capabilities
+															</h5>
+															<div className="flex flex-wrap gap-1.5">
+																{aggregate.capabilities.map((capability) => (
+																	<Badge
+																		key={capability}
+																		variant="secondary"
+																		className="text-xs px-2 py-1"
+																	>
+																		{capability}
+																	</Badge>
+																))}
+															</div>
+														</div>
+													)}
+												</div>
+											);
+										})()}
 									</div>
 								) : (
 									<>
@@ -1300,15 +1650,22 @@ export function ModelSelector({
 												<div className="space-y-2">
 													<h5 className="font-medium text-sm">Capabilities</h5>
 													<div className="flex flex-wrap gap-1.5">
-														{caps.map((capability) => (
-															<Badge
-																key={capability}
-																variant="secondary"
-																className="text-xs px-2 py-1"
-															>
-																{capability}
-															</Badge>
-														))}
+														{caps.map((capability) => {
+															const { Icon, color } =
+																getCapabilityIconConfig(capability);
+															return (
+																<Badge
+																	key={capability}
+																	variant="secondary"
+																	className="text-xs px-2 py-1 flex items-center gap-1.5"
+																>
+																	{Icon && (
+																		<Icon className={`h-3.5 w-3.5 ${color}`} />
+																	)}
+																	{capability}
+																</Badge>
+															);
+														})}
 													</div>
 												</div>
 											) : null;

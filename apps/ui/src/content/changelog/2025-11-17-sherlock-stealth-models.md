@@ -3,12 +3,18 @@ id: "31"
 slug: "sherlock-stealth-models"
 date: "2025-11-17"
 title: "Sherlock: Two New Stealth Alpha Models"
-summary: "Introducing Sherlock Dash Alpha and Sherlock Think Alpha - free stealth models with 1.8M context, reasoning, vision, and advanced capabilities."
+summary: "Introducing Sherlock Dash Alpha and Sherlock Think Alpha (Grok 4.1) - free stealth models with 1.8M context, reasoning, vision, and advanced capabilities."
 image:
   src: "/changelog/sherlock-stealth-models.png"
   alt: "Sherlock: Two New Stealth Alpha Models"
   width: 1768
   height: 677
+---
+
+Update: Sherlock is Grok 4.1
+
+[Checkout Grok 4.1 here](https://llmgateway.io/models?q=grok+4.1&view=grid)
+
 ---
 
 We're excited to introduce two new **stealth models** from **Sherlock** - completely free with massive context windows and advanced capabilities!

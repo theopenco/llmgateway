@@ -162,9 +162,6 @@ export function getProviderEndpoint(
 			case "canopywave":
 				url = "https://inference.canopywave.io";
 				break;
-			case "sherlock":
-				url = process.env.LLM_SHERLOCK_BASE_URL;
-				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -346,7 +343,6 @@ export function getProviderEndpoint(
 		case "routeway-discount":
 		case "nanogpt":
 		case "canopywave":
-		case "sherlock":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
