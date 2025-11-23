@@ -66,8 +66,6 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
 	{ name: "Azure", providerId: "azure" },
 	{ name: "Inference.net", providerId: "inference.net" },
-	{ name: "Together AI", providerId: "together.ai" },
-	{ name: "Groq", providerId: "groq" },
 ];
 
 // TypeScript code example

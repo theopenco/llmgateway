@@ -146,7 +146,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/referral"
+										href="/referrals"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>
 										Referral Program
