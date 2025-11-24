@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
+import { reportKeyError, resetKeyHealth } from "./api-key-health.js";
 import {
 	parseCommaSeparatedEnv,
 	getRoundRobinValue,
@@ -10,6 +11,7 @@ import {
 describe("round-robin-env", () => {
 	beforeEach(() => {
 		resetRoundRobinCounters();
+		resetKeyHealth();
 	});
 
 	describe("parseCommaSeparatedEnv", () => {
@@ -81,6 +83,64 @@ describe("round-robin-env", () => {
 			expect(() => getRoundRobinValue("TEST_VAR", "")).toThrow(
 				"Environment variable TEST_VAR is empty",
 			);
+		});
+
+		it("should skip unhealthy keys", () => {
+			// Mark first key as unhealthy (3 consecutive errors)
+			reportKeyError("TEST_VAR", 0, 500);
+			reportKeyError("TEST_VAR", 0, 500);
+			reportKeyError("TEST_VAR", 0, 500);
+
+			// First call should skip index 0 and return index 1
+			const result1 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result1.value).toBe("value2");
+			expect(result1.index).toBe(1);
+
+			// Next call should return index 2
+			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result2.value).toBe("value3");
+			expect(result2.index).toBe(2);
+
+			// Next call should skip index 0 again and return index 1
+			const result3 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result3.value).toBe("value2");
+			expect(result3.index).toBe(1);
+		});
+
+		it("should fall back to unhealthy keys if all are unhealthy", () => {
+			// Mark all keys as unhealthy
+			reportKeyError("TEST_VAR", 0, 500);
+			reportKeyError("TEST_VAR", 0, 500);
+			reportKeyError("TEST_VAR", 0, 500);
+
+			reportKeyError("TEST_VAR", 1, 500);
+			reportKeyError("TEST_VAR", 1, 500);
+			reportKeyError("TEST_VAR", 1, 500);
+
+			// Should still return values using standard round-robin
+			const result1 = getRoundRobinValue("TEST_VAR", "value1,value2");
+			expect(result1.value).toBe("value1");
+
+			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2");
+			expect(result2.value).toBe("value2");
+		});
+
+		it("should skip permanently blacklisted keys (401)", () => {
+			// Mark first key as permanently blacklisted
+			reportKeyError("TEST_VAR", 0, 401);
+
+			// Should always skip index 0
+			const result1 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result1.value).toBe("value2");
+			expect(result1.index).toBe(1);
+
+			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result2.value).toBe("value3");
+			expect(result2.index).toBe(2);
+
+			const result3 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result3.value).toBe("value2");
+			expect(result3.index).toBe(1);
 		});
 	});
 

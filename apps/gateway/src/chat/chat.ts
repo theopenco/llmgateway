@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
+import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
 import { calculateCosts } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { insertLog } from "@/lib/logs.js";
@@ -1270,6 +1271,7 @@ chat.openapi(completions, async (c) => {
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let configIndex = 0; // Index for round-robin environment variables
+	let envVarName: string | undefined; // Environment variable name for health tracking
 
 	if (project.mode === "credits" && usedProvider === "custom") {
 		throw new HTTPException(400, {
@@ -1379,6 +1381,7 @@ chat.openapi(completions, async (c) => {
 		const envResult = getProviderEnv(usedProvider);
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
+		envVarName = envResult.envVarName;
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
@@ -1472,6 +1475,7 @@ chat.openapi(completions, async (c) => {
 			const envResult = getProviderEnv(usedProvider);
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
+			envVarName = envResult.envVarName;
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -2118,6 +2122,11 @@ chat.openapi(completions, async (c) => {
 						toolResults: null,
 					});
 
+					// Report key health for environment-based tokens
+					if (envVarName !== undefined) {
+						reportKeyError(envVarName, configIndex, 0);
+					}
+
 					// Send error event to the client
 					await writeSSEAndCache({
 						event: "error",
@@ -2260,6 +2269,11 @@ chat.openapi(completions, async (c) => {
 					cached: false,
 					toolResults: null,
 				});
+
+				// Report key health for environment-based tokens
+				if (envVarName !== undefined) {
+					reportKeyError(envVarName, configIndex, res.status);
+				}
 
 				return;
 			}
@@ -3317,6 +3331,16 @@ chat.openapi(completions, async (c) => {
 					toolResults: streamingToolCalls,
 					toolChoice: tool_choice,
 				});
+
+				// Report key health for environment-based tokens
+				if (envVarName !== undefined) {
+					if (streamingError !== null) {
+						reportKeyError(envVarName, configIndex, 500);
+					} else {
+						reportKeySuccess(envVarName, configIndex);
+					}
+				}
+
 				// Save streaming cache if enabled and not canceled and no errors
 				if (
 					cachingEnabled &&
@@ -3465,6 +3489,11 @@ chat.openapi(completions, async (c) => {
 			cached: false,
 			toolResults: null,
 		});
+
+		// Report key health for environment-based tokens
+		if (envVarName !== undefined) {
+			reportKeyError(envVarName, configIndex, 0);
+		}
 
 		// Return error response
 		return c.json(
@@ -3653,6 +3682,11 @@ chat.openapi(completions, async (c) => {
 			cached: false,
 			toolResults: null,
 		});
+
+		// Report key health for environment-based tokens
+		if (envVarName !== undefined) {
+			reportKeyError(envVarName, configIndex, res.status);
+		}
 
 		// Use the already determined finish reason for response logic
 
@@ -3885,6 +3919,15 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		toolChoice: tool_choice,
 	});
+
+	// Report key health for environment-based tokens
+	if (envVarName !== undefined) {
+		if (hasEmptyNonStreamingResponse) {
+			reportKeyError(envVarName, configIndex, 500);
+		} else {
+			reportKeySuccess(envVarName, configIndex);
+		}
+	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {
 		await setCache(cacheKey, transformedResponse, cacheDuration);

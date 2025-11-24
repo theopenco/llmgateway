@@ -7,6 +7,7 @@ import { getProviderEnvVar, type Provider } from "@llmgateway/models";
 export interface ProviderEnvResult {
 	token: string;
 	configIndex: number;
+	envVarName: string;
 }
 
 /**
@@ -40,5 +41,5 @@ export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
 	// Get the next token using round-robin
 	const result = getRoundRobinValue(envVar, envValue);
 
-	return { token: result.value, configIndex: result.index };
+	return { token: result.value, configIndex: result.index, envVarName: envVar };
 }

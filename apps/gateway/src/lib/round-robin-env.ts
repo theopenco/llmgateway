@@ -1,7 +1,10 @@
 /**
  * Round-robin environment variable utility
  * Supports comma-separated values in environment variables with round-robin load balancing
+ * Now includes health-aware routing to skip unhealthy keys
  */
+
+import { isKeyHealthy } from "./api-key-health.js";
 
 /**
  * Stores the current index for each environment variable
@@ -27,6 +30,7 @@ export interface RoundRobinResult {
 
 /**
  * Get the next value from a comma-separated environment variable using round-robin
+ * Now includes health-aware routing to skip unhealthy keys
  * @param envVarName The name of the environment variable
  * @param value The environment variable value (potentially comma-separated)
  * @returns Object containing the selected value and its index
@@ -46,12 +50,26 @@ export function getRoundRobinValue(
 	}
 
 	// Get current counter for this env var (default to 0)
-	const currentIndex = roundRobinCounters.get(envVarName) || 0;
+	const startIndex = roundRobinCounters.get(envVarName) || 0;
 
-	// Get the value at current index
+	// Try to find a healthy key, starting from current index
+	// Loop through all keys at most once
+	for (let i = 0; i < values.length; i++) {
+		const candidateIndex = (startIndex + i) % values.length;
+
+		if (isKeyHealthy(envVarName, candidateIndex)) {
+			// Found a healthy key - update counter to next position
+			const nextIndex = (candidateIndex + 1) % values.length;
+			roundRobinCounters.set(envVarName, nextIndex);
+
+			return { value: values[candidateIndex], index: candidateIndex };
+		}
+	}
+
+	// All keys are unhealthy - fall back to original round-robin behavior
+	// This ensures we don't completely stop serving requests
+	const currentIndex = startIndex;
 	const selectedValue = values[currentIndex];
-
-	// Increment counter for next request (wrap around)
 	const nextIndex = (currentIndex + 1) % values.length;
 	roundRobinCounters.set(envVarName, nextIndex);
 
