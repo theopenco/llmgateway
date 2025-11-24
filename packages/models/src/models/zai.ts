@@ -4,7 +4,10 @@ export const zaiModels = [
 	{
 		id: "glm-4.5",
 		name: "GLM-4.5",
+		description: "Zhipu GLM-4.5 with reasoning capabilities.",
 		family: "glm",
+		releasedAt: new Date("2024-05-06"),
+		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -26,7 +29,10 @@ export const zaiModels = [
 	{
 		id: "glm-4.5v",
 		name: "GLM-4.5V",
+		description: "GLM-4.5 with vision support.",
 		family: "glm",
+		releasedAt: new Date("2024-05-06"),
+		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -49,7 +55,10 @@ export const zaiModels = [
 	{
 		id: "glm-4.5-air",
 		name: "GLM-4.5 Air",
+		description: "Lightweight GLM-4.5 variant.",
 		family: "glm",
+		releasedAt: new Date("2024-05-06"),
+		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -71,7 +80,10 @@ export const zaiModels = [
 	{
 		id: "glm-4.5-x",
 		name: "GLM-4.5 X",
+		description: "Extended GLM-4.5 with advanced reasoning.",
 		family: "glm",
+		releasedAt: new Date("2024-05-06"),
+		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -94,7 +106,10 @@ export const zaiModels = [
 	{
 		id: "glm-4.5-airx",
 		name: "GLM-4.5 AirX",
+		description: "Enhanced GLM-4.5 Air variant.",
 		family: "glm",
+		releasedAt: new Date("2024-05-06"),
+		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -116,8 +131,11 @@ export const zaiModels = [
 	{
 		id: "glm-4.5-flash",
 		name: "GLM-4.5 Flash",
+		description: "Free, fast GLM-4.5 model.",
 		family: "glm",
 		free: true,
+		releasedAt: new Date("2024-05-06"),
+		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -138,7 +156,10 @@ export const zaiModels = [
 	{
 		id: "glm-4.6",
 		name: "GLM-4.6",
+		description: "Updated GLM with reasoning capabilities.",
 		family: "glm",
+		releasedAt: new Date("2025-06-01"),
+		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "zai",
@@ -175,7 +196,10 @@ export const zaiModels = [
 	{
 		id: "glm-4-32b-0414-128k",
 		name: "GLM-4 32B (0414-128k)",
+		description: "GLM-4 32B instruction-tuned model.",
 		family: "glm",
+		releasedAt: new Date("2024-04-14"),
+		publishedAt: new Date("2024-04-14"),
 		providers: [
 			{
 				providerId: "zai",

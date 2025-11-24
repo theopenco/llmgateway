@@ -211,13 +211,13 @@ export function ApiKeyStep() {
 							<CardContent>
 								<div className="space-y-4">
 									{/* Desktop Table */}
-									<div className="hidden md:block">
+									<div className="hidden md:block overflow-x-auto">
 										<div className="rounded-md border">
 											<Table>
 												<TableHeader>
 													<TableRow>
 														<TableHead>Name</TableHead>
-														<TableHead>Key</TableHead>
+														<TableHead className="w-40">API Key</TableHead>
 														<TableHead>Status</TableHead>
 														<TableHead>Created</TableHead>
 													</TableRow>
@@ -230,10 +230,12 @@ export function ApiKeyStep() {
 																	{key.description}
 																</span>
 															</TableCell>
-															<TableCell>
-																<span className="font-mono text-xs">
-																	{key.maskedToken}
-																</span>
+															<TableCell className="min-w-40 max-w-40">
+																<div className="flex items-center space-x-2">
+																	<span className="font-mono text-xs truncate">
+																		{key.maskedToken}
+																	</span>
+																</div>
 															</TableCell>
 															<TableCell>
 																<StatusBadge

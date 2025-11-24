@@ -62,6 +62,10 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Zai", providerId: "zai" },
 	{ name: "Routeway", providerId: "routeway" },
 	{ name: "NanoGPT", providerId: "nanogpt" },
+	{ name: "Canopywave", providerId: "canopywave" },
+	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
+	{ name: "Azure", providerId: "azure" },
+	{ name: "Inference.net", providerId: "inference.net" },
 ];
 
 // TypeScript code example
@@ -143,13 +147,12 @@ export function Hero({
 								{/* Open source badge - outside grid */}
 								<div className="mb-10 lg:mb-12">
 									<AnimatedGroup variants={transitionVariants}>
-										<a
-											href={config.githubUrl ?? ""}
-											target="_blank"
+										<Link
+											href="/changelog/gemini-3-pro-preview-support"
 											className="mx-auto lg:mx-0 hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
 											<span className="text-foreground text-sm">
-												LLM Gateway is fully open source
+												Gemini 3 Pro Preview is now available
 											</span>
 											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
 
@@ -163,7 +166,7 @@ export function Hero({
 													</span>
 												</div>
 											</div>
-										</a>
+										</Link>
 									</AnimatedGroup>
 								</div>
 

@@ -442,6 +442,62 @@
       "when": 1762355131838,
       "tag": "1762355131_black_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1763026674565,
+      "tag": "1763026674_powerful_alex_wilder",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "8",
+      "when": 1763457421232,
+      "tag": "1763457421_smiling_elektra",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "8",
+      "when": 1763458310774,
+      "tag": "1763458310_dark_silver_fox",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "8",
+      "when": 1763639575989,
+      "tag": "1763639575_quiet_blue_blade",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "8",
+      "when": 1763720390006,
+      "tag": "1763720390_slimy_lucky_pierre",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "8",
+      "when": 1763803848710,
+      "tag": "1763803848_aromatic_northstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "8",
+      "when": 1763804758084,
+      "tag": "1763804758_pink_venom",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "8",
+      "when": 1763832260035,
+      "tag": "1763832260_jittery_abomination",
+      "breakpoints": true
     }
   ]
 }

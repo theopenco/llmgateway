@@ -109,6 +109,7 @@ interface ModelDetail {
 		cachedInputPrice?: PricingSummary;
 		requestPrice?: PricingSummary;
 		imageInputPrice?: PricingSummary;
+		hasTieredPricing?: boolean;
 	};
 }
 
@@ -330,6 +331,9 @@ function collectModelDetail(modelId?: ModelId): ModelDetail | undefined {
 		cachedInputPrice: getPricingSummary(providersWithInfo, "cachedInputPrice"),
 		requestPrice: getPricingSummary(providersWithInfo, "requestPrice"),
 		imageInputPrice: getPricingSummary(providersWithInfo, "imageInputPrice"),
+		hasTieredPricing: providersWithInfo.some(
+			(p) => p.pricingTiers && p.pricingTiers.length > 1,
+		),
 	};
 
 	return {
@@ -417,7 +421,13 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 	);
 }
 
-function PricingCell({ summary }: { summary?: PricingSummary }) {
+function PricingCell({
+	summary,
+	hasTieredPricing,
+}: {
+	summary?: PricingSummary;
+	hasTieredPricing?: boolean;
+}) {
 	if (!summary) {
 		return <span className="text-muted-foreground">—</span>;
 	}
@@ -433,6 +443,9 @@ function PricingCell({ summary }: { summary?: PricingSummary }) {
 					{summary.originalValue}
 				</div>
 			) : null}
+			{hasTieredPricing && (
+				<div className="text-xs text-muted-foreground/70">(tiered pricing)</div>
+			)}
 		</div>
 	);
 }
@@ -519,13 +532,21 @@ function renderRowValue(
 			const summary =
 				getProviderPricingSummary(selectedProvider, "inputPrice") ||
 				detail.aggregated.inputPrice;
-			return <PricingCell summary={summary} />;
+			const hasTiered = selectedProvider
+				? selectedProvider.pricingTiers &&
+					selectedProvider.pricingTiers.length > 1
+				: detail.aggregated.hasTieredPricing;
+			return <PricingCell summary={summary} hasTieredPricing={hasTiered} />;
 		}
 		case "outputPrice": {
 			const summary =
 				getProviderPricingSummary(selectedProvider, "outputPrice") ||
 				detail.aggregated.outputPrice;
-			return <PricingCell summary={summary} />;
+			const hasTiered = selectedProvider
+				? selectedProvider.pricingTiers &&
+					selectedProvider.pricingTiers.length > 1
+				: detail.aggregated.hasTieredPricing;
+			return <PricingCell summary={summary} hasTieredPricing={hasTiered} />;
 		}
 		case "cachedInputPrice": {
 			const summary =

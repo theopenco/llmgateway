@@ -3,6 +3,7 @@ import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -63,6 +64,23 @@ const requestLifecycleMiddleware = createRequestLifecycleMiddleware({
 app.use("*", tracingMiddleware);
 app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
+
+app.use(
+	"*",
+	cors({
+		origin: process.env.ORIGIN_URLS?.split(",") || [
+			"https://docs.llmgateway.io",
+			"http://localhost:3002",
+			"http://localhost:3003",
+			"http://localhost:3005",
+		],
+		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
+		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
+		exposeHeaders: ["Content-Length"],
+		maxAge: 600,
+		credentials: true,
+	}),
+);
 
 // Middleware to check for application/json content type on POST requests
 app.use("*", async (c, next) => {

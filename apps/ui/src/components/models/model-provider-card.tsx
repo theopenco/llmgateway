@@ -259,6 +259,37 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					</div>
+					{provider.imageOutputPrice !== undefined && (
+						<div className="grid grid-cols-3 gap-3 mt-3">
+							<div className="col-span-3">
+								<div className="text-muted-foreground text-xs mb-1">
+									Image Output
+								</div>
+								<div className="font-mono">
+									<div className="space-y-1">
+										<div className="flex items-center gap-2">
+											{provider.discount ? (
+												<>
+													<span className="line-through text-muted-foreground text-xs">
+														{formatPrice(provider.imageOutputPrice)}
+													</span>
+													<span className="text-green-600 font-semibold">
+														{formatPrice(
+															provider.imageOutputPrice *
+																(1 - provider.discount),
+														)}
+													</span>
+												</>
+											) : (
+												formatPrice(provider.imageOutputPrice)
+											)}
+										</div>
+										<span className="text-muted-foreground text-xs">/M</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					)}
 					{provider.discount && (
 						<div className="mt-2">
 							<Badge
@@ -267,6 +298,31 @@ export function ModelProviderCard({
 							>
 								-{(provider.discount * 100).toFixed(0)}% off
 							</Badge>
+						</div>
+					)}
+					{provider.pricingTiers && provider.pricingTiers.length > 1 && (
+						<div className="mt-3 pt-3 border-t">
+							<div className="text-muted-foreground text-xs mb-2">
+								Tiered Pricing
+							</div>
+							<div className="space-y-2">
+								{provider.pricingTiers.map((tier, index) => (
+									<div
+										key={index}
+										className="flex justify-between items-center text-xs"
+									>
+										<span className="text-muted-foreground">
+											{tier.upToTokens === Infinity
+												? `>${(provider.pricingTiers![index - 1]?.upToTokens || 0) / 1000}K tokens`
+												: `≤${tier.upToTokens / 1000}K tokens`}
+										</span>
+										<span className="font-mono">
+											{formatPrice(tier.inputPrice)} in /{" "}
+											{formatPrice(tier.outputPrice)} out
+										</span>
+									</div>
+								))}
+							</div>
 						</div>
 					)}
 				</div>

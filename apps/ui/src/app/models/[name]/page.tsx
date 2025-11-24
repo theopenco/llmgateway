@@ -97,6 +97,11 @@ export default async function ModelPage({ params }: PageProps) {
 								<AlertTriangle className="h-6 w-6 md:h-8 md:w-8 text-orange-500" />
 							)}
 						</div>
+						{modelDef.description && (
+							<p className="text-muted-foreground mb-4">
+								{modelDef.description}
+							</p>
+						)}
 						<div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
 							<CopyModelName modelName={decodedName} />
 							{(() => {
@@ -191,6 +196,36 @@ export default async function ModelPage({ params }: PageProps) {
 								})()}{" "}
 								output tokens
 							</div>
+							{modelProviders.some((p) => p.imageOutputPrice) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const imageOutputPrices = modelProviders
+											.filter((p) => p.imageOutputPrice)
+											.map((p) => ({
+												price:
+													p.imageOutputPrice! *
+													1e6 *
+													(p.discount ? 1 - p.discount : 1),
+												originalPrice: p.imageOutputPrice! * 1e6,
+												discount: p.discount,
+											}));
+										if (imageOutputPrices.length === 0) {
+											return "Free";
+										}
+										const minPrice = Math.min(
+											...imageOutputPrices.map((p) => p.price),
+										);
+										const minPriceItem = imageOutputPrices.find(
+											(p) => p.price === minPrice,
+										);
+										return minPriceItem?.discount
+											? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
+											: `$${minPrice.toFixed(2)}/M`;
+									})()}{" "}
+									image output tokens
+								</div>
+							)}
 						</div>
 
 						{/* Capabilities (using same icons as /models) */}
@@ -286,7 +321,7 @@ export default async function ModelPage({ params }: PageProps) {
 							</div>
 						</div>
 
-						<div className="space-y-4">
+						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
 							{modelProviders.map((provider) => (
 								<ModelProviderCard
 									key={provider.providerId}
@@ -315,24 +350,42 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = modelDefinitions.find((m) => m.id === decodedName);
+	const model = modelDefinitions.find((m) => m.id === decodedName) as
+		| ModelDefinition
+		| undefined;
 
 	if (!model) {
 		return {};
 	}
 
+	const title = `${model.name || model.id} – AI Model on LLM Gateway`;
+	const description =
+		model.description ||
+		`Details, pricing, and capabilities for ${model.name || model.id} on LLM Gateway.`;
+
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/opengraph-image`;
+
 	return {
-		title: `${model.id} - LLM Gateway`,
-		description: `Explore ${model.id} across providers on LLM Gateway.`,
+		title,
+		description,
 		openGraph: {
-			title: `${model.id} - LLM Gateway`,
-			description: `Explore ${model.id} across providers on LLM Gateway.`,
+			title,
+			description,
 			type: "website",
+			images: [
+				{
+					url: ogImageUrl,
+					width: 1200,
+					height: 630,
+					alt: `${model.name || model.id} model card`,
+				},
+			],
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${model.id} - LLM Gateway`,
-			description: `Explore ${model.id} across providers.`,
+			title,
+			description,
+			images: [ogImageUrl],
 		},
 	};
 }

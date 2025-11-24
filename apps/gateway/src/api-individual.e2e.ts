@@ -678,6 +678,9 @@ describe("e2e individual tests", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
+			console.log(
+				`Auto-routing reasoning_effort test used model: ${json.model}`,
+			);
 			validateResponse(json);
 
 			const log = await validateLogByRequestId(requestId);

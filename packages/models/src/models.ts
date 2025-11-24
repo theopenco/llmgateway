@@ -21,6 +21,32 @@ export type Provider = (typeof providers)[number]["id"];
 
 export type Model = (typeof models)[number]["providers"][number]["modelName"];
 
+/**
+ * Pricing tier for models with context-length based pricing
+ */
+export interface PricingTier {
+	/**
+	 * Name of the pricing tier (e.g., "128K", "1M")
+	 */
+	name: string;
+	/**
+	 * Maximum number of tokens for this tier (use Infinity for the highest tier)
+	 */
+	upToTokens: number;
+	/**
+	 * Price per input token in USD for this tier
+	 */
+	inputPrice: number;
+	/**
+	 * Price per output token in USD for this tier
+	 */
+	outputPrice: number;
+	/**
+	 * Price per cached input token in USD for this tier
+	 */
+	cachedInputPrice?: number;
+}
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	modelName: string;
@@ -32,6 +58,10 @@ export interface ProviderModelMapping {
 	 * Price per output token in USD
 	 */
 	outputPrice?: number;
+	/**
+	 * Price per image output token in USD (for models with separate text/image output pricing)
+	 */
+	imageOutputPrice?: number;
 	/**
 	 * Price per cached input token in USD
 	 */
@@ -48,6 +78,12 @@ export interface ProviderModelMapping {
 	 * Discount multiplier (0-1), where 0.5 = 50% off
 	 */
 	discount?: number;
+	/**
+	 * Pricing tiers for models with context-length based pricing.
+	 * When set, inputPrice and outputPrice represent the base tier.
+	 * Tiers should be sorted by upToTokens in ascending order.
+	 */
+	pricingTiers?: PricingTier[];
 	/**
 	 * Maximum context window size in tokens
 	 */
@@ -148,6 +184,13 @@ export interface ModelDefinition {
 	 */
 	free?: boolean;
 	/**
+	 * Rate limit tier for free models (defaults to 'low' if not specified)
+	 * - low: Standard rate limits for free models
+	 * - high: More generous rate limits for free models
+	 * Only applies when free is true
+	 */
+	rateLimitKind?: "low" | "high";
+	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: ("text" | "image")[];
@@ -163,6 +206,18 @@ export interface ModelDefinition {
 	 * Whether this model supports system role messages (defaults to true if not specified)
 	 */
 	supportsSystemRole?: boolean;
+	/**
+	 * Description of the model
+	 */
+	description?: string;
+	/**
+	 * Date when the model was released by the provider
+	 */
+	releasedAt?: Date;
+	/**
+	 * Date when the model was published on LLM Gateway
+	 */
+	publishedAt?: Date;
 }
 
 export const models = [

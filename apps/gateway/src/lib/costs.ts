@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
@@ -5,6 +6,7 @@ import {
 	type Model,
 	type ModelDefinition,
 	models,
+	type PricingTier,
 	type ToolCall,
 } from "@llmgateway/models";
 
@@ -16,6 +18,52 @@ interface ChatMessage {
 }
 
 const DEFAULT_TOKENIZER_MODEL = "gpt-4";
+
+/**
+ * Get the appropriate pricing tier based on prompt token count
+ */
+function getPricingForTokenCount(
+	pricingTiers: PricingTier[] | undefined,
+	baseInputPrice: number,
+	baseOutputPrice: number,
+	baseCachedInputPrice: number | undefined,
+	promptTokens: number,
+): {
+	inputPrice: number;
+	outputPrice: number;
+	cachedInputPrice: number | undefined;
+	tierName: string | undefined;
+} {
+	if (!pricingTiers || pricingTiers.length === 0) {
+		return {
+			inputPrice: baseInputPrice,
+			outputPrice: baseOutputPrice,
+			cachedInputPrice: baseCachedInputPrice,
+			tierName: undefined,
+		};
+	}
+
+	// Find the appropriate tier based on prompt tokens
+	for (const tier of pricingTiers) {
+		if (promptTokens <= tier.upToTokens) {
+			return {
+				inputPrice: tier.inputPrice,
+				outputPrice: tier.outputPrice,
+				cachedInputPrice: tier.cachedInputPrice ?? baseCachedInputPrice,
+				tierName: tier.name,
+			};
+		}
+	}
+
+	// If no tier matched (shouldn't happen with Infinity), use the last tier
+	const lastTier = pricingTiers[pricingTiers.length - 1];
+	return {
+		inputPrice: lastTier.inputPrice,
+		outputPrice: lastTier.outputPrice,
+		cachedInputPrice: lastTier.cachedInputPrice ?? baseCachedInputPrice,
+		tierName: lastTier.name,
+	};
+}
 
 /**
  * Calculate costs based on model, provider, and token counts
@@ -35,6 +83,8 @@ export function calculateCosts(
 		toolResults?: ToolCall[];
 	},
 	reasoningTokens: number | null = null,
+	outputImageCount = 0,
+	imageSize?: string,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -57,6 +107,7 @@ export function calculateCosts(
 			cachedTokens,
 			estimatedCost: false,
 			discount: undefined,
+			pricingTier: undefined,
 		};
 	}
 
@@ -140,6 +191,7 @@ export function calculateCosts(
 			cachedTokens,
 			estimatedCost: isEstimated,
 			discount: undefined,
+			pricingTier: undefined,
 		};
 	}
 
@@ -165,15 +217,27 @@ export function calculateCosts(
 			cachedTokens,
 			estimatedCost: isEstimated,
 			discount: undefined,
+			pricingTier: undefined,
 		};
 	}
 
-	const inputPrice = providerInfo.inputPrice || 0;
-	const outputPrice = providerInfo.outputPrice || 0;
-	const cachedInputPrice = providerInfo.cachedInputPrice ?? inputPrice;
-	const requestPrice = providerInfo.requestPrice || 0;
+	// Get pricing based on token count (supports tiered pricing)
+	const pricing = getPricingForTokenCount(
+		providerInfo.pricingTiers,
+		providerInfo.inputPrice || 0,
+		providerInfo.outputPrice || 0,
+		providerInfo.cachedInputPrice,
+		calculatedPromptTokens,
+	);
+
+	const inputPrice = new Decimal(pricing.inputPrice);
+	const outputPrice = new Decimal(pricing.outputPrice);
+	const cachedInputPrice = new Decimal(
+		pricing.cachedInputPrice ?? pricing.inputPrice,
+	);
+	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
 	const discount = providerInfo.discount || 0;
-	const discountMultiplier = 1 - discount;
+	const discountMultiplier = new Decimal(1).minus(discount);
 
 	// Calculate input cost accounting for cached tokens
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
@@ -182,26 +246,59 @@ export function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
-	const inputCost = uncachedPromptTokens * inputPrice * discountMultiplier;
+	const inputCost = new Decimal(uncachedPromptTokens)
+		.times(inputPrice)
+		.times(discountMultiplier);
+
 	// For Google models, reasoning tokens are billed at the output token rate
 	const totalOutputTokens = calculatedCompletionTokens + (reasoningTokens || 0);
-	const outputCost = totalOutputTokens * outputPrice * discountMultiplier;
+
+	// Calculate output cost, handling separate image output pricing if applicable
+	let outputCost: Decimal;
+	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
+	if (imageOutputPrice && outputImageCount > 0) {
+		// Token count per image depends on size:
+		// - 1K/2K images: 1120 tokens ($0.134 per image at $120/1M)
+		// - 4K images: 2000 tokens ($0.24 per image at $120/1M)
+		const TOKENS_PER_IMAGE = imageSize === "4K" ? 2000 : 1120;
+		const imageTokens = outputImageCount * TOKENS_PER_IMAGE;
+		const textTokens = Math.max(0, totalOutputTokens - imageTokens);
+
+		const textCost = new Decimal(textTokens)
+			.times(outputPrice)
+			.times(discountMultiplier);
+		const imageCost = new Decimal(imageTokens)
+			.times(imageOutputPrice)
+			.times(discountMultiplier);
+
+		outputCost = textCost.plus(imageCost);
+	} else {
+		outputCost = new Decimal(totalOutputTokens)
+			.times(outputPrice)
+			.times(discountMultiplier);
+	}
 	const cachedInputCost = cachedTokens
-		? cachedTokens * cachedInputPrice * discountMultiplier
-		: 0;
-	const requestCost = requestPrice * discountMultiplier;
-	const totalCost = inputCost + outputCost + cachedInputCost + requestCost;
+		? new Decimal(cachedTokens)
+				.times(cachedInputPrice)
+				.times(discountMultiplier)
+		: new Decimal(0);
+	const requestCost = requestPrice.times(discountMultiplier);
+	const totalCost = inputCost
+		.plus(outputCost)
+		.plus(cachedInputCost)
+		.plus(requestCost);
 
 	return {
-		inputCost,
-		outputCost,
-		cachedInputCost,
-		requestCost,
-		totalCost,
+		inputCost: inputCost.toNumber(),
+		outputCost: outputCost.toNumber(),
+		cachedInputCost: cachedInputCost.toNumber(),
+		requestCost: requestCost.toNumber(),
+		totalCost: totalCost.toNumber(),
 		promptTokens: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		estimatedCost: isEstimated,
 		discount: discount !== 0 ? discount : undefined,
+		pricingTier: pricing.tierName,
 	};
 }

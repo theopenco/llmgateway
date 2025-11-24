@@ -89,6 +89,18 @@ async function seed() {
 	// Insert logs
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 
+	// Insert transaction for referral eligibility testing
+	await upsert(tables.transaction, {
+		id: "test-transaction-id",
+		organizationId: "test-org-id",
+		type: "credit_topup",
+		amount: "200",
+		creditAmount: "200",
+		currency: "USD",
+		status: "completed",
+		description: "Test credit top-up for referral eligibility",
+	});
+
 	// Cleanup all connections
 	await Promise.all([closeDatabase(), closeCachedDatabase()]);
 

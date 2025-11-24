@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -5,6 +6,7 @@ import {
 	consumeFromQueue,
 	LOG_QUEUE,
 	closeRedisClient,
+	publishToQueue,
 } from "@llmgateway/cache";
 import {
 	db,
@@ -27,10 +29,15 @@ import { calculateFees } from "@llmgateway/shared";
 
 import {
 	calculateMinutelyHistory,
+	calculateCurrentMinuteHistory,
 	calculateAggregatedStatistics,
 	backfillHistoryIfNeeded,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
+
+// Configuration for current minute history calculation interval (defaults to 5 seconds)
+const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
+	Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_123", {
 	apiVersion: "2025-04-30.basil",
@@ -38,6 +45,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_123", {
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
+const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const LOCK_DURATION_MINUTES = 5;
 
 // Configuration for batch processing
@@ -59,6 +67,7 @@ const schema = z.object({
 	requested_model: z.string(),
 	requested_provider: z.string().nullable(),
 	used_model: z.string(),
+	used_model_mapping: z.string().nullable(),
 	used_provider: z.string(),
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
@@ -309,6 +318,196 @@ async function processAutoTopUp(): Promise<void> {
 	}
 }
 
+export async function cleanupExpiredLogData(): Promise<void> {
+	// Check if data retention cleanup is enabled
+	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
+		logger.info(
+			"Data retention cleanup is disabled. Set ENABLE_DATA_RETENTION_CLEANUP=true to enable.",
+		);
+		return;
+	}
+
+	const lockAcquired = await acquireLock(DATA_RETENTION_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		logger.info("Starting data retention cleanup...");
+
+		// Define retention periods in days
+		const FREE_PLAN_RETENTION_DAYS = 3;
+		const PRO_PLAN_RETENTION_DAYS = 7;
+		const CLEANUP_BATCH_SIZE = 10000;
+
+		const now = new Date();
+
+		// Calculate cutoff dates
+		const freePlanCutoff = new Date(
+			now.getTime() - FREE_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+		);
+		const proPlanCutoff = new Date(
+			now.getTime() - PRO_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+		);
+
+		let totalFreePlanCleaned = 0;
+		let totalProPlanCleaned = 0;
+
+		// Process free plan organizations in batches
+		let hasMoreFreePlanRecords = true;
+		while (hasMoreFreePlanRecords) {
+			const batchResult = await db.transaction(async (tx) => {
+				// Find IDs of records to clean up (with LIMIT for batching)
+				// Use JOIN instead of subquery for better performance with large tables
+				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
+				// Use project_id subquery to leverage partial index on (project_id, created_at)
+				const recordsToClean = await tx
+					.select({ id: log.id })
+					.from(log)
+					.where(
+						and(
+							sql`${log.projectId} IN (
+								SELECT ${tables.project.id} FROM ${tables.project}
+								INNER JOIN ${organization} ON ${tables.project.organizationId} = ${organization.id}
+								WHERE ${organization.plan} = 'free'
+							)`,
+							lt(log.createdAt, freePlanCutoff),
+							sql`${log.dataRetentionCleanedUp} = false`,
+						),
+					)
+					.limit(CLEANUP_BATCH_SIZE)
+					.for("update", { skipLocked: true });
+
+				if (recordsToClean.length === 0) {
+					return 0;
+				}
+
+				const idsToClean = recordsToClean.map((r) => r.id);
+
+				// Clean up the batch
+				await tx
+					.update(log)
+					.set({
+						messages: null,
+						content: null,
+						reasoningContent: null,
+						tools: null,
+						toolChoice: null,
+						toolResults: null,
+						customHeaders: null,
+						rawRequest: null,
+						rawResponse: null,
+						upstreamRequest: null,
+						upstreamResponse: null,
+						dataRetentionCleanedUp: true,
+					})
+					.where(inArray(log.id, idsToClean));
+
+				return recordsToClean.length;
+			});
+
+			totalFreePlanCleaned += batchResult;
+
+			if (batchResult < CLEANUP_BATCH_SIZE) {
+				hasMoreFreePlanRecords = false;
+			}
+
+			if (batchResult > 0) {
+				logger.info(
+					`Cleaned up ${batchResult} logs in batch for free plan organizations`,
+				);
+			}
+		}
+
+		if (totalFreePlanCleaned > 0) {
+			logger.info(
+				`Total cleaned up verbose data from ${totalFreePlanCleaned} logs for free plan organizations (older than ${FREE_PLAN_RETENTION_DAYS} days)`,
+			);
+		}
+
+		// Process pro plan organizations in batches
+		let hasMoreProPlanRecords = true;
+		while (hasMoreProPlanRecords) {
+			const batchResult = await db.transaction(async (tx) => {
+				// Find IDs of records to clean up (with LIMIT for batching)
+				// Use JOIN instead of subquery for better performance with large tables
+				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
+				// Use project_id subquery to leverage partial index on (project_id, created_at)
+				const recordsToClean = await tx
+					.select({ id: log.id })
+					.from(log)
+					.where(
+						and(
+							sql`${log.projectId} IN (
+								SELECT ${tables.project.id} FROM ${tables.project}
+								INNER JOIN ${organization} ON ${tables.project.organizationId} = ${organization.id}
+								WHERE ${organization.plan} = 'pro'
+							)`,
+							lt(log.createdAt, proPlanCutoff),
+							sql`${log.dataRetentionCleanedUp} = false`,
+						),
+					)
+					.limit(CLEANUP_BATCH_SIZE)
+					.for("update", { skipLocked: true });
+
+				if (recordsToClean.length === 0) {
+					return 0;
+				}
+
+				const idsToClean = recordsToClean.map((r) => r.id);
+
+				// Clean up the batch
+				await tx
+					.update(log)
+					.set({
+						messages: null,
+						content: null,
+						reasoningContent: null,
+						tools: null,
+						toolChoice: null,
+						toolResults: null,
+						customHeaders: null,
+						rawRequest: null,
+						rawResponse: null,
+						upstreamRequest: null,
+						upstreamResponse: null,
+						dataRetentionCleanedUp: true,
+					})
+					.where(inArray(log.id, idsToClean));
+
+				return recordsToClean.length;
+			});
+
+			totalProPlanCleaned += batchResult;
+
+			if (batchResult < CLEANUP_BATCH_SIZE) {
+				hasMoreProPlanRecords = false;
+			}
+
+			if (batchResult > 0) {
+				logger.info(
+					`Cleaned up ${batchResult} logs in batch for pro plan organizations`,
+				);
+			}
+		}
+
+		if (totalProPlanCleaned > 0) {
+			logger.info(
+				`Total cleaned up verbose data from ${totalProPlanCleaned} logs for pro plan organizations (older than ${PRO_PLAN_RETENTION_DAYS} days)`,
+			);
+		}
+
+		logger.info("Data retention cleanup completed successfully");
+	} catch (error) {
+		logger.error(
+			"Error during data retention cleanup",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	} finally {
+		await releaseLock(DATA_RETENTION_LOCK_KEY);
+	}
+}
+
 export async function batchProcessLogs(): Promise<void> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
 	if (!lockAcquired) {
@@ -333,6 +532,7 @@ export async function batchProcessLogs(): Promise<void> {
 					requested_model: log.requestedModel,
 					requested_provider: log.requestedProvider,
 					used_model: log.usedModel,
+					used_model_mapping: log.usedModelMapping,
 					used_provider: log.usedProvider,
 					response_size: log.responseSize,
 					hasError: log.hasError,
@@ -354,8 +554,9 @@ export async function batchProcessLogs(): Promise<void> {
 			);
 
 			// Group logs by organization and api key to calculate total costs
-			const orgCosts = new Map<string, number>();
-			const apiKeyCosts = new Map<string, number>();
+			// Use Decimal.js to avoid floating point rounding errors
+			const orgCosts = new Map<string, Decimal>();
+			const apiKeyCosts = new Map<string, Decimal>();
 			const logIds: string[] = [];
 
 			for (const raw of unprocessedLogs.rows) {
@@ -379,19 +580,28 @@ export async function batchProcessLogs(): Promise<void> {
 					requestedModel: row.requested_model,
 					requestedProvider: row.requested_provider,
 					usedModel: row.used_model,
+					usedModelMapping: row.used_model_mapping,
 					usedProvider: row.used_provider,
 					responseSize: row.response_size,
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
 					// Always update API key usage for non-cached logs with cost
-					const currentApiKeyCost = apiKeyCosts.get(row.api_key_id) || 0;
-					apiKeyCosts.set(row.api_key_id, currentApiKeyCost + row.cost);
+					const currentApiKeyCost =
+						apiKeyCosts.get(row.api_key_id) || new Decimal(0);
+					apiKeyCosts.set(
+						row.api_key_id,
+						currentApiKeyCost.plus(new Decimal(row.cost)),
+					);
 
 					// Only deduct organization credits when the log actually used credits
 					if (row.used_mode === "credits") {
-						const currentOrgCost = orgCosts.get(row.organization_id) || 0;
-						orgCosts.set(row.organization_id, currentOrgCost + row.cost);
+						const currentOrgCost =
+							orgCosts.get(row.organization_id) || new Decimal(0);
+						orgCosts.set(
+							row.organization_id,
+							currentOrgCost.plus(new Decimal(row.cost)),
+						);
 					}
 				}
 
@@ -399,32 +609,73 @@ export async function batchProcessLogs(): Promise<void> {
 			}
 
 			// Batch update organization credits within the same transaction
+			// Also calculate referral earnings (1% of spent credits)
+			const referralEarnings = new Map<string, Decimal>();
+
 			for (const [orgId, totalCost] of orgCosts.entries()) {
-				if (totalCost > 0) {
+				if (totalCost.greaterThan(0)) {
+					const costNumber = totalCost.toNumber();
 					await tx
 						.update(organization)
 						.set({
-							credits: sql`${organization.credits} - ${totalCost}`,
+							credits: sql`${organization.credits} - ${costNumber}`,
 						})
 						.where(eq(organization.id, orgId));
 
 					logger.info(
-						`Deducted ${totalCost} credits from organization ${orgId}`,
+						`Deducted ${costNumber} credits from organization ${orgId}`,
+					);
+
+					// Check if this org was referred and calculate 1% referral earnings
+					const referral = await tx.query.referral.findFirst({
+						where: {
+							referredOrganizationId: { eq: orgId },
+						},
+					});
+
+					if (referral) {
+						const earnings = totalCost.times(0.01);
+						const currentEarnings =
+							referralEarnings.get(referral.referrerOrganizationId) ||
+							new Decimal(0);
+						referralEarnings.set(
+							referral.referrerOrganizationId,
+							currentEarnings.plus(earnings),
+						);
+					}
+				}
+			}
+
+			// Apply referral earnings to referrer organizations
+			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
+				if (earnings.greaterThan(0)) {
+					const earningsNumber = earnings.toNumber();
+					await tx
+						.update(organization)
+						.set({
+							credits: sql`${organization.credits} + ${earningsNumber}`,
+							referralEarnings: sql`${organization.referralEarnings} + ${earningsNumber}`,
+						})
+						.where(eq(organization.id, referrerOrgId));
+
+					logger.info(
+						`Added ${earningsNumber} referral credits to organization ${referrerOrgId}`,
 					);
 				}
 			}
 
 			// Batch update API key usage within the same transaction
 			for (const [apiKeyId, totalCost] of apiKeyCosts.entries()) {
-				if (totalCost > 0) {
+				if (totalCost.greaterThan(0)) {
+					const costNumber = totalCost.toNumber();
 					await tx
 						.update(apiKey)
 						.set({
-							usage: sql`${apiKey.usage} + ${totalCost}`,
+							usage: sql`${apiKey.usage} + ${costNumber}`,
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					logger.info(`Added ${totalCost} usage to API key ${apiKeyId}`);
+					logger.info(`Added ${costNumber} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -455,6 +706,8 @@ export async function processLogQueue(): Promise<void> {
 		return;
 	}
 
+	const MAX_RETRIES = 5;
+
 	try {
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
 
@@ -484,25 +737,230 @@ export async function processLogQueue(): Promise<void> {
 			}),
 		);
 
-		// Insert logs without processing credits or API key usage - they will be processed in batches
-		// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
-		await db.insert(log).values(processedLogData as LogInsertData[]);
+		// Insert logs with retry logic
+		let lastError: Error | undefined;
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
+				await db.insert(log).values(processedLogData as LogInsertData[]);
+				return; // Success, exit function
+			} catch (insertError) {
+				lastError =
+					insertError instanceof Error
+						? insertError
+						: new Error(String(insertError));
+
+				if (attempt < MAX_RETRIES) {
+					const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, 8s, 16s, ...
+					logger.warn(
+						`Failed to insert logs (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms...`,
+						lastError,
+					);
+					await new Promise((resolve) => {
+						setTimeout(resolve, delay);
+					});
+				}
+			}
+		}
+
+		// All retries exhausted, push messages back to queue for later processing
+		logger.error(
+			`Failed to insert logs after ${MAX_RETRIES + 1} attempts, pushing back to queue`,
+			lastError,
+		);
+
+		// Re-add messages to queue
+		for (const msg of message) {
+			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
+		}
 	} catch (error) {
 		logger.error(
 			"Error processing log message",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+
+		// Re-add messages to queue on unexpected errors
+		try {
+			for (const msg of message) {
+				await publishToQueue(LOG_QUEUE, JSON.parse(msg));
+			}
+		} catch (requeueError) {
+			logger.error(
+				"Failed to re-queue log messages",
+				requeueError instanceof Error
+					? requeueError
+					: new Error(String(requeueError)),
+			);
+		}
 	}
 }
 
 let isWorkerRunning = false;
 let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
+let currentMinuteIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
+let activeLoops = 0;
+let stopFailed = false;
+
+// Independent worker loops
+async function runLogQueueLoop() {
+	activeLoops++;
+	logger.info("Starting log queue processing loop...");
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await processLogQueue();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 1000);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in log queue loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Log queue loop stopped");
+	}
+}
+
+async function runAutoTopUpLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 120 : 5) * 1000; // 2 minutes in prod, 5 seconds in dev
+	logger.info(
+		`Starting auto top-up loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await processAutoTopUp();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in auto top-up loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Auto top-up loop stopped");
+	}
+}
+
+async function runBatchProcessLoop() {
+	activeLoops++;
+	const interval = BATCH_PROCESSING_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting batch process loop (interval: ${BATCH_PROCESSING_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await batchProcessLogs();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in batch process loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Batch process loop stopped");
+	}
+}
+
+async function runDataRetentionLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
+	logger.info(
+		`Starting data retention loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await cleanupExpiredLogData();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in data retention loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Data retention loop stopped");
+	}
+}
 
 export async function startWorker() {
 	if (isWorkerRunning) {
-		logger.info("Worker is already running");
+		logger.error("Worker is already running");
+		return;
+	}
+
+	if (activeLoops > 0) {
+		logger.error(
+			`Cannot start worker: ${activeLoops} loop(s) from previous worker still active. Please ensure previous worker has fully stopped.`,
+		);
+		return;
+	}
+
+	if (stopFailed) {
+		logger.error(
+			"Cannot start worker: previous worker stop failed. Please ensure all loops from previous worker have exited before starting a new worker.",
+		);
 		return;
 	}
 
@@ -536,6 +994,9 @@ export async function startWorker() {
 	// Start statistics calculator
 	logger.info("Starting statistics calculator...");
 	logger.info("- Minutely history: runs at the first second of every minute");
+	logger.info(
+		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
+	);
 	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
@@ -585,6 +1046,23 @@ export async function startWorker() {
 	};
 
 	scheduleMinutelyHistory();
+
+	// Start current minute history calculation (runs every N seconds for real-time metrics)
+	calculateCurrentMinuteHistory().catch((error) => {
+		logger.error(
+			"Error in initial current minute history calculation",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
+
+	currentMinuteIntervalId = setInterval(() => {
+		calculateCurrentMinuteHistory().catch((error) => {
+			logger.error(
+				"Error in interval current minute history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		});
+	}, CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000);
 
 	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
 	calculateAggregatedStatistics().catch((error) => {
@@ -641,54 +1119,17 @@ export async function startWorker() {
 
 	scheduleAggregatedStats();
 
-	logger.info("Starting log queue processing...");
-	const count = process.env.NODE_ENV === "production" ? 120 : 5;
-	let autoTopUpCounter = 0;
-	let creditProcessingCounter = 0;
-
-	// eslint-disable-next-line no-unmodified-loop-condition
-	while (!shouldStop) {
-		try {
-			await processLogQueue();
-
-			autoTopUpCounter++;
-			if (autoTopUpCounter >= count) {
-				await processAutoTopUp();
-				autoTopUpCounter = 0;
-			}
-
-			creditProcessingCounter++;
-			if (creditProcessingCounter >= BATCH_PROCESSING_INTERVAL_SECONDS) {
-				await batchProcessLogs();
-				creditProcessingCounter = 0;
-			}
-
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 1000);
-				});
-			}
-		} catch (error) {
-			logger.error(
-				"Error in log queue worker",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			if (!shouldStop) {
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5000);
-				});
-			}
-		}
-	}
-
-	isWorkerRunning = false;
-	logger.info("Worker stopped");
+	// Start all parallel worker loops
+	void runLogQueueLoop();
+	void runAutoTopUpLoop();
+	void runBatchProcessLoop();
+	void runDataRetentionLoop();
 }
 
-export async function stopWorker(): Promise<void> {
+export async function stopWorker(): Promise<boolean> {
 	if (!isWorkerRunning) {
 		logger.info("Worker is not running");
-		return;
+		return true;
 	}
 
 	logger.info("Stopping worker...");
@@ -701,26 +1142,51 @@ export async function stopWorker(): Promise<void> {
 		logger.info("Minutely history calculator stopped");
 	}
 
+	if (currentMinuteIntervalId) {
+		clearInterval(currentMinuteIntervalId);
+		currentMinuteIntervalId = null;
+		logger.info("Current minute history calculator stopped");
+	}
+
 	if (aggregatedIntervalId) {
 		clearInterval(aggregatedIntervalId);
 		aggregatedIntervalId = null;
 		logger.info("Aggregated statistics calculator stopped");
 	}
 
-	const pollInterval = 100;
+	// Wait for all loops to finish by polling activeLoops counter
 	const maxWaitTime = 15000; // 15 seconds timeout
+	const pollInterval = 100; // 100ms per iteration
 	const startTime = Date.now();
 
+	logger.info(
+		`Waiting for all worker loops to finish (active loops: ${activeLoops})...`,
+	);
+
 	// eslint-disable-next-line no-unmodified-loop-condition
-	while (isWorkerRunning) {
-		if (Date.now() - startTime > maxWaitTime) {
-			logger.warn("Worker stop timeout exceeded, forcing shutdown");
-			break;
+	while (activeLoops > 0) {
+		const elapsed = Date.now() - startTime;
+
+		if (elapsed >= maxWaitTime) {
+			logger.error(
+				`Timeout reached (${maxWaitTime}ms) while waiting for worker loops to exit. ${activeLoops} loop(s) still active. Worker stop failed.`,
+			);
+			stopFailed = true;
+			// Keep shouldStop = true and isWorkerRunning = true to prevent new loops from starting
+			return false;
 		}
+
+		// Sleep for a short period before checking again
 		await new Promise((resolve) => {
 			setTimeout(resolve, pollInterval);
 		});
 	}
+
+	logger.info("All worker loops have exited successfully");
+
+	// Only set isWorkerRunning = false if all loops exited successfully
+	isWorkerRunning = false;
+	stopFailed = false;
 
 	// Close database and Redis connections
 	try {
@@ -739,4 +1205,5 @@ export async function stopWorker(): Promise<void> {
 	}
 
 	logger.info("Worker stopped gracefully");
+	return true;
 }

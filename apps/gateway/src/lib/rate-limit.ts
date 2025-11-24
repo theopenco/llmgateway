@@ -8,13 +8,25 @@ import type { ModelDefinition } from "@llmgateway/models";
  * Rate limiting configuration for free models
  */
 const FREE_MODEL_RATE_LIMITS = {
-	// 5 request per 10 minutes for orgs with 0 credits
-	BASE_LIMIT: 5,
-	BASE_WINDOW: 600, // 10 minutes in seconds
+	LOW: {
+		// 5 request per 10 minutes for orgs with 0 credits
+		BASE_LIMIT: 5,
+		BASE_WINDOW: 600, // 10 minutes in seconds
 
-	// 20 requests per minute for orgs with > 0 credits
-	ELEVATED_LIMIT: 20,
-	ELEVATED_WINDOW: 60, // seconds
+		// 20 requests per minute for orgs with > 0 credits
+		ELEVATED_LIMIT: 20,
+		ELEVATED_WINDOW: 60, // seconds
+	},
+	HIGH: {
+		// More generous limits for high-tier free models
+		// 50 requests per 10 minutes for orgs with 0 credits
+		BASE_LIMIT: 50,
+		BASE_WINDOW: 600, // 10 minutes in seconds
+
+		// 100 requests per minute for orgs with > 0 credits
+		ELEVATED_LIMIT: 100,
+		ELEVATED_WINDOW: 60, // seconds
+	},
 };
 
 /**
@@ -77,12 +89,12 @@ export async function checkFreeModelRateLimit(
 
 	try {
 		const hasElevated = await hasElevatedLimits(organizationId);
-		const limit = hasElevated
-			? FREE_MODEL_RATE_LIMITS.ELEVATED_LIMIT
-			: FREE_MODEL_RATE_LIMITS.BASE_LIMIT;
-		const window = hasElevated
-			? FREE_MODEL_RATE_LIMITS.ELEVATED_WINDOW
-			: FREE_MODEL_RATE_LIMITS.BASE_WINDOW;
+		const rateLimitKind = modelDefinition?.rateLimitKind || "low";
+		const limits =
+			FREE_MODEL_RATE_LIMITS[rateLimitKind.toUpperCase() as "LOW" | "HIGH"];
+
+		const limit = hasElevated ? limits.ELEVATED_LIMIT : limits.BASE_LIMIT;
+		const window = hasElevated ? limits.ELEVATED_WINDOW : limits.BASE_WINDOW;
 
 		const key = getRateLimitKey(organizationId, model);
 
@@ -110,6 +122,7 @@ export async function checkFreeModelRateLimit(
 				currentCount,
 				limit,
 				hasElevated,
+				rateLimitKind: modelDefinition?.rateLimitKind || "low",
 				retryAfter,
 			});
 
@@ -126,6 +139,7 @@ export async function checkFreeModelRateLimit(
 			currentCount: currentCount + 1,
 			limit,
 			hasElevated,
+			rateLimitKind: modelDefinition?.rateLimitKind || "low",
 		});
 
 		return {

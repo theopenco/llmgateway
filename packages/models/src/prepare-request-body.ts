@@ -18,6 +18,93 @@ import type {
 } from "./types.js";
 
 /**
+ * Converts OpenAI JSON schema format to Google's schema format
+ * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
+ */
+function convertOpenAISchemaToGoogle(schema: any): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	const converted: any = {};
+
+	// Convert type to uppercase
+	if (schema.type) {
+		converted.type = schema.type.toUpperCase();
+	}
+
+	// Copy description if present
+	if (schema.description) {
+		converted.description = schema.description;
+	}
+
+	// Handle object properties
+	if (schema.properties) {
+		converted.properties = {};
+		for (const [key, value] of Object.entries(schema.properties)) {
+			converted.properties[key] = convertOpenAISchemaToGoogle(value);
+		}
+	}
+
+	// Handle array items
+	if (schema.items) {
+		converted.items = convertOpenAISchemaToGoogle(schema.items);
+	}
+
+	// Copy required array if present
+	if (schema.required) {
+		converted.required = schema.required;
+	}
+
+	// Copy enum if present
+	if (schema.enum) {
+		converted.enum = schema.enum;
+	}
+
+	// Copy other common JSON schema properties that Google supports
+	if (schema.format) {
+		converted.format = schema.format;
+	}
+
+	// Note: Google doesn't support additionalProperties in the same way as OpenAI
+	// We skip it here as it's not part of Google's schema format
+
+	return converted;
+}
+
+/**
+ * Recursively strips unsupported properties from JSON schema for Google
+ * Google doesn't support additionalProperties, $schema, and some other JSON schema properties
+ */
+function stripUnsupportedSchemaProperties(schema: any): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	if (Array.isArray(schema)) {
+		return schema.map(stripUnsupportedSchemaProperties);
+	}
+
+	const cleaned: any = {};
+
+	for (const [key, value] of Object.entries(schema)) {
+		// Skip unsupported properties
+		if (key === "additionalProperties" || key === "$schema") {
+			continue;
+		}
+
+		// Recursively clean nested objects
+		if (value && typeof value === "object") {
+			cleaned[key] = stripUnsupportedSchemaProperties(value);
+		} else {
+			cleaned[key] = value;
+		}
+	}
+
+	return cleaned;
+}
+
+/**
  * Transforms messages for models that don't support system roles by converting system messages to user messages
  */
 function transformMessagesForNoSystemRole(messages: any[]): any[] {
@@ -53,6 +140,8 @@ export async function prepareRequestBody(
 	isProd = false,
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
+	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
+	image_config?: { aspect_ratio?: string; image_size?: string },
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
@@ -87,28 +176,42 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "openai": {
-			// Check if messages contain existing tool calls or tool results
-			// If so, use Chat Completions API instead of Responses API
-			const hasExistingToolCalls = messages.some(
-				(msg: any) => msg.tool_calls || msg.role === "tool",
-			);
-
-			// Check if the model supports responses API (default to true if reasoning is enabled)
+			// Check if the model supports responses API
 			const providerMapping = modelDef?.providers.find(
 				(p) => p.providerId === "openai",
 			);
 			const supportsResponsesApi =
-				process.env.USE_RESPONSES_API === "true" &&
-				(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-					false;
+				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+				true;
 
-			if (supportsReasoning && supportsResponsesApi && !hasExistingToolCalls) {
-				// Transform to responses API format (only when no existing tool calls)
+			if (supportsResponsesApi) {
+				// Transform to responses API format
+				// gpt-5-pro only supports "high" reasoning effort
+				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
+
+				// Transform messages for responses API - remove tool_calls and convert tool results
+				const transformedMessages = processedMessages.map((msg: any) => {
+					const transformed = { ...msg };
+					// Remove tool_calls from assistant messages (not supported in responses API input)
+					if (transformed.tool_calls) {
+						delete transformed.tool_calls;
+					}
+					// Responses API doesn't support tool_call_id in tool messages
+					if (transformed.tool_call_id) {
+						delete transformed.tool_call_id;
+					}
+					// Responses API doesn't support 'tool' role - convert to 'user'
+					if (transformed.role === "tool") {
+						transformed.role = "user";
+					}
+					return transformed;
+				});
+
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedModel,
-					input: processedMessages,
+					input: transformedMessages,
 					reasoning: {
-						effort: reasoning_effort || "medium",
+						effort: reasoning_effort || defaultEffort,
 						summary: "detailed",
 					},
 				};
@@ -210,6 +313,10 @@ export async function prepareRequestBody(
 				requestBody.thinking = {
 					type: "enabled",
 				};
+			}
+			// Add sensitive_word_check if provided (Z.ai specific)
+			if (sensitive_word_check) {
+				requestBody.sensitive_word_check = sensitive_word_check;
 			}
 			break;
 		}
@@ -544,12 +651,10 @@ export async function prepareRequestBody(
 				requestBody.tools = [
 					{
 						functionDeclarations: tools.map((tool: any) => {
-							// Remove additionalProperties and $schema from parameters as Google doesn't accept them
-							const {
-								additionalProperties: _additionalProperties,
-								$schema: _$schema,
-								...cleanParameters
-							} = tool.function.parameters || {};
+							// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
+							const cleanParameters = stripUnsupportedSchemaProperties(
+								tool.function.parameters || {},
+							);
 							return {
 								name: tool.function.name,
 								description: tool.function.description,
@@ -578,8 +683,11 @@ export async function prepareRequestBody(
 				requestBody.generationConfig.responseMimeType = "application/json";
 			} else if (response_format?.type === "json_schema") {
 				requestBody.generationConfig.responseMimeType = "application/json";
-				// Note: Google supports responseSchema but we'd need to convert from JSON Schema to Google's format
-				// For now, we just set the MIME type for basic JSON mode
+				// Convert OpenAI's JSON schema format to Google's format
+				if (response_format.json_schema?.schema) {
+					requestBody.generationConfig.responseSchema =
+						convertOpenAISchemaToGoogle(response_format.json_schema.schema);
+				}
 			}
 
 			// Enable thinking/reasoning content exposure for Google models that support reasoning
@@ -605,6 +713,24 @@ export async function prepareRequestBody(
 					};
 					requestBody.generationConfig.thinkingConfig.thinkingBudget =
 						getThinkingBudget(reasoning_effort);
+				}
+			}
+
+			// Add image generation config if provided
+			if (
+				image_config?.aspect_ratio !== undefined ||
+				image_config?.image_size !== undefined
+			) {
+				// Set responseModalities to enable image output
+				requestBody.generationConfig.responseModalities = ["TEXT", "IMAGE"];
+				requestBody.generationConfig.imageConfig = {};
+				if (image_config.aspect_ratio !== undefined) {
+					requestBody.generationConfig.imageConfig.aspectRatio =
+						image_config.aspect_ratio;
+				}
+				if (image_config.image_size !== undefined) {
+					requestBody.generationConfig.imageConfig.imageSize =
+						image_config.image_size;
 				}
 			}
 

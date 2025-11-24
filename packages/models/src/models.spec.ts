@@ -462,7 +462,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				);
 
 				expect(cheapestProvider).toBeDefined();
-				expect(cheapestProvider).toMatchObject({
+				expect(cheapestProvider?.provider).toMatchObject({
 					providerId: expect.any(String),
 					modelName: expect.any(String),
 				});
@@ -527,11 +527,13 @@ describe("getCheapestFromAvailableProviders", () => {
 
 				// If discount provider is cheaper, it should be selected
 				if (discountPrice < regularPrice) {
-					expect(cheapestProvider?.providerId).toBe(
+					expect(cheapestProvider?.provider.providerId).toBe(
 						discountProvider.providerId,
 					);
 				} else {
-					expect(cheapestProvider?.providerId).toBe(regularProvider.providerId);
+					expect(cheapestProvider?.provider.providerId).toBe(
+						regularProvider.providerId,
+					);
 				}
 			}
 		}

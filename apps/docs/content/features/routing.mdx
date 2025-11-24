@@ -28,26 +28,55 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ### Model ID Routing
 
-Choose a specific model ID to route to the **cheapest available provider** for that model. LLMGateway automatically finds the most cost-effective option across all configured providers.
+Choose a specific model ID to route to the **best available provider** for that model. LLMGateway's smart routing algorithm considers multiple factors to find the optimal provider across all configured options.
 
-```bash
-curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-v3",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
+#### Smart Routing Algorithm
+
+When you use a model ID without a provider prefix, LLMGateway's intelligent routing system analyzes multiple factors to select the best provider:
+
+**Weighted Scoring System** (based on last 5 minutes of metrics):
+
+- **Uptime (50%)** - Prioritizes providers with high reliability and low error rates
+- **Throughput (20%)** - Favors providers with higher tokens per second generation speed
+- **Price (20%)** - Considers cost efficiency while maintaining quality
+- **Latency (10%)** - Considers time to first token (uses reasoning token time when available)
+
+The algorithm calculates a weighted score for each available provider and selects the one with the lowest (best) score. All metrics are normalized to ensure fair comparison across providers.
+
+**Epsilon-Greedy Exploration** (1% of requests):
+
+To solve the "cold start problem" where new or unused providers never get traffic to build up metrics, the system randomly explores different providers 1% of the time. This ensures:
+
+- All providers periodically receive traffic
+- New providers can prove their reliability
+- The system adapts to changing provider performance
+- You benefit from improved routing decisions over time
+
+**Routing Metadata**:
+
+Every request includes detailed routing metadata in the logs, showing:
+
+- Available providers that were considered
+- Selected provider and selection reason
+- Scores for each provider (including uptime, throughput, latency, and price)
+
+This transparency allows you to understand and debug routing decisions.
 
 <Callout type="info">
-	Using model IDs without a provider prefix automatically routes to the most
-	cost-effective provider that supports that specific model.
+	Using model IDs without a provider prefix automatically routes to the optimal
+	provider based on reliability, speed, and cost. The system continuously learns
+	and adapts based on real-time performance metrics.
+</Callout>
+
+<Callout type="success">
+	Smart routing prioritizes reliability over cost, ensuring your requests are
+	routed to providers with proven uptime and performance, while still
+	considering cost efficiency.
 </Callout>
 
 ### Provider-Specific Routing
 
-To use a specific provider, prefix the model name with the provider name followed by a slash:
+To use a specific provider without any fallbacks, prefix the model name with the provider name followed by a slash:
 
 ```bash
 # Use OpenAI specifically
@@ -68,6 +97,18 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+#### Low-Uptime Protection
+
+When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (last 5 minutes). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues.
+
+<Callout type="info">
+	If the requested provider has low uptime but no alternative providers are
+	available for that model, the request will still be sent to the originally
+	requested provider.
+</Callout>
+
+If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, this can be configured in your project settings (coming soon).
 
 ## Optimized Auto Routing
 

@@ -3,14 +3,23 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
-import { ModelCard } from "@/components/shared/model-card";
+import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
 
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ModelDefinition,
+	type ProviderModelMapping,
 } from "@llmgateway/models";
 
 import type { Metadata } from "next";
+
+interface ModelWithProviders extends ModelDefinition {
+	providerDetails: Array<{
+		provider: ProviderModelMapping;
+		providerInfo: (typeof providerDefinitions)[number];
+	}>;
+}
 
 interface ProviderPageProps {
 	params: Promise<{ id: string }>;
@@ -25,9 +34,28 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		notFound();
 	}
 
-	const providerModels = modelDefinitions.filter((model) =>
-		model.providers.some((p) => p.providerId === provider.id),
-	);
+	const providerModels: ModelWithProviders[] = modelDefinitions
+		.filter((model) =>
+			model.providers.some((p) => p.providerId === provider.id),
+		)
+		.map((model) => {
+			const currentProviderMapping = model.providers.find(
+				(p) => p.providerId === provider.id,
+			)!;
+			const providerInfo = providerDefinitions.find(
+				(p) => p.id === provider.id,
+			)!;
+
+			return {
+				...model,
+				providerDetails: [
+					{
+						provider: currentProviderMapping,
+						providerInfo,
+					},
+				],
+			} as ModelWithProviders;
+		});
 
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
@@ -38,15 +66,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
 						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
-						<div className="grid gap-6 md:grid-cols-3">
-							{providerModels.map((model) => (
-								<ModelCard
-									key={`${model.providers[0].providerId}-${model.id}`}
-									modelName={model.id}
-									providers={model.providers}
-								/>
-							))}
-						</div>
+						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
 			</main>

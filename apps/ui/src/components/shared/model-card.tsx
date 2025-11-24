@@ -110,29 +110,36 @@ export function ModelCard({ modelName, providers }: ModelCardProps) {
 				{(provider.inputPrice !== undefined ||
 					provider.outputPrice !== undefined ||
 					provider.requestPrice !== undefined) && (
-					<p className="text-xs text-muted-foreground">
-						{provider.inputPrice !== undefined && (
-							<>
-								<span className="font-mono text-foreground font-bold">
-									${(provider.inputPrice * 1e6).toFixed(2)}
-								</span>{" "}
-								<span className="text-muted-foreground">in</span>
-							</>
-						)}
+					<div className="text-xs text-muted-foreground">
+						<p>
+							{provider.inputPrice !== undefined && (
+								<>
+									<span className="font-mono text-foreground font-bold">
+										${(provider.inputPrice * 1e6).toFixed(2)}
+									</span>{" "}
+									<span className="text-muted-foreground">in</span>
+								</>
+							)}
 
-						{provider.outputPrice !== undefined && (
-							<>
-								<span className="text-muted-foreground mx-2">/</span>
-								<span className="font-mono text-foreground font-bold">
-									${(provider.outputPrice * 1e6).toFixed(2)}
-								</span>{" "}
-								<span className="text-muted-foreground">out</span>
-							</>
+							{provider.outputPrice !== undefined && (
+								<>
+									<span className="text-muted-foreground mx-2">/</span>
+									<span className="font-mono text-foreground font-bold">
+										${(provider.outputPrice * 1e6).toFixed(2)}
+									</span>{" "}
+									<span className="text-muted-foreground">out</span>
+								</>
+							)}
+							{provider.requestPrice !== undefined &&
+								provider.requestPrice !== 0 &&
+								` / $${(provider.requestPrice * 1000).toFixed(2)} per 1K req`}
+						</p>
+						{provider.pricingTiers && provider.pricingTiers.length > 1 && (
+							<p className="text-muted-foreground/70 text-[10px] mt-0.5">
+								Tiered pricing available
+							</p>
 						)}
-						{provider.requestPrice !== undefined &&
-							provider.requestPrice !== 0 &&
-							` / $${(provider.requestPrice * 1000).toFixed(2)} per 1K req`}
-					</p>
+					</div>
 				)}
 			</CardContent>
 			<CardFooter className="mt-auto pt-4">

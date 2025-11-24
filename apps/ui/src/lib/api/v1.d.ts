@@ -164,6 +164,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/referral": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        ref: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Referral cookie set successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -603,6 +646,18 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                routingMetadata?: {
+                                    availableProviders?: string[];
+                                    selectedProvider?: string;
+                                    selectionReason?: string;
+                                    providerScores?: {
+                                        providerId: string;
+                                        score: number;
+                                        uptime?: number;
+                                        latency?: number;
+                                        price?: number;
+                                    }[];
+                                } | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {
@@ -654,6 +709,8 @@ export interface paths {
                         "application/json": {
                             /** @description Array of unique model names (extracted from provider/model) */
                             models: string[];
+                            /** @description Array of unique provider names (extracted from provider/model) */
+                            providers: string[];
                         };
                     };
                 };
@@ -1966,6 +2023,7 @@ export interface paths {
                                 autoTopUpEnabled: boolean;
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
+                                referralEarnings: string;
                             }[];
                         };
                     };
@@ -2016,6 +2074,7 @@ export interface paths {
                                 autoTopUpEnabled: boolean;
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
+                                referralEarnings: string;
                             };
                         };
                     };
@@ -2194,6 +2253,7 @@ export interface paths {
                                 autoTopUpEnabled: boolean;
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
+                                referralEarnings: string;
                             };
                         };
                     };
@@ -2265,6 +2325,45 @@ export interface paths {
                                 stripeInvoiceId: string | null;
                                 description: string | null;
                             }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{id}/referral-stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Referral statistics for the organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            referredCount: number;
                         };
                     };
                 };

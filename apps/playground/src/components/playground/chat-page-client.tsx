@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
 import { getStoredGithubMcpToken } from "@/components/connectors/github-connector";
@@ -17,10 +18,12 @@ import {
 	useChats,
 	useCreateChat,
 	useDataChat,
+	useDeleteChat,
 } from "@/hooks/useChats";
 import { useUser } from "@/hooks/useUser";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
+import { getErrorMessage } from "@/lib/utils";
 
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
@@ -59,10 +62,27 @@ export default function ChatPageClient({
 	};
 
 	const [selectedModel, setSelectedModel] = useState(getInitialModel());
+	const [reasoningEffort, setReasoningEffort] = useState<
+		"" | "minimal" | "low" | "medium" | "high"
+	>("");
+	const [imageAspectRatio, setImageAspectRatio] = useState<
+		| "auto"
+		| "1:1"
+		| "9:16"
+		| "3:4"
+		| "4:3"
+		| "3:2"
+		| "2:3"
+		| "5:4"
+		| "4:5"
+		| "21:9"
+	>("auto");
+	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const chatIdRef = useRef(currentChatId);
+	const isNewChatRef = useRef(false);
 
 	const [githubToken, setGithubToken] = useState<string | null>(null);
 
@@ -81,10 +101,31 @@ export default function ChatPageClient({
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
-			onError: (e) => {
-				setError(e.message);
+			onError: async (e) => {
+				const msg = getErrorMessage(e);
+				setError(msg);
+				toast.error(msg);
+
+				// If it was a new chat and AI failed to respond, delete the chat
+				if (isNewChatRef.current && chatIdRef.current) {
+					try {
+						await deleteChat.mutateAsync({
+							params: { path: { id: chatIdRef.current } },
+						});
+						// Reset state
+						setCurrentChatId(null);
+						chatIdRef.current = null;
+						setMessages([]);
+						isNewChatRef.current = false;
+					} catch (cleanupError) {
+						toast.error(
+							"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+						);
+					}
+				}
 			},
 			onFinish: async ({ message }) => {
+				isNewChatRef.current = false;
 				const chatId = chatIdRef.current;
 				if (!chatId) {
 					return;
@@ -142,8 +183,50 @@ export default function ChatPageClient({
 		chatIdRef.current = currentChatId;
 	}, [currentChatId]);
 
+	const supportsImages = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.vision;
+	}, [availableModels, selectedModel]);
+
+	const supportsImageGen = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.imageGen;
+	}, [availableModels, selectedModel]);
+
+	const supportsReasoning = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const [providerId, modelId] = selectedModel.includes("/")
+			? (selectedModel.split("/") as [string, string])
+			: ["", selectedModel];
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.providers.some((p) => p.reasoning);
+		}
+		const mapping = def.providers.find((p) => p.providerId === providerId);
+		return !!mapping?.reasoning;
+	}, [models, selectedModel]);
+
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
+			const imageConfig =
+				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
+					? {
+							aspect_ratio: imageAspectRatio,
+							image_size: imageSize,
+						}
+					: undefined;
+
 			const mergedOptions = {
 				...options,
 				headers: {
@@ -153,16 +236,26 @@ export default function ChatPageClient({
 				body: {
 					...(options?.body || {}),
 					...(githubToken ? { githubToken } : {}),
+					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+					...(imageConfig ? { image_config: imageConfig } : {}),
 				},
 			};
 			return sendMessage(message, mergedOptions);
 		},
-		[sendMessage, githubToken],
+		[
+			sendMessage,
+			githubToken,
+			reasoningEffort,
+			supportsImageGen,
+			imageAspectRatio,
+			imageSize,
+		],
 	);
 
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const deleteChat = useDeleteChat();
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
@@ -219,7 +312,7 @@ export default function ChatPageClient({
 							});
 							parts.push(...imageParts);
 						} catch (error) {
-							console.error("Failed to parse images:", error);
+							toast.error("Failed to parse images: " + getErrorMessage(error));
 						}
 					}
 
@@ -231,7 +324,7 @@ export default function ChatPageClient({
 								parts.push(...parsedTools.map((t: any) => ({ ...t })));
 							}
 						} catch (error) {
-							console.error("Failed to parse tools:", error);
+							toast.error("Failed to parse tools: " + getErrorMessage(error));
 						}
 					}
 
@@ -320,6 +413,11 @@ export default function ChatPageClient({
 		setError(null);
 		setIsLoading(true);
 
+		const isNewChat = !chatIdRef.current;
+		if (isNewChat) {
+			isNewChatRef.current = true;
+		}
+
 		try {
 			const chatId = await ensureCurrentChat(content);
 
@@ -328,9 +426,26 @@ export default function ChatPageClient({
 				body: { role: "user", content },
 			});
 		} catch (error) {
-			setError(
-				error instanceof Error ? error.message : "An unknown error occurred.",
-			);
+			const errorMessage = getErrorMessage(error);
+			setError(errorMessage);
+			toast.error(errorMessage);
+
+			// If it was a new chat and we failed to add the first message, delete the chat
+			if (isNewChat && chatIdRef.current) {
+				try {
+					await deleteChat.mutateAsync({
+						params: { path: { id: chatIdRef.current } },
+					});
+					setCurrentChatId(null);
+					chatIdRef.current = null;
+					setMessages([]);
+					isNewChatRef.current = false;
+				} catch (cleanupError) {
+					toast.error(
+						"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+					);
+				}
+			}
 		} finally {
 			setIsLoading(false);
 		}
@@ -375,21 +490,12 @@ export default function ChatPageClient({
 
 	const [text, setText] = useState("");
 
-	const supportsImages = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+	// Reset reasoning effort when switching to a non-reasoning model
+	useEffect(() => {
+		if (!supportsReasoning && reasoningEffort) {
+			setReasoningEffort("");
 		}
-		return !!model?.vision;
-	}, [availableModels, selectedModel]);
-
-	const supportsImageGen = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
-		}
-		return !!model?.imageGen;
-	}, [availableModels, selectedModel]);
+	}, [supportsReasoning, reasoningEffort]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
@@ -459,7 +565,7 @@ export default function ChatPageClient({
 					onProjectCreated={handleProjectCreated}
 				/>
 				<div className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
-					<div className="flex-shrink-0">
+					<div className="shrink-0">
 						<ChatHeader
 							models={models}
 							providers={providers}
@@ -479,6 +585,13 @@ export default function ChatPageClient({
 							status={status}
 							stop={stop}
 							regenerate={regenerate}
+							reasoningEffort={reasoningEffort}
+							setReasoningEffort={setReasoningEffort}
+							supportsReasoning={supportsReasoning}
+							imageAspectRatio={imageAspectRatio}
+							setImageAspectRatio={setImageAspectRatio}
+							imageSize={imageSize}
+							setImageSize={setImageSize}
 							onUserMessage={handleUserMessage}
 							isLoading={isLoading || isChatLoading}
 							error={error}

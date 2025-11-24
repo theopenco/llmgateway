@@ -27,6 +27,7 @@ const organizationSchema = z.object({
 	autoTopUpEnabled: z.boolean(),
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
+	referralEarnings: z.string(),
 });
 
 const projectSchema = z.object({
@@ -579,6 +580,68 @@ organization.openapi(getTransactions, async (c) => {
 
 	return c.json({
 		transactions,
+	});
+});
+
+const getReferralStats = createRoute({
+	method: "get",
+	path: "/{id}/referral-stats",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						referredCount: z.number(),
+					}),
+				},
+			},
+			description: "Referral statistics for the organization",
+		},
+	},
+});
+
+organization.openapi(getReferralStats, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: user.id,
+			},
+			organizationId: {
+				eq: id,
+			},
+		},
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const referrals = await db.query.referral.findMany({
+		where: {
+			referrerOrganizationId: {
+				eq: id,
+			},
+		},
+	});
+
+	return c.json({
+		referredCount: referrals.length,
 	});
 });
 

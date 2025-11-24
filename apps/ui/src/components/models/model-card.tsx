@@ -329,6 +329,39 @@ export function ModelCard({
 													)}
 												</div>
 											</div>
+											{provider.imageOutputPrice !== undefined && (
+												<div className="space-y-1">
+													<div className="text-xs text-muted-foreground">
+														Image Out
+													</div>
+													<div className="font-semibold text-foreground text-sm">
+														{typeof formatPrice(
+															provider.imageOutputPrice,
+															provider.discount,
+														) === "string" ? (
+															<>
+																{formatPrice(
+																	provider.imageOutputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs ml-1">
+																	/M
+																</span>
+															</>
+														) : (
+															<span className="inline-flex items-baseline gap-1">
+																{formatPrice(
+																	provider.imageOutputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs">
+																	/M
+																</span>
+															</span>
+														)}
+													</div>
+												</div>
+											)}
 										</div>
 									</div>
 

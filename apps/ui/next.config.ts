@@ -19,6 +19,16 @@ const nextConfig: NextConfig = {
 	async redirects() {
 		return [
 			{
+				source: "/models/sherlock-dash-alpha",
+				destination: "/models/grok-4-1-fast-non-reasoning",
+				permanent: true,
+			},
+			{
+				source: "/models/sherlock-think-alpha",
+				destination: "/models/grok-4-1-fast-reasoning",
+				permanent: true,
+			},
+			{
 				source: "/docs",
 				destination: "https://docs.llmgateway.io",
 				permanent: true,

@@ -1,16 +1,23 @@
 "use client";
 
 import {
+	AlertTriangle,
+	Braces,
 	Check,
 	ChevronsUpDown,
-	Filter,
-	Info,
+	Eye,
 	ExternalLink,
-	AlertTriangle,
+	Filter,
+	ImagePlus,
+	Info,
+	MessageSquare,
+	Sparkles,
+	Wrench,
+	Zap,
 } from "lucide-react";
 import * as React from "react";
 
-import { getProviderIcon } from "@/components/provider-icons";
+import { getProviderIcon, providerLogoUrls } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,8 +52,10 @@ import { cn } from "@/lib/utils";
 import type {
 	ModelDefinition,
 	ProviderDefinition,
+	ProviderId,
 	ProviderModelMapping,
 } from "@llmgateway/models";
+import type { LucideProps } from "lucide-react";
 
 interface ModelSelectorProps {
 	models: ModelDefinition[];
@@ -61,6 +70,7 @@ interface FilterState {
 	capabilities: string[];
 	priceRange: "free" | "low" | "medium" | "high" | "all";
 	hideUnstable: boolean;
+	showOnlyRoot: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -68,27 +78,52 @@ function getMappingCapabilities(
 	mapping?: ProviderModelMapping,
 	model?: ModelDefinition,
 ): string[] {
-	if (!mapping) {
-		return [];
-	}
 	const labels: string[] = [];
-	if (mapping.streaming) {
-		labels.push("Streaming");
+
+	if (mapping) {
+		if (mapping.streaming) {
+			labels.push("Streaming");
+		}
+		if (mapping.vision) {
+			labels.push("Vision");
+		}
+		if (mapping.tools) {
+			labels.push("Tools");
+		}
+		if (mapping.reasoning) {
+			labels.push("Reasoning");
+		}
 	}
-	if (mapping.vision) {
-		labels.push("Vision");
-	}
-	if (mapping.tools) {
-		labels.push("Tools");
-	}
-	if (mapping.reasoning) {
-		labels.push("Reasoning");
-	}
+
 	// Image Generation capability if model outputs include images
 	if (model?.output?.includes("image")) {
 		labels.push("Image Generation");
 	}
 	return labels;
+}
+
+function getCapabilityIconConfig(capability: string): {
+	Icon: React.ForwardRefExoticComponent<
+		Omit<LucideProps, "ref"> & React.RefAttributes<SVGSVGElement>
+	> | null;
+	color: string;
+} {
+	switch (capability) {
+		case "Streaming":
+			return { Icon: Zap, color: "text-blue-500" };
+		case "Vision":
+			return { Icon: Eye, color: "text-green-500" };
+		case "Tools":
+			return { Icon: Wrench, color: "text-purple-500" };
+		case "Reasoning":
+			return { Icon: MessageSquare, color: "text-orange-500" };
+		case "JSON Output":
+			return { Icon: Braces, color: "text-cyan-500" };
+		case "Image Generation":
+			return { Icon: ImagePlus, color: "text-pink-500" };
+		default:
+			return { Icon: null, color: "" };
+	}
 }
 
 // helper to check if a model is unstable or experimental
@@ -102,6 +137,161 @@ function isModelUnstable(
 	return (
 		effectiveStability === "unstable" || effectiveStability === "experimental"
 	);
+}
+
+type PriceField = "input" | "output" | "cachedInput";
+
+interface MappingPriceInfo {
+	label: string;
+	original?: string;
+	discounted?: string;
+}
+
+// Helper to format prices using any provider discount while reusing shared formatPrice logic.
+function getMappingPriceInfo(
+	mapping: ProviderModelMapping | undefined,
+	field: PriceField,
+): MappingPriceInfo {
+	if (!mapping) {
+		return { label: "Unknown" };
+	}
+
+	let basePrice: number | undefined;
+	if (field === "input") {
+		basePrice = mapping.inputPrice;
+	} else if (field === "output") {
+		basePrice = mapping.outputPrice;
+	} else {
+		basePrice = mapping.cachedInputPrice;
+	}
+
+	if (basePrice === undefined) {
+		return { label: "Unknown" };
+	}
+
+	// Free models
+	if (basePrice === 0) {
+		return { label: "Free", original: "Free" };
+	}
+
+	const original = formatPrice(basePrice);
+
+	// Apply discount if present
+	if (mapping.discount && mapping.discount > 0) {
+		const discounted = formatPrice(basePrice * (1 - mapping.discount));
+		return {
+			label: discounted,
+			original,
+			discounted,
+		};
+	}
+
+	return { label: original, original };
+}
+
+interface RootAggregateInfo {
+	minInputPrice?: number;
+	minOutputPrice?: number;
+	minCachedInputPrice?: number;
+	maxContextSize?: number;
+	maxOutput?: number;
+	capabilities: string[];
+}
+
+function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
+	const now = new Date();
+
+	let minInputPrice: number | undefined;
+	let minOutputPrice: number | undefined;
+	let minCachedInputPrice: number | undefined;
+	let maxContextSize: number | undefined;
+	let maxOutput: number | undefined;
+	const capabilitySet = new Set<string>();
+
+	const applyDiscount = (price: number | undefined, discount?: number) => {
+		if (price === undefined) {
+			return undefined;
+		}
+		if (price === 0) {
+			return 0;
+		}
+		if (!discount || discount <= 0) {
+			return price;
+		}
+		return price * (1 - discount);
+	};
+
+	for (const mapping of model.providers) {
+		// Skip deactivated providers when computing "best" supported values
+		const isDeactivated =
+			mapping.deactivatedAt && new Date(mapping.deactivatedAt) <= now;
+		if (isDeactivated) {
+			continue;
+		}
+
+		const effectiveInput = applyDiscount(mapping.inputPrice, mapping.discount);
+		if (
+			effectiveInput !== undefined &&
+			(minInputPrice === undefined || effectiveInput < minInputPrice)
+		) {
+			minInputPrice = effectiveInput;
+		}
+
+		const effectiveOutput = applyDiscount(
+			mapping.outputPrice,
+			mapping.discount,
+		);
+		if (
+			effectiveOutput !== undefined &&
+			(minOutputPrice === undefined || effectiveOutput < minOutputPrice)
+		) {
+			minOutputPrice = effectiveOutput;
+		}
+
+		const effectiveCached = applyDiscount(
+			mapping.cachedInputPrice,
+			mapping.discount,
+		);
+		if (
+			effectiveCached !== undefined &&
+			(minCachedInputPrice === undefined ||
+				effectiveCached < minCachedInputPrice)
+		) {
+			minCachedInputPrice = effectiveCached;
+		}
+
+		if (
+			mapping.contextSize !== undefined &&
+			(maxContextSize === undefined || mapping.contextSize > maxContextSize)
+		) {
+			maxContextSize = mapping.contextSize;
+		}
+
+		if (
+			mapping.maxOutput !== undefined &&
+			(maxOutput === undefined || mapping.maxOutput > maxOutput)
+		) {
+			maxOutput = mapping.maxOutput;
+		}
+
+		getMappingCapabilities(mapping, model).forEach((capability) =>
+			capabilitySet.add(capability),
+		);
+	}
+
+	// Ensure image generation capability is included if any provider supports image output
+	if (model.output?.includes("image")) {
+		capabilitySet.add("Image Generation");
+	}
+
+	return {
+		minInputPrice,
+		minOutputPrice,
+		minCachedInputPrice,
+		maxContextSize,
+		maxOutput,
+		capabilities: Array.from(capabilitySet),
+	};
 }
 
 // Removed old ModelItem; we render entries per provider below
@@ -119,14 +309,21 @@ export function ModelSelector({
 	const [detailsOpen, setDetailsOpen] = React.useState(false);
 	const [selectedDetails, setSelectedDetails] = React.useState<{
 		model: ModelDefinition;
-		mapping: ProviderModelMapping;
+		mapping?: ProviderModelMapping;
 		provider?: ProviderDefinition;
+	} | null>(null);
+	const [previewEntry, setPreviewEntry] = React.useState<{
+		model: ModelDefinition;
+		mapping?: ProviderModelMapping;
+		provider?: ProviderDefinition;
+		isRoot?: boolean;
 	} | null>(null);
 	const [filters, setFilters] = React.useState<FilterState>({
 		providers: [],
 		capabilities: [],
 		priceRange: "all",
 		hideUnstable: true,
+		showOnlyRoot: false,
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
@@ -141,28 +338,59 @@ export function ModelSelector({
 	const selectedEntryKey =
 		selectedModel && selectedProviderId
 			? `${selectedProviderId}-${selectedModel.id}`
-			: "";
+			: selectedModel
+				? selectedModel.id
+				: "";
+
+	// Simple normalizer for search matching
+	const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, "");
 
 	// Build entries of model per provider mapping (include all, filter later)
 	const allEntries = React.useMemo(() => {
 		const out: {
 			model: ModelDefinition;
-			mapping: ProviderModelMapping;
+			mapping?: ProviderModelMapping;
 			provider?: ProviderDefinition;
+			isRoot?: boolean;
+			searchText: string;
 		}[] = [];
 		const now = new Date();
 		for (const m of models) {
 			if (m.id === "custom") {
 				continue;
 			}
+
+			// Add root model entry (auto-routing)
+			const rootSearchText = normalize(
+				[m.name ?? "", m.family ?? "", m.id, "auto"].join(" "),
+			);
+			out.push({
+				model: m,
+				isRoot: true,
+				searchText: rootSearchText,
+			});
+
+			// Skip provider entries for auto model - it should only appear as root
+			if (m.id === "auto") {
+				continue;
+			}
+
 			for (const mp of m.providers) {
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
+					const provider = providers.find((p) => p.id === mp.providerId);
+					const searchText = normalize(
+						[m.name ?? "", m.family ?? "", m.id, provider?.name ?? ""].join(
+							" ",
+						),
+					);
 					out.push({
 						model: m,
 						mapping: mp,
-						provider: providers.find((p) => p.id === mp.providerId),
+						provider,
+						isRoot: false,
+						searchText,
 					});
 				}
 			}
@@ -170,9 +398,14 @@ export function ModelSelector({
 		return out;
 	}, [models, providers]);
 
+	// Defer search input value to keep typing responsive with large lists
+	const deferredSearch = React.useDeferredValue(searchQuery);
+
 	// Get unique providers and capabilities for filtering
 	const availableProviders = React.useMemo(() => {
-		const ids = new Set(allEntries.map((e) => e.mapping.providerId));
+		const ids = new Set(
+			allEntries.filter((e) => e.mapping).map((e) => e.mapping!.providerId),
+		);
 		return providers.filter((p) => ids.has(p.id as any));
 	}, [allEntries, providers]);
 
@@ -186,9 +419,21 @@ export function ModelSelector({
 
 	const filteredEntries = React.useMemo(() => {
 		let list = allEntries;
+
+		if (filters.showOnlyRoot) {
+			list = list.filter((e) => e.isRoot);
+		}
+
 		if (filters.hideUnstable) {
 			list = list.filter((e) => {
-				const providerStability = e.mapping.stability;
+				// Root models are considered stable unless model itself is unstable
+				if (e.isRoot) {
+					return (
+						e.model.stability !== "unstable" &&
+						e.model.stability !== "experimental"
+					);
+				}
+				const providerStability = e.mapping?.stability;
 				const modelStability = e.model.stability;
 				const effectiveStability = providerStability ?? modelStability;
 				return (
@@ -197,22 +442,13 @@ export function ModelSelector({
 				);
 			});
 		}
-		if (searchQuery) {
-			const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, "");
-			const q = normalize(searchQuery);
-			list = list.filter(({ model, provider }) => {
-				const candidates = [
-					model.name ?? "",
-					model.family,
-					model.id,
-					provider?.name ?? "",
-				];
-				return candidates.some((c) => normalize(c).includes(q));
-			});
+		if (deferredSearch) {
+			const q = normalize(deferredSearch);
+			list = list.filter((entry) => entry.searchText.includes(q));
 		}
 		if (filters.providers.length > 0) {
-			list = list.filter((e) =>
-				filters.providers.includes(e.mapping.providerId),
+			list = list.filter(
+				(e) => e.mapping && filters.providers.includes(e.mapping.providerId),
 			);
 		}
 		if (filters.capabilities.length > 0) {
@@ -223,6 +459,13 @@ export function ModelSelector({
 		}
 		if (filters.priceRange !== "all") {
 			list = list.filter((e) => {
+				// Root models don't have fixed price, exclude from price filter or include?
+				// Let's exclude them if filtering by price, or maybe assume 'free' if unknown?
+				// Safest is to only filter items that have a mapping.
+				if (!e.mapping) {
+					return false;
+				}
+
 				const price = e.mapping.inputPrice || 0;
 				switch (filters.priceRange) {
 					case "free":
@@ -239,7 +482,7 @@ export function ModelSelector({
 			});
 		}
 		return list;
-	}, [allEntries, searchQuery, filters]);
+	}, [allEntries, deferredSearch, filters]);
 
 	const updateFilter = (key: keyof FilterState, value: any) => {
 		setFilters((prev) => ({ ...prev, [key]: value }));
@@ -251,6 +494,8 @@ export function ModelSelector({
 			providers: prev.providers.includes(providerId)
 				? prev.providers.filter((id) => id !== providerId)
 				: [...prev.providers, providerId],
+			// If selecting providers, we probably don't want to show root models only
+			showOnlyRoot: false,
 		}));
 	};
 
@@ -269,6 +514,7 @@ export function ModelSelector({
 			capabilities: [],
 			priceRange: "all",
 			hideUnstable: true,
+			showOnlyRoot: false,
 		});
 	};
 
@@ -276,7 +522,67 @@ export function ModelSelector({
 		filters.providers.length > 0 ||
 		filters.capabilities.length > 0 ||
 		filters.priceRange !== "all" ||
-		!filters.hideUnstable;
+		!filters.hideUnstable ||
+		filters.showOnlyRoot;
+
+	const getProviderLogo = (providerId: ProviderId) => {
+		const LogoComponent = providerLogoUrls[providerId];
+
+		if (LogoComponent) {
+			return <LogoComponent className="h-10 w-10 object-contain" />;
+		}
+
+		const IconComponent = getProviderIcon(providerId);
+		return IconComponent ? (
+			<IconComponent className="h-10 w-10" />
+		) : (
+			<div className="h-10 w-10 bg-gray-200 rounded" />
+		);
+	};
+
+	// Keep desktop preview in sync with the currently selected model when opening
+	React.useEffect(() => {
+		if (!open) {
+			return;
+		}
+		if (!selectedModel) {
+			setPreviewEntry(null);
+			return;
+		}
+
+		// Prefer provider-specific entry when a provider is selected
+		let entry =
+			selectedProviderId &&
+			allEntries.find(
+				(e) =>
+					!e.isRoot &&
+					e.model.id === selectedModel.id &&
+					e.mapping?.providerId === selectedProviderId,
+			);
+
+		// Fallback to root entry for the selected model
+		if (!entry) {
+			entry = allEntries.find(
+				(e) => e.isRoot && e.model.id === selectedModel.id,
+			);
+		}
+
+		// Fallback to first filtered entry
+		if (!entry && filteredEntries.length > 0) {
+			entry = filteredEntries[0];
+		}
+
+		setPreviewEntry(
+			entry
+				? {
+						model: entry.model,
+						mapping: entry.mapping,
+						provider: entry.provider,
+						isRoot: entry.isRoot,
+					}
+				: null,
+		);
+	}, [open, selectedModel, selectedProviderId, allEntries, filteredEntries]);
 
 	return (
 		<>
@@ -291,18 +597,15 @@ export function ModelSelector({
 						{selectedModel ? (
 							<div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
 								{(() => {
-									const provider =
-										selectedProviderDef ||
-										getProviderForModel(selectedModel, providers);
-									const ProviderIcon = provider
-										? getProviderIcon(provider.id)
-										: null;
-									return ProviderIcon ? (
-										<ProviderIcon
-											className="h-5 w-5 flex-shrink-0"
-											style={{ color: provider?.color }}
-										/>
-									) : null;
+									if (
+										selectedModelId === selectedModel.id &&
+										!selectedProviderDef
+									) {
+										return (
+											<Sparkles className="h-5 w-5 shrink-0 text-primary" />
+										);
+									}
+									return getProviderLogo(selectedModel.providers[0].providerId);
 								})()}
 								<div className="flex flex-col items-start min-w-0 flex-1">
 									<div className="flex items-center gap-1 max-w-full">
@@ -320,17 +623,18 @@ export function ModelSelector({
 												selectedMapping?.deprecatedAt &&
 												new Date(selectedMapping.deprecatedAt) <= new Date();
 											return isUnstable || isDeprecated ? (
-												<AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-yellow-600 dark:text-yellow-500" />
+												<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
 											) : null;
 										})()}
 									</div>
 									<span className="text-xs text-muted-foreground truncate max-w-full">
-										{
-											(
-												selectedProviderDef ||
-												getProviderForModel(selectedModel, providers)
-											)?.name
-										}
+										{selectedModelId === selectedModel.id &&
+										!selectedProviderDef
+											? "Auto-select provider"
+											: (
+													selectedProviderDef ||
+													getProviderForModel(selectedModel, providers)
+												)?.name}
 									</span>
 								</div>
 							</div>
@@ -341,15 +645,15 @@ export function ModelSelector({
 					</Button>
 				</PopoverTrigger>
 				<PopoverContent
-					className="w-[300px] sm:w-[600px] p-0"
+					className="w-[300px] sm:w-[720px] p-0"
 					style={{ zIndex: 99999 }}
 					sideOffset={4}
 					align="start"
 				>
 					<div className="flex w-[300px] md:w-full">
-						{/* Main content */}
-						<div className="flex-1 w-[300px] md:w-full">
-							<Command>
+						{/* Main content - model list & filters */}
+						<div className="flex-1 w-[300px] md:w-[340px]">
+							<Command shouldFilter={false}>
 								<div className="flex items-center border-b px-3 w-[300px] md:w-full">
 									<CommandInput
 										placeholder="Search models..."
@@ -389,6 +693,25 @@ export function ModelSelector({
 														</Button>
 													)}
 												</div>
+
+												{/* Root model filter */}
+												<div className="flex items-center space-x-2">
+													<Checkbox
+														id="show-root"
+														checked={filters.showOnlyRoot}
+														onCheckedChange={(checked) =>
+															updateFilter("showOnlyRoot", checked)
+														}
+													/>
+													<Label
+														htmlFor="show-root"
+														className="text-sm cursor-pointer font-medium"
+													>
+														Show only root models
+													</Label>
+												</div>
+
+												<Separator />
 
 												{/* Provider filter */}
 												<div className="space-y-2">
@@ -552,77 +875,477 @@ export function ModelSelector({
 											{filteredEntries.length} model
 											{filteredEntries.length !== 1 ? "s" : ""} found
 										</div>
-										{filteredEntries.map(({ model, mapping, provider }) => {
-											const ProviderIcon = provider
-												? getProviderIcon(provider.id)
-												: null;
-											const entryKey = `${mapping.providerId}-${model.id}`;
-											const isUnstable = isModelUnstable(mapping, model);
-											const isDeprecated =
-												mapping.deprecatedAt &&
-												new Date(mapping.deprecatedAt) <= new Date();
-											return (
-												<CommandItem
-													key={entryKey}
-													value={entryKey}
-													onSelect={() => {
-														onValueChange?.(
-															`${mapping.providerId}/${model.id}`,
-														);
-														setOpen(false);
-													}}
-													className="p-2 sm:p-3 cursor-pointer"
-												>
-													<Check
-														className={cn(
-															"h-4 w-4",
-															entryKey === selectedEntryKey
-																? "opacity-100"
-																: "opacity-0",
-														)}
-													/>
-													<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
-														<div className="flex items-center gap-2 min-w-0 flex-1">
-															{ProviderIcon ? (
-																<ProviderIcon className="h-6 w-6 flex-shrink-0" />
-															) : null}
-															<div className="flex flex-col min-w-0 flex-1">
-																<div className="flex items-center gap-1">
-																	<span className="font-medium truncate">
-																		{model.name}
-																	</span>
-																	{(isUnstable || isDeprecated) && (
-																		<AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-yellow-600 dark:text-yellow-500" />
-																	)}
-																</div>
-																<span className="text-xs text-muted-foreground truncate">
-																	{provider?.name}
-																</span>
-															</div>
-														</div>
-														<Button
-															variant="ghost"
-															size="sm"
-															className="h-8 w-8 p-0 hover:bg-muted/50 flex-shrink-0"
-															onClick={(e) => {
-																e.stopPropagation();
-																setSelectedDetails({
+										{filteredEntries.map(
+											({ model, mapping, provider, isRoot }) => {
+												if (isRoot) {
+													const entryKey = model.id;
+													return (
+														<CommandItem
+															key={entryKey}
+															value={entryKey}
+															onMouseEnter={() =>
+																setPreviewEntry({
 																	model,
 																	mapping,
 																	provider,
-																});
-																setDetailsOpen(true);
+																	isRoot,
+																})
+															}
+															onSelect={() => {
+																onValueChange?.(model.id);
+																setOpen(false);
 															}}
+															className="p-2 sm:p-3 cursor-pointer"
 														>
-															<Info className="h-4 w-4" />
-														</Button>
-													</div>
-												</CommandItem>
-											);
-										})}
+															<Check
+																className={cn(
+																	"h-4 w-4",
+																	entryKey === selectedEntryKey
+																		? "opacity-100"
+																		: "opacity-0",
+																)}
+															/>
+															<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+																<div className="flex items-center gap-2 min-w-0 flex-1">
+																	<Sparkles className="h-6 w-6 shrink-0 text-primary" />
+																	<div className="flex flex-col min-w-0 flex-1">
+																		<div className="flex items-center gap-1">
+																			<span className="font-medium truncate">
+																				{model.name}
+																			</span>
+																		</div>
+																		<span className="text-xs text-muted-foreground truncate">
+																			Auto-select provider
+																		</span>
+																	</div>
+																</div>
+																<Button
+																	variant="ghost"
+																	size="sm"
+																	className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		setSelectedDetails({
+																			model,
+																		});
+																		setDetailsOpen(true);
+																	}}
+																>
+																	<Info className="h-4 w-4" />
+																</Button>
+															</div>
+														</CommandItem>
+													);
+												}
+
+												const ProviderIcon = provider
+													? getProviderIcon(provider.id)
+													: null;
+												const entryKey = `${mapping!.providerId}-${model.id}`;
+												const isUnstable = isModelUnstable(mapping!, model);
+												const isDeprecated =
+													mapping!.deprecatedAt &&
+													new Date(mapping!.deprecatedAt) <= new Date();
+												return (
+													<CommandItem
+														key={entryKey}
+														value={entryKey}
+														onMouseEnter={() =>
+															setPreviewEntry({
+																model,
+																mapping,
+																provider,
+																isRoot,
+															})
+														}
+														onSelect={() => {
+															onValueChange?.(
+																`${mapping!.providerId}/${model.id}`,
+															);
+															setOpen(false);
+														}}
+														className="p-2 sm:p-3 cursor-pointer"
+													>
+														<Check
+															className={cn(
+																"h-4 w-4",
+																entryKey === selectedEntryKey
+																	? "opacity-100"
+																	: "opacity-0",
+															)}
+														/>
+														<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+															<div className="flex items-center gap-2 min-w-0 flex-1">
+																{ProviderIcon ? (
+																	<ProviderIcon className="h-6 w-6 shrink-0" />
+																) : null}
+																<div className="flex flex-col min-w-0 flex-1">
+																	<div className="flex items-center gap-1">
+																		<span className="font-medium truncate">
+																			{model.name}
+																		</span>
+																		{(isUnstable || isDeprecated) && (
+																			<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
+																		)}
+																	</div>
+																	<span className="text-xs text-muted-foreground truncate">
+																		{provider?.name}
+																	</span>
+																</div>
+															</div>
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	setSelectedDetails({
+																		model,
+																		mapping,
+																		provider,
+																	});
+																	setDetailsOpen(true);
+																}}
+															>
+																<Info className="h-4 w-4" />
+															</Button>
+														</div>
+													</CommandItem>
+												);
+											},
+										)}
 									</CommandGroup>
 								</CommandList>
 							</Command>
+						</div>
+						{/* Desktop preview panel */}
+						<div className="hidden md:block w-[360px] border-l border-border bg-muted/40">
+							<div className="p-4 space-y-3 h-full overflow-y-auto">
+								{previewEntry ? (
+									<>
+										<div className="flex items-center gap-3">
+											{(() => {
+												if (!previewEntry.provider) {
+													return (
+														<div className="p-2 rounded-lg bg-primary/10">
+															<Sparkles className="h-5 w-5 text-primary" />
+														</div>
+													);
+												}
+												const ProviderIcon = getProviderIcon(
+													previewEntry.provider.id,
+												);
+												return ProviderIcon ? (
+													<div
+														className="p-2 rounded-lg"
+														style={{
+															backgroundColor: `${previewEntry.provider?.color}15`,
+														}}
+													>
+														<ProviderIcon className="h-5 w-5" />
+													</div>
+												) : null;
+											})()}
+											<div className="flex-1 min-w-0">
+												<div className="font-semibold text-sm truncate">
+													{previewEntry.model.name}
+												</div>
+												<div className="text-xs text-muted-foreground truncate">
+													{previewEntry.provider?.name ??
+														"Auto-select provider"}
+												</div>
+												<div className="text-[11px] text-muted-foreground capitalize truncate">
+													{previewEntry.model.family} family
+												</div>
+											</div>
+										</div>
+
+										{!previewEntry.provider ? (
+											<>
+												<p className="text-xs text-muted-foreground leading-relaxed">
+													This is a root model ID. The Gateway will
+													automatically select the best provider for this model
+													based on availability, performance, and cost. Specific
+													capabilities and pricing will depend on the selected
+													provider.
+												</p>
+
+												{(() => {
+													const aggregate = getRootAggregateInfo(
+														previewEntry.model,
+													);
+
+													const hasPricingOrLimits =
+														aggregate.minInputPrice !== undefined ||
+														aggregate.minOutputPrice !== undefined ||
+														aggregate.maxContextSize !== undefined ||
+														aggregate.maxOutput !== undefined;
+
+													const hasCapabilities =
+														aggregate.capabilities.length > 0;
+
+													if (!hasPricingOrLimits && !hasCapabilities) {
+														return null;
+													}
+
+													return (
+														<div className="space-y-3 pt-3 border-t border-dashed">
+															{hasPricingOrLimits && (
+																<div className="space-y-2">
+																	<h5 className="font-medium text-xs">
+																		Pricing &amp; Limits{" "}
+																		<span className="text-[11px] font-normal text-muted-foreground">
+																			(starts at)
+																		</span>
+																	</h5>
+																	<div className="grid grid-cols-2 gap-3">
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Input
+																			</span>
+																			<p className="text-xs font-mono">
+																				{aggregate.minInputPrice !== undefined
+																					? formatPrice(aggregate.minInputPrice)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-xs font-mono">
+																				{aggregate.minOutputPrice !== undefined
+																					? formatPrice(
+																							aggregate.minOutputPrice,
+																						)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Context
+																			</span>
+																			<p className="text-xs font-mono">
+																				{formatContextSize(
+																					aggregate.maxContextSize,
+																				)}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Max Output
+																			</span>
+																			<p className="text-xs font-mono">
+																				{formatContextSize(aggregate.maxOutput)}
+																			</p>
+																		</div>
+																	</div>
+																</div>
+															)}
+
+															{hasCapabilities && (
+																<div className="space-y-1">
+																	<h5 className="font-medium text-xs">
+																		Capabilities
+																	</h5>
+																	<div className="flex flex-wrap gap-1">
+																		{aggregate.capabilities.map(
+																			(capability) => {
+																				const { Icon, color } =
+																					getCapabilityIconConfig(capability);
+																				return (
+																					<Badge
+																						key={capability}
+																						variant="secondary"
+																						className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																					>
+																						{Icon && (
+																							<Icon
+																								className={`h-3 w-3 ${color}`}
+																							/>
+																						)}
+																						{capability}
+																					</Badge>
+																				);
+																			},
+																		)}
+																	</div>
+																</div>
+															)}
+														</div>
+													);
+												})()}
+											</>
+										) : (
+											<>
+												{previewEntry.provider?.description && (
+													<p className="text-xs text-muted-foreground leading-relaxed">
+														{previewEntry.provider.description}
+													</p>
+												)}
+
+												<div className="space-y-2">
+													<h5 className="font-medium text-xs">
+														Pricing & Limits
+													</h5>
+													<div className="grid grid-cols-2 gap-3">
+														<div className="space-y-1">
+															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																Input
+															</span>
+															<p className="text-xs font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		previewEntry.mapping,
+																		"input",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+														<div className="space-y-1">
+															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																Output
+															</span>
+															<p className="text-xs font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		previewEntry.mapping,
+																		"output",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+														<div className="space-y-1">
+															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																Context
+															</span>
+															<p className="text-xs font-mono">
+																{formatContextSize(
+																	previewEntry.mapping?.contextSize,
+																)}
+															</p>
+														</div>
+														<div className="space-y-1">
+															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																Max Output
+															</span>
+															<p className="text-xs font-mono">
+																{formatContextSize(
+																	previewEntry.mapping?.maxOutput,
+																)}
+															</p>
+														</div>
+													</div>
+													{previewEntry.mapping?.cachedInputPrice && (
+														<div className="pt-2 border-t border-dashed">
+															<div className="space-y-1">
+																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																	Cached Input
+																</span>
+																<p className="text-xs font-mono text-green-600 dark:text-green-400">
+																	{(() => {
+																		const price = getMappingPriceInfo(
+																			previewEntry.mapping,
+																			"cachedInput",
+																		);
+																		if (
+																			price.original &&
+																			price.discounted &&
+																			price.original !== price.discounted
+																		) {
+																			return (
+																				<>
+																					<span className="line-through text-muted-foreground">
+																						{price.original}
+																					</span>{" "}
+																					<span className="text-green-500">
+																						{price.discounted}
+																					</span>
+																				</>
+																			);
+																		}
+																		return price.label;
+																	})()}
+																</p>
+															</div>
+														</div>
+													)}
+												</div>
+
+												{(() => {
+													const caps = getMappingCapabilities(
+														previewEntry.mapping,
+														previewEntry.model,
+													);
+													return caps.length > 0 ? (
+														<div className="space-y-1">
+															<h5 className="font-medium text-xs">
+																Capabilities
+															</h5>
+															<div className="flex flex-wrap gap-1">
+																{caps.map((capability) => {
+																	const { Icon, color } =
+																		getCapabilityIconConfig(capability);
+																	return (
+																		<Badge
+																			key={capability}
+																			variant="secondary"
+																			className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																		>
+																			{Icon && (
+																				<Icon className={`h-3 w-3 ${color}`} />
+																			)}
+																			{capability}
+																		</Badge>
+																	);
+																})}
+															</div>
+														</div>
+													) : null;
+												})()}
+											</>
+										)}
+									</>
+								) : (
+									<p className="text-xs text-muted-foreground">
+										Hover a model to see details.
+									</p>
+								)}
+							</div>
 						</div>
 					</div>
 				</PopoverContent>
@@ -636,9 +1359,16 @@ export function ModelSelector({
 							<DialogHeader>
 								<DialogTitle className="flex items-center gap-3">
 									{(() => {
-										const ProviderIcon = selectedDetails.provider
-											? getProviderIcon(selectedDetails.provider.id)
-											: null;
+										if (!selectedDetails.provider) {
+											return (
+												<div className="p-2 rounded-lg bg-primary/10">
+													<Sparkles className="h-6 w-6 text-primary" />
+												</div>
+											);
+										}
+										const ProviderIcon = getProviderIcon(
+											selectedDetails.provider.id,
+										);
 										return ProviderIcon ? (
 											<div
 												className="p-2 rounded-lg"
@@ -655,7 +1385,7 @@ export function ModelSelector({
 											{selectedDetails.model.name}
 										</div>
 										<div className="text-sm text-muted-foreground font-normal">
-											{selectedDetails.provider?.name}
+											{selectedDetails.provider?.name ?? "Auto-select provider"}
 										</div>
 										<div className="text-xs text-muted-foreground font-normal capitalize">
 											{selectedDetails.model.family} family
@@ -677,93 +1407,271 @@ export function ModelSelector({
 							</DialogHeader>
 
 							<div className="space-y-4">
-								{selectedDetails.provider?.description && (
-									<>
+								{!selectedDetails.provider ? (
+									<div className="space-y-4">
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											{selectedDetails.provider.description}
+											This is a root model ID. The Gateway will automatically
+											select the best provider for this model based on
+											availability, performance, and cost. Specific capabilities
+											and pricing will depend on the selected provider.
 										</p>
+
+										{(() => {
+											const aggregate = getRootAggregateInfo(
+												selectedDetails.model,
+											);
+
+											const hasPricingOrLimits =
+												aggregate.minInputPrice !== undefined ||
+												aggregate.minOutputPrice !== undefined ||
+												aggregate.maxContextSize !== undefined ||
+												aggregate.maxOutput !== undefined;
+
+											const hasCapabilities = aggregate.capabilities.length > 0;
+
+											if (!hasPricingOrLimits && !hasCapabilities) {
+												return null;
+											}
+
+											return (
+												<div className="space-y-4">
+													{hasPricingOrLimits && (
+														<div className="space-y-3">
+															<h5 className="font-medium text-sm">
+																Pricing &amp; Limits{" "}
+																<span className="text-xs font-normal text-muted-foreground">
+																	(starts at)
+																</span>
+															</h5>
+															<div className="grid grid-cols-2 gap-3">
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Input
+																	</span>
+																	<p className="text-sm font-mono">
+																		{aggregate.minInputPrice !== undefined
+																			? formatPrice(aggregate.minInputPrice)
+																			: "Unknown"}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Output
+																	</span>
+																	<p className="text-sm font-mono">
+																		{aggregate.minOutputPrice !== undefined
+																			? formatPrice(aggregate.minOutputPrice)
+																			: "Unknown"}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Context
+																	</span>
+																	<p className="text-sm font-mono">
+																		{formatContextSize(
+																			aggregate.maxContextSize,
+																		)}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Max Output
+																	</span>
+																	<p className="text-sm font-mono">
+																		{formatContextSize(aggregate.maxOutput)}
+																	</p>
+																</div>
+															</div>
+														</div>
+													)}
+
+													{hasCapabilities && (
+														<div className="space-y-2">
+															<h5 className="font-medium text-sm">
+																Capabilities
+															</h5>
+															<div className="flex flex-wrap gap-1.5">
+																{aggregate.capabilities.map((capability) => (
+																	<Badge
+																		key={capability}
+																		variant="secondary"
+																		className="text-xs px-2 py-1"
+																	>
+																		{capability}
+																	</Badge>
+																))}
+															</div>
+														</div>
+													)}
+												</div>
+											);
+										})()}
+									</div>
+								) : (
+									<>
+										{selectedDetails.provider?.description && (
+											<>
+												<p className="text-sm text-muted-foreground leading-relaxed">
+													{selectedDetails.provider.description}
+												</p>
+												<Separator />
+											</>
+										)}
+
+										<div className="space-y-3">
+											<h5 className="font-medium text-sm">Pricing & Limits</h5>
+											<div className="grid grid-cols-2 gap-3">
+												<div className="space-y-1">
+													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+														Input
+													</span>
+													<p className="text-sm font-mono">
+														{(() => {
+															const price = getMappingPriceInfo(
+																selectedDetails.mapping,
+																"input",
+															);
+															if (
+																price.original &&
+																price.discounted &&
+																price.original !== price.discounted
+															) {
+																return (
+																	<>
+																		<span className="line-through text-muted-foreground">
+																			{price.original}
+																		</span>{" "}
+																		<span className="text-green-500">
+																			{price.discounted}
+																		</span>
+																	</>
+																);
+															}
+															return price.label;
+														})()}
+													</p>
+												</div>
+												<div className="space-y-1">
+													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+														Output
+													</span>
+													<p className="text-sm font-mono">
+														{(() => {
+															const price = getMappingPriceInfo(
+																selectedDetails.mapping,
+																"output",
+															);
+															if (
+																price.original &&
+																price.discounted &&
+																price.original !== price.discounted
+															) {
+																return (
+																	<>
+																		<span className="line-through text-muted-foreground">
+																			{price.original}
+																		</span>{" "}
+																		<span className="text-green-500">
+																			{price.discounted}
+																		</span>
+																	</>
+																);
+															}
+															return price.label;
+														})()}
+													</p>
+												</div>
+												<div className="space-y-1">
+													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+														Context
+													</span>
+													<p className="text-sm font-mono">
+														{formatContextSize(
+															selectedDetails.mapping?.contextSize,
+														)}
+													</p>
+												</div>
+												<div className="space-y-1">
+													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+														Max Output
+													</span>
+													<p className="text-sm font-mono">
+														{formatContextSize(
+															selectedDetails.mapping?.maxOutput,
+														)}
+													</p>
+												</div>
+											</div>
+											{selectedDetails.mapping?.cachedInputPrice && (
+												<div className="pt-2 border-t border-dashed">
+													<div className="space-y-1">
+														<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+															Cached Input
+														</span>
+														<p className="text-sm font-mono text-green-600 dark:text-green-400">
+															{(() => {
+																const price = getMappingPriceInfo(
+																	selectedDetails.mapping,
+																	"cachedInput",
+																);
+																if (
+																	price.original &&
+																	price.discounted &&
+																	price.original !== price.discounted
+																) {
+																	return (
+																		<>
+																			<span className="line-through text-muted-foreground">
+																				{price.original}
+																			</span>{" "}
+																			<span className="text-green-500">
+																				{price.discounted}
+																			</span>
+																		</>
+																	);
+																}
+																return price.label;
+															})()}
+														</p>
+													</div>
+												</div>
+											)}
+										</div>
+
 										<Separator />
+
+										{(() => {
+											const caps = getMappingCapabilities(
+												selectedDetails.mapping,
+												selectedDetails.model,
+											);
+											return caps.length > 0 ? (
+												<div className="space-y-2">
+													<h5 className="font-medium text-sm">Capabilities</h5>
+													<div className="flex flex-wrap gap-1.5">
+														{caps.map((capability) => {
+															const { Icon, color } =
+																getCapabilityIconConfig(capability);
+															return (
+																<Badge
+																	key={capability}
+																	variant="secondary"
+																	className="text-xs px-2 py-1 flex items-center gap-1.5"
+																>
+																	{Icon && (
+																		<Icon className={`h-3.5 w-3.5 ${color}`} />
+																	)}
+																	{capability}
+																</Badge>
+															);
+														})}
+													</div>
+												</div>
+											) : null;
+										})()}
 									</>
 								)}
-
-								<div className="space-y-3">
-									<h5 className="font-medium text-sm">Pricing & Limits</h5>
-									<div className="grid grid-cols-2 gap-3">
-										<div className="space-y-1">
-											<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-												Input
-											</span>
-											<p className="text-sm font-mono">
-												{formatPrice(selectedDetails.mapping?.inputPrice)}
-											</p>
-										</div>
-										<div className="space-y-1">
-											<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-												Output
-											</span>
-											<p className="text-sm font-mono">
-												{formatPrice(selectedDetails.mapping?.outputPrice)}
-											</p>
-										</div>
-										<div className="space-y-1">
-											<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-												Context
-											</span>
-											<p className="text-sm font-mono">
-												{formatContextSize(
-													selectedDetails.mapping?.contextSize,
-												)}
-											</p>
-										</div>
-										<div className="space-y-1">
-											<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-												Max Output
-											</span>
-											<p className="text-sm font-mono">
-												{formatContextSize(selectedDetails.mapping?.maxOutput)}
-											</p>
-										</div>
-									</div>
-									{selectedDetails.mapping?.cachedInputPrice && (
-										<div className="pt-2 border-t border-dashed">
-											<div className="space-y-1">
-												<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-													Cached Input
-												</span>
-												<p className="text-sm font-mono text-green-600 dark:text-green-400">
-													{formatPrice(
-														selectedDetails.mapping.cachedInputPrice,
-													)}
-												</p>
-											</div>
-										</div>
-									)}
-								</div>
-
-								<Separator />
-
-								{(() => {
-									const caps = getMappingCapabilities(
-										selectedDetails.mapping,
-										selectedDetails.model,
-									);
-									return caps.length > 0 ? (
-										<div className="space-y-2">
-											<h5 className="font-medium text-sm">Capabilities</h5>
-											<div className="flex flex-wrap gap-1.5">
-												{caps.map((capability) => (
-													<Badge
-														key={capability}
-														variant="secondary"
-														className="text-xs px-2 py-1"
-													>
-														{capability}
-													</Badge>
-												))}
-											</div>
-										</div>
-									) : null;
-								})()}
 							</div>
 						</>
 					)}

@@ -10,6 +10,16 @@
       <env name="ROUTEWAY_PAID_DISCOUNT" value="0.5" />
       <env name="AUTH_SECRET" value="asdf" />
     </envs>
-    <method v="2" />
+    <method v="2">
+      <option name="NpmBeforeRunTask" enabled="true">
+        <package-json value="$PROJECT_DIR$/package.json" />
+        <command value="run" />
+        <scripts>
+          <script value="build:core" />
+        </scripts>
+        <node-interpreter value="project" />
+        <envs />
+      </option>
+    </method>
   </configuration>
 </component>

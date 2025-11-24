@@ -1,4 +1,5 @@
 import { models, type ProviderModelMapping } from "./models.js";
+import { getProviderEnvValue, getProviderEnvConfig } from "./provider.js";
 
 import type { ProviderId } from "./providers.js";
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -15,6 +16,7 @@ export function getProviderEndpoint(
 	supportsReasoning?: boolean,
 	hasExistingToolCalls?: boolean,
 	providerKeyOptions?: ProviderKeyOptions,
+	configIndex?: number,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -28,7 +30,7 @@ export function getProviderEndpoint(
 			}
 		}
 	}
-	let url: string;
+	let url: string | undefined;
 
 	if (baseUrl) {
 		url = baseUrl;
@@ -97,23 +99,29 @@ export function getProviderEndpoint(
 				url = "https://api.routeway.ai";
 				break;
 			case "routeway-discount":
-				url =
-					process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL || "https://example.com";
+				url = getProviderEnvValue("routeway-discount", "baseUrl", configIndex);
 				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
 				break;
 			case "aws-bedrock":
 				url =
-					process.env.LLM_AWS_BEDROCK_BASE_URL ||
-					"https://bedrock-runtime.us-east-1.amazonaws.com";
+					getProviderEnvValue(
+						"aws-bedrock",
+						"baseUrl",
+						configIndex,
+						"https://bedrock-runtime.us-east-1.amazonaws.com",
+					) || "https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			case "azure": {
 				const resource =
-					providerKeyOptions?.azure_resource || process.env.LLM_AZURE_RESOURCE;
+					providerKeyOptions?.azure_resource ||
+					getProviderEnvValue("azure", "resource", configIndex);
+
 				if (!resource) {
+					const azureEnv = getProviderEnvConfig("azure");
 					throw new Error(
-						"Azure resource is required - set via provider options or LLM_AZURE_RESOURCE env var",
+						`Azure resource is required - set via provider options or ${azureEnv?.required.resource || "LLM_AZURE_RESOURCE"} env var`,
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
@@ -131,6 +139,10 @@ export function getProviderEndpoint(
 			default:
 				throw new Error(`Provider ${provider} requires a baseUrl`);
 		}
+	}
+
+	if (!url) {
+		throw new Error(`Failed to determine base URL for provider ${provider}`);
 	}
 
 	switch (provider) {
@@ -164,12 +176,24 @@ export function getProviderEndpoint(
 			) {
 				baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
 			} else {
-				const projectId = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-				const region = process.env.LLM_GOOGLE_VERTEX_REGION || "global";
+				const projectId = getProviderEnvValue(
+					"google-vertex",
+					"project",
+					configIndex,
+				);
+
+				const region =
+					getProviderEnvValue(
+						"google-vertex",
+						"region",
+						configIndex,
+						"global",
+					) || "global";
 
 				if (!projectId) {
+					const vertexEnv = getProviderEnvConfig("google-vertex");
 					throw new Error(
-						"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for gemini-2.5-flash-preview-09-2025",
+						`${vertexEnv?.required.project || "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex model "${model}"`,
 					);
 				}
 
@@ -196,51 +220,58 @@ export function getProviderEndpoint(
 		case "aws-bedrock": {
 			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ||
-				process.env.LLM_AWS_BEDROCK_REGION ||
+				getProviderEnvValue("aws-bedrock", "region", configIndex, "us.") ||
 				"us.";
+
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
 		case "azure": {
 			const deploymentType =
 				providerKeyOptions?.azure_deployment_type ||
-				process.env.LLM_AZURE_DEPLOYMENT_TYPE ||
+				getProviderEnvValue(
+					"azure",
+					"deploymentType",
+					configIndex,
+					"ai-foundry",
+				) ||
 				"ai-foundry";
 
 			if (deploymentType === "openai") {
 				// Traditional Azure (deployment-based)
 				const apiVersion =
 					providerKeyOptions?.azure_api_version ||
-					process.env.LLM_AZURE_API_VERSION ||
+					getProviderEnvValue(
+						"azure",
+						"apiVersion",
+						configIndex,
+						"2024-10-21",
+					) ||
 					"2024-10-21";
+
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
-		case "openai":
-			// Use responses endpoint for reasoning models that support responses API
-			// but not when there are existing tool calls in the conversation
-			if (
-				supportsReasoning &&
-				model &&
-				!hasExistingToolCalls &&
-				process.env.USE_RESPONSES_API === "true"
-			) {
+		case "openai": {
+			// Use responses endpoint for models that support responses API
+			if (model) {
 				const modelDef = models.find((m) => m.id === model);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
 				);
 				const supportsResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi !==
-					false;
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
 
 				if (supportsResponsesApi) {
 					return `${url}/v1/responses`;
 				}
 			}
 			return `${url}/v1/chat/completions`;
+		}
 		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":

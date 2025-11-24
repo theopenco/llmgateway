@@ -1,14 +1,15 @@
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { z } from "zod";
 
 import { app } from "@/app.js";
-import { testModels } from "@/chat-helpers.e2e.js";
 import {
 	beforeAllHook,
 	beforeEachHook,
 	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
+	testModels,
 } from "@/chat-helpers.e2e.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
@@ -86,6 +87,15 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			);
 		}),
 	)("JSON schema output $model", getTestOptions(), async ({ model }) => {
+		// Define the Zod schema that matches our JSON schema payload
+		const weatherResponseSchema = z
+			.object({
+				location: z.string(),
+				temperature: z.string(),
+				conditions: z.string(),
+			})
+			.strict(); // strict() ensures no additional properties
+
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
@@ -144,11 +154,30 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		expect(() => JSON.parse(content)).not.toThrow();
 
 		const parsedContent = JSON.parse(content);
-		expect(parsedContent).toHaveProperty("location");
-		expect(parsedContent).toHaveProperty("temperature");
-		expect(parsedContent).toHaveProperty("conditions");
-		expect(typeof parsedContent.location).toBe("string");
-		expect(typeof parsedContent.temperature).toBe("string");
-		expect(typeof parsedContent.conditions).toBe("string");
+
+		// Validate the parsed content matches the exact schema using Zod
+		const validationResult = weatherResponseSchema.safeParse(parsedContent);
+		if (!validationResult.success) {
+			console.error(
+				"Schema validation failed:",
+				JSON.stringify(validationResult.error.format(), null, 2),
+			);
+			console.error(
+				"Received content:",
+				JSON.stringify(parsedContent, null, 2),
+			);
+		}
+		expect(validationResult.success).toBe(true);
+
+		// Additional type-safe assertions after validation
+		if (validationResult.success) {
+			const data = validationResult.data;
+			expect(typeof data.location).toBe("string");
+			expect(typeof data.temperature).toBe("string");
+			expect(typeof data.conditions).toBe("string");
+			expect(data.location.length).toBeGreaterThan(0);
+			expect(data.temperature.length).toBeGreaterThan(0);
+			expect(data.conditions.length).toBeGreaterThan(0);
+		}
 	});
 });

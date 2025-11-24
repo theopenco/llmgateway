@@ -136,6 +136,35 @@ LLM_OPENAI_API_KEY=
 LLM_ANTHROPIC_API_KEY=
 ```
 
+## Multiple API Keys and Load Balancing
+
+LLMGateway supports multiple API keys per provider for load balancing and increased availability. Simply provide comma-separated values for your API keys:
+
+```bash
+# Multiple OpenAI keys for load balancing
+LLM_OPENAI_API_KEY=sk-key1,sk-key2,sk-key3
+
+# Multiple Anthropic keys
+LLM_ANTHROPIC_API_KEY=sk-ant-key1,sk-ant-key2
+```
+
+### Health-Aware Routing
+
+The gateway automatically tracks the health of each API key and routes requests to healthy keys. If a key experiences consecutive errors, it will be temporarily skipped. Keys that return authentication errors (401/403) are permanently blacklisted until restart.
+
+### Related Configuration Values
+
+For providers that require additional configuration (like Google Vertex), you can specify multiple values that correspond to each API key. The gateway will always use the matching index:
+
+```bash
+# Multiple Google Vertex configurations
+LLM_GOOGLE_VERTEX_API_KEY=key1,key2,key3
+LLM_GOOGLE_CLOUD_PROJECT=project-a,project-b,project-c
+LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
+```
+
+When the gateway selects `key2`, it will automatically use `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value will be reused for remaining keys.
+
 ## Next Steps
 
 Once your LLMGateway is running:

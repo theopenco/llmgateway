@@ -4,7 +4,10 @@ export const xaiModels = [
 	{
 		id: "grok-3",
 		name: "Grok-3",
+		description: "xAI's advanced model with strong reasoning capabilities.",
 		family: "xai",
+		releasedAt: new Date("2025-02-17"),
+		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				test: "skip",
@@ -25,7 +28,10 @@ export const xaiModels = [
 	{
 		id: "grok-3-mini",
 		name: "Grok-3 Mini",
+		description: "Compact Grok-3 for fast, cost-effective inference.",
 		family: "xai",
+		releasedAt: new Date("2025-02-17"),
+		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				providerId: "xai",
@@ -45,7 +51,10 @@ export const xaiModels = [
 	{
 		id: "grok-3-fast",
 		name: "Grok-3 Fast",
+		description: "Optimized Grok-3 variant for lower latency.",
 		family: "xai",
+		releasedAt: new Date("2025-02-17"),
+		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				test: "skip",
@@ -68,7 +77,10 @@ export const xaiModels = [
 	{
 		id: "grok-3-mini-fast",
 		name: "Grok-3 Mini Fast",
+		description: "Fastest Grok-3 Mini variant.",
 		family: "xai",
+		releasedAt: new Date("2025-02-17"),
+		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				providerId: "xai",
@@ -90,7 +102,10 @@ export const xaiModels = [
 	{
 		id: "grok-2-1212",
 		name: "Grok-2 (1212)",
+		description: "December 2024 version of Grok-2.",
 		family: "xai",
+		releasedAt: new Date("2024-08-14"),
+		publishedAt: new Date("2024-08-14"),
 		providers: [
 			{
 				test: "skip",
@@ -113,7 +128,10 @@ export const xaiModels = [
 	{
 		id: "grok-2-vision-1212",
 		name: "Grok-2 Vision (1212)",
+		description: "Grok-2 with vision capabilities.",
 		family: "xai",
+		releasedAt: new Date("2024-08-14"),
+		publishedAt: new Date("2024-08-14"),
 		providers: [
 			{
 				providerId: "xai",
@@ -136,7 +154,10 @@ export const xaiModels = [
 	{
 		id: "grok-4-0709",
 		name: "Grok 4 (0709)",
+		description: "July 2025 version of Grok 4.",
 		family: "xai",
+		releasedAt: new Date("2025-07-09"),
+		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				test: "skip",
@@ -158,7 +179,10 @@ export const xaiModels = [
 	{
 		id: "grok-4",
 		name: "Grok 4",
+		description: "Latest Grok 4 with vision and tool support.",
 		family: "xai",
+		releasedAt: new Date("2025-07-09"),
+		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -179,7 +203,10 @@ export const xaiModels = [
 	{
 		id: "grok-4-fast-reasoning",
 		name: "Grok 4 Fast Reasoning",
+		description: "Grok 4 optimized for fast reasoning.",
 		family: "xai",
+		releasedAt: new Date("2025-07-09"),
+		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -201,7 +228,10 @@ export const xaiModels = [
 	{
 		id: "grok-4-fast-non-reasoning",
 		name: "Grok 4 Fast Non-Reasoning",
+		description: "Grok 4 without reasoning for faster responses.",
 		family: "xai",
+		releasedAt: new Date("2025-07-09"),
+		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -223,7 +253,10 @@ export const xaiModels = [
 	{
 		id: "grok-code-fast-1",
 		name: "Grok Code Fast 1",
+		description: "Grok optimized for code generation tasks.",
 		family: "xai",
+		releasedAt: new Date("2025-07-09"),
+		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				test: "skip",
@@ -236,6 +269,54 @@ export const xaiModels = [
 				maxOutput: 10000,
 				streaming: true,
 				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "grok-4-1-fast-reasoning",
+		name: "Grok 4.1 Fast Reasoning",
+		description: "Grok 4.1 with fast reasoning and vision support.",
+		family: "xai",
+		releasedAt: new Date("2025-10-01"),
+		publishedAt: new Date("2025-10-01"),
+		providers: [
+			{
+				providerId: "xai",
+				modelName: "grok-4-1-fast-reasoning",
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				contextSize: 2_000_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "grok-4-1-fast-non-reasoning",
+		name: "Grok 4.1 Fast Non-Reasoning",
+		description: "Grok 4.1 without reasoning mode.",
+		family: "xai",
+		releasedAt: new Date("2025-10-01"),
+		publishedAt: new Date("2025-10-01"),
+		providers: [
+			{
+				providerId: "xai",
+				modelName: "grok-4-1-fast-non-reasoning",
+				inputPrice: 3.0 / 1e6,
+				outputPrice: 15.0 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				contextSize: 2_000_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
 			},

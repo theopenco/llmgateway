@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 REGISTRY="ghcr.io"
 REPOSITORY_BASE="theopenco/llmgateway"
 PLATFORMS=("linux/amd64" "linux/arm64")
-SPLIT_APPS=("api" "gateway" "playground" "ui" "docs")
+SPLIT_APPS=("api" "gateway" "worker" "playground" "ui" "docs")
 
 # Function to print colored output
 print_status() {

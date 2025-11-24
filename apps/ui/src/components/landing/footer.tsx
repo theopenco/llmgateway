@@ -128,6 +128,14 @@ export default function Footer() {
 							</h3>
 							<ul className="space-y-2">
 								<li>
+									<Link
+										href="/blog"
+										className="text-sm hover:text-black dark:hover:text-white"
+									>
+										Blog
+									</Link>
+								</li>
+								<li>
 									<a
 										href={config.docsUrl ?? ""}
 										target="_blank"
@@ -135,6 +143,14 @@ export default function Footer() {
 									>
 										Documentation
 									</a>
+								</li>
+								<li>
+									<Link
+										href="/referrals"
+										className="text-sm hover:text-black dark:hover:text-white"
+									>
+										Referral Program
+									</Link>
 								</li>
 								<li>
 									<a

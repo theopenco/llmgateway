@@ -1,24 +1,22 @@
 "use client";
 import {
 	ExternalLink,
-	Copy,
-	Check,
 	Plus,
 	GitBranch,
 	Filter,
+	Zap,
+	Eye,
+	Wrench,
+	MessageSquare,
+	Braces,
+	ImagePlus,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { ModelCard } from "@/components/models/model-card";
 import { Button } from "@/lib/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "@/lib/components/card";
 import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Select,
@@ -28,125 +26,24 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useAppConfig } from "@/lib/config";
-import { cn, formatContextSize } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ModelDefinition,
+	type ProviderModelMapping,
 	type ProviderId,
+	type StabilityLevel,
 } from "@llmgateway/models";
 
 import { providerLogoUrls } from "./provider-keys/provider-logo";
 
-interface ProviderModel {
-	id: string;
-	providerId: ProviderId;
-	providerName: string;
-	inputPrice?: number;
-	outputPrice?: number;
-	requestPrice?: number;
-	contextSize?: number;
-}
-
-// Component for rendering individual provider-model cards
-interface ProviderModelCardProps {
-	model: ProviderModel;
-	copiedText: string | null;
-	onCopy: (text: string) => void;
-}
-
-function ProviderModelCard({
-	model,
-	copiedText,
-	onCopy,
-}: ProviderModelCardProps) {
-	const providerModelName = `${model.providerId}/${model.id}`;
-
-	return (
-		<Card
-			key={`${model.providerId}-${model.id}`}
-			className="flex flex-col h-full hover:shadow-md transition-shadow"
-		>
-			<CardHeader className="pb-2">
-				<div className="flex items-start justify-between gap-2">
-					<div className="flex-1 min-w-0">
-						<CardTitle className="text-base leading-tight line-clamp-1">
-							{model.id}
-						</CardTitle>
-						<CardDescription className="text-xs">
-							{model.providerName}
-						</CardDescription>
-					</div>
-				</div>
-			</CardHeader>
-			<CardContent className="mt-auto space-y-2">
-				{/* Model Name Copy Section */}
-				<div className="flex items-center justify-between gap-2">
-					<div className="flex-1 min-w-0">
-						<code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all">
-							{providerModelName}
-						</code>
-					</div>
-					<Button
-						variant="ghost"
-						size="sm"
-						className="h-6 w-6 p-0 shrink-0"
-						onClick={() => onCopy(providerModelName)}
-						title="Copy provider/model name"
-					>
-						{copiedText === providerModelName ? (
-							<Check className="h-3 w-3 text-green-600" />
-						) : (
-							<Copy className="h-3 w-3" />
-						)}
-					</Button>
-				</div>
-
-				{model.contextSize && (
-					<p className="text-xs text-muted-foreground">
-						Context:{" "}
-						<span className="font-mono text-foreground font-bold">
-							{formatContextSize(model.contextSize)}
-						</span>
-					</p>
-				)}
-				{(model.inputPrice !== undefined ||
-					model.outputPrice !== undefined ||
-					model.requestPrice !== undefined) && (
-					<p className="text-xs text-muted-foreground">
-						{model.inputPrice !== undefined && (
-							<>
-								<span className="font-mono text-foreground font-bold">
-									${(model.inputPrice * 1e6).toFixed(2)}
-								</span>{" "}
-								<span className="text-muted-foreground">in</span>
-							</>
-						)}
-
-						{model.outputPrice !== undefined && (
-							<>
-								<span className="text-muted-foreground mx-2">/</span>
-								<span className="font-mono text-foreground font-bold">
-									${(model.outputPrice * 1e6).toFixed(2)}
-								</span>{" "}
-								<span className="text-muted-foreground">out</span>
-							</>
-						)}
-						{model.requestPrice !== undefined &&
-							model.requestPrice !== 0 &&
-							` / $${(model.requestPrice * 1000).toFixed(2)} per 1K req`}
-					</p>
-				)}
-			</CardContent>
-			<CardFooter className="mt-auto pt-4">
-				<Button asChild variant="secondary" className="w-full">
-					<Link href={`/models/${encodeURIComponent(model.id)}`}>
-						See more details
-					</Link>
-				</Button>
-			</CardFooter>
-		</Card>
-	);
+interface ModelWithProviders extends ModelDefinition {
+	providerDetails: Array<{
+		provider: ProviderModelMapping;
+		providerInfo: (typeof providerDefinitions)[number];
+	}>;
 }
 
 const getProviderLogo = (providerId: ProviderId) => {
@@ -180,7 +77,7 @@ const getProviderLogoSmall = (providerId: ProviderId) => {
 };
 
 const groupedProviders = modelDefinitions.reduce<
-	Record<string, ProviderModel[]>
+	Record<string, ModelWithProviders[]>
 >((acc, def) => {
 	def.providers.forEach((map) => {
 		const provider = providerDefinitions.find((p) => p.id === map.providerId)!;
@@ -188,14 +85,14 @@ const groupedProviders = modelDefinitions.reduce<
 			acc[provider.name] = [];
 		}
 		acc[provider.name].push({
-			id: def.id,
-			providerId: map.providerId,
-			providerName: provider.name,
-			inputPrice: map.inputPrice,
-			outputPrice: map.outputPrice,
-			requestPrice: "requestPrice" in map ? map.requestPrice : undefined,
-			contextSize: map.contextSize,
-		});
+			...def,
+			providerDetails: [
+				{
+					provider: map,
+					providerInfo: provider,
+				},
+			],
+		} as ModelWithProviders);
 	});
 	return acc;
 }, {});
@@ -204,7 +101,7 @@ const sortedProviderEntries = Object.entries(groupedProviders)
 	.sort(([a], [b]) => a.localeCompare(b))
 	.map(([providerName, models]) => [providerName, [...models].reverse()]) as [
 	string,
-	ProviderModel[],
+	ModelWithProviders[],
 ][];
 
 const totalModels = modelDefinitions.length;
@@ -212,17 +109,84 @@ const totalProviders = sortedProviderEntries.length;
 
 export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 	const config = useAppConfig();
-	const [copiedText, setCopiedText] = useState<string | null>(null);
+	const router = useRouter();
 	const [selectedProvider, setSelectedProvider] = useState<string>("all");
 
-	const copyToClipboard = async (text: string) => {
-		try {
-			await navigator.clipboard.writeText(text);
-			setCopiedText(text);
-			setTimeout(() => setCopiedText(null), 2000);
-		} catch (err) {
-			console.error("Failed to copy text:", err);
+	const getCapabilityIcons = (
+		providerMapping: ProviderModelMapping,
+		model?: any,
+	) => {
+		const capabilities = [];
+		if (providerMapping.streaming) {
+			capabilities.push({
+				icon: Zap,
+				label: "Streaming",
+				color: "text-blue-500",
+			});
 		}
+		if (providerMapping.vision) {
+			capabilities.push({
+				icon: Eye,
+				label: "Vision",
+				color: "text-green-500",
+			});
+		}
+		if (providerMapping.tools) {
+			capabilities.push({
+				icon: Wrench,
+				label: "Tools",
+				color: "text-purple-500",
+			});
+		}
+		if (providerMapping.reasoning) {
+			capabilities.push({
+				icon: MessageSquare,
+				label: "Reasoning",
+				color: "text-orange-500",
+			});
+		}
+		if (providerMapping.jsonOutput) {
+			capabilities.push({
+				icon: Braces,
+				label: "JSON Output",
+				color: "text-cyan-500",
+			});
+		}
+		if (model?.output?.includes("image")) {
+			capabilities.push({
+				icon: ImagePlus,
+				label: "Image Generation",
+				color: "text-pink-500",
+			});
+		}
+		return capabilities;
+	};
+
+	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
+		return stability && ["unstable", "experimental"].includes(stability);
+	};
+
+	const formatPrice = (price: number | undefined, discount?: number) => {
+		if (price === undefined) {
+			return "—";
+		}
+		const originalPrice = (price * 1e6).toFixed(2);
+		if (discount) {
+			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
+			return (
+				<div className="flex flex-col justify-items-center">
+					<div className="flex items-center gap-1">
+						<span className="line-through text-muted-foreground text-xs">
+							${originalPrice}
+						</span>
+						<span className="text-green-600 font-semibold">
+							${discountedPrice}
+						</span>
+					</div>
+				</div>
+			);
+		}
+		return `$${originalPrice}`;
 	};
 
 	// Filter providers based on selection
@@ -374,7 +338,8 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 								{sortedProviderEntries
 									.filter(([providerName]) => providerName !== "LLM Gateway")
 									.map(([providerName, models]) => {
-										const providerId = models[0].providerId;
+										const providerId =
+											models[0].providerDetails[0].provider.providerId;
 										return (
 											<SelectItem key={providerName} value={providerName}>
 												<div className="flex items-center gap-2">
@@ -403,7 +368,7 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 
 			<section className="space-y-12">
 				{filteredProviderEntries.map(([providerName, models]) => {
-					const providerId = models[0].providerId;
+					const providerId = models[0].providerDetails[0].provider.providerId;
 					return (
 						<div key={providerName} className="space-y-6">
 							<Link
@@ -419,11 +384,15 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 							</Link>
 							<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
 								{models.map((model) => (
-									<ProviderModelCard
-										key={`${model.providerId}-${model.id}`}
+									<ModelCard
+										key={`${model.providerDetails[0].provider.providerId}-${model.id}`}
 										model={model}
-										copiedText={copiedText}
-										onCopy={copyToClipboard}
+										shouldShowStabilityWarning={shouldShowStabilityWarning}
+										getCapabilityIcons={getCapabilityIcons}
+										goToModel={() =>
+											router.push(`/models/${encodeURIComponent(model.id)}`)
+										}
+										formatPrice={formatPrice}
 									/>
 								))}
 							</div>

@@ -21,6 +21,22 @@ interface ChatRequestBody {
 	apiKey?: string;
 	provider?: string; // optional provider override
 	mode?: "image" | "chat"; // optional hint to force image generation path
+	image_config?: {
+		aspect_ratio?:
+			| "auto"
+			| "1:1"
+			| "9:16"
+			| "3:4"
+			| "4:3"
+			| "3:2"
+			| "2:3"
+			| "5:4"
+			| "4:5"
+			| "21:9";
+		image_size?: "1K" | "2K" | "4K";
+	};
+	reasoning_effort?: "minimal" | "low" | "medium" | "high";
+	githubToken?: string;
 }
 
 export async function POST(req: Request) {
@@ -33,7 +49,15 @@ export async function POST(req: Request) {
 	}
 
 	const body = await req.json();
-	const { messages, model, apiKey, provider }: ChatRequestBody = body;
+	const {
+		messages,
+		model,
+		apiKey,
+		provider,
+		image_config,
+		reasoning_effort,
+		githubToken: githubTokenBody,
+	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
@@ -44,7 +68,6 @@ export async function POST(req: Request) {
 	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
 	const githubTokenHeader = req.headers.get("x-github-token") || undefined;
-	const githubTokenBody = (body as any)?.githubToken || undefined;
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
@@ -69,9 +92,17 @@ export async function POST(req: Request) {
 		headers: {
 			"x-source": "chat.llmgateway.io",
 		},
+		extraBody: {
+			...(reasoning_effort ? { reasoning_effort } : {}),
+			...(image_config ? { image_config } : {}),
+		},
 	});
+
+	// Respect root model IDs passed from the client without adding a provider prefix.
+	// Only apply provider-based prefixing when the client did NOT explicitly specify a model
+	// (i.e. we're using a header/default model value).
 	let selectedModel = (model ?? headerModel ?? "auto") as LLMGatewayChatModelId;
-	if (provider && typeof provider === "string") {
+	if (!model && provider && typeof provider === "string") {
 		const alreadyPrefixed = String(selectedModel).includes("/");
 		if (!alreadyPrefixed) {
 			selectedModel = `${provider}/${selectedModel}` as LLMGatewayChatModelId;
@@ -85,7 +116,7 @@ export async function POST(req: Request) {
 				tokenForMcp as string,
 			);
 
-			const result = await streamText({
+			const result = streamText({
 				model: llmgateway.chat(selectedModel),
 				messages: convertToModelMessages(messages),
 				tools,
@@ -110,12 +141,11 @@ export async function POST(req: Request) {
 		});
 
 		return result.toUIMessageStreamResponse({ sendReasoning: true });
-	} catch {
-		return new Response(
-			JSON.stringify({ error: "LLM Gateway request failed" }),
-			{
-				status: 500,
-			},
-		);
+	} catch (error: any) {
+		const message = error.message || "LLM Gateway request failed";
+		const status = error.status || 500;
+		return new Response(JSON.stringify({ error: message, details: error }), {
+			status,
+		});
 	}
 }

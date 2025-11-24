@@ -20,6 +20,7 @@ import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
+import { referral } from "./routes/referral.js";
 import { stripeRoutes } from "./stripe.js";
 
 import type { ServerTypes } from "./vars.js";
@@ -176,6 +177,8 @@ app.openapi(root, async (c) => {
 app.route("/stripe", stripeRoutes);
 
 app.route("/", beacon);
+
+app.route("/", referral);
 
 app.doc("/json", config);
 

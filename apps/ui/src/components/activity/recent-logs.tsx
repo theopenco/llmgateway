@@ -19,8 +19,6 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
-import { providers } from "@llmgateway/models";
-
 import type { Log } from "@llmgateway/db";
 
 const UnifiedFinishReason = {
@@ -294,9 +292,9 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All providers</SelectItem>
-						{providers.map((p) => (
-							<SelectItem key={p.id} value={p.id}>
-								{p.name}
+						{(uniqueModels?.providers || []).map((p) => (
+							<SelectItem key={p} value={p}>
+								{p}
 							</SelectItem>
 						))}
 					</SelectContent>

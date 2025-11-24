@@ -1,33 +1,56 @@
 import { HTTPException } from "hono/http-exception";
 
-import { getProviderEnvVar, type Provider } from "@llmgateway/models";
+import { getRoundRobinValue } from "@/lib/round-robin-env.js";
+
+import {
+	getProviderEnvVar,
+	getProviderEnvConfig,
+	type Provider,
+} from "@llmgateway/models";
+
+export interface ProviderEnvResult {
+	token: string;
+	configIndex: number;
+	envVarName: string;
+}
 
 /**
- * Get provider token from environment variables
+ * Get provider token from environment variables with round-robin support
+ * Supports comma-separated values in environment variables for load balancing
  * @param usedProvider The provider to get the token for
- * @returns The token for the provider
+ * @returns Object containing the token and the config index used
  */
-export function getProviderEnv(usedProvider: Provider): string {
+export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
 	const envVar = getProviderEnvVar(usedProvider);
 	if (!envVar) {
 		throw new HTTPException(400, {
 			message: `No environment variable set for provider: ${usedProvider}`,
 		});
 	}
-	const token = process.env[envVar];
-	if (!token) {
+	const envValue = process.env[envVar];
+	if (!envValue) {
 		throw new HTTPException(400, {
 			message: `No API key set in environment for provider: ${usedProvider}`,
 		});
 	}
 
-	if (usedProvider === "azure") {
-		if (!process.env.LLM_AZURE_RESOURCE) {
-			throw new HTTPException(400, {
-				message: `LLM_AZURE_RESOURCE environment variable is required for Azure provider`,
-			});
+	// Validate required env vars for the provider
+	const config = getProviderEnvConfig(usedProvider);
+	if (config?.required) {
+		for (const [key, envVarName] of Object.entries(config.required)) {
+			if (key === "apiKey" || !envVarName) {
+				continue;
+			} // Already validated above
+			if (!process.env[envVarName]) {
+				throw new HTTPException(400, {
+					message: `${envVarName} environment variable is required for ${usedProvider} provider`,
+				});
+			}
 		}
 	}
 
-	return token;
+	// Get the next token using round-robin
+	const result = getRoundRobinValue(envVar, envValue);
+
+	return { token: result.value, configIndex: result.index, envVarName: envVar };
 }

@@ -4,7 +4,11 @@ export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
 		name: "GPT-4o Mini",
+		description:
+			"Affordable small model for fast, lightweight tasks with text and vision capabilities.",
 		family: "openai",
+		releasedAt: new Date("2024-07-18"),
+		publishedAt: new Date("2024-07-18"),
 		providers: [
 			{
 				providerId: "openai",
@@ -23,6 +27,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4o-mini",
 				inputPrice: 0.15 / 1e6,
 				outputPrice: 0.6 / 1e6,
@@ -39,7 +44,11 @@ export const openaiModels = [
 	{
 		id: "gpt-4",
 		name: "GPT-4",
+		description:
+			"Original GPT-4 model with strong reasoning and tool use capabilities.",
 		family: "openai",
+		releasedAt: new Date("2023-03-14"),
+		publishedAt: new Date("2023-03-14"),
 		providers: [
 			{
 				test: "skip",
@@ -68,6 +77,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4",
 				inputPrice: 30.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
@@ -83,7 +93,11 @@ export const openaiModels = [
 	{
 		id: "gpt-4o",
 		name: "GPT-4o",
+		description:
+			"Multimodal flagship model with vision, fast responses, and tool support.",
 		family: "openai",
+		releasedAt: new Date("2024-05-13"),
+		publishedAt: new Date("2024-05-13"),
 		providers: [
 			{
 				providerId: "openai",
@@ -104,6 +118,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4o",
 				inputPrice: 2.5 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -121,7 +136,11 @@ export const openaiModels = [
 	{
 		id: "gpt-3.5-turbo",
 		name: "GPT-3.5 Turbo",
+		description:
+			"Fast and cost-effective model for simple tasks and conversational applications.",
 		family: "openai",
+		releasedAt: new Date("2022-11-30"),
+		publishedAt: new Date("2022-11-30"),
 		providers: [
 			{
 				providerId: "openai",
@@ -140,6 +159,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-35-turbo",
 				inputPrice: 0.5 / 1e6,
 				outputPrice: 1.5 / 1e6,
@@ -155,7 +175,11 @@ export const openaiModels = [
 	{
 		id: "gpt-4-turbo",
 		name: "GPT-4 Turbo",
+		description:
+			"Enhanced GPT-4 with vision capabilities and improved performance.",
 		family: "openai",
+		releasedAt: new Date("2023-11-06"),
+		publishedAt: new Date("2023-11-06"),
 		providers: [
 			{
 				test: "skip",
@@ -175,6 +199,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4-turbo",
 				inputPrice: 10.0 / 1e6,
 				outputPrice: 30.0 / 1e6,
@@ -190,7 +215,10 @@ export const openaiModels = [
 	{
 		id: "gpt-4.1",
 		name: "GPT-4.1",
+		description: "Updated GPT-4 with vision support and parallel tool calls.",
 		family: "openai",
+		releasedAt: new Date("2025-04-14"),
+		publishedAt: new Date("2025-04-14"),
 		providers: [
 			{
 				providerId: "openai",
@@ -210,6 +238,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1",
 				inputPrice: 2.0 / 1e6,
 				outputPrice: 8.0 / 1e6,
@@ -228,7 +257,11 @@ export const openaiModels = [
 	{
 		id: "o1",
 		name: "o1",
+		description:
+			"Advanced reasoning model that thinks before responding for complex problem-solving.",
 		family: "openai",
+		releasedAt: new Date("2024-09-12"),
+		publishedAt: new Date("2024-09-12"),
 		providers: [
 			{
 				test: "skip",
@@ -249,6 +282,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o1",
 				inputPrice: 15.0 / 1e6,
 				outputPrice: 60.0 / 1e6,
@@ -267,7 +301,11 @@ export const openaiModels = [
 	{
 		id: "o1-mini",
 		name: "o1 Mini",
+		description:
+			"Smaller, faster reasoning model optimized for coding and math tasks.",
 		family: "openai",
+		releasedAt: new Date("2024-09-12"),
+		publishedAt: new Date("2024-09-12"),
 		providers: [
 			{
 				stability: "unstable" as const,
@@ -288,6 +326,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o1-mini",
 				inputPrice: 1.1 / 1e6,
 				outputPrice: 4.4 / 1e6,
@@ -307,7 +346,10 @@ export const openaiModels = [
 	{
 		id: "gpt-4.1-mini",
 		name: "GPT-4.1 Mini",
+		description: "Compact version of GPT-4.1 with vision and tool support.",
 		family: "openai",
+		releasedAt: new Date("2025-04-14"),
+		publishedAt: new Date("2025-04-14"),
 		providers: [
 			{
 				providerId: "openai",
@@ -327,6 +369,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1-mini",
 				inputPrice: 0.4 / 1e6,
 				outputPrice: 1.6 / 1e6,
@@ -345,7 +388,11 @@ export const openaiModels = [
 	{
 		id: "gpt-4.1-nano",
 		name: "GPT-4.1 Nano",
+		description:
+			"Ultra-lightweight GPT-4.1 variant for high-volume, cost-sensitive applications.",
 		family: "openai",
+		releasedAt: new Date("2025-04-14"),
+		publishedAt: new Date("2025-04-14"),
 		providers: [
 			{
 				providerId: "openai",
@@ -365,6 +412,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-4.1-nano",
 				inputPrice: 0.1 / 1e6,
 				outputPrice: 0.4 / 1e6,
@@ -383,7 +431,11 @@ export const openaiModels = [
 	{
 		id: "o3",
 		name: "o3",
+		description:
+			"Next-generation reasoning model with enhanced problem-solving capabilities.",
 		family: "openai",
+		releasedAt: new Date("2025-04-16"),
+		publishedAt: new Date("2025-04-16"),
 		providers: [
 			{
 				providerId: "openai",
@@ -402,6 +454,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o3",
 				inputPrice: 2 / 1e6,
 				outputPrice: 8 / 1e6,
@@ -419,7 +472,11 @@ export const openaiModels = [
 	{
 		id: "o3-mini",
 		name: "o3 Mini",
+		description:
+			"Compact o3 reasoning model balancing performance and cost for complex tasks.",
 		family: "openai",
+		releasedAt: new Date("2025-01-31"),
+		publishedAt: new Date("2025-01-31"),
 		providers: [
 			{
 				providerId: "openai",
@@ -438,6 +495,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "o3-mini",
 				inputPrice: 1.1 / 1e6,
 				outputPrice: 4.4 / 1e6,
@@ -455,7 +513,11 @@ export const openaiModels = [
 	{
 		id: "gpt-oss-120b",
 		name: "GPT OSS 120B",
+		description:
+			"Open-source 120B parameter model with reasoning capabilities via Groq inference.",
 		family: "openai",
+		releasedAt: new Date("2025-08-05"),
+		publishedAt: new Date("2025-08-05"),
 		providers: [
 			{
 				providerId: "groq",
@@ -491,7 +553,11 @@ export const openaiModels = [
 	{
 		id: "gpt-oss-20b",
 		name: "GPT OSS 20B",
+		description:
+			"Lightweight open-source 20B model with reasoning support for efficient inference.",
 		family: "openai",
+		releasedAt: new Date("2025-08-05"),
+		publishedAt: new Date("2025-08-05"),
 		providers: [
 			{
 				providerId: "groq",
@@ -527,7 +593,11 @@ export const openaiModels = [
 	{
 		id: "gpt-5",
 		name: "GPT-5",
+		description:
+			"Latest flagship model with reasoning, vision, and enhanced capabilities.",
 		family: "openai",
+		releasedAt: new Date("2025-05-06"),
+		publishedAt: new Date("2025-05-06"),
 		providers: [
 			{
 				providerId: "openai",
@@ -584,6 +654,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-5",
 				inputPrice: 1.25 / 1e6,
 				outputPrice: 10.0 / 1e6,
@@ -612,7 +683,11 @@ export const openaiModels = [
 	{
 		id: "gpt-5-mini",
 		name: "GPT-5 Mini",
+		description:
+			"Compact GPT-5 variant with reasoning and vision at reduced cost.",
 		family: "openai",
+		releasedAt: new Date("2025-05-06"),
+		publishedAt: new Date("2025-05-06"),
 		providers: [
 			{
 				providerId: "openai",
@@ -668,6 +743,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-5-mini",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 2 / 1e6,
@@ -696,7 +772,11 @@ export const openaiModels = [
 	{
 		id: "gpt-5-nano",
 		name: "GPT-5 Nano",
+		description:
+			"Ultra-efficient GPT-5 variant for high-volume applications with reasoning support.",
 		family: "openai",
+		releasedAt: new Date("2025-05-06"),
+		publishedAt: new Date("2025-05-06"),
 		providers: [
 			{
 				providerId: "openai",
@@ -752,6 +832,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
+				stability: "unstable" as const,
 				modelName: "gpt-5-nano",
 				inputPrice: 0.05 / 1e6,
 				outputPrice: 0.4 / 1e6,
@@ -780,7 +861,11 @@ export const openaiModels = [
 	{
 		id: "gpt-5-chat-latest",
 		name: "GPT-5 Chat Latest",
+		description:
+			"GPT-5 optimized for conversational interactions without tool calling.",
 		family: "openai",
+		releasedAt: new Date("2025-05-06"),
+		publishedAt: new Date("2025-05-06"),
 		providers: [
 			{
 				providerId: "openai",
@@ -802,6 +887,128 @@ export const openaiModels = [
 					"presence_penalty",
 					"response_format",
 				],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "gpt-5.1",
+		name: "GPT-5.1",
+		description:
+			"Iterative improvement on GPT-5 with enhanced reasoning and tool support.",
+		family: "openai",
+		releasedAt: new Date("2025-11-01"),
+		publishedAt: new Date("2025-11-01"),
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "gpt-5.1",
+				inputPrice: 1.25 / 1e6,
+				outputPrice: 10.0 / 1e6,
+				cachedInputPrice: 0.125 / 1e6,
+				requestPrice: 0,
+				contextSize: 400000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+				],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "gpt-5-pro",
+		name: "GPT-5 Pro",
+		description:
+			"Premium GPT-5 tier with extended output limits and advanced reasoning for complex tasks.",
+		family: "openai",
+		releasedAt: new Date("2025-05-06"),
+		publishedAt: new Date("2025-05-06"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "openai",
+				modelName: "gpt-5-pro",
+				inputPrice: 15 / 1e6,
+				outputPrice: 120.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 400000,
+				maxOutput: 272000,
+				streaming: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				vision: true,
+				tools: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "gpt-5.1-codex",
+		name: "GPT-5.1 Codex",
+		description:
+			"GPT-5.1 specialized for code generation and software development tasks.",
+		family: "openai",
+		releasedAt: new Date("2025-11-01"),
+		publishedAt: new Date("2025-11-01"),
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "gpt-5.1-codex",
+				inputPrice: 1.25 / 1e6,
+				outputPrice: 10 / 1e6,
+				cachedInputPrice: 0.125 / 1e6,
+				requestPrice: 0,
+				contextSize: 400000,
+				maxOutput: 272000,
+				streaming: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				vision: true,
+				tools: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: false,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "gpt-5.1-codex-mini",
+		name: "GPT-5.1 Codex mini",
+		description:
+			"Lightweight code-focused model for efficient software development workflows.",
+		family: "openai",
+		releasedAt: new Date("2025-11-01"),
+		publishedAt: new Date("2025-11-01"),
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "gpt-5.1-codex-mini",
+				inputPrice: 0.25 / 1e6,
+				outputPrice: 2 / 1e6,
+				cachedInputPrice: 0.025 / 1e6,
+				requestPrice: 0,
+				contextSize: 400000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				vision: true,
+				tools: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: false,
 				jsonOutput: true,
 			},
 		],

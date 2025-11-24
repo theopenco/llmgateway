@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
 	boolean,
 	decimal,
@@ -142,7 +143,35 @@ export const organization = pgTable("organization", {
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
+	referralEarnings: decimal().notNull().default("0"),
 });
+
+export const referral = pgTable(
+	"referral",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		referrerOrganizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		referredOrganizationId: text()
+			.notNull()
+			.unique()
+			.references(() => organization.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		index("referral_referrer_organization_id_idx").on(
+			table.referrerOrganizationId,
+		),
+		index("referral_referred_organization_id_idx").on(
+			table.referredOrganizationId,
+		),
+	],
+);
 
 export const transaction = pgTable(
 	"transaction",
@@ -397,6 +426,7 @@ export const log = pgTable(
 		requestCost: real(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		pricingTier: text(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),
 		cached: boolean().default(false),
@@ -408,12 +438,26 @@ export const log = pgTable(
 		}).notNull(),
 		source: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
+		routingMetadata: json().$type<{
+			availableProviders?: string[];
+			selectedProvider?: string;
+			selectionReason?: string;
+			providerScores?: Array<{
+				providerId: string;
+				score: number;
+				uptime?: number;
+				latency?: number;
+				throughput?: number;
+				price?: number;
+			}>;
+		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
 		rawResponse: jsonb(),
 		upstreamRequest: jsonb(),
 		upstreamResponse: jsonb(),
 		traceId: text(),
+		dataRetentionCleanedUp: boolean().default(false),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -423,6 +467,13 @@ export const log = pgTable(
 			table.usedModel,
 			table.usedProvider,
 		),
+		// Partial index for data retention cleanup: project_id first for filtering, then created_at for range
+		// Only indexes rows that need cleanup (data_retention_cleaned_up = false)
+		index("log_data_retention_pending_idx")
+			.on(table.projectId, table.createdAt)
+			.where(sql`data_retention_cleaned_up = false`),
+		// Index for distinct usedModel queries by project
+		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
 	],
 );
 

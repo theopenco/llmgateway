@@ -1,7 +1,17 @@
+export interface ProviderEnvConfig {
+	required: {
+		apiKey?: string;
+		[key: string]: string | undefined;
+	};
+	optional?: Record<string, string>;
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;
 	description: string;
+	// Environment variable configuration
+	env: ProviderEnvConfig;
 	// Whether the provider supports streaming
 	streaming?: boolean;
 	// Whether the provider supports request cancellation
@@ -24,6 +34,11 @@ export const providers = [
 		name: "LLM Gateway",
 		description:
 			"LLMGateway is a framework for building and deploying large language models.",
+		env: {
+			required: {
+				apiKey: "LLM_LLMGATEWAY_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#6366f1",
@@ -35,6 +50,11 @@ export const providers = [
 		name: "OpenAI",
 		description:
 			"OpenAI is an AI research and deployment company. Our mission is to ensure that artificial general intelligence benefits all of humanity.",
+		env: {
+			required: {
+				apiKey: "LLM_OPENAI_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#0ea5e9",
@@ -46,6 +66,11 @@ export const providers = [
 		name: "Anthropic",
 		description:
 			"Anthropic is a research and deployment company focused on building safe and useful AI.",
+		env: {
+			required: {
+				apiKey: "LLM_ANTHROPIC_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#8b5cf6",
@@ -57,6 +82,11 @@ export const providers = [
 		name: "Google AI Studio",
 		description:
 			"Google AI Studio is a platform for accessing Google's Gemini models.",
+		env: {
+			required: {
+				apiKey: "LLM_GOOGLE_AI_STUDIO_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
@@ -68,6 +98,15 @@ export const providers = [
 		name: "Google Vertex AI",
 		description:
 			"Google Vertex AI is a platform for accessing Google's Gemini models via Vertex AI.",
+		env: {
+			required: {
+				apiKey: "LLM_GOOGLE_VERTEX_API_KEY",
+				project: "LLM_GOOGLE_CLOUD_PROJECT",
+			},
+			optional: {
+				region: "LLM_GOOGLE_VERTEX_REGION",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
@@ -78,6 +117,11 @@ export const providers = [
 		id: "groq",
 		name: "Groq",
 		description: "Groq's ultra-fast LPU inference with various models",
+		env: {
+			required: {
+				apiKey: "LLM_GROQ_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#F55036",
@@ -88,6 +132,11 @@ export const providers = [
 		id: "xai",
 		name: "xAI",
 		description: "xAI's Grok large language models",
+		env: {
+			required: {
+				apiKey: "LLM_X_AI_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#000000",
@@ -99,6 +148,11 @@ export const providers = [
 		name: "DeepSeek",
 		description:
 			"DeepSeek's high-performance language models with OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_DEEPSEEK_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#FF6B00",
@@ -110,6 +164,11 @@ export const providers = [
 		name: "Alibaba Cloud",
 		description:
 			"Alibaba Cloud's Qwen large language models with OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_ALIBABA_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#FF6A00",
@@ -120,6 +179,11 @@ export const providers = [
 		id: "novita",
 		name: "NovitaAI",
 		description: "NovitaAI's OpenAI-compatible large language models",
+		env: {
+			required: {
+				apiKey: "LLM_NOVITA_AI_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#9333ea",
@@ -130,6 +194,15 @@ export const providers = [
 		id: "aws-bedrock",
 		name: "AWS Bedrock",
 		description: "Amazon Bedrock - fully managed service for foundation models",
+		env: {
+			required: {
+				apiKey: "LLM_AWS_BEDROCK_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_AWS_BEDROCK_BASE_URL",
+				region: "LLM_AWS_BEDROCK_REGION",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
@@ -143,6 +216,16 @@ export const providers = [
 		id: "azure",
 		name: "Azure",
 		description: "Microsoft Azure - enterprise-grade OpenAI models",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_API_KEY",
+				resource: "LLM_AZURE_RESOURCE",
+			},
+			optional: {
+				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
+				apiVersion: "LLM_AZURE_API_VERSION",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#0078D4",
@@ -157,6 +240,11 @@ export const providers = [
 		id: "zai",
 		name: "Z AI",
 		description: "Z AI's OpenAI-compatible large language models",
+		env: {
+			required: {
+				apiKey: "LLM_Z_AI_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#22c55e",
@@ -167,6 +255,11 @@ export const providers = [
 		id: "moonshot",
 		name: "Moonshot AI",
 		description: "Moonshot AI's OpenAI-compatible large language models",
+		env: {
+			required: {
+				apiKey: "LLM_MOONSHOT_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#4B9EFF",
@@ -178,6 +271,11 @@ export const providers = [
 		name: "Perplexity",
 		description:
 			"Perplexity's AI models for search and conversation with real-time web access",
+		env: {
+			required: {
+				apiKey: "LLM_PERPLEXITY_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#20B2AA",
@@ -189,6 +287,11 @@ export const providers = [
 		name: "Nebius AI",
 		description:
 			"Nebius AI Studio - OpenAI-compatible API for large language models",
+		env: {
+			required: {
+				apiKey: "LLM_NEBIUS_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#3b82f6",
@@ -199,6 +302,11 @@ export const providers = [
 		id: "mistral",
 		name: "Mistral AI",
 		description: "Mistral AI's large language models",
+		env: {
+			required: {
+				apiKey: "LLM_MISTRAL_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#FF7000",
@@ -210,6 +318,11 @@ export const providers = [
 		name: "CanopyWave",
 		description:
 			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_CANOPY_WAVE_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
@@ -221,6 +334,11 @@ export const providers = [
 		name: "Inference.net",
 		description:
 			"Inference.net is a platform for running large language models in the cloud.",
+		env: {
+			required: {
+				apiKey: "LLM_INFERENCE_NET_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
@@ -232,6 +350,11 @@ export const providers = [
 		name: "Together AI",
 		description:
 			"Together AI is a platform for running large language models in the cloud with fast inference.",
+		env: {
+			required: {
+				apiKey: "LLM_TOGETHER_AI_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#ff6b35",
@@ -242,6 +365,11 @@ export const providers = [
 		id: "routeway",
 		name: "RouteWay",
 		description: "RouteWay's OpenAI-compatible large language models",
+		env: {
+			required: {
+				apiKey: "LLM_ROUTEWAY_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#4f46e5",
@@ -252,6 +380,9 @@ export const providers = [
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
+		env: {
+			required: {},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#6b7280",
@@ -262,6 +393,12 @@ export const providers = [
 		id: "routeway-discount",
 		name: "RouteWay Discount",
 		description: "RouteWay's discounted models with special pricing",
+		env: {
+			required: {
+				apiKey: "LLM_ROUTEWAY_DISCOUNT_API_KEY",
+				baseUrl: "LLM_ROUTEWAY_DISCOUNT_BASE_URL",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#4f46e5",
@@ -273,6 +410,11 @@ export const providers = [
 		name: "CloudRift",
 		description:
 			"CloudRift is a platform for running large language models in the cloud with fast inference.",
+		env: {
+			required: {
+				apiKey: "LLM_CLOUD_RIFT_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#00d4aa",
@@ -283,6 +425,11 @@ export const providers = [
 		id: "nanogpt",
 		name: "NanoGPT",
 		description: "NanoGPT offers a large selection of models",
+		env: {
+			required: {
+				apiKey: "LLM_NANO_GPT_API_KEY",
+			},
+		},
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
@@ -292,3 +439,9 @@ export const providers = [
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
+
+export function getProviderDefinition(
+	providerId: ProviderId | string,
+): ProviderDefinition | undefined {
+	return providers.find((p) => p.id === providerId);
+}

@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
 	experimental: {
-		turbopackFileSystemCacheForDev: true,
+		// turbopackFileSystemCacheForDev: true,
 		// turbopackFileSystemCacheForBuild: true,
 	},
 };

@@ -4,7 +4,10 @@ export const perplexityModels = [
 	{
 		id: "sonar-reasoning-pro",
 		name: "Sonar Reasoning Pro",
+		description: "Perplexity's advanced reasoning model with web search.",
 		family: "perplexity",
+		releasedAt: new Date("2024-06-06"),
+		publishedAt: new Date("2024-06-06"),
 		providers: [
 			{
 				providerId: "perplexity",
@@ -26,7 +29,10 @@ export const perplexityModels = [
 	{
 		id: "sonar-pro",
 		name: "Sonar Pro",
+		description: "Professional Sonar model with enhanced search capabilities.",
 		family: "perplexity",
+		releasedAt: new Date("2024-06-06"),
+		publishedAt: new Date("2024-06-06"),
 		providers: [
 			{
 				providerId: "perplexity",
@@ -48,7 +54,10 @@ export const perplexityModels = [
 	{
 		id: "sonar",
 		name: "Sonar",
+		description: "Standard Sonar model for search-augmented generation.",
 		family: "perplexity",
+		releasedAt: new Date("2024-06-06"),
+		publishedAt: new Date("2024-06-06"),
 		providers: [
 			{
 				providerId: "perplexity",

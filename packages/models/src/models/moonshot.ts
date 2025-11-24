@@ -4,7 +4,10 @@ export const moonshotModels = [
 	{
 		id: "kimi-k2",
 		name: "Kimi K2",
+		description: "Moonshot's Kimi K2 model for general tasks.",
 		family: "moonshot",
+		releasedAt: new Date("2025-07-10"),
+		publishedAt: new Date("2025-07-10"),
 		providers: [
 			{
 				providerId: "groq",
@@ -79,7 +82,10 @@ export const moonshotModels = [
 	{
 		id: "kimi-k2-thinking",
 		name: "Kimi K2 Thinking",
+		description: "Kimi K2 with extended thinking capabilities.",
 		family: "moonshot",
+		releasedAt: new Date("2025-07-10"),
+		publishedAt: new Date("2025-07-10"),
 		providers: [
 			{
 				providerId: "moonshot",
