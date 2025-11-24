@@ -193,7 +193,7 @@ export function getProviderEndpoint(
 				if (!projectId) {
 					const vertexEnv = getProviderEnvConfig("google-vertex");
 					throw new Error(
-						`${vertexEnv?.required.project || "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for gemini-2.5-flash-preview-09-2025`,
+						`${vertexEnv?.required.project || "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex model "${model}"`,
 					);
 				}
 
