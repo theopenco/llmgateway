@@ -98,7 +98,17 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-Note that when specifying a provider explicitly, LLMGateway will not perform any routing and will send the request directly to the chosen provider. If that provider is unavailable or has issues, the request will fail.
+#### Low-Uptime Protection
+
+When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (last 5 minutes). If the uptime falls below 80%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues.
+
+<Callout type="info">
+	If the requested provider has low uptime but no alternative providers are
+	available for that model, the request will still be sent to the originally
+	requested provider.
+</Callout>
+
+If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, this can be configured in your project settings (coming soon).
 
 ## Optimized Auto Routing
 
