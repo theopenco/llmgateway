@@ -498,6 +498,13 @@
       "when": 1763832260035,
       "tag": "1763832260_jittery_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "8",
+      "when": 1764005848283,
+      "tag": "1764005848_mature_ghost_rider",
+      "breakpoints": true
     }
   ]
 }
