@@ -1114,8 +1114,8 @@ chat.openapi(completions, async (c) => {
 
 		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
 
-		// If we have metrics and uptime is below 80%, route to an alternative
-		if (metrics && metrics.uptime < 80) {
+		// If we have metrics and uptime is below 90%, route to an alternative
+		if (metrics && metrics.uptime < 90) {
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
 				.filter((p) => p.providerId !== usedProvider) // Exclude the low-uptime provider

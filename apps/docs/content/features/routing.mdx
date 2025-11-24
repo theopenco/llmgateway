@@ -100,7 +100,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 #### Low-Uptime Protection
 
-When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (last 5 minutes). If the uptime falls below 80%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues.
+When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (last 5 minutes). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues.
 
 <Callout type="info">
 	If the requested provider has low uptime but no alternative providers are
