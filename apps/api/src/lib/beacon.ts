@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { providers } from "@llmgateway/models";
 
 interface BeaconData {
 	uuid: string;
@@ -12,51 +13,20 @@ interface BeaconData {
 }
 
 /**
- * List of provider API key environment variables to track
- */
-const PROVIDER_ENV_VARS = [
-	"LLM_LLMGATEWAY_API_KEY",
-	"LLM_OPENAI_API_KEY",
-	"LLM_ANTHROPIC_API_KEY",
-	"LLM_GOOGLE_AI_STUDIO_API_KEY",
-	"LLM_GOOGLE_VERTEX_API_KEY",
-	"LLM_INFERENCE_NET_API_KEY",
-	"LLM_TOGETHER_AI_API_KEY",
-	"LLM_CLOUD_RIFT_API_KEY",
-	"LLM_MISTRAL_API_KEY",
-	"LLM_MOONSHOT_API_KEY",
-	"LLM_NOVITA_AI_API_KEY",
-	"LLM_X_AI_API_KEY",
-	"LLM_GROQ_API_KEY",
-	"LLM_DEEPSEEK_API_KEY",
-	"LLM_PERPLEXITY_API_KEY",
-	"LLM_ALIBABA_API_KEY",
-	"LLM_NEBIUS_API_KEY",
-	"LLM_NANO_GPT_API_KEY",
-	"LLM_Z_AI_API_KEY",
-	"LLM_ROUTEWAY_API_KEY",
-	"LLM_ROUTEWAY_DISCOUNT_API_KEY",
-	"LLM_AWS_BEDROCK_API_KEY",
-	"LLM_AZURE_API_KEY",
-	"LLM_CANOPY_WAVE_API_KEY",
-] as const;
-
-/**
  * Detects which provider API keys are configured in the environment
- * Returns a list of provider names (without the LLM_ prefix and _API_KEY suffix)
+ * Returns a list of provider IDs for providers that have their API key configured
  */
 function detectConfiguredProviders(): string[] {
 	const configuredProviders: string[] = [];
 
-	for (const envVar of PROVIDER_ENV_VARS) {
-		if (process.env[envVar]) {
-			// Extract provider name: LLM_OPENAI_API_KEY -> openai
-			const providerName = envVar
-				.replace(/^LLM_/, "")
-				.replace(/_API_KEY$/, "")
-				.toLowerCase()
-				.replace(/_/g, "-");
-			configuredProviders.push(providerName);
+	for (const provider of providers) {
+		const required = provider.env.required;
+		if (
+			"apiKey" in required &&
+			required.apiKey &&
+			process.env[required.apiKey]
+		) {
+			configuredProviders.push(provider.id);
 		}
 	}
 
