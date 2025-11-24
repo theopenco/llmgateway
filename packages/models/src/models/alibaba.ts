@@ -6,6 +6,8 @@ export const alibabaModels = [
 		name: "Qwen Max",
 		description: "Alibaba's flagship Qwen model with vision and tool support.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -27,6 +29,8 @@ export const alibabaModels = [
 		name: "Qwen Max Latest",
 		description: "Latest Qwen Max with enhanced capabilities.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -48,6 +52,8 @@ export const alibabaModels = [
 		name: "Qwen Plus",
 		description: "Mid-tier Qwen model balancing speed and capability.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -69,6 +75,8 @@ export const alibabaModels = [
 		name: "Qwen Plus Latest",
 		description: "Updated Qwen Plus with extended context support.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -90,6 +98,8 @@ export const alibabaModels = [
 		name: "Qwen Flash",
 		description: "Fast, cost-effective Qwen for high-volume tasks.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -111,6 +121,8 @@ export const alibabaModels = [
 		name: "Qwen Omni Turbo",
 		description: "Multimodal Qwen with vision support.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -132,6 +144,8 @@ export const alibabaModels = [
 		name: "Qwen Turbo",
 		description: "Fastest Qwen model for quick responses.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -153,6 +167,8 @@ export const alibabaModels = [
 		name: "Qwen3 Coder Plus",
 		description: "Advanced Qwen for code generation.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				test: "skip",
@@ -175,6 +191,8 @@ export const alibabaModels = [
 		name: "Qwen QwQ 32B",
 		description: "Qwen 32B reasoning model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -197,6 +215,8 @@ export const alibabaModels = [
 		name: "Qwen3 235B A22B Instruct 2507",
 		description: "Large Qwen 3 MoE instruction model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -219,6 +239,8 @@ export const alibabaModels = [
 		name: "Qwen3 235B A22B Thinking 2507",
 		description: "Qwen 3 MoE with reasoning capabilities.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -242,6 +264,8 @@ export const alibabaModels = [
 		name: "Qwen3 14B",
 		description: "Mid-size Qwen 3 model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -264,6 +288,8 @@ export const alibabaModels = [
 		name: "Qwen3 32B",
 		description: "Mid-size Qwen 3 model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -285,6 +311,8 @@ export const alibabaModels = [
 		name: "Qwen3 30B A3B",
 		description: "Mid-size Qwen 3 MoE model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -307,6 +335,8 @@ export const alibabaModels = [
 		name: "Qwen2.5 Coder 7B",
 		description: "Qwen 2.5 code model, 7B size.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -328,6 +358,8 @@ export const alibabaModels = [
 		name: "Qwen2.5 32B Instruct",
 		description: "Qwen 2.5 instruction model, 32B size.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -350,6 +382,8 @@ export const alibabaModels = [
 		name: "Qwen2.5 72B Instruct",
 		description: "Qwen 2.5 instruction model, 72B size.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -372,6 +406,8 @@ export const alibabaModels = [
 		name: "Qwen2 VL 72B Instruct",
 		description: "Vision-language Qwen 2 model, 72B size.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -394,6 +430,8 @@ export const alibabaModels = [
 		name: "Qwen2.5 VL 72B Instruct",
 		description: "Vision-language Qwen 2.5 model, 72B size.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -415,6 +453,8 @@ export const alibabaModels = [
 		name: "Qwen3 Coder 480B A35B Instruct",
 		description: "Code-specialized Qwen 3 MoE, 480B size.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -436,6 +476,8 @@ export const alibabaModels = [
 		name: "Qwen3 Coder 30B A3B Instruct",
 		description: "Code-specialized Qwen 3 MoE, 30B size.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -457,6 +499,8 @@ export const alibabaModels = [
 		name: "Qwen3 30B A3B Instruct 2507",
 		description: "Qwen 3 MoE instruction model, July 2025.",
 		family: "alibaba",
+		releasedAt: new Date("2025-07-01"),
+		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -478,6 +522,8 @@ export const alibabaModels = [
 		name: "Qwen3 30B A3B Thinking 2507",
 		description: "Qwen 3 MoE with reasoning, July 2025.",
 		family: "alibaba",
+		releasedAt: new Date("2025-07-01"),
+		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -500,6 +546,8 @@ export const alibabaModels = [
 		name: "Qwen VL Max",
 		description: "Vision-language Qwen flagship model.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -521,6 +569,8 @@ export const alibabaModels = [
 		name: "Qwen VL Plus",
 		description: "Vision-language Qwen mid-tier model.",
 		family: "alibaba",
+		releasedAt: new Date("2024-09-09"),
+		publishedAt: new Date("2024-09-09"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -542,6 +592,8 @@ export const alibabaModels = [
 		name: "Qwen3 Next 80B A3B Thinking",
 		description: "Preview Qwen 3 Next with reasoning.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -565,6 +617,8 @@ export const alibabaModels = [
 		name: "Qwen3 Next 80B A3B Instruct",
 		description: "Preview Qwen 3 Next instruction model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "alibaba",
@@ -586,6 +640,8 @@ export const alibabaModels = [
 		name: "Qwen3 Max",
 		description: "Top-tier Qwen 3 with reasoning and vision support.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				test: "skip",
@@ -611,6 +667,8 @@ export const alibabaModels = [
 		name: "Qwen3 Coder",
 		description: "General Qwen 3 coding model.",
 		family: "alibaba",
+		releasedAt: new Date("2025-04-30"),
+		publishedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "canopywave",

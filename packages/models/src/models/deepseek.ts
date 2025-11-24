@@ -7,6 +7,8 @@ export const deepseekModels = [
 		description:
 			"Large-scale Chinese AI model with strong multilingual capabilities.",
 		family: "deepseek",
+		releasedAt: new Date("2024-12-26"),
+		publishedAt: new Date("2024-12-26"),
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -43,6 +45,8 @@ export const deepseekModels = [
 		name: "DeepSeek R1",
 		description: "DeepSeek reasoning model for complex problem-solving.",
 		family: "deepseek",
+		releasedAt: new Date("2025-01-20"),
+		publishedAt: new Date("2025-01-20"),
 		providers: [
 			{
 				providerId: "deepseek",
@@ -79,6 +83,8 @@ export const deepseekModels = [
 		name: "DeepSeek R1 (0528)",
 		description: "May 2028 version of DeepSeek R1 reasoning model.",
 		family: "deepseek",
+		releasedAt: new Date("2025-05-28"),
+		publishedAt: new Date("2025-05-28"),
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -129,6 +135,8 @@ export const deepseekModels = [
 		description: "DeepSeek R1 distilled into Llama 70B architecture.",
 		family: "deepseek",
 		stability: "beta" as const,
+		releasedAt: new Date("2025-01-20"),
+		publishedAt: new Date("2025-01-20"),
 		providers: [
 			{
 				providerId: "groq",
@@ -152,6 +160,8 @@ export const deepseekModels = [
 		description:
 			"Updated DeepSeek V3 with vision, tools, and improved performance.",
 		family: "deepseek",
+		releasedAt: new Date("2025-08-21"),
+		publishedAt: new Date("2025-08-21"),
 		providers: [
 			{
 				providerId: "deepseek",

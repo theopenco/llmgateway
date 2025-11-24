@@ -6,6 +6,8 @@ export const minimaxModels = [
 		name: "MiniMax M2",
 		description: "MiniMax M2 model with reasoning and tool support.",
 		family: "minimax",
+		releasedAt: new Date("2025-06-01"),
+		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "canopywave",

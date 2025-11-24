@@ -7,6 +7,8 @@ export const routewayModels = [
 		description: "Free DeepSeek R1T2 Chimera for testing.",
 		family: "deepseek",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -30,6 +32,8 @@ export const routewayModels = [
 		description: "Free GLM-4.5 Air model.",
 		family: "glm",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -53,6 +57,8 @@ export const routewayModels = [
 		description: "Free Kimi Dev 72B for development.",
 		family: "kimi",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -76,6 +82,8 @@ export const routewayModels = [
 		description: "Free Mistral Small 3.",
 		family: "mistral",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -99,6 +107,8 @@ export const routewayModels = [
 		description: "Free GPT OSS 20B model.",
 		family: "gpt-oss",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -122,6 +132,8 @@ export const routewayModels = [
 		description: "Free Llama 3.3 70B.",
 		family: "meta",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -145,6 +157,8 @@ export const routewayModels = [
 		description: "Free Llama 4 Scout.",
 		family: "meta",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -168,6 +182,8 @@ export const routewayModels = [
 		description: "Free Llama 4 Maverick.",
 		family: "meta",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -191,6 +207,8 @@ export const routewayModels = [
 		description: "Free NVIDIA Nemotron Nano 9B.",
 		family: "nvidia",
 		free: true,
+		releasedAt: new Date("2025-01-01"),
+		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
