@@ -38,6 +38,9 @@ export interface RoutingMetadata {
 		throughput?: number;
 		price: number;
 	}>;
+	// Optional fields for low-uptime fallback routing
+	originalProvider?: string;
+	originalProviderUptime?: number;
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {

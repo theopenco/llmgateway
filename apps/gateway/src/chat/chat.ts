@@ -1092,7 +1092,111 @@ chat.openapi(completions, async (c) => {
 	) {
 		usedProvider = "llmgateway";
 		usedModel = "custom";
-	} else if (!usedProvider) {
+	}
+
+	// Check uptime for specifically requested providers (not llmgateway or custom)
+	// If uptime is below 80%, route to an alternative provider instead
+	if (
+		usedProvider &&
+		requestedProvider &&
+		requestedProvider !== "llmgateway" &&
+		requestedProvider !== "custom"
+	) {
+		// Find the base model ID for metrics lookup
+		// Since custom providers are excluded above, modelInfo always has 'id'
+		const baseModelId = (modelInfo as ModelDefinition).id;
+
+		// Fetch uptime metrics for the requested provider
+		const metricsMap = await getProviderMetricsForCombinations(
+			[{ modelId: baseModelId, providerId: usedProvider }],
+			5,
+		);
+
+		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
+
+		// If we have metrics and uptime is below 80%, route to an alternative
+		if (metrics && metrics.uptime < 80) {
+			// Get available providers for routing
+			const providerIds = modelInfo.providers
+				.filter((p) => p.providerId !== usedProvider) // Exclude the low-uptime provider
+				.map((p) => p.providerId);
+
+			if (providerIds.length > 0) {
+				const providerKeys = await db.query.providerKey.findMany({
+					where: {
+						status: { eq: "active" },
+						organizationId: { eq: project.organizationId },
+						provider: { in: providerIds },
+					},
+				});
+
+				const availableProviders =
+					project.mode === "api-keys"
+						? providerKeys.map((key) => key.provider)
+						: providers
+								.filter((p) => p.id !== "llmgateway" && p.id !== usedProvider)
+								.filter((p) => hasProviderEnvironmentToken(p.id as Provider))
+								.map((p) => p.id);
+
+				// Filter model providers to only those available (excluding the low-uptime one)
+				const availableModelProviders = modelInfo.providers.filter(
+					(provider) =>
+						availableProviders.includes(provider.providerId) &&
+						provider.providerId !== usedProvider,
+				);
+
+				if (availableModelProviders.length > 0) {
+					const modelWithPricing = models.find((m) => m.id === baseModelId);
+
+					if (modelWithPricing) {
+						// Fetch metrics for all available providers
+						const metricsCombinations = availableModelProviders.map((p) => ({
+							modelId: modelWithPricing.id,
+							providerId: p.providerId,
+						}));
+						const allMetricsMap = await getProviderMetricsForCombinations(
+							metricsCombinations,
+							5,
+						);
+
+						const cheapestResult = getCheapestFromAvailableProviders(
+							availableModelProviders,
+							modelWithPricing,
+							allMetricsMap,
+						);
+
+						if (cheapestResult) {
+							usedProvider = cheapestResult.provider.providerId;
+							usedModel = cheapestResult.provider.modelName;
+							routingMetadata = {
+								...cheapestResult.metadata,
+								selectionReason: "low-uptime-fallback",
+								originalProvider: requestedProvider,
+								originalProviderUptime: metrics.uptime,
+							};
+						} else {
+							// Use first available provider as fallback
+							usedProvider = availableModelProviders[0].providerId;
+							usedModel = availableModelProviders[0].modelName;
+							routingMetadata = {
+								availableProviders: availableModelProviders.map(
+									(p) => p.providerId,
+								),
+								selectedProvider: usedProvider,
+								selectionReason: "low-uptime-fallback",
+								providerScores: [],
+								originalProvider: requestedProvider,
+								originalProviderUptime: metrics.uptime,
+							};
+						}
+					}
+				}
+			}
+			// If no alternative providers available, continue with the requested one
+		}
+	}
+
+	if (!usedProvider) {
 		if (modelInfo.providers.length === 1) {
 			usedProvider = modelInfo.providers[0].providerId;
 			usedModel = modelInfo.providers[0].modelName;
