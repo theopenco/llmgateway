@@ -136,10 +136,10 @@ export const organization = pgTable("organization", {
 	trialEndDate: timestamp(),
 	isTrialActive: boolean().notNull().default(false),
 	retentionLevel: text({
-		enum: ["retain", "none"],
+		enum: ["full", "metadata", "none"],
 	})
 		.notNull()
-		.default("retain"),
+		.default("metadata"),
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
@@ -427,6 +427,7 @@ export const log = pgTable(
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
+		storageCost: real(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),
 		cached: boolean().default(false),

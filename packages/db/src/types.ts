@@ -65,7 +65,7 @@ export type Organization = Omit<
 	"status" | "plan" | "retentionLevel"
 > & {
 	plan: "free" | "pro";
-	retentionLevel: "retain" | "none";
+	retentionLevel: "full" | "metadata" | "none";
 	status: "active" | "inactive" | "deleted" | null;
 };
 

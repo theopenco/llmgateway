@@ -24,9 +24,9 @@ export function OrganizationRetentionSettings() {
 		},
 	});
 
-	const [retentionLevel, setRetentionLevel] = useState<"retain" | "none">(
-		selectedOrganization?.retentionLevel || "retain",
-	);
+	const [retentionLevel, setRetentionLevel] = useState<
+		"full" | "metadata" | "none"
+	>(selectedOrganization?.retentionLevel || "metadata");
 
 	// Fetch projects to check if any have caching enabled
 	const { data: projectsData } = api.useQuery("get", "/orgs/{id}/projects", {
@@ -94,9 +94,21 @@ export function OrganizationRetentionSettings() {
 					Configure how request payloads and AI responses are stored
 				</p>
 				{selectedOrganization && (
-					<p className="text-muted-foreground text-sm mt-1">
-						Organization: {selectedOrganization.name}
-					</p>
+					<>
+						<p className="text-muted-foreground text-sm mt-1">
+							Organization: {selectedOrganization.name}
+						</p>
+						<p className="text-muted-foreground text-sm mt-1">
+							Plan:{" "}
+							{selectedOrganization.plan === "free"
+								? "Free (3-day retention)"
+								: "Pro (7-day retention)"}
+						</p>
+						<p className="text-muted-foreground text-sm mt-1">
+							Storage cost: $0.01 per 1M tokens (input + cached + output +
+							reasoning)
+						</p>
+					</>
 				)}
 			</div>
 
@@ -116,19 +128,26 @@ export function OrganizationRetentionSettings() {
 
 				<RadioGroup
 					value={retentionLevel}
-					onValueChange={(value: "retain" | "none") => setRetentionLevel(value)}
+					onValueChange={(value: "full" | "metadata" | "none") =>
+						setRetentionLevel(value)
+					}
 					className="space-y-2"
 				>
 					{[
 						{
-							id: "retain",
-							label: "Retain All Data",
-							desc: "Save request payloads and AI responses along with metadata",
+							id: "full",
+							label: "Full Retention",
+							desc: "Save request payloads and AI responses along with metadata. Data is kept for the full retention period based on your plan.",
+						},
+						{
+							id: "metadata",
+							label: "Metadata Only (Recommended)",
+							desc: "Save only metadata, pricing, and usage data. Request payloads and responses are excluded to reduce storage costs.",
 						},
 						{
 							id: "none",
-							label: "Metadata Only",
-							desc: "Save only metadata, pricing, and usage data (exclude request payloads and responses)",
+							label: "No Retention",
+							desc: "Do not retain any data. Only live request processing is available.",
 						},
 					].map(({ id, label, desc }) => (
 						<div key={id} className="flex items-start space-x-2">

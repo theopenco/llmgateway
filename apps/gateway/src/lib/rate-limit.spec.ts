@@ -100,7 +100,7 @@ describe("Rate Limiting", () => {
 				trialStartDate: null,
 				trialEndDate: null,
 				isTrialActive: false,
-				retentionLevel: "retain" as const,
+				retentionLevel: "metadata" as const,
 				status: "active" as const,
 				referralEarnings: "0",
 			});
@@ -144,7 +144,7 @@ describe("Rate Limiting", () => {
 				trialStartDate: null,
 				trialEndDate: null,
 				isTrialActive: false,
-				retentionLevel: "retain" as const,
+				retentionLevel: "metadata" as const,
 				status: "active" as const,
 				referralEarnings: "0",
 			});
@@ -185,7 +185,7 @@ describe("Rate Limiting", () => {
 				trialStartDate: null,
 				trialEndDate: null,
 				isTrialActive: false,
-				retentionLevel: "retain" as const,
+				retentionLevel: "metadata" as const,
 				status: "active" as const,
 				referralEarnings: "0",
 			});
@@ -234,7 +234,7 @@ describe("Rate Limiting", () => {
 				trialStartDate: null,
 				trialEndDate: null,
 				isTrialActive: false,
-				retentionLevel: "retain" as const,
+				retentionLevel: "metadata" as const,
 				status: "active" as const,
 				referralEarnings: "0",
 			});
@@ -283,7 +283,7 @@ describe("Rate Limiting", () => {
 				trialStartDate: null,
 				trialEndDate: null,
 				isTrialActive: false,
-				retentionLevel: "retain" as const,
+				retentionLevel: "metadata" as const,
 				status: "active" as const,
 				referralEarnings: "0",
 			});

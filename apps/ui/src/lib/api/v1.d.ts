@@ -2015,7 +2015,7 @@ export interface paths {
                                 plan: "free" | "pro";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
-                                retentionLevel: "retain" | "none";
+                                retentionLevel: "full" | "metadata" | "none";
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 autoTopUpEnabled: boolean;
@@ -2066,7 +2066,7 @@ export interface paths {
                                 plan: "free" | "pro";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
-                                retentionLevel: "retain" | "none";
+                                retentionLevel: "full" | "metadata" | "none";
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 autoTopUpEnabled: boolean;
@@ -2214,7 +2214,7 @@ export interface paths {
                         billingTaxId?: string;
                         billingNotes?: string;
                         /** @enum {string} */
-                        retentionLevel?: "retain" | "none";
+                        retentionLevel?: "full" | "metadata" | "none";
                         autoTopUpEnabled?: boolean;
                         autoTopUpThreshold?: number;
                         autoTopUpAmount?: number;
@@ -2245,7 +2245,7 @@ export interface paths {
                                 plan: "free" | "pro";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
-                                retentionLevel: "retain" | "none";
+                                retentionLevel: "full" | "metadata" | "none";
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
                                 autoTopUpEnabled: boolean;

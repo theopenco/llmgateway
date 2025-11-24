@@ -70,7 +70,7 @@ export interface Organization {
 	credits: string;
 	plan: "free" | "pro";
 	planExpiresAt: string | null;
-	retentionLevel: "retain" | "none";
+	retentionLevel: "full" | "metadata" | "none";
 	status: "active" | "inactive" | "deleted" | null;
 	autoTopUpEnabled: boolean;
 	autoTopUpThreshold: string | null;

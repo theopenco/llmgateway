@@ -198,7 +198,13 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>90-day data retention</span>
+								<span>
+									{isProPlan ? "7-day" : "3-day"} data retention window
+								</span>
+							</div>
+							<div className="flex items-center gap-2">
+								<div className="w-2 h-2 rounded-full bg-green-500" />
+								<span>Storage: $0.01 per 1M tokens</span>
 							</div>
 						</div>
 						<div className="space-y-2">
@@ -212,6 +218,11 @@ export function PlanManagement() {
 							</div>
 						</div>
 					</div>
+					<p className="text-xs text-muted-foreground mt-2">
+						Data is retained up to your plan's retention window based on your
+						retention level setting. Storage costs apply only to full retention
+						mode.
+					</p>
 				</div>
 			</CardContent>
 			<CardFooter className="flex justify-between">

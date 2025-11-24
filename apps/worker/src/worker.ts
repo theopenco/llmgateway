@@ -71,6 +71,11 @@ const schema = z.object({
 	used_provider: z.string(),
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
+	prompt_tokens: z.string().nullable(),
+	completion_tokens: z.string().nullable(),
+	reasoning_tokens: z.string().nullable(),
+	cached_tokens: z.string().nullable(),
+	retention_level: z.enum(["full", "metadata", "none"]).nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -536,9 +541,18 @@ export async function batchProcessLogs(): Promise<void> {
 					used_provider: log.usedProvider,
 					response_size: log.responseSize,
 					hasError: log.hasError,
+					prompt_tokens: log.promptTokens,
+					completion_tokens: log.completionTokens,
+					reasoning_tokens: log.reasoningTokens,
+					cached_tokens: log.cachedTokens,
+					retention_level: tables.organization.retentionLevel,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
+				.leftJoin(
+					tables.organization,
+					eq(tables.organization.id, log.organizationId),
+				)
 				.where(sql`${log.processedAt} IS NULL`)
 				.orderBy(sql`${log.createdAt} ASC`)
 				.limit(BATCH_SIZE)
@@ -558,9 +572,32 @@ export async function batchProcessLogs(): Promise<void> {
 			const orgCosts = new Map<string, Decimal>();
 			const apiKeyCosts = new Map<string, Decimal>();
 			const logIds: string[] = [];
+			const storageCosts = new Map<string, number>();
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
+
+				// Calculate storage cost at $0.01 per 1M tokens for full retention
+				let storageCost = 0;
+				if (row.retention_level === "full") {
+					const promptTokens = row.prompt_tokens
+						? Number(row.prompt_tokens)
+						: 0;
+					const completionTokens = row.completion_tokens
+						? Number(row.completion_tokens)
+						: 0;
+					const cachedTokens = row.cached_tokens
+						? Number(row.cached_tokens)
+						: 0;
+					const reasoningTokens = row.reasoning_tokens
+						? Number(row.reasoning_tokens)
+						: 0;
+
+					const totalTokens =
+						promptTokens + completionTokens + cachedTokens + reasoningTokens;
+					storageCost = (totalTokens / 1_000_000) * 0.01;
+					storageCosts.set(row.id, storageCost);
+				}
 
 				// Log each processed log with JSON format
 				logger.info("Processing log", {
@@ -679,13 +716,17 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
-			// Mark all logs as processed within the same transaction
-			await tx
-				.update(log)
-				.set({
-					processedAt: new Date(),
-				})
-				.where(inArray(log.id, logIds));
+			// Mark all logs as processed and update storage costs within the same transaction
+			for (const logId of logIds) {
+				const storageCost = storageCosts.get(logId) || 0;
+				await tx
+					.update(log)
+					.set({
+						processedAt: new Date(),
+						storageCost,
+					})
+					.where(eq(log.id, logId));
+			}
 
 			logger.info(`Marked ${logIds.length} logs as processed`);
 		});
@@ -714,6 +755,7 @@ export async function processLogQueue(): Promise<void> {
 		const processedLogData: (
 			| LogInsertData
 			| Omit<LogInsertData, "messages" | "content">
+			| null
 		)[] = await Promise.all(
 			logData.map(async (data) => {
 				const organization = await db.query.organization.findFirst({
@@ -724,7 +766,14 @@ export async function processLogQueue(): Promise<void> {
 					},
 				});
 
+				// Filter data based on retention level
 				if (organization?.retentionLevel === "none") {
+					// No retention: don't store any data
+					return null;
+				}
+
+				if (organization?.retentionLevel === "metadata") {
+					// Metadata only: exclude request payloads and responses
 					const {
 						messages: _messages,
 						content: _content,
@@ -733,16 +782,30 @@ export async function processLogQueue(): Promise<void> {
 					return metadataOnly;
 				}
 
+				// Full retention: store everything
 				return data;
 			}),
 		);
+
+		// Filter out null entries (for "none" retention level)
+		const logsToInsert = processedLogData.filter(
+			(
+				log,
+			): log is LogInsertData | Omit<LogInsertData, "messages" | "content"> =>
+				log !== null,
+		);
+
+		// Skip insertion if no logs to insert
+		if (logsToInsert.length === 0) {
+			return;
+		}
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
-				await db.insert(log).values(processedLogData as LogInsertData[]);
+				await db.insert(log).values(logsToInsert as LogInsertData[]);
 				return; // Success, exit function
 			} catch (insertError) {
 				lastError =
