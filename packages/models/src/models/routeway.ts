@@ -12,7 +12,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "deepseek-r1t2-chimera:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -37,7 +36,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "glm-4.5-air:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -52,9 +50,9 @@ export const routewayModels = [
 		],
 	},
 	{
-		id: "kimi-dev-72b-free",
-		name: "Kimi Dev 72B (Free)",
-		description: "Free Kimi Dev 72B for development.",
+		id: "kimi-k2-0905-free",
+		name: "Kimi Dev 0905 (Free)",
+		description: "Free Kimi K2 0905",
 		family: "kimi",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
@@ -62,37 +60,11 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
-				modelName: "kimi-dev-72b:free",
+				modelName: "kimi-k2-0905:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
 				requestPrice: 0,
 				contextSize: 131000,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-				tools: false,
-				jsonOutput: true,
-			},
-		],
-	},
-	{
-		id: "mistral-small-3-free",
-		name: "Mistral Small 3 (Free)",
-		description: "Free Mistral Small 3.",
-		family: "mistral",
-		free: true,
-		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
-		providers: [
-			{
-				providerId: "routeway",
-				stability: "unstable" as const,
-				modelName: "mistral-small-3:free",
-				inputPrice: 0.0 / 1e6,
-				outputPrice: 0.0 / 1e6,
-				requestPrice: 0,
-				contextSize: 32000,
 				maxOutput: undefined,
 				streaming: true,
 				vision: false,
@@ -112,7 +84,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "gpt-oss-20b:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -137,7 +108,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "llama-3.3-70b-instruct:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -162,7 +132,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "llama-4-scout:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -187,7 +156,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "llama-4-maverick:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
@@ -212,7 +180,6 @@ export const routewayModels = [
 		providers: [
 			{
 				providerId: "routeway",
-				stability: "unstable" as const,
 				modelName: "nemotron-nano-9b-v2:free",
 				inputPrice: 0.0 / 1e6,
 				outputPrice: 0.0 / 1e6,
