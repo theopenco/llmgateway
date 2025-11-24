@@ -1,32 +1,20 @@
+import {
+	providers,
+	type ProviderEnvConfig,
+	getProviderDefinition,
+} from "./providers.js";
+
 import type { Provider } from "./index.js";
 
-export const providerEnvVarMap: Record<Provider, string> = {
-	llmgateway: "LLM_LLMGATEWAY_API_KEY",
-	openai: "LLM_OPENAI_API_KEY",
-	anthropic: "LLM_ANTHROPIC_API_KEY",
-	"google-ai-studio": "LLM_GOOGLE_AI_STUDIO_API_KEY",
-	"google-vertex": "LLM_GOOGLE_VERTEX_API_KEY",
-	"inference.net": "LLM_INFERENCE_NET_API_KEY",
-	"together.ai": "LLM_TOGETHER_AI_API_KEY",
-	cloudrift: "LLM_CLOUD_RIFT_API_KEY",
-	mistral: "LLM_MISTRAL_API_KEY",
-	moonshot: "LLM_MOONSHOT_API_KEY",
-	novita: "LLM_NOVITA_AI_API_KEY",
-	xai: "LLM_X_AI_API_KEY",
-	groq: "LLM_GROQ_API_KEY",
-	deepseek: "LLM_DEEPSEEK_API_KEY",
-	perplexity: "LLM_PERPLEXITY_API_KEY",
-	alibaba: "LLM_ALIBABA_API_KEY",
-	nebius: "LLM_NEBIUS_API_KEY",
-	nanogpt: "LLM_NANO_GPT_API_KEY",
-	zai: "LLM_Z_AI_API_KEY",
-	routeway: "LLM_ROUTEWAY_API_KEY",
-	"routeway-discount": "LLM_ROUTEWAY_DISCOUNT_API_KEY",
-	"aws-bedrock": "LLM_AWS_BEDROCK_API_KEY",
-	azure: "LLM_AZURE_API_KEY",
-	canopywave: "LLM_CANOPY_WAVE_API_KEY",
-	custom: "LLM_UNUSED",
-};
+export type { ProviderEnvConfig };
+
+export const providerEnvVarMap: Record<Provider, string | undefined> =
+	Object.fromEntries(
+		providers.map((provider) => [
+			provider.id,
+			(provider.env.required as Record<string, string | undefined>).apiKey,
+		]),
+	) as Record<Provider, string | undefined>;
 
 export function getProviderEnvVar(
 	provider: Provider | string,
@@ -34,9 +22,84 @@ export function getProviderEnvVar(
 	return providerEnvVarMap[provider as Provider];
 }
 
+export function getProviderEnvConfig(
+	provider: Provider | string,
+): ProviderEnvConfig | undefined {
+	const def = getProviderDefinition(provider);
+	return def?.env;
+}
+
 export function hasProviderEnvironmentToken(
 	provider: Provider | string,
 ): boolean {
 	const envVar = getProviderEnvVar(provider);
 	return envVar ? Boolean(process.env[envVar]) : false;
+}
+
+export function getProviderEnvValue(
+	provider: Provider,
+	key: string,
+	configIndex?: number,
+	defaultValue?: string,
+): string | undefined {
+	const config = getProviderEnvConfig(provider);
+	if (!config) {
+		return undefined;
+	}
+
+	let envVarName: string | undefined;
+
+	// Check required vars first, then optional
+	if (key in config.required) {
+		envVarName = config.required[key as keyof typeof config.required];
+	} else if (config.optional && key in config.optional) {
+		envVarName = config.optional[key];
+	}
+
+	if (!envVarName) {
+		return defaultValue;
+	}
+
+	const envValue = process.env[envVarName];
+
+	if (!envValue) {
+		return defaultValue;
+	}
+
+	if (configIndex === undefined) {
+		return envValue;
+	}
+
+	const values = envValue
+		.split(",")
+		.map((v) => v.trim())
+		.filter((v) => v.length > 0);
+
+	if (values.length === 0) {
+		return defaultValue;
+	}
+
+	if (configIndex >= values.length) {
+		return values[values.length - 1];
+	}
+
+	return values[configIndex];
+}
+
+export function validateProviderEnv(provider: Provider): string[] {
+	const config = getProviderEnvConfig(provider);
+	if (!config) {
+		return [`Unknown provider: ${provider}`];
+	}
+
+	const errors: string[] = [];
+
+	// Check all required env vars
+	for (const [key, envVarName] of Object.entries(config.required)) {
+		if (envVarName && !process.env[envVarName]) {
+			errors.push(`Missing required env var: ${envVarName} (${key})`);
+		}
+	}
+
+	return errors;
 }

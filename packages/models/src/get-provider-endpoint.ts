@@ -1,38 +1,8 @@
 import { models, type ProviderModelMapping } from "./models.js";
+import { getProviderEnvValue, getProviderEnvConfig } from "./provider.js";
 
 import type { ProviderId } from "./providers.js";
 import type { ProviderKeyOptions } from "@llmgateway/db";
-
-/**
- * Get the nth value from a comma-separated environment variable
- * Used for related environment variables (e.g., regions) that should match the API key index
- */
-function getNthEnvValue(
-	envValue: string | undefined,
-	index: number,
-	defaultValue?: string,
-): string | undefined {
-	if (!envValue) {
-		return defaultValue;
-	}
-
-	const values = envValue
-		.split(",")
-		.map((v) => v.trim())
-		.filter((v) => v.length > 0);
-
-	if (values.length === 0) {
-		return defaultValue;
-	}
-
-	// If index is out of bounds, use the last value
-	// This allows having fewer region/project entries than API keys
-	if (index >= values.length) {
-		return values[values.length - 1];
-	}
-
-	return values[index];
-}
 
 /**
  * Get the endpoint URL for a provider API call
@@ -129,31 +99,29 @@ export function getProviderEndpoint(
 				url = "https://api.routeway.ai";
 				break;
 			case "routeway-discount":
-				url = process.env.LLM_ROUTEWAY_DISCOUNT_BASE_URL;
+				url = getProviderEnvValue("routeway-discount", "baseUrl", configIndex);
 				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
 				break;
 			case "aws-bedrock":
 				url =
-					process.env.LLM_AWS_BEDROCK_BASE_URL ||
-					"https://bedrock-runtime.us-east-1.amazonaws.com";
+					getProviderEnvValue(
+						"aws-bedrock",
+						"baseUrl",
+						configIndex,
+						"https://bedrock-runtime.us-east-1.amazonaws.com",
+					) || "https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			case "azure": {
-				let resource =
-					providerKeyOptions?.azure_resource || process.env.LLM_AZURE_RESOURCE;
-
-				// Support multiple resources via comma-separated values
-				if (configIndex !== undefined && !providerKeyOptions?.azure_resource) {
-					resource = getNthEnvValue(
-						process.env.LLM_AZURE_RESOURCE,
-						configIndex,
-					);
-				}
+				const resource =
+					providerKeyOptions?.azure_resource ||
+					getProviderEnvValue("azure", "resource", configIndex);
 
 				if (!resource) {
+					const azureEnv = getProviderEnvConfig("azure");
 					throw new Error(
-						"Azure resource is required - set via provider options or LLM_AZURE_RESOURCE env var",
+						`Azure resource is required - set via provider options or ${azureEnv?.required.resource || "LLM_AZURE_RESOURCE"} env var`,
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
@@ -208,21 +176,24 @@ export function getProviderEndpoint(
 			) {
 				baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
 			} else {
-				const projectIdRaw = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-				const projectId =
-					configIndex !== undefined
-						? getNthEnvValue(projectIdRaw, configIndex)
-						: projectIdRaw;
+				const projectId = getProviderEnvValue(
+					"google-vertex",
+					"project",
+					configIndex,
+				);
 
-				const regionRaw = process.env.LLM_GOOGLE_VERTEX_REGION;
 				const region =
-					configIndex !== undefined
-						? getNthEnvValue(regionRaw, configIndex, "global") || "global"
-						: regionRaw || "global";
+					getProviderEnvValue(
+						"google-vertex",
+						"region",
+						configIndex,
+						"global",
+					) || "global";
 
 				if (!projectId) {
+					const vertexEnv = getProviderEnvConfig("google-vertex");
 					throw new Error(
-						"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for gemini-2.5-flash-preview-09-2025",
+						`${vertexEnv?.required.project || "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for gemini-2.5-flash-preview-09-2025`,
 					);
 				}
 
@@ -247,65 +218,36 @@ export function getProviderEndpoint(
 		case "zai":
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			let prefix =
+			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ||
-				process.env.LLM_AWS_BEDROCK_REGION ||
+				getProviderEnvValue("aws-bedrock", "region", configIndex, "us.") ||
 				"us.";
-
-			// Support multiple regions via comma-separated values
-			if (
-				configIndex !== undefined &&
-				!providerKeyOptions?.aws_bedrock_region_prefix
-			) {
-				prefix =
-					getNthEnvValue(
-						process.env.LLM_AWS_BEDROCK_REGION,
-						configIndex,
-						"us.",
-					) || "us.";
-			}
 
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
 		}
 		case "azure": {
-			let deploymentType =
+			const deploymentType =
 				providerKeyOptions?.azure_deployment_type ||
-				process.env.LLM_AZURE_DEPLOYMENT_TYPE ||
+				getProviderEnvValue(
+					"azure",
+					"deploymentType",
+					configIndex,
+					"ai-foundry",
+				) ||
 				"ai-foundry";
-
-			// Support multiple deployment types via comma-separated values
-			if (
-				configIndex !== undefined &&
-				!providerKeyOptions?.azure_deployment_type
-			) {
-				deploymentType =
-					getNthEnvValue(
-						process.env.LLM_AZURE_DEPLOYMENT_TYPE,
-						configIndex,
-						"ai-foundry",
-					) || "ai-foundry";
-			}
 
 			if (deploymentType === "openai") {
 				// Traditional Azure (deployment-based)
-				let apiVersion =
+				const apiVersion =
 					providerKeyOptions?.azure_api_version ||
-					process.env.LLM_AZURE_API_VERSION ||
+					getProviderEnvValue(
+						"azure",
+						"apiVersion",
+						configIndex,
+						"2024-10-21",
+					) ||
 					"2024-10-21";
-
-				// Support multiple API versions via comma-separated values
-				if (
-					configIndex !== undefined &&
-					!providerKeyOptions?.azure_api_version
-				) {
-					apiVersion =
-						getNthEnvValue(
-							process.env.LLM_AZURE_API_VERSION,
-							configIndex,
-							"2024-10-21",
-						) || "2024-10-21";
-				}
 
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
