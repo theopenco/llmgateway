@@ -595,6 +595,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
 			},
 			{
 				providerId: "aws-bedrock",
