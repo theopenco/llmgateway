@@ -2108,6 +2108,14 @@ chat.openapi(completions, async (c) => {
 				const headers = getProviderHeaders(usedProvider, usedToken);
 				headers["Content-Type"] = "application/json";
 
+				// Add effort beta header for Anthropic if effort parameter is specified
+				if (usedProvider === "anthropic" && effort !== undefined) {
+					const currentBeta = headers["anthropic-beta"];
+					headers["anthropic-beta"] = currentBeta
+						? `${currentBeta},effort-2025-11-24`
+						: "effort-2025-11-24";
+				}
+
 				res = await fetch(url, {
 					method: "POST",
 					headers,
@@ -3538,6 +3546,15 @@ chat.openapi(completions, async (c) => {
 	try {
 		const headers = getProviderHeaders(usedProvider, usedToken);
 		headers["Content-Type"] = "application/json";
+
+		// Add effort beta header for Anthropic if effort parameter is specified
+		if (usedProvider === "anthropic" && effort !== undefined) {
+			const currentBeta = headers["anthropic-beta"];
+			headers["anthropic-beta"] = currentBeta
+				? `${currentBeta},effort-2025-11-24`
+				: "effort-2025-11-24";
+		}
+
 		res = await fetch(url, {
 			method: "POST",
 			headers,
