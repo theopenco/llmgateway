@@ -82,16 +82,11 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
 								{log.content ||
-									(log.unifiedFinishReason === "tool_calls" &&
-									log.toolResults ? (
-										Array.isArray(log.toolResults) ? (
-											`Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
-										) : (
-											"Tool calls executed"
-										)
-									) : (
-										<i className="italic">Content not retained</i>
-									))}
+									(log.unifiedFinishReason === "tool_calls" && log.toolResults
+										? Array.isArray(log.toolResults)
+											? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
+											: "Tool calls executed"
+										: "---")}
 							</p>
 							{!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
@@ -400,6 +395,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div className="text-muted-foreground">Request Cost</div>
 								<div>
 									{log.requestCost ? `$${log.requestCost.toFixed(8)}` : "$0"}
+								</div>
+								<div className="text-muted-foreground">Data Storage Cost</div>
+								<div>
+									{log.dataStorageCost
+										? `$${Number(log.dataStorageCost).toFixed(8)}`
+										: "$0"}
 								</div>
 								<div className="text-muted-foreground">Total Cost</div>
 								<div className="font-medium">
