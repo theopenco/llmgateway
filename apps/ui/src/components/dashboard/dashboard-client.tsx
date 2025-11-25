@@ -11,6 +11,7 @@ import {
 	CircleDollarSign,
 	BarChart3,
 	ChartColumnBig,
+	TrendingDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -28,6 +29,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
@@ -46,6 +54,12 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	// Get days from URL params, fallback to initialDays, then to 7
 	const daysParam = searchParams.get("days");
 	const days = (daysParam === "30" ? 30 : 7) as 7 | 30;
+
+	// Get metric type from URL params, default to "costs"
+	const metricParam = searchParams.get("metric");
+	const metric = (metricParam === "requests" ? "requests" : "costs") as
+		| "costs"
+		| "requests";
 
 	// If no days param exists, add it to the URL immediately
 	useEffect(() => {
@@ -86,6 +100,13 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		router.push(`${buildUrl()}?${params.toString()}`);
 	};
 
+	// Function to update URL with new metric parameter
+	const updateMetricInUrl = (newMetric: "costs" | "requests") => {
+		const params = new URLSearchParams(searchParams.toString());
+		params.set("metric", newMetric);
+		router.push(`${buildUrl()}?${params.toString()}`);
+	};
+
 	const activityData = data?.activity || [];
 
 	const totalRequests =
@@ -102,6 +123,8 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 			(sum, day) => sum + (day.cost - day.inputCost - day.outputCost),
 			0,
 		) || 0;
+	const totalSavings =
+		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
 
 	const formatTokens = (tokens: number) => {
 		if (tokens >= 1_000_000) {
@@ -220,7 +243,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					)}
 
 					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-4", {
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-5", {
 							"pointer-events-none opacity-20": shouldShowGetStartedState,
 						})}
 					>
@@ -338,6 +361,31 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 								)}
 							</CardContent>
 						</Card>
+						<Card>
+							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+								<CardTitle className="text-sm font-medium">
+									Total Savings
+								</CardTitle>
+								<TrendingDown className="text-muted-foreground h-4 w-4" />
+							</CardHeader>
+							<CardContent>
+								{isLoading ? (
+									<>
+										<div className="text-2xl font-bold">Loading...</div>
+										<p className="text-muted-foreground text-xs">–</p>
+									</>
+								) : (
+									<>
+										<div className="text-2xl font-bold text-green-600">
+											${totalSavings.toFixed(4)}
+										</div>
+										<p className="text-muted-foreground text-xs">
+											From discounts in last {days} days
+										</p>
+									</>
+								)}
+							</CardContent>
+						</Card>
 					</div>
 					<div
 						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
@@ -346,21 +394,35 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					>
 						<Card className="col-span-4">
 							<CardHeader>
-								<CardTitle>Usage Overview</CardTitle>
-								<CardDescription>
-									Total Requests
-									{selectedProject && (
-										<span className="block mt-1 text-sm">
-											Filtered by project: {selectedProject.name}
-										</span>
-									)}
-								</CardDescription>
+								<div className="flex items-start justify-between">
+									<div className="flex-1">
+										<CardTitle>Usage Overview</CardTitle>
+										<CardDescription>
+											{metric === "costs" ? "Total Costs" : "Total Requests"}
+											{selectedProject && (
+												<span className="block mt-1 text-sm">
+													Filtered by project: {selectedProject.name}
+												</span>
+											)}
+										</CardDescription>
+									</div>
+									<Select value={metric} onValueChange={updateMetricInUrl}>
+										<SelectTrigger className="w-[140px]">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="costs">Costs</SelectItem>
+											<SelectItem value="requests">Requests</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
 							</CardHeader>
 							<CardContent className="pl-2">
 								<Overview
 									data={activityData}
 									isLoading={isLoading}
 									days={days}
+									metric={metric}
 								/>
 							</CardContent>
 						</Card>
