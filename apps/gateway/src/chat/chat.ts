@@ -679,26 +679,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Check if effort is specified but model doesn't support it
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		effort !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Check if any provider for this model has "effort" in supportedParameters
-		const supportsEffort = modelInfo.providers.some((provider) => {
-			const params = (provider as ProviderModelMapping).supportedParameters;
-			return params?.includes("effort");
-		});
-
-		if (!supportsEffort) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support the effort parameter. Remove the effort parameter or use a model that supports it (e.g., claude-opus-4-5-20251101).`,
-			});
-		}
-	}
-
 	// Check if tools are specified but model doesn't support them
 	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
 	if (
@@ -1985,6 +1965,23 @@ chat.openapi(completions, async (c) => {
 			throw new HTTPException(400, {
 				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
 			});
+		}
+	}
+
+	// Check if effort parameter is supported by the specific provider being used
+	if (effort !== undefined && finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		);
+
+		if (providerMapping) {
+			const params = (providerMapping as ProviderModelMapping)
+				.supportedParameters;
+			if (!params?.includes("effort")) {
+				throw new HTTPException(400, {
+					message: `Model ${usedModel} with provider ${usedProvider} does not support the effort parameter. Try using provider 'anthropic' instead.`,
+				});
+			}
 		}
 	}
 
