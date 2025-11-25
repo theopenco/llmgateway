@@ -139,7 +139,7 @@ export const organization = pgTable("organization", {
 		enum: ["retain", "none"],
 	})
 		.notNull()
-		.default("retain"),
+		.default("none"),
 	status: text({
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
@@ -459,6 +459,7 @@ export const log = pgTable(
 		upstreamResponse: jsonb(),
 		traceId: text(),
 		dataRetentionCleanedUp: boolean().default(false),
+		dataStorageCost: decimal().notNull().default("0"),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),

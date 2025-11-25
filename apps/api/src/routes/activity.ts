@@ -30,6 +30,7 @@ const dailyActivitySchema = z.object({
 	inputCost: z.number(),
 	outputCost: z.number(),
 	requestCost: z.number(),
+	dataStorageCost: z.number(),
 	errorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
@@ -155,6 +156,10 @@ activity.openapi(getActivity, async (c) => {
 			requestCost: sql<number>`COALESCE(SUM(${tables.log.requestCost}), 0)`.as(
 				"requestCost",
 			),
+			dataStorageCost:
+				sql<number>`COALESCE(SUM(${tables.log.dataStorageCost}), 0)`.as(
+					"dataStorageCost",
+				),
 			errorCount:
 				sql<number>`SUM(CASE WHEN ${tables.log.hasError} = true THEN 1 ELSE 0 END)`.as(
 					"errorCount",
@@ -252,6 +257,7 @@ activity.openapi(getActivity, async (c) => {
 		const inputCost = Number(day.inputCost);
 		const outputCost = Number(day.outputCost);
 		const requestCost = Number(day.requestCost);
+		const dataStorageCost = Number(day.dataStorageCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
@@ -269,6 +275,7 @@ activity.openapi(getActivity, async (c) => {
 			inputCost,
 			outputCost,
 			requestCost,
+			dataStorageCost,
 			errorCount,
 			errorRate,
 			cacheCount,

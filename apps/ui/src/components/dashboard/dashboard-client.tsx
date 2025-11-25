@@ -118,11 +118,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		activityData.reduce((sum, day) => sum + day.inputCost, 0) || 0;
 	const totalOutputCost =
 		activityData.reduce((sum, day) => sum + day.outputCost, 0) || 0;
+	const totalDataStorageCost =
+		activityData.reduce((sum, day) => sum + day.dataStorageCost, 0) || 0;
 	const totalRequestCost =
-		activityData.reduce(
-			(sum, day) => sum + (day.cost - day.inputCost - day.outputCost),
-			0,
-		) || 0;
+		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
 	const totalSavings =
 		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
 
@@ -354,6 +353,14 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 												<>
 													&nbsp;+&nbsp;
 													<span>${totalRequestCost.toFixed(2)} requests</span>
+												</>
+											)}
+											{totalDataStorageCost > 0 && (
+												<>
+													&nbsp;+&nbsp;
+													<span>
+														${totalDataStorageCost.toFixed(2)} storage
+													</span>
 												</>
 											)}
 										</p>

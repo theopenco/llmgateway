@@ -19,6 +19,8 @@ export interface DailyActivity {
 	cost: number;
 	outputCost: number;
 	inputCost: number;
+	requestCost: number;
+	dataStorageCost: number;
 	errorCount: number;
 	errorRate: number;
 	cacheCount: number;
@@ -43,6 +45,7 @@ export type ActivitT =
 				inputCost: number;
 				outputCost: number;
 				requestCost: number;
+				dataStorageCost: number;
 				errorCount: number;
 				errorRate: number;
 				cacheCount: number;

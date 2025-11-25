@@ -758,6 +758,7 @@ export interface paths {
                                 inputCost: number;
                                 outputCost: number;
                                 requestCost: number;
+                                dataStorageCost: number;
                                 errorCount: number;
                                 errorRate: number;
                                 cacheCount: number;

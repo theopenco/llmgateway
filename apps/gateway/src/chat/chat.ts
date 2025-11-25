@@ -7,7 +7,7 @@ import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
 import { calculateCosts } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
-import { insertLog } from "@/lib/logs.js";
+import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 
 import {
 	generateCacheKey,
@@ -1822,6 +1822,12 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
+					dataStorageCost: calculateDataStorageCost(
+						promptTokens,
+						cachedTokens,
+						completionTokens,
+						reasoningTokens,
+					),
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
@@ -1930,6 +1936,12 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
+					dataStorageCost: calculateDataStorageCost(
+						cachedResponse.usage?.prompt_tokens,
+						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
+						cachedResponse.usage?.completion_tokens,
+						cachedResponse.usage?.reasoning_tokens,
+					),
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
 				});
@@ -2177,6 +2189,7 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						discount: null,
+						dataStorageCost: "0",
 						cached: false,
 						toolResults: null,
 					});
@@ -2263,6 +2276,7 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						discount: null,
+						dataStorageCost: "0",
 						cached: false,
 						toolResults: null,
 					});
@@ -2412,6 +2426,7 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: null,
 					requestCost: null,
 					discount: null,
+					dataStorageCost: "0",
 					cached: false,
 					toolResults: null,
 				});
@@ -3473,6 +3488,12 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount,
 					pricingTier: costs.pricingTier,
+					dataStorageCost: calculateDataStorageCost(
+						calculatedPromptTokens,
+						cachedTokens,
+						calculatedCompletionTokens,
+						calculatedReasoningTokens,
+					),
 					cached: false,
 					tools,
 					toolResults: streamingToolCalls,
@@ -3643,6 +3664,7 @@ chat.openapi(completions, async (c) => {
 			requestCost: null,
 			estimatedCost: false,
 			discount: null,
+			dataStorageCost: "0",
 			cached: false,
 			toolResults: null,
 		});
@@ -3726,6 +3748,7 @@ chat.openapi(completions, async (c) => {
 			requestCost: null,
 			estimatedCost: false,
 			discount: null,
+			dataStorageCost: "0",
 			cached: false,
 			toolResults: null,
 		});
@@ -3838,6 +3861,7 @@ chat.openapi(completions, async (c) => {
 			requestCost: null,
 			estimatedCost: false,
 			discount: null,
+			dataStorageCost: "0",
 			cached: false,
 			toolResults: null,
 		});
@@ -4074,6 +4098,12 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
+		dataStorageCost: calculateDataStorageCost(
+			calculatedPromptTokens,
+			cachedTokens,
+			calculatedCompletionTokens,
+			calculatedReasoningTokens,
+		),
 		cached: false,
 		tools,
 		toolResults,

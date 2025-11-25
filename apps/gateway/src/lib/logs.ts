@@ -82,6 +82,28 @@ export function getUnifiedFinishReason(
 }
 
 /**
+ * Calculate data storage cost based on token usage
+ * $0.01 per 1M tokens (total tokens = input + cached + output + reasoning)
+ */
+export function calculateDataStorageCost(
+	promptTokens: number | string | null | undefined,
+	cachedTokens: number | string | null | undefined,
+	completionTokens: number | string | null | undefined,
+	reasoningTokens: number | string | null | undefined,
+): string {
+	const prompt = Number(promptTokens) || 0;
+	const cached = Number(cachedTokens) || 0;
+	const completion = Number(completionTokens) || 0;
+	const reasoning = Number(reasoningTokens) || 0;
+
+	const totalTokens = prompt + cached + completion + reasoning;
+
+	// $0.01 per 1M tokens
+	const cost = (totalTokens / 1_000_000) * 0.01;
+	return cost.toString();
+}
+
+/**
  * Insert a log entry into the database.
  * This function is extracted to prepare for future implementation using a message queue.
  */
