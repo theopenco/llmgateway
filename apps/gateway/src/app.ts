@@ -20,6 +20,7 @@ import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
+import { responses } from "./responses/responses.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -228,6 +229,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 v1.route("/chat", chat);
 v1.route("/models", models);
 v1.route("/messages", anthropic);
+v1.route("/responses", responses);
 
 app.route("/v1", v1);
 
