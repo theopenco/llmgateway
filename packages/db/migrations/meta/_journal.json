@@ -505,6 +505,13 @@
       "when": 1764069190554,
       "tag": "1764069190_clever_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "8",
+      "when": 1764086480829,
+      "tag": "1764086480_flashy_salo",
+      "breakpoints": true
     }
   ]
 }
