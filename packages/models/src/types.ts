@@ -214,7 +214,7 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 		budget_tokens: number;
 	};
 	output_config?: {
-		effort?: "minimum" | "low" | "medium" | "high";
+		effort?: "low" | "medium" | "high";
 	};
 }
 
