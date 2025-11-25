@@ -1,6 +1,51 @@
 import type { ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
+export interface CostData {
+	inputCost: number | null;
+	outputCost: number | null;
+	cachedInputCost: number | null;
+	requestCost: number | null;
+	totalCost: number | null;
+}
+
+/**
+ * Helper function to build usage object with optional cost fields
+ */
+function buildUsageObject(
+	promptTokens: number | null,
+	completionTokens: number | null,
+	totalTokens: number | null,
+	reasoningTokens: number | null,
+	cachedTokens: number | null,
+	costs: CostData | null,
+) {
+	return {
+		prompt_tokens: Math.max(1, promptTokens || 1),
+		completion_tokens: completionTokens || 0,
+		total_tokens: (() => {
+			const fallbackTotal =
+				(promptTokens || 0) + (completionTokens || 0) + (reasoningTokens || 0);
+			return Math.max(1, totalTokens ?? fallbackTotal);
+		})(),
+		...(reasoningTokens !== null && {
+			reasoning_tokens: reasoningTokens,
+		}),
+		...(cachedTokens !== null && {
+			prompt_tokens_details: {
+				cached_tokens: cachedTokens,
+			},
+		}),
+		...(costs !== null && {
+			cost_total_usd: costs.totalCost,
+			cost_input_usd: costs.inputCost,
+			cost_output_usd: costs.outputCost,
+			cost_cached_input_usd: costs.cachedInputCost,
+			cost_request_usd: costs.requestCost,
+		}),
+	};
+}
+
 /**
  * Transforms response to OpenAI format for non-OpenAI providers
  */
@@ -21,6 +66,7 @@ export function transformResponseToOpenai(
 	requestedModel: string,
 	requestedProvider: string | null,
 	baseModelName: string,
+	costs: CostData | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -68,25 +114,14 @@ export function transformResponseToOpenai(
 						})(),
 					},
 				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: (() => {
-						const fallbackTotal =
-							(promptTokens || 0) +
-							(completionTokens || 0) +
-							(reasoningTokens || 0);
-						return Math.max(1, totalTokens ?? fallbackTotal);
-					})(),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+				),
 				metadata: {
 					requested_model: requestedModel,
 					requested_provider: requestedProvider,
@@ -124,25 +159,14 @@ export function transformResponseToOpenai(
 										: "stop",
 					},
 				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: (() => {
-						const fallbackTotal =
-							(promptTokens || 0) +
-							(completionTokens || 0) +
-							(reasoningTokens || 0);
-						return Math.max(1, totalTokens ?? fallbackTotal);
-					})(),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+				),
 				metadata: {
 					requested_model: requestedModel,
 					requested_provider: requestedProvider,
@@ -175,20 +199,14 @@ export function transformResponseToOpenai(
 							finish_reason: finishReason || "stop",
 						},
 					],
-					usage: {
-						prompt_tokens: Math.max(1, promptTokens || 1),
-						completion_tokens: completionTokens || 0,
-						total_tokens: (() => {
-							const fallbackTotal =
-								(promptTokens || 0) +
-								(completionTokens || 0) +
-								(reasoningTokens || 0);
-							return Math.max(1, totalTokens ?? fallbackTotal);
-						})(),
-						...(reasoningTokens !== null && {
-							reasoning_tokens: reasoningTokens,
-						}),
-					},
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+					),
 					metadata: {
 						requested_model: requestedModel,
 						requested_provider: requestedProvider,
@@ -207,7 +225,7 @@ export function transformResponseToOpenai(
 						delete message.reasoning_content;
 					}
 				}
-				// Add metadata to existing response
+				// Add metadata and usage with costs to existing response
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;
 				transformedResponse.metadata = {
 					requested_model: requestedModel,
@@ -216,6 +234,16 @@ export function transformResponseToOpenai(
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
 				};
+				if (transformedResponse.usage && costs !== null) {
+					transformedResponse.usage = {
+						...transformedResponse.usage,
+						cost_total_usd: costs.totalCost,
+						cost_input_usd: costs.inputCost,
+						cost_output_usd: costs.outputCost,
+						cost_cached_input_usd: costs.cachedInputCost,
+						cost_request_usd: costs.requestCost,
+					};
+				}
 			}
 			break;
 		}
@@ -239,25 +267,14 @@ export function transformResponseToOpenai(
 						finish_reason: finishReason || "stop",
 					},
 				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: (() => {
-						const fallbackTotal =
-							(promptTokens || 0) +
-							(completionTokens || 0) +
-							(reasoningTokens || 0);
-						return Math.max(1, totalTokens ?? fallbackTotal);
-					})(),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+				),
 				metadata: {
 					requested_model: requestedModel,
 					requested_provider: requestedProvider,
@@ -291,25 +308,14 @@ export function transformResponseToOpenai(
 							finish_reason: finishReason || "stop",
 						},
 					],
-					usage: {
-						prompt_tokens: Math.max(1, promptTokens || 1),
-						completion_tokens: completionTokens || 0,
-						total_tokens: (() => {
-							const fallbackTotal =
-								(promptTokens || 0) +
-								(completionTokens || 0) +
-								(reasoningTokens || 0);
-							return Math.max(1, totalTokens ?? fallbackTotal);
-						})(),
-						...(reasoningTokens !== null && {
-							reasoning_tokens: reasoningTokens,
-						}),
-						...(cachedTokens !== null && {
-							prompt_tokens_details: {
-								cached_tokens: cachedTokens,
-							},
-						}),
-					},
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+					),
 					metadata: {
 						requested_model: requestedModel,
 						requested_provider: requestedProvider,
@@ -329,6 +335,16 @@ export function transformResponseToOpenai(
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
 					};
+					if (transformedResponse.usage && costs !== null) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							cost_total_usd: costs.totalCost,
+							cost_input_usd: costs.inputCost,
+							cost_output_usd: costs.outputCost,
+							cost_cached_input_usd: costs.cachedInputCost,
+							cost_request_usd: costs.requestCost,
+						};
+					}
 				}
 			}
 			break;
@@ -353,6 +369,16 @@ export function transformResponseToOpenai(
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
 				};
+				if (transformedResponse.usage && costs !== null) {
+					transformedResponse.usage = {
+						...transformedResponse.usage,
+						cost_total_usd: costs.totalCost,
+						cost_input_usd: costs.inputCost,
+						cost_output_usd: costs.outputCost,
+						cost_cached_input_usd: costs.cachedInputCost,
+						cost_request_usd: costs.requestCost,
+					};
+				}
 			}
 			break;
 		}
