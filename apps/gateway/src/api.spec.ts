@@ -66,6 +66,7 @@ describe("test", () => {
 			name: "Test Organization",
 			billingEmail: "user",
 			plan: "pro",
+			retentionLevel: "retain",
 		});
 
 		await db.insert(tables.userOrganization).values({
