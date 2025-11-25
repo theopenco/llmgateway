@@ -37,11 +37,11 @@ function buildUsageObject(
 			},
 		}),
 		...(costs !== null && {
-			cost_total_usd: costs.totalCost,
-			cost_input_usd: costs.inputCost,
-			cost_output_usd: costs.outputCost,
-			cost_cached_input_usd: costs.cachedInputCost,
-			cost_request_usd: costs.requestCost,
+			cost_usd_total: costs.totalCost,
+			cost_usd_input: costs.inputCost,
+			cost_usd_output: costs.outputCost,
+			cost_usd_cached_input: costs.cachedInputCost,
+			cost_usd_request: costs.requestCost,
 		}),
 	};
 }
@@ -237,11 +237,11 @@ export function transformResponseToOpenai(
 				if (transformedResponse.usage && costs !== null) {
 					transformedResponse.usage = {
 						...transformedResponse.usage,
-						cost_total_usd: costs.totalCost,
-						cost_input_usd: costs.inputCost,
-						cost_output_usd: costs.outputCost,
-						cost_cached_input_usd: costs.cachedInputCost,
-						cost_request_usd: costs.requestCost,
+						cost_usd_total: costs.totalCost,
+						cost_usd_input: costs.inputCost,
+						cost_usd_output: costs.outputCost,
+						cost_usd_cached_input: costs.cachedInputCost,
+						cost_usd_request: costs.requestCost,
 					};
 				}
 			}
@@ -338,11 +338,11 @@ export function transformResponseToOpenai(
 					if (transformedResponse.usage && costs !== null) {
 						transformedResponse.usage = {
 							...transformedResponse.usage,
-							cost_total_usd: costs.totalCost,
-							cost_input_usd: costs.inputCost,
-							cost_output_usd: costs.outputCost,
-							cost_cached_input_usd: costs.cachedInputCost,
-							cost_request_usd: costs.requestCost,
+							cost_usd_total: costs.totalCost,
+							cost_usd_input: costs.inputCost,
+							cost_usd_output: costs.outputCost,
+							cost_usd_cached_input: costs.cachedInputCost,
+							cost_usd_request: costs.requestCost,
 						};
 					}
 				}
@@ -372,11 +372,11 @@ export function transformResponseToOpenai(
 				if (transformedResponse.usage && costs !== null) {
 					transformedResponse.usage = {
 						...transformedResponse.usage,
-						cost_total_usd: costs.totalCost,
-						cost_input_usd: costs.inputCost,
-						cost_output_usd: costs.outputCost,
-						cost_cached_input_usd: costs.cachedInputCost,
-						cost_request_usd: costs.requestCost,
+						cost_usd_total: costs.totalCost,
+						cost_usd_input: costs.inputCost,
+						cost_usd_output: costs.outputCost,
+						cost_usd_cached_input: costs.cachedInputCost,
+						cost_usd_request: costs.requestCost,
 					};
 				}
 			}

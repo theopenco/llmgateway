@@ -321,11 +321,11 @@ const completions = createRoute({
 									cached_tokens: z.number(),
 								})
 								.optional(),
-							cost_total_usd: z.number().nullable().optional(),
-							cost_input_usd: z.number().nullable().optional(),
-							cost_output_usd: z.number().nullable().optional(),
-							cost_cached_input_usd: z.number().nullable().optional(),
-							cost_request_usd: z.number().nullable().optional(),
+							cost_usd_total: z.number().nullable().optional(),
+							cost_usd_input: z.number().nullable().optional(),
+							cost_usd_output: z.number().nullable().optional(),
+							cost_usd_cached_input: z.number().nullable().optional(),
+							cost_usd_request: z.number().nullable().optional(),
 						}),
 						metadata: z.object({
 							requested_model: z.string(),
@@ -2705,11 +2705,11 @@ chat.openapi(completions, async (c) => {
 											return Math.max(1, finalTotalTokens ?? fallbackTotal);
 										})(),
 										...(shouldIncludeCosts && {
-											cost_total_usd: streamingCosts.totalCost,
-											cost_input_usd: streamingCosts.inputCost,
-											cost_output_usd: streamingCosts.outputCost,
-											cost_cached_input_usd: streamingCosts.cachedInputCost,
-											cost_request_usd: streamingCosts.requestCost,
+											cost_usd_total: streamingCosts.totalCost,
+											cost_usd_input: streamingCosts.inputCost,
+											cost_usd_output: streamingCosts.outputCost,
+											cost_usd_cached_input: streamingCosts.cachedInputCost,
+											cost_usd_request: streamingCosts.requestCost,
 										}),
 									},
 								};
