@@ -98,8 +98,8 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 											</TooltipTrigger>
 											<TooltipContent>
 												<p>
-													Enable retention in project settings to store response
-													content
+													Enable retention in organization policies to store
+													response content
 												</p>
 											</TooltipContent>
 										</Tooltip>
@@ -396,15 +396,18 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>
 									{log.requestCost ? `$${log.requestCost.toFixed(8)}` : "$0"}
 								</div>
-								<div className="text-muted-foreground">Data Storage Cost</div>
+								<div className="text-muted-foreground">Inference Total</div>
+								<div className="font-medium">
+									{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
+								</div>
+								<div className="text-muted-foreground col-span-2 border-t pt-2 mt-1 text-xs">
+									LLM Gateway Costs
+								</div>
+								<div className="text-muted-foreground">Data Storage</div>
 								<div>
 									{log.dataStorageCost
 										? `$${Number(log.dataStorageCost).toFixed(8)}`
 										: "$0"}
-								</div>
-								<div className="text-muted-foreground">Total Cost</div>
-								<div className="font-medium">
-									{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
 								</div>
 								{log.discount && log.discount !== 1 && (
 									<>

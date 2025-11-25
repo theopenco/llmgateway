@@ -1611,6 +1611,17 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	// Check if organization has credits for data retention costs
+	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
+	if (organization && organization.retentionLevel === "retain") {
+		if (parseFloat(organization.credits || "0") <= 0) {
+			throw new HTTPException(402, {
+				message:
+					"Organization has insufficient credits for data retention. Data retention requires credits for storage costs ($0.01 per 1M tokens). Please add credits or disable data retention in organization settings.",
+			});
+		}
+	}
+
 	if (!usedToken) {
 		throw new HTTPException(500, {
 			message: `No token`,

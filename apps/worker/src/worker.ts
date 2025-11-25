@@ -71,6 +71,7 @@ const schema = z.object({
 	used_provider: z.string(),
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
+	data_storage_cost: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -536,6 +537,7 @@ export async function batchProcessLogs(): Promise<void> {
 					used_provider: log.usedProvider,
 					response_size: log.responseSize,
 					hasError: log.hasError,
+					data_storage_cost: log.dataStorageCost,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -594,14 +596,28 @@ export async function batchProcessLogs(): Promise<void> {
 						currentApiKeyCost.plus(new Decimal(row.cost)),
 					);
 
-					// Only deduct organization credits when the log actually used credits
+					// Deduct organization credits based on mode:
+					// - Credits mode: deduct full cost (includes request cost + storage cost)
+					// - API keys mode: only deduct storage cost (data retention billing)
 					if (row.used_mode === "credits") {
+						// In credits mode, deduct the full cost
 						const currentOrgCost =
 							orgCosts.get(row.organization_id) || new Decimal(0);
 						orgCosts.set(
 							row.organization_id,
 							currentOrgCost.plus(new Decimal(row.cost)),
 						);
+					} else if (row.used_mode === "api-keys" && row.data_storage_cost) {
+						// In API keys mode, only deduct storage cost for data retention
+						const storageCost = new Decimal(row.data_storage_cost);
+						if (storageCost.greaterThan(0)) {
+							const currentOrgCost =
+								orgCosts.get(row.organization_id) || new Decimal(0);
+							orgCosts.set(
+								row.organization_id,
+								currentOrgCost.plus(storageCost),
+							);
+						}
 					}
 				}
 

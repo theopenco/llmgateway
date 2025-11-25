@@ -1,5 +1,6 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import * as React from "react";
 import { useState } from "react";
 
@@ -144,21 +145,38 @@ export function OrganizationRetentionSettings() {
 				</RadioGroup>
 
 				{retentionLevel === "retain" && (
-					<Alert>
-						<AlertDescription>
-							<strong>Data Retention Periods:</strong> Retained data is
-							automatically cleaned up based on your plan:
-							<ul className="list-disc list-inside mt-2 space-y-1">
-								<li>Free plan: 3 days</li>
-								<li>Pro plan: 30 days</li>
-								<li>Enterprise plan: Unlimited</li>
-							</ul>
-							<p className="mt-2">
-								<strong>Data storage is billed at $0.01 per 1M tokens</strong>{" "}
-								(includes input, cached, output, and reasoning tokens).
-							</p>
-						</AlertDescription>
-					</Alert>
+					<>
+						<Alert>
+							<AlertDescription>
+								<strong>Data Retention Periods:</strong> Retained data is
+								automatically cleaned up based on your plan:
+								<ul className="list-disc list-inside mt-2 space-y-1">
+									<li>Free plan: 3 days</li>
+									<li>Pro plan: 30 days</li>
+									<li>Enterprise plan: Unlimited</li>
+								</ul>
+								<p className="mt-2">
+									<strong>Data storage is billed at $0.01 per 1M tokens</strong>{" "}
+									(includes input, cached, output, and reasoning tokens).
+								</p>
+							</AlertDescription>
+						</Alert>
+						<Alert>
+							<AlertDescription>
+								<p>
+									<strong>💡 Tip:</strong> Storage costs are deducted from
+									credits in real-time. We recommend enabling auto top-up in{" "}
+									<Link
+										href={`/dashboard/${selectedOrganization?.id}/org/billing`}
+										className="underline font-semibold hover:no-underline"
+									>
+										billing settings
+									</Link>{" "}
+									to prevent request failures when credits run out.
+								</p>
+							</AlertDescription>
+						</Alert>
+					</>
 				)}
 			</div>
 
