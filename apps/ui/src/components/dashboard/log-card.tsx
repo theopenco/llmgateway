@@ -9,6 +9,7 @@ import {
 	ChevronUp,
 	Clock,
 	Coins,
+	Info,
 	Package,
 	Link as LinkIcon,
 	Zap,
@@ -78,18 +79,38 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 				</div>
 				<div className="flex-1 space-y-1 min-w-0">
 					<div className="flex items-start justify-between gap-4">
-						<p className="font-medium break-words max-w-none line-clamp-2">
-							{log.content ||
-								(log.unifiedFinishReason === "tool_calls" && log.toolResults ? (
-									Array.isArray(log.toolResults) ? (
-										`Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
+						<div className="flex items-center gap-2 flex-1 min-w-0">
+							<p className="font-medium break-words max-w-none line-clamp-2">
+								{log.content ||
+									(log.unifiedFinishReason === "tool_calls" &&
+									log.toolResults ? (
+										Array.isArray(log.toolResults) ? (
+											`Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
+										) : (
+											"Tool calls executed"
+										)
 									) : (
-										"Tool calls executed"
-									)
-								) : (
-									<i className="italic">–</i>
-								))}
-						</p>
+										<i className="italic">Content not retained</i>
+									))}
+							</p>
+							{!log.content &&
+								log.unifiedFinishReason !== "tool_calls" &&
+								!log.hasError && (
+									<TooltipProvider>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<Info className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+											</TooltipTrigger>
+											<TooltipContent>
+												<p>
+													Enable retention in project settings to store response
+													content
+												</p>
+											</TooltipContent>
+										</Tooltip>
+									</TooltipProvider>
+								)}
+						</div>
 						<Badge
 							variant={
 								log.hasError
@@ -680,9 +701,16 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Message Context</h4>
 						<div className="rounded-md border p-3">
-							<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
-								{log.messages ? JSON.stringify(log.messages, null, 2) : "–"}
-							</pre>
+							{log.messages ? (
+								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
+									{JSON.stringify(log.messages, null, 2)}
+								</pre>
+							) : (
+								<p className="text-sm text-muted-foreground italic">
+									Message data not retained. Enable retention in organization
+									policies to store request messages.
+								</p>
+							)}
 						</div>
 						{!!log.responseFormat && (
 							<div className="mt-3">
@@ -710,9 +738,16 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
-							<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
-								{log.content || "–"}
-							</pre>
+							{log.content ? (
+								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
+									{log.content}
+								</pre>
+							) : (
+								<p className="text-sm text-muted-foreground italic">
+									Response content not retained. Enable retention in
+									organization policies to store response data.
+								</p>
+							)}
 						</div>
 					</div>
 				</div>
