@@ -213,6 +213,9 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 		type: "enabled";
 		budget_tokens: number;
 	};
+	output_config?: {
+		effort?: "minimum" | "low" | "medium" | "high";
+	};
 }
 
 export interface GoogleRequestBody {
