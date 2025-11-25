@@ -23,7 +23,7 @@ export function createLogEntry(
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
 	reasoningEffort: "minimal" | "low" | "medium" | "high" | undefined,
-	effort: "minimal" | "low" | "medium" | "high" | undefined,
+	effort: "minimum" | "low" | "medium" | "high" | undefined,
 	responseFormat: any | undefined,
 	tools: OpenAIToolInput[] | undefined,
 	toolChoice: any | undefined,

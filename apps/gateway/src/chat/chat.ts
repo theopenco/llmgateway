@@ -225,7 +225,7 @@ const completionsRequestSchema = z.object({
 			example: "medium",
 		}),
 	effort: z
-		.enum(["minimal", "low", "medium", "high"])
+		.enum(["minimum", "low", "medium", "high"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))

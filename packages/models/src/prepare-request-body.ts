@@ -142,7 +142,7 @@ export async function prepareRequestBody(
 	userPlan: "free" | "pro" | null = null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 	image_config?: { aspect_ratio?: string; image_size?: string },
-	effort?: "minimal" | "low" | "medium" | "high",
+	effort?: "minimum" | "low" | "medium" | "high",
 ): Promise<ProviderRequestBody> {
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
