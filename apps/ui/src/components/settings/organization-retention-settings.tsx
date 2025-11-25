@@ -154,8 +154,8 @@ export function OrganizationRetentionSettings() {
 								<li>Enterprise plan: Unlimited</li>
 							</ul>
 							<p className="mt-2">
-								Data storage is billed at $0.01 per 1M tokens (includes input,
-								cached, output, and reasoning tokens).
+								<strong>Data storage is billed at $0.01 per 1M tokens</strong>{" "}
+								(includes input, cached, output, and reasoning tokens).
 							</p>
 						</AlertDescription>
 					</Alert>
