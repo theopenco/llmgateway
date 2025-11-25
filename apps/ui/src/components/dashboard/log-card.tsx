@@ -536,6 +536,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 									</Tooltip>
 									<span>{log.reasoningEffort || "-"}</span>
 								</div>
+								{log.effort && (
+									<div className="flex items-center justify-between gap-2">
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground">Effort</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs">
+													Controls the computational effort for supported models
+													(e.g., claude-opus-4-5)
+												</p>
+											</TooltipContent>
+										</Tooltip>
+										<span>{log.effort}</span>
+									</div>
+								)}
 								<div className="flex items-center justify-between gap-2">
 									<Tooltip>
 										<TooltipTrigger asChild>

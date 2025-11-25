@@ -762,6 +762,7 @@ export interface paths {
                                 errorRate: number;
                                 cacheCount: number;
                                 cacheRate: number;
+                                discountSavings: number;
                                 modelBreakdown: {
                                     id: string;
                                     provider: string;

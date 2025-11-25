@@ -15,16 +15,19 @@ interface OverviewProps {
 	data?: DailyActivity[];
 	isLoading?: boolean;
 	days?: 7 | 30;
+	metric?: "costs" | "requests";
 }
 
 const CustomTooltip = ({
 	active,
 	payload,
 	label,
+	metric,
 }: {
 	active: boolean;
-	payload: { value: number }[];
+	payload: { value: number; name?: string; dataKey?: string }[];
 	label: string;
+	metric?: "costs" | "requests";
 }) => {
 	if (active && payload && payload.length) {
 		return (
@@ -32,16 +35,40 @@ const CustomTooltip = ({
 				<p className="font-medium">
 					{label && format(parseISO(label), "MMM d, yyyy")}
 				</p>
-				<p className="text-sm">
-					<span className="font-medium">{payload[0].value}</span> Requests
-				</p>
+				{metric === "costs" ? (
+					<>
+						<p className="text-sm">
+							<span className="font-medium">
+								${payload[0]?.value.toFixed(4)}
+							</span>{" "}
+							Cost
+						</p>
+						{payload[1] && payload[1].value > 0 && (
+							<p className="text-sm text-green-600">
+								<span className="font-medium">
+									${payload[1].value.toFixed(4)}
+								</span>{" "}
+								Saved
+							</p>
+						)}
+					</>
+				) : (
+					<p className="text-sm">
+						<span className="font-medium">{payload[0]?.value}</span> Requests
+					</p>
+				)}
 			</div>
 		);
 	}
 	return null;
 };
 
-export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
+export function Overview({
+	data,
+	isLoading = false,
+	days = 7,
+	metric = "costs",
+}: OverviewProps) {
 	if (isLoading) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
@@ -81,6 +108,7 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 				total: dataByDate.get(date)!.requestCount,
 				tokens: dataByDate.get(date)!.totalTokens,
 				cost: dataByDate.get(date)!.cost,
+				savings: dataByDate.get(date)!.discountSavings,
 			};
 		}
 
@@ -90,6 +118,7 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 			total: 0,
 			tokens: 0,
 			cost: 0,
+			savings: 0,
 		};
 	});
 
@@ -118,7 +147,9 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 					fontSize={12}
 					tickLine={false}
 					axisLine={false}
-					tickFormatter={(value) => `${value}`}
+					tickFormatter={(value) =>
+						metric === "costs" ? `$${value}` : `${value}`
+					}
 				/>
 				<Tooltip
 					content={
@@ -126,18 +157,38 @@ export function Overview({ data, isLoading = false, days = 7 }: OverviewProps) {
 							active={true}
 							payload={[{ value: 0 }]}
 							label="test"
+							metric={metric}
 						/>
 					}
 					cursor={{
 						fill: "color-mix(in srgb, currentColor 15%, transparent)",
 					}}
 				/>
-				<Bar
-					dataKey="total"
-					fill="currentColor"
-					className="fill-primary"
-					radius={[4, 4, 0, 0]}
-				/>
+				{metric === "costs" ? (
+					<>
+						<Bar
+							dataKey="cost"
+							fill="currentColor"
+							className="fill-primary"
+							radius={[4, 4, 0, 0]}
+							stackId="a"
+						/>
+						<Bar
+							dataKey="savings"
+							fill="currentColor"
+							className="fill-green-600"
+							radius={[4, 4, 0, 0]}
+							stackId="a"
+						/>
+					</>
+				) : (
+					<Bar
+						dataKey="total"
+						fill="currentColor"
+						className="fill-primary"
+						radius={[4, 4, 0, 0]}
+					/>
+				)}
 			</BarChart>
 		</ResponsiveContainer>
 	);
