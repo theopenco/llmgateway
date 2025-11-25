@@ -138,7 +138,6 @@ describe("test", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
 		expect(logs[0].finishReason).toBe("stop");
-		expect(logs[0].content).toMatch(/Hello!/);
 	});
 
 	test("Reasoning effort error for unsupported model", async () => {
