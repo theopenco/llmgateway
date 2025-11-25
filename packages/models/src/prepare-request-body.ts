@@ -513,7 +513,9 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (effort !== undefined) {
-				requestBody.effort = effort;
+				requestBody.output_config = {
+					effort: effort,
+				};
 			}
 			break;
 		}
