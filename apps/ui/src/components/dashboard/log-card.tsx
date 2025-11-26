@@ -47,6 +47,40 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 		return `${(ms / 1000).toFixed(2)}s`;
 	};
 
+	// Recursively render params object
+	const renderParams = (
+		obj: Record<string, any>,
+		depth = 0,
+	): React.ReactNode => {
+		return Object.entries(obj).map(([key, value]) => {
+			const formattedKey = key
+				.replace(/_/g, " ")
+				.replace(/\b\w/g, (l) => l.toUpperCase());
+
+			if (value === null || value === undefined) {
+				return null;
+			}
+
+			if (typeof value === "object" && !Array.isArray(value)) {
+				return (
+					<div key={key} className="contents">
+						<div className="text-muted-foreground col-span-2 font-medium mt-2 first:mt-0">
+							{formattedKey}
+						</div>
+						{renderParams(value, depth + 1)}
+					</div>
+				);
+			}
+
+			return (
+				<div key={key} className="contents">
+					<div className="text-muted-foreground">{formattedKey}</div>
+					<div>{Array.isArray(value) ? value.join(", ") : String(value)}</div>
+				</div>
+			);
+		});
+	};
+
 	// Determine status icon and color based on error status or unified finish reason
 	let StatusIcon = CheckCircle2;
 	let color = "text-green-500";
@@ -602,6 +636,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							</TooltipProvider>
 						</div>
 					</div>
+					{log.params && Object.keys(log.params).length > 0 && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Additional Parameters</h4>
+							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
+								{renderParams(log.params)}
+							</div>
+						</div>
+					)}
 					{(log.tools || log.toolChoice || log.toolResults) && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Tool Information</h4>
