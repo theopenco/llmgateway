@@ -228,7 +228,7 @@ export function PricingPlans() {
 				"100,000 included requests/month",
 				"$0.0001 per additional request",
 				"3 Team Members (more at $10/user/month)",
-				"90-day data retention",
+				"30-day data retention",
 				"Advanced Analytics",
 				"Priority support",
 			],

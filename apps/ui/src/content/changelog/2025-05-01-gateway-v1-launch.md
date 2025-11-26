@@ -89,7 +89,7 @@ Choose the billing approach that works for you:
 
 Track every API call with detailed insights:
 
-**Request logs** Complete request/response data with 90-day retention
+**Request logs** Complete request/response data with 30-day retention
 
 **Performance metrics** Response times, success rates, and error tracking
 

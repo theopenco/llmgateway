@@ -198,7 +198,7 @@ export function PlanManagement() {
 							</div>
 							<div className="flex items-center gap-2">
 								<div className="w-2 h-2 rounded-full bg-green-500" />
-								<span>90-day data retention</span>
+								<span>30-day data retention</span>
 							</div>
 						</div>
 						<div className="space-y-2">
