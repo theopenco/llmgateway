@@ -72,6 +72,11 @@ const schema = z.object({
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
 	data_storage_cost: z.string().nullable(),
+	prompt_tokens: z.string().nullable(),
+	completion_tokens: z.string().nullable(),
+	total_tokens: z.string().nullable(),
+	reasoning_tokens: z.string().nullable(),
+	cached_tokens: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -538,6 +543,11 @@ export async function batchProcessLogs(): Promise<void> {
 					response_size: log.responseSize,
 					hasError: log.hasError,
 					data_storage_cost: log.dataStorageCost,
+					prompt_tokens: log.promptTokens,
+					completion_tokens: log.completionTokens,
+					total_tokens: log.totalTokens,
+					reasoning_tokens: log.reasoningTokens,
+					cached_tokens: log.cachedTokens,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -585,6 +595,11 @@ export async function batchProcessLogs(): Promise<void> {
 					usedModelMapping: row.used_model_mapping,
 					usedProvider: row.used_provider,
 					responseSize: row.response_size,
+					promptTokens: row.prompt_tokens,
+					completionTokens: row.completion_tokens,
+					totalTokens: row.total_tokens,
+					reasoningTokens: row.reasoning_tokens,
+					cachedTokens: row.cached_tokens,
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
