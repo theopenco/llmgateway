@@ -109,17 +109,6 @@ Cached responses follow the same retention period as your data retention setting
 
 ## Identifying Cached Responses
 
-Cached responses can be identified by:
-
-### Response Headers
-
-```
-X-Cache: HIT
-X-Cache-Age: 3600
-```
-
-### Usage Object
-
 Cached responses show zero or minimal token usage since no inference occurred:
 
 ```json
@@ -158,26 +147,6 @@ const faqs = [
 	"How do I reset my password?",
 	"What is your return policy?",
 ];
-```
-
-### Retry Logic
-
-When implementing retry logic for transient failures, cached responses prevent duplicate charges:
-
-```typescript
-async function reliableRequest(messages) {
-	for (let attempt = 0; attempt < 3; attempt++) {
-		try {
-			return await client.chat.completions.create({
-				model: "gpt-4o",
-				messages,
-			});
-		} catch (error) {
-			if (attempt === 2) throw error;
-			// Retries may hit cache, avoiding duplicate costs
-		}
-	}
-}
 ```
 
 ### Batch Processing
@@ -235,20 +204,3 @@ See [Data Retention](/features/data-retention) for complete pricing details.
 	The cost savings from caching typically far outweigh the storage costs,
 	especially for applications with high request duplication.
 </Callout>
-
-## Disabling Caching
-
-If you need to bypass the cache for specific requests, you can disable caching per-request using a header:
-
-```bash
-curl https://api.llmgateway.io/v1/chat/completions \
-	-H "Authorization: Bearer $API_KEY" \
-	-H "X-Cache-Control: no-cache" \
-	-H "Content-Type: application/json" \
-	-d '{
-		"model": "gpt-4o",
-		"messages": [{"role": "user", "content": "What time is it?"}]
-	}'
-```
-
-This ensures a fresh response from the provider while still storing the result for future requests.
