@@ -20,6 +20,8 @@
 		"features/custom-providers",
 		"features/metadata",
 		"features/cost-breakdown",
+		"features/data-retention",
+		"features/caching",
 		"features/...",
 		"---Resources---",
 		"resources/rate-limits",

@@ -1,0 +1,157 @@
+---
+title: Data Retention
+description: Store and access your full request and response data for debugging, analytics, and compliance.
+icon: Database
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Data Retention
+
+LLM Gateway offers configurable data retention policies that allow you to store full request and response payloads. This enables powerful debugging capabilities, detailed analytics, and compliance with data governance requirements.
+
+## Retention Levels
+
+LLM Gateway supports two retention levels that can be configured per organization:
+
+| Level               | Description                                                                                    | Storage Cost    |
+| ------------------- | ---------------------------------------------------------------------------------------------- | --------------- |
+| **Metadata Only**   | Stores request metadata (timestamps, model, tokens, costs) without full payloads. Default.     | Free            |
+| **Retain All Data** | Stores complete request and response payloads including messages, tool calls, and attachments. | $0.01/1M tokens |
+
+<Callout type="info">
+	Metadata-only retention is enabled by default and provides usage analytics
+	without additional storage costs.
+</Callout>
+
+## Storage Pricing
+
+When full data retention is enabled, storage is billed at **$0.01 per 1 million tokens**. This rate applies to:
+
+- Input tokens (prompt)
+- Cached input tokens
+- Output tokens (completion)
+- Reasoning tokens
+
+Storage costs are calculated per request and displayed in the `cost_usd_data_storage` field of the response. See [Cost Breakdown](/features/cost-breakdown) for details on tracking costs programmatically.
+
+### Example Cost Calculation
+
+For a request with:
+
+- 1,000 input tokens
+- 500 output tokens
+- 1,500 total tokens
+
+Storage cost = 1,500 / 1,000,000 × $0.01 = **$0.000015**
+
+## Configuring Retention
+
+Data retention is configured at the organization level in your dashboard settings:
+
+1. Navigate to **Organization Settings** → **Policies**
+2. Select your preferred **Data Retention Level**
+3. Save changes
+
+<Callout type="warning">
+	Changing retention settings applies to new requests only. Existing stored data
+	follows the retention period active when it was created.
+</Callout>
+
+## Retention Periods
+
+Data is retained for different periods based on your plan:
+
+| Plan       | Retention Period |
+| ---------- | ---------------- |
+| Free       | 3 days           |
+| Pro        | 90 days          |
+| Enterprise | Custom           |
+
+After the retention period expires, data is automatically deleted.
+
+## Accessing Stored Data
+
+When data retention is enabled, you can access your stored requests through:
+
+### Dashboard
+
+View request history in the dashboard with full payload inspection:
+
+- Filter by model, date range, API key, or metadata
+- Inspect complete request and response payloads
+- Export data for analysis
+
+### API
+
+Query your stored requests programmatically through the management API for integration with your own analytics pipelines.
+
+## Use Cases
+
+### Debugging
+
+Full data retention enables you to:
+
+- Inspect exact prompts sent to models
+- Review complete responses including tool calls
+- Trace conversation histories
+- Identify issues in production
+
+### Analytics
+
+With stored payloads, you can:
+
+- Analyze prompt patterns and effectiveness
+- Track response quality over time
+- Build custom dashboards and reports
+- Measure model performance across use cases
+
+### Compliance
+
+Data retention helps meet compliance requirements by:
+
+- Maintaining audit trails of AI interactions
+- Enabling data governance policies
+- Supporting incident investigation
+- Providing records for regulatory requirements
+
+## Billing Considerations
+
+### Credit Usage
+
+In **API keys mode** (using your own provider keys):
+
+- Only storage costs are deducted from LLM Gateway credits
+- Inference costs are billed directly to your provider
+
+In **credits mode**:
+
+- Both inference and storage costs are deducted from credits
+
+### Monitoring Storage Costs
+
+Storage costs appear in:
+
+- The `cost_usd_data_storage` field in API responses
+- Usage dashboard under "Storage" category
+- Billing invoices as a separate line item
+
+<Callout type="success">
+	Enable [auto top-up](/dashboard) in billing settings to ensure uninterrupted
+	service when storage costs accumulate.
+</Callout>
+
+## Self-Hosted Deployments
+
+Self-hosted deployments have full control over data retention:
+
+- Configure retention periods in environment variables
+- Data is stored in your own PostgreSQL database
+- No additional storage costs (you manage your own infrastructure)
+
+## Privacy and Security
+
+- All stored data is encrypted at rest
+- Access is restricted to organization members with appropriate permissions
+- Data is automatically deleted after the retention period
+- You can request immediate deletion of specific records through support
