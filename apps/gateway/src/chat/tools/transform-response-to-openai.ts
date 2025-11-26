@@ -19,6 +19,7 @@ function buildUsageObject(
 	reasoningTokens: number | null,
 	cachedTokens: number | null,
 	costs: CostData | null,
+	showUpgradeMessage = false,
 ) {
 	return {
 		prompt_tokens: Math.max(1, promptTokens || 1),
@@ -42,6 +43,9 @@ function buildUsageObject(
 			cost_usd_output: costs.outputCost,
 			cost_usd_cached_input: costs.cachedInputCost,
 			cost_usd_request: costs.requestCost,
+		}),
+		...(showUpgradeMessage && {
+			info: "upgrade to pro to include usd cost breakdown",
 		}),
 	};
 }
@@ -67,6 +71,7 @@ export function transformResponseToOpenai(
 	requestedProvider: string | null,
 	baseModelName: string,
 	costs: CostData | null = null,
+	showUpgradeMessage = false,
 ) {
 	let transformedResponse = json;
 
@@ -121,6 +126,7 @@ export function transformResponseToOpenai(
 					reasoningTokens,
 					cachedTokens,
 					costs,
+					showUpgradeMessage,
 				),
 				metadata: {
 					requested_model: requestedModel,
@@ -166,6 +172,7 @@ export function transformResponseToOpenai(
 					reasoningTokens,
 					cachedTokens,
 					costs,
+					showUpgradeMessage,
 				),
 				metadata: {
 					requested_model: requestedModel,
@@ -206,6 +213,7 @@ export function transformResponseToOpenai(
 						reasoningTokens,
 						cachedTokens,
 						costs,
+						showUpgradeMessage,
 					),
 					metadata: {
 						requested_model: requestedModel,
@@ -234,15 +242,23 @@ export function transformResponseToOpenai(
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
 				};
-				if (transformedResponse.usage && costs !== null) {
-					transformedResponse.usage = {
-						...transformedResponse.usage,
-						cost_usd_total: costs.totalCost,
-						cost_usd_input: costs.inputCost,
-						cost_usd_output: costs.outputCost,
-						cost_usd_cached_input: costs.cachedInputCost,
-						cost_usd_request: costs.requestCost,
-					};
+				if (transformedResponse.usage) {
+					if (costs !== null) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							cost_usd_total: costs.totalCost,
+							cost_usd_input: costs.inputCost,
+							cost_usd_output: costs.outputCost,
+							cost_usd_cached_input: costs.cachedInputCost,
+							cost_usd_request: costs.requestCost,
+						};
+					}
+					if (showUpgradeMessage) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							info: "upgrade to pro to include usd cost breakdown",
+						};
+					}
 				}
 			}
 			break;
@@ -274,6 +290,7 @@ export function transformResponseToOpenai(
 					reasoningTokens,
 					cachedTokens,
 					costs,
+					showUpgradeMessage,
 				),
 				metadata: {
 					requested_model: requestedModel,
@@ -315,6 +332,7 @@ export function transformResponseToOpenai(
 						reasoningTokens,
 						cachedTokens,
 						costs,
+						showUpgradeMessage,
 					),
 					metadata: {
 						requested_model: requestedModel,
@@ -335,15 +353,23 @@ export function transformResponseToOpenai(
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
 					};
-					if (transformedResponse.usage && costs !== null) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							cost_usd_total: costs.totalCost,
-							cost_usd_input: costs.inputCost,
-							cost_usd_output: costs.outputCost,
-							cost_usd_cached_input: costs.cachedInputCost,
-							cost_usd_request: costs.requestCost,
-						};
+					if (transformedResponse.usage) {
+						if (costs !== null) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								cost_usd_total: costs.totalCost,
+								cost_usd_input: costs.inputCost,
+								cost_usd_output: costs.outputCost,
+								cost_usd_cached_input: costs.cachedInputCost,
+								cost_usd_request: costs.requestCost,
+							};
+						}
+						if (showUpgradeMessage) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								info: "upgrade to pro to include usd cost breakdown",
+							};
+						}
 					}
 				}
 			}
@@ -369,15 +395,23 @@ export function transformResponseToOpenai(
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
 				};
-				if (transformedResponse.usage && costs !== null) {
-					transformedResponse.usage = {
-						...transformedResponse.usage,
-						cost_usd_total: costs.totalCost,
-						cost_usd_input: costs.inputCost,
-						cost_usd_output: costs.outputCost,
-						cost_usd_cached_input: costs.cachedInputCost,
-						cost_usd_request: costs.requestCost,
-					};
+				if (transformedResponse.usage) {
+					if (costs !== null) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							cost_usd_total: costs.totalCost,
+							cost_usd_input: costs.inputCost,
+							cost_usd_output: costs.outputCost,
+							cost_usd_cached_input: costs.cachedInputCost,
+							cost_usd_request: costs.requestCost,
+						};
+					}
+					if (showUpgradeMessage) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							info: "upgrade to pro to include usd cost breakdown",
+						};
+					}
 				}
 			}
 			break;

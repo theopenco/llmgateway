@@ -335,6 +335,7 @@ const completions = createRoute({
 							cost_usd_input: z.number().nullable().optional(),
 							cost_usd_output: z.number().nullable().optional(),
 							cost_usd_cached_input: z.number().nullable().optional(),
+							info: z.string().optional(),
 							cost_usd_request: z.number().nullable().optional(),
 						}),
 						metadata: z.object({
@@ -2723,6 +2724,7 @@ chat.openapi(completions, async (c) => {
 
 								// Only include costs in response if not hosted or if org is pro
 								const shouldIncludeCosts = !isHosted || userPlan === "pro";
+								const showUpgradeMessage = isHosted && userPlan !== "pro";
 
 								const finalUsageChunk = {
 									id: `chatcmpl-${Date.now()}`,
@@ -2752,6 +2754,9 @@ chat.openapi(completions, async (c) => {
 											cost_usd_output: streamingCosts.outputCost,
 											cost_usd_cached_input: streamingCosts.cachedInputCost,
 											cost_usd_request: streamingCosts.requestCost,
+										}),
+										...(showUpgradeMessage && {
+											info: "upgrade to pro to include usd cost breakdown",
 										}),
 									},
 								};
@@ -3999,6 +4004,7 @@ chat.openapi(completions, async (c) => {
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Only include costs in response if not hosted or if org is pro
 	const shouldIncludeCosts = !isHosted || userPlan === "pro";
+	const showUpgradeMessage = isHosted && userPlan !== "pro";
 	const transformedResponse = transformResponseToOpenai(
 		usedProvider,
 		usedModel,
@@ -4027,6 +4033,7 @@ chat.openapi(completions, async (c) => {
 					totalCost: costs.totalCost,
 				}
 			: null,
+		showUpgradeMessage,
 	);
 
 	const baseLogEntry = createLogEntry(
