@@ -124,7 +124,7 @@ export function CostBreakdownChart({
 			const currentCost = providerCosts.get(model.provider) || 0;
 			providerCosts.set(model.provider, currentCost + model.cost);
 		});
-		totalStorageCost += day.dataStorageCost;
+		totalStorageCost += Number(day.dataStorageCost) || 0;
 	});
 
 	const chartData = Array.from(providerCosts.entries())
