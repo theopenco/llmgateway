@@ -34,6 +34,7 @@ const dailyActivitySchema = z.object({
 	errorRate: z.number(),
 	cacheCount: z.number(),
 	cacheRate: z.number(),
+	discountSavings: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
 });
 
@@ -162,6 +163,16 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`SUM(CASE WHEN ${tables.log.cached} = true THEN 1 ELSE 0 END)`.as(
 					"cacheCount",
 				),
+			discountSavings: sql<number>`COALESCE(
+				SUM(
+					CASE
+						WHEN ${tables.log.discount} > 0 AND ${tables.log.discount} < 1
+						THEN ${tables.log.cost} * ${tables.log.discount} / (1 - ${tables.log.discount})
+						ELSE 0
+					END
+				),
+				0
+			)`.as("discountSavings"),
 		})
 		.from(tables.log)
 		.where(
@@ -243,6 +254,7 @@ activity.openapi(getActivity, async (c) => {
 		const requestCost = Number(day.requestCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
+		const discountSavings = Number(day.discountSavings);
 
 		const errorRate = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
 		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
@@ -261,6 +273,7 @@ activity.openapi(getActivity, async (c) => {
 			errorRate,
 			cacheCount,
 			cacheRate,
+			discountSavings,
 			modelBreakdown: modelBreakdownByDate.get(day.date) || [],
 		};
 	});

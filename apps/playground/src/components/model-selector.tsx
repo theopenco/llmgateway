@@ -8,6 +8,7 @@ import {
 	Eye,
 	ExternalLink,
 	Filter,
+	Gift,
 	ImagePlus,
 	Info,
 	MessageSquare,
@@ -879,6 +880,8 @@ export function ModelSelector({
 											({ model, mapping, provider, isRoot }) => {
 												if (isRoot) {
 													const entryKey = model.id;
+													const aggregate = getRootAggregateInfo(model);
+													const isFreeRoot = aggregate.minInputPrice === 0;
 													return (
 														<CommandItem
 															key={entryKey}
@@ -913,6 +916,9 @@ export function ModelSelector({
 																			<span className="font-medium truncate">
 																				{model.name}
 																			</span>
+																			{isFreeRoot && (
+																				<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+																			)}
 																		</div>
 																		<span className="text-xs text-muted-foreground truncate">
 																			Auto-select provider
@@ -946,6 +952,7 @@ export function ModelSelector({
 												const isDeprecated =
 													mapping!.deprecatedAt &&
 													new Date(mapping!.deprecatedAt) <= new Date();
+												const isFreeMapping = mapping!.inputPrice === 0;
 												return (
 													<CommandItem
 														key={entryKey}
@@ -984,6 +991,9 @@ export function ModelSelector({
 																		<span className="font-medium truncate">
 																			{model.name}
 																		</span>
+																		{isFreeMapping && (
+																			<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+																		)}
 																		{(isUnstable || isDeprecated) && (
 																			<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
 																		)}

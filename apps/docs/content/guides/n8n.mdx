@@ -6,6 +6,7 @@ icon: N8n
 ---
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
 
 n8n is a powerful workflow automation tool that can be enhanced with AI capabilities through LLM Gateway. This guide shows how to integrate LLM Gateway into your n8n workflows.
 
@@ -53,7 +54,14 @@ The easiest way to use LLM Gateway with n8n is through the OpenAI node with cust
 
 ![n8n credentials](/guides/n8n/node-2.png)
 
-4. Select your desired options
+<Callout type="warning">
+	Note: You have to toggle off the responses API. LLMGateway does not support
+	it.
+</Callout>
+
+![responses api](/guides/n8n/responses-api.png)
+
+    4. Select your desired options
 
 - **Model**: Use any [LLMGateway model](https://llmgateway.io/models) ID (e.g., `gpt-5`)
 - **Options**: Optionally, configure LLM parameters

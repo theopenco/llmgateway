@@ -30,6 +30,7 @@ Always run `pnpm format` before committing code. Run `pnpm build` if API routes 
 ### Writing code
 
 This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
+This repository always uses tabs for indentation.
 
 ### Testing
 

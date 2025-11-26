@@ -128,6 +128,11 @@ export async function validateProviderKey(
 			undefined, // reasoning_effort
 			false, // supportsReasoning - disable for validation
 			false, // isProd - allow http URLs for validation/testing
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
 		);
 
 		const headers = getProviderHeaders(provider, token);

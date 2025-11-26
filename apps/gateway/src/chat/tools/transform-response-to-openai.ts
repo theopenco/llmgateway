@@ -1,6 +1,55 @@
 import type { ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
+export interface CostData {
+	inputCost: number | null;
+	outputCost: number | null;
+	cachedInputCost: number | null;
+	requestCost: number | null;
+	totalCost: number | null;
+}
+
+/**
+ * Helper function to build usage object with optional cost fields
+ */
+function buildUsageObject(
+	promptTokens: number | null,
+	completionTokens: number | null,
+	totalTokens: number | null,
+	reasoningTokens: number | null,
+	cachedTokens: number | null,
+	costs: CostData | null,
+	showUpgradeMessage = false,
+) {
+	return {
+		prompt_tokens: Math.max(1, promptTokens || 1),
+		completion_tokens: completionTokens || 0,
+		total_tokens: (() => {
+			const fallbackTotal =
+				(promptTokens || 0) + (completionTokens || 0) + (reasoningTokens || 0);
+			return Math.max(1, totalTokens ?? fallbackTotal);
+		})(),
+		...(reasoningTokens !== null && {
+			reasoning_tokens: reasoningTokens,
+		}),
+		...(cachedTokens !== null && {
+			prompt_tokens_details: {
+				cached_tokens: cachedTokens,
+			},
+		}),
+		...(costs !== null && {
+			cost_usd_total: costs.totalCost,
+			cost_usd_input: costs.inputCost,
+			cost_usd_output: costs.outputCost,
+			cost_usd_cached_input: costs.cachedInputCost,
+			cost_usd_request: costs.requestCost,
+		}),
+		...(showUpgradeMessage && {
+			info: "upgrade to pro to include usd cost breakdown",
+		}),
+	};
+}
+
 /**
  * Transforms response to OpenAI format for non-OpenAI providers
  */
@@ -21,6 +70,8 @@ export function transformResponseToOpenai(
 	requestedModel: string,
 	requestedProvider: string | null,
 	baseModelName: string,
+	costs: CostData | null = null,
+	showUpgradeMessage = false,
 ) {
 	let transformedResponse = json;
 
@@ -68,25 +119,15 @@ export function transformResponseToOpenai(
 						})(),
 					},
 				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: (() => {
-						const fallbackTotal =
-							(promptTokens || 0) +
-							(completionTokens || 0) +
-							(reasoningTokens || 0);
-						return Math.max(1, totalTokens ?? fallbackTotal);
-					})(),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+					showUpgradeMessage,
+				),
 				metadata: {
 					requested_model: requestedModel,
 					requested_provider: requestedProvider,
@@ -124,25 +165,15 @@ export function transformResponseToOpenai(
 										: "stop",
 					},
 				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: (() => {
-						const fallbackTotal =
-							(promptTokens || 0) +
-							(completionTokens || 0) +
-							(reasoningTokens || 0);
-						return Math.max(1, totalTokens ?? fallbackTotal);
-					})(),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+					showUpgradeMessage,
+				),
 				metadata: {
 					requested_model: requestedModel,
 					requested_provider: requestedProvider,
@@ -175,20 +206,15 @@ export function transformResponseToOpenai(
 							finish_reason: finishReason || "stop",
 						},
 					],
-					usage: {
-						prompt_tokens: Math.max(1, promptTokens || 1),
-						completion_tokens: completionTokens || 0,
-						total_tokens: (() => {
-							const fallbackTotal =
-								(promptTokens || 0) +
-								(completionTokens || 0) +
-								(reasoningTokens || 0);
-							return Math.max(1, totalTokens ?? fallbackTotal);
-						})(),
-						...(reasoningTokens !== null && {
-							reasoning_tokens: reasoningTokens,
-						}),
-					},
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+					),
 					metadata: {
 						requested_model: requestedModel,
 						requested_provider: requestedProvider,
@@ -207,7 +233,7 @@ export function transformResponseToOpenai(
 						delete message.reasoning_content;
 					}
 				}
-				// Add metadata to existing response
+				// Add metadata and usage with costs to existing response
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;
 				transformedResponse.metadata = {
 					requested_model: requestedModel,
@@ -216,6 +242,24 @@ export function transformResponseToOpenai(
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
 				};
+				if (transformedResponse.usage) {
+					if (costs !== null) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							cost_usd_total: costs.totalCost,
+							cost_usd_input: costs.inputCost,
+							cost_usd_output: costs.outputCost,
+							cost_usd_cached_input: costs.cachedInputCost,
+							cost_usd_request: costs.requestCost,
+						};
+					}
+					if (showUpgradeMessage) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							info: "upgrade to pro to include usd cost breakdown",
+						};
+					}
+				}
 			}
 			break;
 		}
@@ -239,25 +283,15 @@ export function transformResponseToOpenai(
 						finish_reason: finishReason || "stop",
 					},
 				],
-				usage: {
-					prompt_tokens: Math.max(1, promptTokens || 1),
-					completion_tokens: completionTokens || 0,
-					total_tokens: (() => {
-						const fallbackTotal =
-							(promptTokens || 0) +
-							(completionTokens || 0) +
-							(reasoningTokens || 0);
-						return Math.max(1, totalTokens ?? fallbackTotal);
-					})(),
-					...(reasoningTokens !== null && {
-						reasoning_tokens: reasoningTokens,
-					}),
-					...(cachedTokens !== null && {
-						prompt_tokens_details: {
-							cached_tokens: cachedTokens,
-						},
-					}),
-				},
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+					showUpgradeMessage,
+				),
 				metadata: {
 					requested_model: requestedModel,
 					requested_provider: requestedProvider,
@@ -291,25 +325,15 @@ export function transformResponseToOpenai(
 							finish_reason: finishReason || "stop",
 						},
 					],
-					usage: {
-						prompt_tokens: Math.max(1, promptTokens || 1),
-						completion_tokens: completionTokens || 0,
-						total_tokens: (() => {
-							const fallbackTotal =
-								(promptTokens || 0) +
-								(completionTokens || 0) +
-								(reasoningTokens || 0);
-							return Math.max(1, totalTokens ?? fallbackTotal);
-						})(),
-						...(reasoningTokens !== null && {
-							reasoning_tokens: reasoningTokens,
-						}),
-						...(cachedTokens !== null && {
-							prompt_tokens_details: {
-								cached_tokens: cachedTokens,
-							},
-						}),
-					},
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+					),
 					metadata: {
 						requested_model: requestedModel,
 						requested_provider: requestedProvider,
@@ -329,6 +353,24 @@ export function transformResponseToOpenai(
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
 					};
+					if (transformedResponse.usage) {
+						if (costs !== null) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								cost_usd_total: costs.totalCost,
+								cost_usd_input: costs.inputCost,
+								cost_usd_output: costs.outputCost,
+								cost_usd_cached_input: costs.cachedInputCost,
+								cost_usd_request: costs.requestCost,
+							};
+						}
+						if (showUpgradeMessage) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								info: "upgrade to pro to include usd cost breakdown",
+							};
+						}
+					}
 				}
 			}
 			break;
@@ -353,6 +395,24 @@ export function transformResponseToOpenai(
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
 				};
+				if (transformedResponse.usage) {
+					if (costs !== null) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							cost_usd_total: costs.totalCost,
+							cost_usd_input: costs.inputCost,
+							cost_usd_output: costs.outputCost,
+							cost_usd_cached_input: costs.cachedInputCost,
+							cost_usd_request: costs.requestCost,
+						};
+					}
+					if (showUpgradeMessage) {
+						transformedResponse.usage = {
+							...transformedResponse.usage,
+							info: "upgrade to pro to include usd cost breakdown",
+						};
+					}
+				}
 			}
 			break;
 		}

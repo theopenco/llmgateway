@@ -23,6 +23,7 @@ export interface DailyActivity {
 	errorRate: number;
 	cacheCount: number;
 	cacheRate: number;
+	discountSavings: number;
 	modelBreakdown: ActivityModelUsage[];
 }
 
@@ -46,6 +47,7 @@ export type ActivitT =
 				errorRate: number;
 				cacheCount: number;
 				cacheRate: number;
+				discountSavings: number;
 				modelBreakdown: ActivityModelUsage[];
 			}[];
 	  }

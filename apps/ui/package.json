@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"@content-collections/core": "0.11.1",
-		"@content-collections/next": "0.2.8",
+		"@content-collections/next": "0.2.9",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
@@ -81,7 +81,7 @@
 	},
 	"devDependencies": {
 		"@tanstack/react-query-devtools": "5.90.2",
-		"@types/react": "^19.2.4",
+		"@types/react": "^19.2.6",
 		"@types/react-dom": "^19.2.3",
 		"autoprefixer": "^10.4.21",
 		"openapi-typescript": "7.10.1",

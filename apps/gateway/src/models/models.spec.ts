@@ -41,6 +41,8 @@ describe("Models API", () => {
 		expect(firstModel.pricing).toHaveProperty("completion");
 
 		expect(firstModel).toHaveProperty("family");
+		expect(firstModel).toHaveProperty("json_output");
+		expect(firstModel).toHaveProperty("structured_outputs");
 	});
 
 	test("GET /v1/models should exclude deactivated models by default", async () => {

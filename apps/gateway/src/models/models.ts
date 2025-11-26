@@ -64,6 +64,7 @@ const modelSchema = z.object({
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
+	structured_outputs: z.boolean(),
 	free: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
 	deactivated_at: z.string().optional(),
@@ -234,6 +235,10 @@ modelsApi.openapi(listModels, async (c) => {
 				json_output:
 					model.providers.some(
 						(p) => (p as ProviderModelMapping).jsonOutput === true,
+					) || false,
+				structured_outputs:
+					model.providers.some(
+						(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
 					) || false,
 				free: model.free || false,
 				// Calculate earliest deprecatedAt from all provider mappings
