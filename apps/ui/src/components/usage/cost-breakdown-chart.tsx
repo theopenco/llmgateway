@@ -117,12 +117,14 @@ export function CostBreakdownChart({
 	}
 
 	const providerCosts = new Map<string, number>();
+	let totalStorageCost = 0;
 
 	data.activity.forEach((day) => {
 		day.modelBreakdown.forEach((model) => {
 			const currentCost = providerCosts.get(model.provider) || 0;
 			providerCosts.set(model.provider, currentCost + model.cost);
 		});
+		totalStorageCost += day.dataStorageCost;
 	});
 
 	const chartData = Array.from(providerCosts.entries())
@@ -132,6 +134,15 @@ export function CostBreakdownChart({
 			color: getProviderColor(provider),
 		}))
 		.sort((a, b) => b.value - a.value);
+
+	// Add storage cost as a separate item if it exists
+	if (totalStorageCost > 0) {
+		chartData.push({
+			name: "LLM Gateway Storage",
+			value: totalStorageCost,
+			color: "#6366f1", // Indigo color for storage
+		});
+	}
 
 	function getProviderColor(providerName: string) {
 		// Find the provider in the providers array by name (case-insensitive)

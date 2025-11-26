@@ -43,20 +43,28 @@ When cost breakdown is enabled, your API responses will include additional cost 
 		"cost_usd_input": 0.000025,
 		"cost_usd_output": 0.0001,
 		"cost_usd_cached_input": 0,
-		"cost_usd_request": 0
+		"cost_usd_request": 0,
+		"cost_usd_data_storage": 0.00025
 	}
 }
 ```
 
 ## Cost Fields
 
-| Field                   | Description                                                     |
-| ----------------------- | --------------------------------------------------------------- |
-| `cost_usd_total`        | Total cost for the request in USD                               |
-| `cost_usd_input`        | Cost for input/prompt tokens in USD                             |
-| `cost_usd_output`       | Cost for output/completion tokens in USD                        |
-| `cost_usd_cached_input` | Cost for cached input tokens in USD (discounted rate)           |
-| `cost_usd_request`      | Per-request cost in USD (for models with request-based pricing) |
+| Field                   | Description                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `cost_usd_total`        | Total inference cost for the request in USD (excludes storage)                     |
+| `cost_usd_input`        | Cost for input/prompt tokens in USD                                                |
+| `cost_usd_output`       | Cost for output/completion tokens in USD                                           |
+| `cost_usd_cached_input` | Cost for cached input tokens in USD (discounted rate)                              |
+| `cost_usd_request`      | Per-request cost in USD (for models with request-based pricing)                    |
+| `cost_usd_data_storage` | LLM Gateway storage cost in USD ($0.01 per 1M tokens, only when retention enabled) |
+
+<Callout type="info">
+	**Note:** `cost_usd_total` includes only provider/inference costs. Data
+	storage costs (`cost_usd_data_storage`) are billed separately by LLM Gateway
+	when data retention is enabled in organization policies.
+</Callout>
 
 ## Streaming Responses
 
@@ -204,6 +212,22 @@ async function loggedRequest(model: string, messages: Message[]) {
 	return response;
 }
 ```
+
+## Data Storage Costs
+
+When data retention is enabled in organization policies, LLM Gateway stores full request and response payloads for the configured retention period. This storage incurs a small additional cost:
+
+- **Rate**: $0.01 per 1 million tokens
+- **Applies to**: Input, cached, output, and reasoning tokens
+- **When charged**: Only when retention level is set to "Retain All Data"
+- **Billing mode**: In API keys mode, only storage costs are deducted from credits (inference costs are billed to your provider keys)
+
+Storage costs are displayed separately from inference costs in the dashboard and usage breakdown to maintain transparency between provider costs and LLM Gateway platform costs.
+
+<Callout type="success">
+	Enable [auto top-up](/dashboard) in billing settings to prevent request
+	failures when storage costs deplete your credits.
+</Callout>
 
 ## Self-Hosted Deployments
 
