@@ -7,6 +7,7 @@ import {
 	MessageSquare,
 	ImagePlus,
 	Braces,
+	FileJson2,
 	Gift,
 } from "lucide-react";
 
@@ -104,6 +105,13 @@ export function ModelDetailCard({ model }: ModelDetailCardProps) {
 				icon: Braces,
 				label: "JSON Output",
 				color: "text-cyan-500",
+			});
+		}
+		if (provider.jsonOutputSchema) {
+			capabilities.push({
+				icon: FileJson2,
+				label: "JSON Schema",
+				color: "text-teal-500",
 			});
 		}
 		const hasImageGen = Array.isArray(modelData?.output)
