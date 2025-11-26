@@ -1798,6 +1798,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					image_config,
 					routingMetadata,
 					rawBody,
 					rawCachedResponseData, // Raw SSE data from cached response
@@ -1911,6 +1912,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					image_config,
 					routingMetadata,
 					rawBody,
 					cachedResponse,
@@ -2183,6 +2185,7 @@ chat.openapi(completions, async (c) => {
 						source,
 						customHeaders,
 						debugMode,
+						image_config,
 						routingMetadata,
 						rawBody,
 						null, // No response for canceled request
@@ -2266,6 +2269,7 @@ chat.openapi(completions, async (c) => {
 						source,
 						customHeaders,
 						debugMode,
+						image_config,
 						routingMetadata,
 						rawBody,
 						null, // No response for fetch error
@@ -2416,6 +2420,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					image_config,
 					routingMetadata,
 					rawBody,
 					null, // No response for error case
@@ -3467,6 +3472,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					image_config,
 					routingMetadata,
 					rawBody,
 					streamingError
@@ -3685,6 +3691,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			image_config,
 			routingMetadata,
 			rawBody,
 			null, // No response for fetch error
@@ -3773,6 +3780,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			image_config,
 			routingMetadata,
 			rawBody,
 			null, // No response for canceled request
@@ -3866,6 +3874,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			image_config,
 			routingMetadata,
 			rawBody,
 			errorResponseText, // Our formatted error response
@@ -4101,6 +4110,7 @@ chat.openapi(completions, async (c) => {
 		source,
 		customHeaders,
 		debugMode,
+		image_config,
 		routingMetadata,
 		rawBody,
 		transformedResponse, // Our formatted response that we return to user

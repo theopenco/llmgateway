@@ -460,6 +460,12 @@ export const log = pgTable(
 		traceId: text(),
 		dataRetentionCleanedUp: boolean().default(false),
 		dataStorageCost: decimal().notNull().default("0"),
+		params: json().$type<{
+			image_config?: {
+				aspect_ratio?: string;
+				image_size?: string;
+			};
+		}>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
