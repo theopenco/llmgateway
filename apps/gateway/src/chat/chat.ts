@@ -331,6 +331,12 @@ const completions = createRoute({
 									cached_tokens: z.number(),
 								})
 								.optional(),
+							cost_usd_total: z.number().nullable().optional(),
+							cost_usd_input: z.number().nullable().optional(),
+							cost_usd_output: z.number().nullable().optional(),
+							cost_usd_cached_input: z.number().nullable().optional(),
+							info: z.string().optional(),
+							cost_usd_request: z.number().nullable().optional(),
 						}),
 						metadata: z.object({
 							requested_model: z.string(),
@@ -2725,6 +2731,27 @@ chat.openapi(completions, async (c) => {
 								finalCompletionTokens !== null ||
 								finalTotalTokens !== null
 							) {
+								// Calculate costs for streaming response
+								const streamingCosts = calculateCosts(
+									usedModel,
+									usedProvider,
+									finalPromptTokens,
+									finalCompletionTokens,
+									cachedTokens,
+									{
+										prompt: messages.map((m) => m.content).join("\n"),
+										completion: fullContent,
+										toolResults: streamingToolCalls || undefined,
+									},
+									reasoningTokens,
+									outputImageCount,
+									image_config?.image_size,
+								);
+
+								// Only include costs in response if not hosted or if org is pro
+								const shouldIncludeCosts = !isHosted || userPlan === "pro";
+								const showUpgradeMessage = isHosted && userPlan !== "pro";
+
 								const finalUsageChunk = {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
@@ -2747,6 +2774,16 @@ chat.openapi(completions, async (c) => {
 												(reasoningTokens || 0);
 											return Math.max(1, finalTotalTokens ?? fallbackTotal);
 										})(),
+										...(shouldIncludeCosts && {
+											cost_usd_total: streamingCosts.totalCost,
+											cost_usd_input: streamingCosts.inputCost,
+											cost_usd_output: streamingCosts.outputCost,
+											cost_usd_cached_input: streamingCosts.cachedInputCost,
+											cost_usd_request: streamingCosts.requestCost,
+										}),
+										...(showUpgradeMessage && {
+											info: "upgrade to pro to include usd cost breakdown",
+										}),
 									},
 								};
 
@@ -4000,6 +4037,9 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
+	// Only include costs in response if not hosted or if org is pro
+	const shouldIncludeCosts = !isHosted || userPlan === "pro";
+	const showUpgradeMessage = isHosted && userPlan !== "pro";
 	const transformedResponse = transformResponseToOpenai(
 		usedProvider,
 		usedModel,
@@ -4019,6 +4059,16 @@ chat.openapi(completions, async (c) => {
 		modelInput,
 		requestedProvider || null,
 		baseModelName,
+		shouldIncludeCosts
+			? {
+					inputCost: costs.inputCost,
+					outputCost: costs.outputCost,
+					cachedInputCost: costs.cachedInputCost,
+					requestCost: costs.requestCost,
+					totalCost: costs.totalCost,
+				}
+			: null,
+		showUpgradeMessage,
 	);
 
 	const baseLogEntry = createLogEntry(

@@ -1,7 +1,8 @@
-import { Gift, Users, TrendingUp, AlertCircle } from "lucide-react";
+import { Gift, Users, TrendingUp } from "lucide-react";
 
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { AuthLink } from "@/components/shared/auth-link";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -53,49 +54,17 @@ export default function ReferralsPublicPage() {
 							from users you refer. Referral rewards are paid in credits that
 							are added directly to your LLM Gateway account balance.
 						</p>
+						<div className="pt-2">
+							<AuthLink
+								href="/signup"
+								className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+							>
+								Sign up to get started
+							</AuthLink>
+						</div>
 					</section>
 
-					<section className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-						<Card>
-							<CardHeader className="space-y-1">
-								<CardTitle className="flex items-center gap-2">
-									<AlertCircle className="h-5 w-5 text-yellow-500" />
-									<span>Not Eligible Yet</span>
-								</CardTitle>
-								<CardDescription className="text-sm">
-									You need to top up at least{" "}
-									<span className="font-semibold text-foreground">
-										$100 in credits
-									</span>{" "}
-									to become eligible for the referral program.
-								</CardDescription>
-							</CardHeader>
-							<CardContent className="space-y-5">
-								<div className="rounded-lg bg-muted p-4 space-y-3">
-									<div className="flex justify-between items-center">
-										<span className="text-sm text-muted-foreground">
-											Your total top-ups
-										</span>
-										<span className="font-semibold">$0.00</span>
-									</div>
-									<div className="mt-1 h-2 rounded-full bg-background overflow-hidden">
-										<div
-											className="h-full bg-primary transition-all duration-300"
-											style={{ width: "0%" }}
-										/>
-									</div>
-									<p className="mt-1 text-xs text-muted-foreground">
-										$100.00 more to unlock referrals
-									</p>
-								</div>
-								<p className="text-xs md:text-sm text-muted-foreground">
-									Eligibility is calculated per organization based on completed
-									credit top-ups. Once you cross $100 in top-ups, the referral
-									program unlocks automatically in your dashboard.
-								</p>
-							</CardContent>
-						</Card>
-
+					<section className="grid gap-6">
 						<Card className="border-primary/30 bg-primary/5">
 							<CardHeader className="space-y-1">
 								<CardTitle className="flex items-center gap-2">

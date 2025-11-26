@@ -19,6 +19,7 @@
 		"features/reasoning",
 		"features/custom-providers",
 		"features/metadata",
+		"features/cost-breakdown",
 		"features/...",
 		"---Resources---",
 		"resources/rate-limits",

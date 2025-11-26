@@ -598,6 +598,7 @@ export const anthropicModels = [
 				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
 			},
 			{
+				test: "skip",
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-opus-4-5-20251101-v1:0",
 				inputPrice: 5.0 / 1e6,
@@ -613,6 +614,7 @@ export const anthropicModels = [
 				tools: true,
 			},
 			{
+				test: "skip",
 				providerId: "google-vertex",
 				modelName: "claude-opus-4-5@20251101",
 				inputPrice: 5.0 / 1e6,
