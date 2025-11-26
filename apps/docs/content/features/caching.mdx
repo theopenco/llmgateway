@@ -47,8 +47,9 @@ Caching can dramatically reduce costs for applications with repetitive requests:
 To use caching:
 
 1. Enable **Data Retention** in your organization settings with "Retain All Data" level
-2. Enable **Caching** in your organization policies
-3. Make requests as normal—caching is automatic
+2. Enable **Caching** in your project settings under Preferences
+3. Configure the cache duration (TTL) as needed
+4. Make requests as normal—caching is automatic
 
 ## Cache Key Generation
 
@@ -79,7 +80,6 @@ When a cache hit occurs:
 - Response is returned immediately (sub-millisecond latency)
 - No provider API call is made
 - No inference costs are incurred
-- The response includes a cache indicator header
 
 ### Cache Misses
 
@@ -99,13 +99,9 @@ Caching works with both streaming and non-streaming requests:
 
 ## Cache TTL (Time-to-Live)
 
-Cached responses follow the same retention period as your data retention settings:
+Cache duration is configurable per project in your project settings. You can set the cache TTL from 10 seconds up to 1 year (31,536,000 seconds).
 
-| Plan       | Cache TTL |
-| ---------- | --------- |
-| Free       | 3 days    |
-| Pro        | 90 days   |
-| Enterprise | Custom    |
+The default cache duration is 60 seconds. Adjust this based on your use case—longer durations work well for static content, while shorter durations are better for frequently changing data.
 
 ## Identifying Cached Responses
 
