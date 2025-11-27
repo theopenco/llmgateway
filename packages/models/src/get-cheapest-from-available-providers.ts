@@ -1,3 +1,5 @@
+import { getProviderDefinition } from "./providers.js";
+
 import type { ProviderModelMapping } from "./models.js";
 import type { AvailableModelProvider, ModelWithPricing } from "./types.js";
 import type { ProviderMetrics } from "@llmgateway/db";
@@ -186,12 +188,20 @@ export function getCheapestFromAvailableProviders<
 		const latencyScore =
 			latencyRange > 0 ? (latency - minLatency) / latencyRange : 0;
 
-		// Calculate weighted score (lower is better)
-		providerScore.score =
+		// Calculate base weighted score (lower is better)
+		const baseScore =
 			PRICE_WEIGHT * priceScore +
 			UPTIME_WEIGHT * uptimeScore +
 			THROUGHPUT_WEIGHT * throughputScore +
 			LATENCY_WEIGHT * latencyScore;
+
+		// Apply provider priority: lower priority = higher score (less preferred)
+		// Priority defaults to 1. A priority of 0.8 means the score is multiplied by 1/0.8 = 1.25
+		const providerDef = getProviderDefinition(
+			providerScore.provider.providerId,
+		);
+		const priority = providerDef?.priority ?? 1;
+		providerScore.score = priority > 0 ? baseScore / priority : baseScore;
 	}
 
 	// Select provider with lowest score
@@ -231,9 +241,13 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string },
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
-	let lowestPrice = Number.MAX_VALUE;
+	let lowestEffectivePrice = Number.MAX_VALUE;
 
-	const providerPrices: Array<{ providerId: string; price: number }> = [];
+	const providerPrices: Array<{
+		providerId: string;
+		price: number;
+		effectivePrice: number;
+	}> = [];
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
@@ -246,13 +260,19 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 				2) *
 			discountMultiplier;
 
+		// Apply provider priority: lower priority = effectively higher price
+		const providerDef = getProviderDefinition(provider.providerId);
+		const priority = providerDef?.priority ?? 1;
+		const effectivePrice = priority > 0 ? totalPrice / priority : totalPrice;
+
 		providerPrices.push({
 			providerId: provider.providerId,
-			price: totalPrice, // Keep full precision for very small prices
+			price: totalPrice,
+			effectivePrice,
 		});
 
-		if (totalPrice < lowestPrice) {
-			lowestPrice = totalPrice;
+		if (effectivePrice < lowestEffectivePrice) {
+			lowestEffectivePrice = effectivePrice;
 			cheapestProvider = provider;
 		}
 	}
