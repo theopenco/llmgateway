@@ -460,6 +460,11 @@ chat.openapi(completions, async (c) => {
 	// Extract custom X-LLMGateway-* headers
 	const customHeaders = extractCustomHeaders(c);
 
+	// Check for X-No-Fallback header to disable provider fallback on low uptime
+	const noFallback =
+		c.req.raw.headers.get("x-no-fallback") === "true" ||
+		c.req.raw.headers.get("X-No-Fallback") === "true";
+
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
@@ -1117,7 +1122,9 @@ chat.openapi(completions, async (c) => {
 
 	// Check uptime for specifically requested providers (not llmgateway or custom)
 	// If uptime is below 80%, route to an alternative provider instead
+	// Skip this fallback if X-No-Fallback header is set
 	if (
+		!noFallback &&
 		usedProvider &&
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&

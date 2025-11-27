@@ -68,6 +68,7 @@ export async function POST(req: Request) {
 	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
 	const githubTokenHeader = req.headers.get("x-github-token") || undefined;
+	const noFallbackHeader = req.headers.get("x-no-fallback") || undefined;
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
@@ -91,6 +92,7 @@ export async function POST(req: Request) {
 		baseUrl: gatewayUrl,
 		headers: {
 			"x-source": "chat.llmgateway.io",
+			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
 			...(reasoning_effort ? { reasoning_effort } : {}),
