@@ -199,12 +199,14 @@ export function getCheapestFromAvailableProviders<
 			LATENCY_WEIGHT * latencyScore;
 
 		// Apply provider priority: lower priority = higher score (less preferred)
-		// Priority defaults to 1. A priority of 0.8 means the score is multiplied by 1/0.8 = 1.25
+		// Priority defaults to 1. We add (1 - priority) as a penalty.
+		// e.g., priority 0.8 adds 0.2 penalty, priority 1.0 adds 0 penalty
 		const providerDef = getProviderDefinition(
 			providerScore.provider.providerId,
 		);
 		const priority = providerDef?.priority ?? 1;
-		providerScore.score = priority > 0 ? baseScore / priority : baseScore;
+		const priorityPenalty = 1 - priority;
+		providerScore.score = baseScore + priorityPenalty;
 	}
 
 	// Select provider with lowest score
