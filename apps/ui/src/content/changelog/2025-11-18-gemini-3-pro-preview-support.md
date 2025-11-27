@@ -19,15 +19,8 @@ We're excited to announce support for **Gemini 3 Pro Preview** from Google with 
 
 **Model ID**: `gemini-3-pro-preview`
 
-**Context Window**: 1,000,000 tokens (1M)
-
-**Max Output**: 65,000 tokens
-
-**Pricing with 20% OFF**:
-
-- Input: ~~$2.00~~ **$1.60** per 1M tokens (20% off)
-- Output: ~~$12.00~~ **$9.60** per 1M tokens (20% off)
-- Cached Input: ~~$0.20~~ **$0.16** per 1M tokens (20% off)
+**Launch offer**: Gemini 3 Pro Preview is available with a **20% discount**.  
+[View the model page](/models/gemini-3-pro-preview) to explore capabilities, providers, and details.
 
 **Providers**: Available on both **Google AI Studio** and **Google Vertex AI**
 

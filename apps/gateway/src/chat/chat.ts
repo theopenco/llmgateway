@@ -460,6 +460,11 @@ chat.openapi(completions, async (c) => {
 	// Extract custom X-LLMGateway-* headers
 	const customHeaders = extractCustomHeaders(c);
 
+	// Check for X-No-Fallback header to disable provider fallback on low uptime
+	const noFallback =
+		c.req.raw.headers.get("x-no-fallback") === "true" ||
+		c.req.raw.headers.get("X-No-Fallback") === "true";
+
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
@@ -1070,7 +1075,10 @@ chat.openapi(completions, async (c) => {
 				if (cheapestResult) {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
-					routingMetadata = cheapestResult.metadata;
+					routingMetadata = {
+						...cheapestResult.metadata,
+						...(noFallback ? { noFallback: true } : {}),
+					};
 				} else {
 					// Fallback to first available provider if price comparison fails
 					usedProvider = finalProviders[0].providerId;
@@ -1117,7 +1125,9 @@ chat.openapi(completions, async (c) => {
 
 	// Check uptime for specifically requested providers (not llmgateway or custom)
 	// If uptime is below 80%, route to an alternative provider instead
+	// Skip this fallback if X-No-Fallback header is set
 	if (
+		!noFallback &&
 		usedProvider &&
 		requestedProvider &&
 		requestedProvider !== "llmgateway" &&
@@ -1186,6 +1196,25 @@ chat.openapi(completions, async (c) => {
 							allMetricsMap,
 						);
 
+						// Get price info for the original requested provider to include in scores
+						const originalProviderInfo = modelInfo.providers.find(
+							(p) => p.providerId === requestedProvider,
+						);
+						const originalProviderPrice = originalProviderInfo
+							? (originalProviderInfo.inputPrice ?? 0) +
+								(originalProviderInfo.outputPrice ?? 0)
+							: 0;
+
+						// Create score entry for the original requested provider
+						const originalProviderScore = {
+							providerId: requestedProvider,
+							score: -1, // Negative score indicates this provider was skipped due to low uptime
+							price: originalProviderPrice,
+							uptime: metrics.uptime,
+							latency: metrics.averageLatency,
+							throughput: metrics.throughput,
+						};
+
 						if (cheapestResult) {
 							usedProvider = cheapestResult.provider.providerId;
 							usedModel = cheapestResult.provider.modelName;
@@ -1194,6 +1223,11 @@ chat.openapi(completions, async (c) => {
 								selectionReason: "low-uptime-fallback",
 								originalProvider: requestedProvider,
 								originalProviderUptime: metrics.uptime,
+								// Add the original provider's score to the scores array
+								providerScores: [
+									originalProviderScore,
+									...cheapestResult.metadata.providerScores,
+								],
 							};
 						} else {
 							// Use first available provider as fallback
@@ -1205,7 +1239,7 @@ chat.openapi(completions, async (c) => {
 								),
 								selectedProvider: usedProvider,
 								selectionReason: "low-uptime-fallback",
-								providerScores: [],
+								providerScores: [originalProviderScore],
 								originalProvider: requestedProvider,
 								originalProviderUptime: metrics.uptime,
 							};
@@ -1281,7 +1315,10 @@ chat.openapi(completions, async (c) => {
 				if (cheapestResult) {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
-					routingMetadata = cheapestResult.metadata;
+					routingMetadata = {
+						...cheapestResult.metadata,
+						...(noFallback ? { noFallback: true } : {}),
+					};
 				} else {
 					usedProvider = availableModelProviders[0].providerId;
 					usedModel = availableModelProviders[0].modelName;
@@ -1320,6 +1357,21 @@ chat.openapi(completions, async (c) => {
 				(selectedProviderInfo.outputPrice ?? 0)
 			: 0;
 
+		// Fetch metrics for the selected provider to include in routing metadata
+		// This provides visibility into uptime/latency/throughput even for direct provider selection
+		const baseModelId = (modelInfo as ModelDefinition).id;
+		let providerMetrics:
+			| { uptime: number; averageLatency: number; throughput: number }
+			| undefined;
+
+		if (baseModelId && usedProvider !== "custom") {
+			const directMetricsMap = await getProviderMetricsForCombinations(
+				[{ modelId: baseModelId, providerId: usedProvider }],
+				5,
+			);
+			providerMetrics = directMetricsMap.get(`${baseModelId}:${usedProvider}`);
+		}
+
 		routingMetadata = {
 			availableProviders: [usedProvider],
 			selectedProvider: usedProvider,
@@ -1329,8 +1381,12 @@ chat.openapi(completions, async (c) => {
 					providerId: usedProvider,
 					score: 1,
 					price,
+					uptime: providerMetrics?.uptime,
+					latency: providerMetrics?.averageLatency,
+					throughput: providerMetrics?.throughput,
 				},
 			],
+			...(noFallback ? { noFallback: true } : {}),
 		};
 	}
 

@@ -227,11 +227,17 @@ export default function ChatPageClient({
 						}
 					: undefined;
 
+			// Hidden feature: check localStorage for no-fallback setting
+			const noFallback =
+				typeof window !== "undefined" &&
+				localStorage.getItem("llmgateway_no_fallback") === "true";
+
 			const mergedOptions = {
 				...options,
 				headers: {
 					...(options?.headers || {}),
 					...(githubToken ? { "x-github-token": githubToken } : {}),
+					...(noFallback ? { "x-no-fallback": "true" } : {}),
 				},
 				body: {
 					...(options?.body || {}),
