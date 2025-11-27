@@ -39,6 +39,7 @@ export interface RoutingMetadata {
 		latency?: number;
 		throughput?: number;
 		price: number;
+		priority?: number;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
@@ -219,14 +220,19 @@ export function getCheapestFromAvailableProviders<
 		availableProviders: providerScores.map((p) => p.provider.providerId),
 		selectedProvider: bestProvider.provider.providerId,
 		selectionReason: metricsMap ? "weighted-score" : "price-only",
-		providerScores: providerScores.map((p) => ({
-			providerId: p.provider.providerId,
-			score: Number(p.score.toFixed(3)),
-			uptime: p.uptime,
-			latency: p.latency,
-			throughput: p.throughput,
-			price: p.price, // Keep full precision for very small prices
-		})),
+		providerScores: providerScores.map((p) => {
+			const providerDef = getProviderDefinition(p.provider.providerId);
+			const priority = providerDef?.priority ?? 1;
+			return {
+				providerId: p.provider.providerId,
+				score: Number(p.score.toFixed(3)),
+				uptime: p.uptime,
+				latency: p.latency,
+				throughput: p.throughput,
+				price: p.price, // Keep full precision for very small prices
+				priority,
+			};
+		}),
 	};
 
 	return {
@@ -249,6 +255,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		providerId: string;
 		price: number;
 		effectivePrice: number;
+		priority: number;
 	}> = [];
 
 	for (const provider of stableProviders) {
@@ -271,6 +278,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			providerId: provider.providerId,
 			price: totalPrice,
 			effectivePrice,
+			priority,
 		});
 
 		if (effectivePrice < lowestEffectivePrice) {
@@ -287,6 +295,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			providerId: p.providerId,
 			score: 0,
 			price: p.price,
+			priority: p.priority,
 		})),
 	};
 
