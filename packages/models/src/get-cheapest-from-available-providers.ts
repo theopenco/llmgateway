@@ -53,13 +53,18 @@ export interface ProviderSelectionResult<T extends AvailableModelProvider> {
 	metadata: RoutingMetadata;
 }
 
+export interface ProviderSelectionOptions {
+	metricsMap?: Map<string, ProviderMetrics>;
+	isStreaming?: boolean;
+}
+
 /**
  * Get the best provider from a list of available model providers.
- * Considers price, uptime, and latency metrics.
+ * Considers price, uptime, throughput, and latency metrics.
  *
  * @param availableModelProviders - List of available providers
  * @param modelWithPricing - Model pricing information (must have id property)
- * @param metricsMap - Optional map of provider metrics from last N minutes
+ * @param options - Optional settings including metricsMap and isStreaming flag
  * @returns Best provider and routing metadata, or null if none available
  */
 export function getCheapestFromAvailableProviders<
@@ -67,8 +72,10 @@ export function getCheapestFromAvailableProviders<
 >(
 	availableModelProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string },
-	metricsMap?: Map<string, ProviderMetrics>,
+	options?: ProviderSelectionOptions,
 ): ProviderSelectionResult<T> | null {
+	const metricsMap = options?.metricsMap;
+	const isStreaming = options?.isStreaming ?? false;
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -186,17 +193,25 @@ export function getCheapestFromAvailableProviders<
 			throughputRange > 0 ? (maxThroughput - throughput) / throughputRange : 0;
 
 		// Normalize latency (0 = fastest, 1 = slowest)
-		const latency = providerScore.latency ?? DEFAULT_LATENCY;
-		const latencyRange = maxLatency - minLatency;
-		const latencyScore =
-			latencyRange > 0 ? (latency - minLatency) / latencyRange : 0;
+		// Only consider latency for streaming requests since it's only measured there
+		let latencyScore = 0;
+		if (isStreaming) {
+			const latency = providerScore.latency ?? DEFAULT_LATENCY;
+			const latencyRange = maxLatency - minLatency;
+			latencyScore =
+				latencyRange > 0 ? (latency - minLatency) / latencyRange : 0;
+		}
 
 		// Calculate base weighted score (lower is better)
+		// When not streaming, latency weight (0.1) is redistributed to other factors
+		const effectiveLatencyWeight = isStreaming ? LATENCY_WEIGHT : 0;
+		const weightSum =
+			PRICE_WEIGHT + UPTIME_WEIGHT + THROUGHPUT_WEIGHT + effectiveLatencyWeight;
 		const baseScore =
-			PRICE_WEIGHT * priceScore +
-			UPTIME_WEIGHT * uptimeScore +
-			THROUGHPUT_WEIGHT * throughputScore +
-			LATENCY_WEIGHT * latencyScore;
+			(PRICE_WEIGHT / weightSum) * priceScore +
+			(UPTIME_WEIGHT / weightSum) * uptimeScore +
+			(THROUGHPUT_WEIGHT / weightSum) * throughputScore +
+			(effectiveLatencyWeight / weightSum) * latencyScore;
 
 		// Apply provider priority: lower priority = higher score (less preferred)
 		// Priority defaults to 1. We add (1 - priority) as a penalty.

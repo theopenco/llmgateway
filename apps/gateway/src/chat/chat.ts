@@ -1069,7 +1069,7 @@ chat.openapi(completions, async (c) => {
 				const cheapestResult = getCheapestFromAvailableProviders(
 					finalProviders,
 					selectedModel,
-					metricsMap,
+					{ metricsMap, isStreaming: stream },
 				);
 
 				if (cheapestResult) {
@@ -1193,7 +1193,7 @@ chat.openapi(completions, async (c) => {
 						const cheapestResult = getCheapestFromAvailableProviders(
 							availableModelProviders,
 							modelWithPricing,
-							allMetricsMap,
+							{ metricsMap: allMetricsMap, isStreaming: stream },
 						);
 
 						// Get price info for the original requested provider to include in scores
@@ -1309,7 +1309,7 @@ chat.openapi(completions, async (c) => {
 				const cheapestResult = getCheapestFromAvailableProviders(
 					availableModelProviders,
 					modelWithPricing,
-					metricsMap,
+					{ metricsMap, isStreaming: stream },
 				);
 
 				if (cheapestResult) {
