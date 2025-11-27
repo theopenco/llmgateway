@@ -272,6 +272,17 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 																			{score.latency?.toFixed(0)}ms
 																		</span>
 																	)}
+																	{score.price !== undefined && (
+																		<span className="ml-2">
+																			${score.price.toFixed(6)}
+																		</span>
+																	)}
+																	{score.priority !== undefined &&
+																		score.priority !== 1 && (
+																			<span className="ml-2">
+																				⚡{score.priority}
+																			</span>
+																		)}
 																</span>
 															</div>
 														))}

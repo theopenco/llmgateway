@@ -450,6 +450,7 @@ export const log = pgTable(
 				latency?: number;
 				throughput?: number;
 				price?: number;
+				priority?: number;
 			}>;
 		}>(),
 		processedAt: timestamp(),
