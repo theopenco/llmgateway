@@ -52,32 +52,27 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 		obj: Record<string, any>,
 		depth = 0,
 	): React.ReactNode => {
-		return Object.entries(obj).map(([key, value]) => {
+		return Object.entries(obj).flatMap(([key, value]) => {
+			if (value === null || value === undefined) {
+				return [];
+			}
+
+			// If it's an object, render its children directly without showing the parent key
+			if (typeof value === "object" && !Array.isArray(value)) {
+				return renderParams(value, depth + 1);
+			}
+
+			// Format the key for display
 			const formattedKey = key
 				.replace(/_/g, " ")
 				.replace(/\b\w/g, (l) => l.toUpperCase());
 
-			if (value === null || value === undefined) {
-				return null;
-			}
-
-			if (typeof value === "object" && !Array.isArray(value)) {
-				return (
-					<div key={key} className="contents">
-						<div className="text-muted-foreground col-span-2 font-medium mt-2 first:mt-0">
-							{formattedKey}
-						</div>
-						{renderParams(value, depth + 1)}
-					</div>
-				);
-			}
-
-			return (
+			return [
 				<div key={key} className="contents">
 					<div className="text-muted-foreground">{formattedKey}</div>
 					<div>{Array.isArray(value) ? value.join(", ") : String(value)}</div>
-				</div>
-			);
+				</div>,
+			];
 		});
 	};
 

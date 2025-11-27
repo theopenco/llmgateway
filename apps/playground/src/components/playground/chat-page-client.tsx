@@ -222,8 +222,10 @@ export default function ChatPageClient({
 			const imageConfig =
 				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
 					? {
-							aspect_ratio: imageAspectRatio,
-							image_size: imageSize,
+							...(imageAspectRatio !== "auto" && {
+								aspect_ratio: imageAspectRatio,
+							}),
+							...(imageSize !== "1K" && { image_size: imageSize }),
 						}
 					: undefined;
 
