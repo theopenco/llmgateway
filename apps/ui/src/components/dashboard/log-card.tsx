@@ -280,7 +280,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 																	{score.priority !== undefined &&
 																		score.priority !== 1 && (
 																			<span className="ml-2">
-																				⚡{score.priority}
+																				p:{score.priority}
 																			</span>
 																		)}
 																</span>
