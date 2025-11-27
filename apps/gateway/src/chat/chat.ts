@@ -1075,7 +1075,10 @@ chat.openapi(completions, async (c) => {
 				if (cheapestResult) {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
-					routingMetadata = cheapestResult.metadata;
+					routingMetadata = {
+						...cheapestResult.metadata,
+						...(noFallback ? { noFallback: true } : {}),
+					};
 				} else {
 					// Fallback to first available provider if price comparison fails
 					usedProvider = finalProviders[0].providerId;
@@ -1288,7 +1291,10 @@ chat.openapi(completions, async (c) => {
 				if (cheapestResult) {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
-					routingMetadata = cheapestResult.metadata;
+					routingMetadata = {
+						...cheapestResult.metadata,
+						...(noFallback ? { noFallback: true } : {}),
+					};
 				} else {
 					usedProvider = availableModelProviders[0].providerId;
 					usedModel = availableModelProviders[0].modelName;
@@ -1338,6 +1344,7 @@ chat.openapi(completions, async (c) => {
 					price,
 				},
 			],
+			...(noFallback ? { noFallback: true } : {}),
 		};
 	}
 

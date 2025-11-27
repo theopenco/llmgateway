@@ -41,6 +41,8 @@ export interface RoutingMetadata {
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
 	originalProviderUptime?: number;
+	// Whether fallback was disabled via X-No-Fallback header
+	noFallback?: boolean;
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {
