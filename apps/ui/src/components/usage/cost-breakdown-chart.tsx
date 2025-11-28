@@ -161,8 +161,8 @@ export function CostBreakdownChart({
 						outerRadius={100}
 						paddingAngle={2}
 						dataKey="value"
-						label={({ name, percent }: { name: string; percent: number }) =>
-							`${name} ${((percent as number) * 100).toFixed(0)}%`
+						label={({ name, percent }: { name?: string; percent?: number }) =>
+							`${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`
 						}
 						labelLine={false}
 					>
