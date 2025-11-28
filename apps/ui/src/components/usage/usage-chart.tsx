@@ -154,7 +154,7 @@ export function UsageChart({ initialData, projectId }: UsageChartProps) {
 					<CartesianGrid strokeDasharray="3 3" vertical={false} />
 					<XAxis
 						dataKey="date"
-						tickFormatter={(value) => format(parseISO(value), "MMM d")}
+						tickFormatter={(value: string) => format(parseISO(value), "MMM d")}
 						stroke="#888888"
 						fontSize={12}
 						tickLine={false}

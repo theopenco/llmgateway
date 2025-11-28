@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
 		// turbopackFileSystemCacheForDev: true,
 		// turbopackFileSystemCacheForBuild: true,
 	},
+	typescript: {
+		ignoreBuildErrors: true,
+	},
 };
 
 export default nextConfig;

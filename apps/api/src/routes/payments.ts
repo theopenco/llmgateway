@@ -19,6 +19,63 @@ export const stripe = new Stripe(
 
 export const payments = new OpenAPIHono<ServerTypes>();
 
+const BLACK_FRIDAY_PROMO_CODE = (
+	process.env.BLACK_FRIDAY_PROMO_CODE || "BLACKFRIDAY"
+).toLowerCase();
+const BLACK_FRIDAY_DISCOUNT_MULTIPLIER = 0.5;
+
+async function hasUserUsedPromoCode(userId: string, promoCode: string) {
+	const existing = await db.query.verification.findFirst({
+		where: {
+			identifier: { eq: `promo:${promoCode.toLowerCase()}` },
+			value: { eq: userId },
+		},
+	});
+
+	return !!existing;
+}
+
+function applyPromoDiscount(params: {
+	amount: number;
+	feeBreakdown: {
+		baseAmount: number;
+		stripeFee: number;
+		internationalFee: number;
+		planFee: number;
+		totalFees: number;
+		totalAmount: number;
+	};
+	promoCode?: string;
+}) {
+	const { amount, feeBreakdown, promoCode } = params;
+	const normalizedCode = promoCode?.trim().toLowerCase();
+
+	if (!normalizedCode || normalizedCode !== BLACK_FRIDAY_PROMO_CODE) {
+		return {
+			feeBreakdown,
+			promoDiscountAmount: 0,
+			totalAmountBeforePromo: feeBreakdown.totalAmount,
+			promoCodeApplied: undefined as string | undefined,
+		};
+	}
+
+	const totalAmountBeforePromo = feeBreakdown.totalAmount;
+	const maxDiscountOnCredits = feeBreakdown.baseAmount;
+	const requestedDiscount = amount * BLACK_FRIDAY_DISCOUNT_MULTIPLIER;
+	const promoDiscountAmount = Math.min(requestedDiscount, maxDiscountOnCredits);
+	const totalAmount = totalAmountBeforePromo - promoDiscountAmount;
+
+	return {
+		feeBreakdown: {
+			...feeBreakdown,
+			totalAmount,
+		},
+		promoDiscountAmount,
+		totalAmountBeforePromo,
+		promoCodeApplied: BLACK_FRIDAY_PROMO_CODE,
+	};
+}
+
 const createPaymentIntent = createRoute({
 	method: "post",
 	path: "/create-payment-intent",
@@ -28,6 +85,7 @@ const createPaymentIntent = createRoute({
 				"application/json": {
 					schema: z.object({
 						amount: z.number().int().min(5),
+						promoCode: z.string().optional(),
 					}),
 				},
 			},
@@ -55,8 +113,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 			message: "Unauthorized",
 		});
 	}
-
-	const { amount } = c.req.valid("json");
+	const { amount, promoCode } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -77,10 +134,34 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
-	const feeBreakdown = calculateFees({
+	const baseFeeBreakdown = calculateFees({
 		amount,
 		organizationPlan: userOrganization.organization.plan,
 	});
+
+	const promoAlreadyUsed =
+		promoCode && (await hasUserUsedPromoCode(user.id, BLACK_FRIDAY_PROMO_CODE));
+
+	const promoResult =
+		!promoCode || promoAlreadyUsed
+			? {
+					feeBreakdown: baseFeeBreakdown,
+					promoDiscountAmount: 0,
+					totalAmountBeforePromo: baseFeeBreakdown.totalAmount,
+					promoCodeApplied: undefined as string | undefined,
+				}
+			: applyPromoDiscount({
+					amount,
+					feeBreakdown: baseFeeBreakdown,
+					promoCode,
+				});
+
+	const {
+		feeBreakdown,
+		promoDiscountAmount,
+		totalAmountBeforePromo,
+		promoCodeApplied,
+	} = promoResult;
 
 	const paymentIntent = await stripe.paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
@@ -92,6 +173,10 @@ payments.openapi(createPaymentIntent, async (c) => {
 			baseAmount: amount.toString(),
 			totalFees: feeBreakdown.totalFees.toString(),
 			userEmail: user.email,
+			userId: user.id,
+			promoCode: promoCodeApplied || "",
+			promoDiscountAmount: promoDiscountAmount.toString(),
+			totalAmountBeforePromo: totalAmountBeforePromo.toString(),
 		},
 	});
 
@@ -415,6 +500,7 @@ const topUpWithSavedMethod = createRoute({
 					schema: z.object({
 						amount: z.number().int().min(5),
 						paymentMethodId: z.string(),
+						promoCode: z.string().optional(),
 					}),
 				},
 			},
@@ -443,7 +529,15 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
-	const { amount, paymentMethodId } = c.req.valid("json");
+	const {
+		amount,
+		paymentMethodId,
+		promoCode,
+	}: {
+		amount: number;
+		paymentMethodId: string;
+		promoCode?: string;
+	} = c.req.valid("json");
 
 	const paymentMethod = await db.query.paymentMethod.findFirst({
 		where: {
@@ -490,11 +584,35 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 
 	const cardCountry = stripePaymentMethod.card?.country || undefined;
 
-	const feeBreakdown = calculateFees({
+	const baseFeeBreakdown = calculateFees({
 		amount,
 		organizationPlan: userOrganization.organization.plan,
 		cardCountry,
 	});
+
+	const promoAlreadyUsed =
+		promoCode && (await hasUserUsedPromoCode(user.id, BLACK_FRIDAY_PROMO_CODE));
+
+	const promoResult =
+		!promoCode || promoAlreadyUsed
+			? {
+					feeBreakdown: baseFeeBreakdown,
+					promoDiscountAmount: 0,
+					totalAmountBeforePromo: baseFeeBreakdown.totalAmount,
+					promoCodeApplied: undefined as string | undefined,
+				}
+			: applyPromoDiscount({
+					amount,
+					feeBreakdown: baseFeeBreakdown,
+					promoCode,
+				});
+
+	const {
+		feeBreakdown,
+		promoDiscountAmount,
+		totalAmountBeforePromo,
+		promoCodeApplied,
+	} = promoResult;
 
 	const paymentIntent = await stripe.paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
@@ -509,6 +627,10 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			baseAmount: amount.toString(),
 			totalFees: feeBreakdown.totalFees.toString(),
 			userEmail: user.email,
+			userId: user.id,
+			promoCode: promoCodeApplied || "",
+			promoDiscountAmount: promoDiscountAmount.toString(),
+			totalAmountBeforePromo: totalAmountBeforePromo.toString(),
 		},
 	});
 
@@ -532,6 +654,7 @@ const calculateFeesRoute = createRoute({
 					schema: z.object({
 						amount: z.number().int().min(5),
 						paymentMethodId: z.string().optional(),
+						promoCode: z.string().optional(),
 					}),
 				},
 			},
@@ -553,6 +676,9 @@ const calculateFeesRoute = createRoute({
 						bonusEnabled: z.boolean(),
 						bonusEligible: z.boolean(),
 						bonusIneligibilityReason: z.string().optional(),
+						promoCodeApplied: z.string().optional(),
+						promoDiscountAmount: z.number().optional(),
+						totalAmountBeforePromo: z.number(),
 					}),
 				},
 			},
@@ -570,7 +696,15 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
-	const { amount, paymentMethodId } = c.req.valid("json");
+	const {
+		amount,
+		paymentMethodId,
+		promoCode,
+	}: {
+		amount: number;
+		paymentMethodId?: string;
+		promoCode?: string;
+	} = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -608,11 +742,35 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		}
 	}
 
-	const feeBreakdown = calculateFees({
+	const baseFeeBreakdown = calculateFees({
 		amount,
 		organizationPlan: userOrganization.organization.plan,
 		cardCountry,
 	});
+
+	const promoAlreadyUsed =
+		promoCode && (await hasUserUsedPromoCode(user.id, BLACK_FRIDAY_PROMO_CODE));
+
+	const promoResult =
+		!promoCode || promoAlreadyUsed
+			? {
+					feeBreakdown: baseFeeBreakdown,
+					promoDiscountAmount: 0,
+					totalAmountBeforePromo: baseFeeBreakdown.totalAmount,
+					promoCodeApplied: undefined as string | undefined,
+				}
+			: applyPromoDiscount({
+					amount,
+					feeBreakdown: baseFeeBreakdown,
+					promoCode,
+				});
+
+	const {
+		feeBreakdown,
+		promoDiscountAmount,
+		totalAmountBeforePromo,
+		promoCodeApplied,
+	} = promoResult;
 
 	// Calculate bonus for first-time credit purchases
 	let bonusAmount = 0;
@@ -662,5 +820,9 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		bonusEnabled,
 		bonusEligible,
 		bonusIneligibilityReason,
+		promoCodeApplied,
+		promoDiscountAmount:
+			promoDiscountAmount > 0 ? promoDiscountAmount : undefined,
+		totalAmountBeforePromo,
 	});
 });

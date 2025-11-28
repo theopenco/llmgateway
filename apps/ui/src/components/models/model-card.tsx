@@ -390,11 +390,11 @@ export function ModelCard({
 										</div>
 										<div className="flex flex-wrap gap-2">
 											{getCapabilityIcons(provider, model).map(
-												({ icon: Icon, label, color }) => (
+												({ icon: Icon, label }) => (
 													<Tooltip key={label}>
 														<TooltipTrigger asChild>
 															<div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/70 border hover:bg-muted transition-colors cursor-help">
-																<Icon className={`h-3.5 w-3.5 ${color}`} />
+																<Icon size={14} />
 																<span className="text-xs font-medium">
 																	{label}
 																</span>

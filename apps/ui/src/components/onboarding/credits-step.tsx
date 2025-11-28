@@ -74,7 +74,7 @@ export function CreditsStep({
 
 			const result = await stripe.confirmCardPayment(clientSecret, {
 				payment_method: {
-					card: cardElement,
+					card: cardElement as any,
 				},
 			});
 

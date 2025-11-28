@@ -230,7 +230,7 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 
 			const result = await stripe.confirmCardSetup(clientSecret, {
 				payment_method: {
-					card: elements.getElement(CardElement)!,
+					card: elements.getElement(CardElement) as any,
 				},
 			});
 

@@ -7,7 +7,6 @@ import {
 	Bar,
 	BarChart,
 	CartesianGrid,
-	Legend,
 	ResponsiveContainer,
 	Tooltip,
 	XAxis,
@@ -382,7 +381,9 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 						<CartesianGrid strokeDasharray="3 3" vertical={false} />
 						<XAxis
 							dataKey="date"
-							tickFormatter={(value) => format(parseISO(value), "MMM d")}
+							tickFormatter={(value: string) =>
+								format(parseISO(value), "MMM d")
+							}
 							stroke="#888888"
 							fontSize={12}
 							tickLine={false}
@@ -393,7 +394,7 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 							fontSize={12}
 							tickLine={false}
 							axisLine={false}
-							tickFormatter={(value) => {
+							tickFormatter={(value: number) => {
 								if (breakdownField === "cost") {
 									return `$${Number(value).toFixed(2)}`;
 								}
@@ -406,7 +407,7 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 								fill: "color-mix(in srgb, currentColor 15%, transparent)",
 							}}
 						/>
-						<Legend />
+
 						{/* Generate a Bar for each unique model in the dataset */}
 						{getUniqueModels(data.activity).length > 0 ? (
 							getUniqueModels(data.activity).map((model, index) => (

@@ -1,13 +1,6 @@
 "use client";
 import { useSearchParams } from "next/navigation";
-import {
-	Cell,
-	Legend,
-	Pie,
-	PieChart,
-	ResponsiveContainer,
-	Tooltip,
-} from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
@@ -168,7 +161,7 @@ export function CostBreakdownChart({
 						outerRadius={100}
 						paddingAngle={2}
 						dataKey="value"
-						label={({ name, percent }) =>
+						label={({ name, percent }: { name: string; percent: number }) =>
 							`${name} ${((percent as number) * 100).toFixed(0)}%`
 						}
 						labelLine={false}
@@ -180,7 +173,6 @@ export function CostBreakdownChart({
 					<Tooltip
 						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}
 					/>
-					<Legend />
 				</PieChart>
 			</ResponsiveContainer>
 			<div className="text-center mt-4">

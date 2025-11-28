@@ -1161,7 +1161,7 @@ export function ModelSelector({
 																	<div className="flex flex-wrap gap-1">
 																		{aggregate.capabilities.map(
 																			(capability) => {
-																				const { Icon, color } =
+																				const { Icon } =
 																					getCapabilityIconConfig(capability);
 																				return (
 																					<Badge
@@ -1169,11 +1169,7 @@ export function ModelSelector({
 																						variant="secondary"
 																						className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
 																					>
-																						{Icon && (
-																							<Icon
-																								className={`h-3 w-3 ${color}`}
-																							/>
-																						)}
+																						{Icon && <Icon size={12} />}
 																						{capability}
 																					</Badge>
 																				);
@@ -1328,7 +1324,7 @@ export function ModelSelector({
 															</h5>
 															<div className="flex flex-wrap gap-1">
 																{caps.map((capability) => {
-																	const { Icon, color } =
+																	const { Icon } =
 																		getCapabilityIconConfig(capability);
 																	return (
 																		<Badge
@@ -1336,9 +1332,7 @@ export function ModelSelector({
 																			variant="secondary"
 																			className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
 																		>
-																			{Icon && (
-																				<Icon className={`h-3 w-3 ${color}`} />
-																			)}
+																			{Icon && <Icon size={12} />}
 																			{capability}
 																		</Badge>
 																	);
@@ -1661,7 +1655,7 @@ export function ModelSelector({
 													<h5 className="font-medium text-sm">Capabilities</h5>
 													<div className="flex flex-wrap gap-1.5">
 														{caps.map((capability) => {
-															const { Icon, color } =
+															const { Icon } =
 																getCapabilityIconConfig(capability);
 															return (
 																<Badge
@@ -1669,9 +1663,7 @@ export function ModelSelector({
 																	variant="secondary"
 																	className="text-xs px-2 py-1 flex items-center gap-1.5"
 																>
-																	{Icon && (
-																		<Icon className={`h-3.5 w-3.5 ${color}`} />
-																	)}
+																	{Icon && <Icon size={14} />}
 																	{capability}
 																</Badge>
 															);

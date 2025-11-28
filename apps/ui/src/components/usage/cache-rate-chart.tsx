@@ -160,7 +160,7 @@ export function CacheRateChart({
 					<CartesianGrid strokeDasharray="3 3" vertical={false} />
 					<XAxis
 						dataKey="date"
-						tickFormatter={(value) => format(parseISO(value), "MMM d")}
+						tickFormatter={(value: string) => format(parseISO(value), "MMM d")}
 						stroke="#888888"
 						fontSize={12}
 						tickLine={false}
@@ -171,7 +171,7 @@ export function CacheRateChart({
 						fontSize={12}
 						tickLine={false}
 						axisLine={false}
-						tickFormatter={(value) => `${value.toFixed(1)}%`}
+						tickFormatter={(value: number) => `${value.toFixed(1)}%`}
 					/>
 					<Tooltip
 						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}

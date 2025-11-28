@@ -49,6 +49,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 		"amount" | "payment" | "select-payment" | "confirm-payment" | "success"
 	>("amount");
 	const [amount, setAmount] = useState<number>(50);
+	const [promoCode, setPromoCode] = useState<string>("");
 	const [loading, setLoading] = useState(false);
 	const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
 		string | null
@@ -104,6 +105,8 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 					<AmountStep
 						amount={amount}
 						setAmount={setAmount}
+						promoCode={promoCode}
+						setPromoCode={setPromoCode}
 						onNext={() => {
 							if (paymentMethodsLoading) {
 								return; // Don't proceed if still loading
@@ -130,6 +133,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 				) : step === "confirm-payment" ? (
 					<ConfirmPaymentStep
 						amount={amount}
+						promoCode={promoCode}
 						paymentMethodId={selectedPaymentMethod!}
 						onSuccess={handlePaymentSuccess}
 						onBack={() => setStep("select-payment")}
@@ -144,6 +148,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						<Elements stripe={stripe as any}>
 							<PaymentStep
 								amount={amount}
+								promoCode={promoCode}
 								onBack={() => setStep("amount")}
 								onSuccess={handlePaymentSuccess}
 								onCancel={handleClose}
@@ -163,11 +168,15 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 function AmountStep({
 	amount,
 	setAmount,
+	promoCode,
+	setPromoCode,
 	onNext,
 	onCancel,
 }: {
 	amount: number;
 	setAmount: (amount: number) => void;
+	promoCode: string;
+	setPromoCode: (code: string) => void;
 	onNext: () => void;
 	onCancel: () => void;
 }) {
@@ -178,7 +187,7 @@ function AmountStep({
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount },
+			body: { amount, promoCode: promoCode || undefined },
 		},
 		{
 			enabled: amount >= 5,
@@ -205,6 +214,34 @@ function AmountStep({
 						onChange={(e) => setAmount(Number(e.target.value))}
 						required
 					/>
+				</div>
+				<div className="space-y-1">
+					<div className="space-y-2">
+						<Label htmlFor="promo-code">
+							Promo code{" "}
+							<span className="text-xs text-muted-foreground">(optional)</span>
+						</Label>
+						<Input
+							id="promo-code"
+							type="text"
+							value={promoCode}
+							onChange={(e) => setPromoCode(e.target.value)}
+							placeholder="Enter promo code"
+							autoComplete="off"
+						/>
+					</div>
+					{promoCode && feeData && (feeData as any).promoDiscountAmount ? (
+						<p className="text-xs text-green-600">
+							Black Friday promo applied: you&apos;ll save $
+							{((feeData as any).promoDiscountAmount as number).toFixed(2)} on
+							this top-up.
+						</p>
+					) : promoCode && feeData && !(feeData as any).promoDiscountAmount ? (
+						<p className="text-xs text-amber-600">
+							This promo code is not currently applied (it may be invalid or
+							already used).
+						</p>
+					) : null}
 				</div>
 				<div className="flex flex-wrap gap-2">
 					{presetAmounts.map((preset) => (
@@ -257,8 +294,23 @@ function AmountStep({
 										<span>$0.00</span>
 									</div>
 								)}
+								{(feeData as any).promoDiscountAmount && (
+									<div className="flex justify-between">
+										<span>Total before promo</span>
+										<span>
+											$
+											{(
+												(feeData as any).totalAmountBeforePromo as number
+											).toFixed(2)}
+										</span>
+									</div>
+								)}
 								<div className="border-t pt-1 flex justify-between font-medium">
-									<span>Total</span>
+									<span>
+										{(feeData as any).promoDiscountAmount
+											? "Total after promo"
+											: "Total"}
+									</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
 								</div>
 							</div>
@@ -305,6 +357,7 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 
 function PaymentStep({
 	amount,
+	promoCode,
 	onBack,
 	onSuccess,
 	onCancel,
@@ -312,6 +365,7 @@ function PaymentStep({
 	setLoading,
 }: {
 	amount: number;
+	promoCode: string;
 	onBack: () => void;
 	onSuccess: () => Promise<void> | void;
 	onCancel: () => void;
@@ -347,7 +401,7 @@ function PaymentStep({
 
 				const setupResult = await stripe.confirmCardSetup(setupSecret, {
 					payment_method: {
-						card: elements.getElement(CardElement)!,
+						card: elements.getElement(CardElement) as any,
 					},
 				});
 
@@ -363,12 +417,13 @@ function PaymentStep({
 			const { clientSecret } = await topUpMutation({
 				body: {
 					amount,
+					promoCode: promoCode || undefined,
 				},
 			});
 
 			const result = await stripe.confirmCardPayment(clientSecret, {
 				payment_method: {
-					card: elements.getElement(CardElement)!,
+					card: elements.getElement(CardElement) as any,
 				},
 			});
 
@@ -553,6 +608,7 @@ function SelectPaymentStep({
 
 function ConfirmPaymentStep({
 	amount,
+	promoCode,
 	paymentMethodId,
 	onSuccess,
 	onBack,
@@ -561,6 +617,7 @@ function ConfirmPaymentStep({
 	setLoading,
 }: {
 	amount: number;
+	promoCode: string;
 	paymentMethodId: string;
 	onSuccess: () => Promise<void> | void;
 	onBack: () => void;
@@ -579,7 +636,7 @@ function ConfirmPaymentStep({
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount, paymentMethodId },
+			body: { amount, paymentMethodId, promoCode: promoCode || undefined },
 		},
 	);
 
@@ -589,7 +646,9 @@ function ConfirmPaymentStep({
 		setLoading(true);
 
 		try {
-			await topUpMutation({ body: { amount, paymentMethodId } });
+			await topUpMutation({
+				body: { amount, paymentMethodId, promoCode: promoCode || undefined },
+			});
 			await onSuccess();
 		} catch {
 			toast.error("Payment Failed", {
@@ -645,8 +704,23 @@ function ConfirmPaymentStep({
 									<span>$0.00</span>
 								</div>
 							)}
+							{(feeData as any).promoDiscountAmount && (
+								<div className="flex justify-between">
+									<span>Total before promo</span>
+									<span>
+										$
+										{(
+											(feeData as any).totalAmountBeforePromo as number
+										).toFixed(2)}
+									</span>
+								</div>
+							)}
 							<div className="border-t pt-2 flex justify-between font-medium">
-								<span>Total</span>
+								<span>
+									{(feeData as any).promoDiscountAmount
+										? "Total after promo"
+										: "Total"}
+								</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>
 							</div>
 						</div>
