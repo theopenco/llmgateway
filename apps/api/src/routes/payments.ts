@@ -548,6 +548,11 @@ const calculateFeesRoute = createRoute({
 						planFee: z.number(),
 						totalFees: z.number(),
 						totalAmount: z.number(),
+						bonusAmount: z.number().optional(),
+						finalCreditAmount: z.number().optional(),
+						bonusEnabled: z.boolean(),
+						bonusEligible: z.boolean(),
+						bonusIneligibilityReason: z.string().optional(),
 					}),
 				},
 			},
@@ -573,6 +578,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		},
 		with: {
 			organization: true,
+			user: true,
 		},
 	});
 
@@ -608,5 +614,53 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		cardCountry,
 	});
 
-	return c.json(feeBreakdown);
+	// Calculate bonus for first-time credit purchases
+	let bonusAmount = 0;
+	let finalCreditAmount = amount;
+	let bonusEnabled = false;
+	let bonusEligible = false;
+	let bonusIneligibilityReason: string | undefined;
+
+	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
+		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
+		: 0;
+
+	bonusEnabled = bonusMultiplier > 1;
+
+	if (bonusEnabled) {
+		// Check email verification
+		if (!userOrganization.user || !userOrganization.user.emailVerified) {
+			bonusIneligibilityReason = "email_not_verified";
+		} else {
+			// Check if this is the first credit purchase
+			const previousPurchases = await db.query.transaction.findFirst({
+				where: {
+					organizationId: { eq: userOrganization.organization.id },
+					type: { eq: "credit_topup" },
+					status: { eq: "completed" },
+				},
+			});
+
+			if (previousPurchases) {
+				bonusIneligibilityReason = "already_purchased";
+			} else {
+				// This is the first credit purchase, apply bonus
+				bonusEligible = true;
+				const potentialBonus = amount * (bonusMultiplier - 1);
+				const maxBonus = 50; // Max $50 bonus
+
+				bonusAmount = Math.min(potentialBonus, maxBonus);
+				finalCreditAmount = amount + bonusAmount;
+			}
+		}
+	}
+
+	return c.json({
+		...feeBreakdown,
+		bonusAmount: bonusAmount > 0 ? bonusAmount : undefined,
+		finalCreditAmount: bonusAmount > 0 ? finalCreditAmount : undefined,
+		bonusEnabled,
+		bonusEligible,
+		bonusIneligibilityReason,
+	});
 });

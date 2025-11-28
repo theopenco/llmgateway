@@ -2846,6 +2846,11 @@ export interface paths {
                             planFee: number;
                             totalFees: number;
                             totalAmount: number;
+                            bonusAmount?: number;
+                            finalCreditAmount?: number;
+                            bonusEnabled: boolean;
+                            bonusEligible: boolean;
+                            bonusIneligibilityReason?: string;
                         };
                     };
                 };

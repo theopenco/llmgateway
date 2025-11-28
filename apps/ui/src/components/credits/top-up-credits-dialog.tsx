@@ -178,6 +178,26 @@ function AmountStep({
 		},
 	);
 
+	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
+	const showIneligibilityMessage =
+		feeData?.bonusEnabled &&
+		!feeData?.bonusEligible &&
+		feeData?.bonusIneligibilityReason;
+
+	const getIneligibilityMessage = () => {
+		if (!feeData?.bonusIneligibilityReason) {
+			return "";
+		}
+		switch (feeData.bonusIneligibilityReason) {
+			case "email_not_verified":
+				return "Please verify your email to qualify for the first-time credit bonus.";
+			case "already_purchased":
+				return "First-time credit bonus is only available for new customers.";
+			default:
+				return "You are not eligible for the current promotion.";
+		}
+	};
+
 	return (
 		<>
 			<DialogHeader>
@@ -211,6 +231,32 @@ function AmountStep({
 						</Button>
 					))}
 				</div>
+
+				{hasBonus && feeData.bonusAmount && (
+					<div className="border-2 rounded-lg p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 border-green-400 dark:border-green-600 shadow-sm">
+						<div className="flex items-start gap-3">
+							<span className="text-2xl">🎉</span>
+							<div className="flex-1">
+								<p className="text-base font-bold text-green-900 dark:text-green-100">
+									First-time bonus: +${feeData.bonusAmount.toFixed(2)}!
+								</p>
+								<p className="text-sm text-green-800 dark:text-green-200 mt-1">
+									You'll receive ${feeData.finalCreditAmount?.toFixed(2)} in
+									total credits
+									{feeData.bonusAmount >= 50 && " (max $50 bonus reached)"}
+								</p>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{showIneligibilityMessage && (
+					<div className="border rounded-lg p-3 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+						<p className="text-sm text-amber-800 dark:text-amber-200">
+							ℹ️ {getIneligibilityMessage()}
+						</p>
+					</div>
+				)}
 
 				{amount >= 5 && (
 					<div className="border rounded-lg p-4 bg-muted/50">
@@ -254,6 +300,12 @@ function AmountStep({
 									<span>Total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
 								</div>
+								{hasBonus && feeData.bonusAmount && (
+									<div className="flex justify-between text-green-600 font-semibold bg-green-50 dark:bg-green-950/50 -mx-2 px-2 py-1 rounded">
+										<span>🎉 First-time bonus</span>
+										<span>+${feeData.bonusAmount.toFixed(2)}</span>
+									</div>
+								)}
 							</div>
 						) : null}
 					</div>
@@ -585,6 +637,26 @@ function ConfirmPaymentStep({
 		},
 	);
 
+	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
+	const showIneligibilityMessage =
+		feeData?.bonusEnabled &&
+		!feeData?.bonusEligible &&
+		feeData?.bonusIneligibilityReason;
+
+	const getIneligibilityMessage = () => {
+		if (!feeData?.bonusIneligibilityReason) {
+			return "";
+		}
+		switch (feeData.bonusIneligibilityReason) {
+			case "email_not_verified":
+				return "Please verify your email to qualify for the first-time credit bonus.";
+			case "already_purchased":
+				return "First-time credit bonus is only available for new customers.";
+			default:
+				return "You are not eligible for the current promotion.";
+		}
+	};
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 
@@ -613,6 +685,32 @@ function ConfirmPaymentStep({
 				</DialogDescription>
 			</DialogHeader>
 			<form onSubmit={handleSubmit} className="space-y-4 py-4">
+				{hasBonus && feeData.bonusAmount && (
+					<div className="border-2 rounded-lg p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 border-green-400 dark:border-green-600 shadow-sm">
+						<div className="flex items-start gap-3">
+							<span className="text-2xl">🎉</span>
+							<div className="flex-1">
+								<p className="text-base font-bold text-green-900 dark:text-green-100">
+									First-time bonus: +${feeData.bonusAmount.toFixed(2)}!
+								</p>
+								<p className="text-sm text-green-800 dark:text-green-200 mt-1">
+									You'll receive ${feeData.finalCreditAmount?.toFixed(2)} in
+									total credits
+									{feeData.bonusAmount >= 50 && " (max $50 bonus reached)"}
+								</p>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{showIneligibilityMessage && (
+					<div className="border rounded-lg p-3 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+						<p className="text-sm text-amber-800 dark:text-amber-200">
+							ℹ️ {getIneligibilityMessage()}
+						</p>
+					</div>
+				)}
+
 				<div className="border rounded-lg p-4">
 					<p className="font-medium mb-3">Payment Summary</p>
 					{feeDataLoading ? (
@@ -655,6 +753,12 @@ function ConfirmPaymentStep({
 								<span>Total</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>
 							</div>
+							{hasBonus && feeData.bonusAmount && (
+								<div className="flex justify-between text-green-600 font-semibold bg-green-50 dark:bg-green-950/50 -mx-2 px-2 py-1 rounded">
+									<span>🎉 First-time bonus</span>
+									<span>+${feeData.bonusAmount.toFixed(2)}</span>
+								</div>
+							)}
 						</div>
 					) : (
 						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
