@@ -431,38 +431,33 @@ chat.openapi(completions, async (c) => {
 		effort,
 	} = validationResult.data;
 
-	// Count input images from messages for cost calculation
-	// Supports both image_url content parts and inline URLs in text
+	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
 	let inputImageCount = 0;
-	// For gemini-3-pro-image-preview, treat any https:// URL as an input image
-	// For other models, only match URLs with image file extensions
-	const imageUrlPattern =
-		modelInput === "gemini-3-pro-image-preview"
-			? /https:\/\/[^\s]+/gi
-			: /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:\?[^\s]*)?/gi;
-
-	for (const message of messages) {
-		if (Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					part.type === "image_url"
-				) {
-					inputImageCount++;
-				} else if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					part.type === "text" &&
-					"text" in part &&
-					typeof part.text === "string"
-				) {
-					// Count image URLs in text content
-					const matches = part.text.match(imageUrlPattern);
-					if (matches) {
-						inputImageCount += matches.length;
+	if (modelInput === "gemini-3-pro-image-preview") {
+		const imageUrlPattern = /https:\/\/[^\s]+/gi;
+		for (const message of messages) {
+			if (Array.isArray(message.content)) {
+				for (const part of message.content) {
+					if (
+						typeof part === "object" &&
+						part !== null &&
+						"type" in part &&
+						part.type === "image_url"
+					) {
+						inputImageCount++;
+					} else if (
+						typeof part === "object" &&
+						part !== null &&
+						"type" in part &&
+						part.type === "text" &&
+						"text" in part &&
+						typeof part.text === "string"
+					) {
+						// Count image URLs in text content
+						const matches = part.text.match(imageUrlPattern);
+						if (matches) {
+							inputImageCount += matches.length;
+						}
 					}
 				}
 			}
