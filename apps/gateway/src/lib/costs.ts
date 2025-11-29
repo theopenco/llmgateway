@@ -85,6 +85,7 @@ export function calculateCosts(
 	reasoningTokens: number | null = null,
 	outputImageCount = 0,
 	imageSize?: string,
+	inputImageCount = 0,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -238,6 +239,16 @@ export function calculateCosts(
 	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
 	const discount = providerInfo.discount || 0;
 	const discountMultiplier = new Decimal(1).minus(discount);
+
+	// Add input image tokens to prompt tokens if applicable (for Google image generation models)
+	// Google reports text tokens but doesn't include image input tokens in usage
+	// Each input image is 560 tokens ($0.0011 per image at $2/1M)
+	const TOKENS_PER_INPUT_IMAGE = 560;
+	const imageInputPrice = (providerInfo as any).imageInputPrice;
+	if (imageInputPrice && inputImageCount > 0) {
+		const imageInputTokens = inputImageCount * TOKENS_PER_INPUT_IMAGE;
+		calculatedPromptTokens += imageInputTokens;
+	}
 
 	// Calculate input cost accounting for cached tokens
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens

@@ -431,6 +431,40 @@ chat.openapi(completions, async (c) => {
 		effort,
 	} = validationResult.data;
 
+	// Count input images from messages for cost calculation
+	// Supports both image_url content parts and inline URLs in text
+	let inputImageCount = 0;
+	const imageUrlPattern =
+		/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:\?[^\s]*)?/gi;
+
+	for (const message of messages) {
+		if (Array.isArray(message.content)) {
+			for (const part of message.content) {
+				if (
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "image_url"
+				) {
+					inputImageCount++;
+				} else if (
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "text" &&
+					"text" in part &&
+					typeof part.text === "string"
+				) {
+					// Count image URLs in text content
+					const matches = part.text.match(imageUrlPattern);
+					if (matches) {
+						inputImageCount += matches.length;
+					}
+				}
+			}
+		}
+	}
+
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
 
@@ -1871,6 +1905,9 @@ chat.openapi(completions, async (c) => {
 					cachedTokens || null,
 					undefined,
 					reasoningTokens || null,
+					0, // outputImageCount
+					undefined, // imageSize
+					inputImageCount,
 				);
 
 				await insertLog({
@@ -1985,6 +2022,9 @@ chat.openapi(completions, async (c) => {
 					cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
 					undefined,
 					cachedResponse.usage?.reasoning_tokens || null,
+					0, // outputImageCount
+					undefined, // imageSize
+					inputImageCount,
 				);
 
 				await insertLog({
@@ -2812,6 +2852,7 @@ chat.openapi(completions, async (c) => {
 									reasoningTokens,
 									outputImageCount,
 									image_config?.image_size,
+									inputImageCount,
 								);
 
 								// Only include costs in response if not hosted or if org is pro
@@ -2831,12 +2872,22 @@ chat.openapi(completions, async (c) => {
 										},
 									],
 									usage: {
-										prompt_tokens: Math.max(1, finalPromptTokens || 1),
-										completion_tokens: finalCompletionTokens || 0,
+										prompt_tokens: Math.max(
+											1,
+											streamingCosts.promptTokens || finalPromptTokens || 1,
+										),
+										completion_tokens:
+											streamingCosts.completionTokens ||
+											finalCompletionTokens ||
+											0,
 										total_tokens: (() => {
 											const fallbackTotal =
-												(finalPromptTokens || 0) +
-												(finalCompletionTokens || 0) +
+												(streamingCosts.promptTokens ||
+													finalPromptTokens ||
+													0) +
+												(streamingCosts.completionTokens ||
+													finalCompletionTokens ||
+													0) +
 												(reasoningTokens || 0);
 											return Math.max(1, finalTotalTokens ?? fallbackTotal);
 										})(),
@@ -3434,8 +3485,8 @@ chat.openapi(completions, async (c) => {
 										1,
 										Math.round(
 											promptTokens && promptTokens > 0
-												? promptTokens
-												: calculatedPromptTokens || 1,
+												? promptTokens + inputImageCount * 560
+												: (calculatedPromptTokens || 1) + inputImageCount * 560,
 										),
 									),
 									completion_tokens: Math.round(
@@ -3446,9 +3497,11 @@ chat.openapi(completions, async (c) => {
 											calculatedTotalTokens ||
 											Math.max(
 												1,
-												promptTokens && promptTokens > 0
-													? promptTokens
-													: calculatedPromptTokens || 1,
+												(promptTokens && promptTokens > 0
+													? promptTokens + inputImageCount * 560
+													: (calculatedPromptTokens || 1) +
+														inputImageCount * 560) +
+													(completionTokens || calculatedCompletionTokens || 0),
 											),
 									),
 									...(cachedTokens !== null && {
@@ -3502,6 +3555,7 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens,
 					outputImageCount,
 					image_config?.image_size,
+					inputImageCount,
 				);
 
 				const baseLogEntry = createLogEntry(
@@ -4105,6 +4159,7 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		images?.length || 0,
 		image_config?.image_size,
+		inputImageCount,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
@@ -4118,10 +4173,10 @@ chat.openapi(completions, async (c) => {
 		content,
 		reasoningContent,
 		finishReason,
-		calculatedPromptTokens,
-		calculatedCompletionTokens,
-		(calculatedPromptTokens || 0) +
-			(calculatedCompletionTokens || 0) +
+		costs.promptTokens || calculatedPromptTokens,
+		costs.completionTokens || calculatedCompletionTokens,
+		(costs.promptTokens || calculatedPromptTokens || 0) +
+			(costs.completionTokens || calculatedCompletionTokens || 0) +
 			(reasoningTokens || 0),
 		reasoningTokens,
 		cachedTokens,
