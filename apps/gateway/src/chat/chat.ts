@@ -3364,6 +3364,7 @@ chat.openapi(completions, async (c) => {
 					!streamingError &&
 					finishReason &&
 					(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
+					(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 					(!fullContent || fullContent.trim() === "") &&
 					(!streamingToolCalls || streamingToolCalls.length === 0);
 
@@ -4189,6 +4190,7 @@ chat.openapi(completions, async (c) => {
 		finishReason !== "content_filter" &&
 		!isGoogleContentFilter &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
+		(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 		(!content || content.trim() === "") &&
 		(!toolResults || toolResults.length === 0);
 
