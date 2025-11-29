@@ -4192,6 +4192,17 @@ chat.openapi(completions, async (c) => {
 		(!content || content.trim() === "") &&
 		(!toolResults || toolResults.length === 0);
 
+	if (hasEmptyNonStreamingResponse) {
+		logger.debug("Empty non-streaming response detected", {
+			finishReason,
+			usedProvider,
+			usedModel,
+			calculatedCompletionTokens,
+			contentLength: content?.length ?? 0,
+			toolResultsLength: toolResults?.length ?? 0,
+		});
+	}
+
 	await insertLog({
 		...baseLogEntry,
 		duration,
@@ -4245,12 +4256,9 @@ chat.openapi(completions, async (c) => {
 	});
 
 	// Report key health for environment-based tokens
+	// Note: We don't report empty responses as key errors since they're not upstream errors
 	if (envVarName !== undefined) {
-		if (hasEmptyNonStreamingResponse) {
-			reportKeyError(envVarName, configIndex, 500);
-		} else {
-			reportKeySuccess(envVarName, configIndex);
-		}
+		reportKeySuccess(envVarName, configIndex);
 	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {
