@@ -434,8 +434,12 @@ chat.openapi(completions, async (c) => {
 	// Count input images from messages for cost calculation
 	// Supports both image_url content parts and inline URLs in text
 	let inputImageCount = 0;
+	// For gemini-3-pro-image-preview, treat any https:// URL as an input image
+	// For other models, only match URLs with image file extensions
 	const imageUrlPattern =
-		/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:\?[^\s]*)?/gi;
+		modelInput === "gemini-3-pro-image-preview"
+			? /https:\/\/[^\s]+/gi
+			: /https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:\?[^\s]*)?/gi;
 
 	for (const message of messages) {
 		if (Array.isArray(message.content)) {
