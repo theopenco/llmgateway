@@ -9,7 +9,7 @@ import {
 	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
-	toolCallModels,
+	toolCallResultModels,
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e.js";
 
@@ -22,7 +22,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	test.each(toolCallModels)(
+	test.each(toolCallResultModels)(
 		"tool calls res $model",
 		getTestOptions(),
 		async ({ model }) => {

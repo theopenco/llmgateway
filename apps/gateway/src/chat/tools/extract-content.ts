@@ -8,8 +8,14 @@ export function extractContent(data: any, provider: Provider): string {
 		case "google-ai-studio":
 		case "google-vertex": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
-			const contentParts = parts.filter((part: any) => !part.thought);
-			return contentParts.map((part: any) => part.text).join("") || "";
+			// Filter parts that are NOT thoughts and map text content
+			// Use the same logic as transformStreamingToOpenai for consistency
+			return (
+				parts
+					.filter((part: any) => !part.thought)
+					.map((part: any) => (typeof part.text === "string" ? part.text : ""))
+					.join("") || ""
+			);
 		}
 		case "anthropic":
 			if (data.type === "content_block_delta" && data.delta?.text) {

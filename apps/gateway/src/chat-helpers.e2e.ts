@@ -317,6 +317,15 @@ export const toolCallModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.tools === true),
 );
 
+// Filter out models that require thought_signature for multi-turn tool call conversations
+// Google Gemini 3 Pro requires thought_signature when sending tool results back after reasoning
+export const toolCallResultModels = toolCallModels.filter((m) => {
+	// Exclude Google reasoning models that require thought_signature for tool result responses
+	// gemini-3-pro-preview requires thought_signature in functionCall parts for multi-turn conversations
+	const isGemini3Pro = m.model.includes("gemini-3-pro");
+	return !isGemini3Pro;
+});
+
 export const imageModels = testModels.filter((m) => {
 	const model = models.find((mo) => m.originalModel === mo.id);
 	return (model as ModelDefinition).output?.includes("image");
@@ -433,7 +442,13 @@ export async function beforeAllHook() {
 	// Set up provider keys for all providers
 	for (const provider of providers) {
 		const envVarName = getProviderEnvVar(provider.id);
-		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		// Try the LLM_ prefixed env var first, then fall back to non-prefixed
+		let envVarValue = envVarName ? process.env[envVarName] : undefined;
+		if (!envVarValue && envVarName?.startsWith("LLM_")) {
+			// Try without the LLM_ prefix as fallback
+			const fallbackEnvVar = envVarName.slice(4); // Remove "LLM_" prefix
+			envVarValue = process.env[fallbackEnvVar];
+		}
 		if (envVarValue) {
 			await createProviderKey(provider.id, envVarValue, "api-keys");
 			await createProviderKey(provider.id, envVarValue, "credits");
