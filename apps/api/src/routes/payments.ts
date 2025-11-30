@@ -19,10 +19,10 @@ export const stripe = new Stripe(
 
 export const payments = new OpenAPIHono<ServerTypes>();
 
-const BLACK_FRIDAY_PROMO_CODE = (
-	process.env.BLACK_FRIDAY_PROMO_CODE || "BLACKFRIDAY"
+const CYBER_MONDAY_PROMO_CODE = (
+	process.env.CYBER_MONDAY_PROMO_CODE || "CYBERMONDAY"
 ).toLowerCase();
-const BLACK_FRIDAY_DISCOUNT_MULTIPLIER = 0.5;
+const CYBER_MONDAY_DISCOUNT_MULTIPLIER = 0.5;
 
 async function hasUserUsedPromoCode(userId: string, promoCode: string) {
 	const existing = await db.query.verification.findFirst({
@@ -50,7 +50,7 @@ function applyPromoDiscount(params: {
 	const { amount, feeBreakdown, promoCode } = params;
 	const normalizedCode = promoCode?.trim().toLowerCase();
 
-	if (!normalizedCode || normalizedCode !== BLACK_FRIDAY_PROMO_CODE) {
+	if (!normalizedCode || normalizedCode !== CYBER_MONDAY_PROMO_CODE) {
 		return {
 			feeBreakdown,
 			promoDiscountAmount: 0,
@@ -61,7 +61,7 @@ function applyPromoDiscount(params: {
 
 	const totalAmountBeforePromo = feeBreakdown.totalAmount;
 	const maxDiscountOnCredits = feeBreakdown.baseAmount;
-	const requestedDiscount = amount * BLACK_FRIDAY_DISCOUNT_MULTIPLIER;
+	const requestedDiscount = amount * CYBER_MONDAY_DISCOUNT_MULTIPLIER;
 	const promoDiscountAmount = Math.min(requestedDiscount, maxDiscountOnCredits);
 	const totalAmount = totalAmountBeforePromo - promoDiscountAmount;
 
@@ -72,7 +72,7 @@ function applyPromoDiscount(params: {
 		},
 		promoDiscountAmount,
 		totalAmountBeforePromo,
-		promoCodeApplied: BLACK_FRIDAY_PROMO_CODE,
+		promoCodeApplied: CYBER_MONDAY_PROMO_CODE,
 	};
 }
 
@@ -140,7 +140,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 	});
 
 	const promoAlreadyUsed =
-		promoCode && (await hasUserUsedPromoCode(user.id, BLACK_FRIDAY_PROMO_CODE));
+		promoCode && (await hasUserUsedPromoCode(user.id, CYBER_MONDAY_PROMO_CODE));
 
 	const promoResult =
 		!promoCode || promoAlreadyUsed
@@ -591,7 +591,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	});
 
 	const promoAlreadyUsed =
-		promoCode && (await hasUserUsedPromoCode(user.id, BLACK_FRIDAY_PROMO_CODE));
+		promoCode && (await hasUserUsedPromoCode(user.id, CYBER_MONDAY_PROMO_CODE));
 
 	const promoResult =
 		!promoCode || promoAlreadyUsed
@@ -749,7 +749,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 	});
 
 	const promoAlreadyUsed =
-		promoCode && (await hasUserUsedPromoCode(user.id, BLACK_FRIDAY_PROMO_CODE));
+		promoCode && (await hasUserUsedPromoCode(user.id, CYBER_MONDAY_PROMO_CODE));
 
 	const promoResult =
 		!promoCode || promoAlreadyUsed

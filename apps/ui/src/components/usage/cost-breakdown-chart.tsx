@@ -1,5 +1,6 @@
 "use client";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { useDashboardState } from "@/lib/dashboard-state";
@@ -45,6 +46,7 @@ export function CostBreakdownChart({
 }: CostBreakdownChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardState();
+	const [showAllSegments, setShowAllSegments] = useState(false);
 
 	// Get days from URL parameter
 	const daysParam = searchParams.get("days");
@@ -148,9 +150,49 @@ export function CostBreakdownChart({
 	}
 
 	const totalCost = chartData.reduce((sum, item) => sum + item.value, 0);
+	const visibleSegments = showAllSegments ? chartData : chartData.slice(0, 7);
 
 	return (
 		<div>
+			{chartData.length > 0 && (
+				<div className="mb-4 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+					<div className="flex flex-wrap items-center gap-3">
+						{visibleSegments.map((segment) => (
+							<div key={segment.name} className="flex items-center gap-2">
+								<span
+									className="h-2 w-2 rounded-sm"
+									style={{ backgroundColor: segment.color }}
+								/>
+								<span className="truncate max-w-[160px]">{segment.name}</span>
+							</div>
+						))}
+						{chartData.length > 7 && (
+							<button
+								type="button"
+								onClick={() => setShowAllSegments((prev) => !prev)}
+								className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+							>
+								{showAllSegments
+									? "Show less"
+									: `+${chartData.length - 7} more`}
+							</button>
+						)}
+					</div>
+					<div>
+						<p>
+							Total Cost:{" "}
+							<span className="font-medium">${totalCost.toFixed(4)}</span>
+						</p>
+						{selectedProject && (
+							<p className="mt-1 truncate">
+								Project:{" "}
+								<span className="font-medium">{selectedProject.name}</span>
+							</p>
+						)}
+					</div>
+				</div>
+			)}
+
 			<ResponsiveContainer width="100%" height={350}>
 				<PieChart>
 					<Pie
@@ -175,15 +217,6 @@ export function CostBreakdownChart({
 					/>
 				</PieChart>
 			</ResponsiveContainer>
-			<div className="text-center mt-4">
-				<p className="text-sm text-muted-foreground">
-					Total Cost:{" "}
-					<span className="font-medium">${totalCost.toFixed(4)}</span>
-					{selectedProject && (
-						<span className="block mt-1">Project: {selectedProject.name}</span>
-					)}
-				</p>
-			</div>
 		</div>
 	);
 }

@@ -232,7 +232,7 @@ function AmountStep({
 					</div>
 					{promoCode && feeData && (feeData as any).promoDiscountAmount ? (
 						<p className="text-xs text-green-600">
-							Black Friday promo applied: you&apos;ll save $
+							Cyber Monday promo applied: you&apos;ll save $
 							{((feeData as any).promoDiscountAmount as number).toFixed(2)} on
 							this top-up.
 						</p>

@@ -7,10 +7,12 @@ import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
 import { getStoredGithubMcpToken } from "@/components/connectors/github-connector";
+import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
+import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
 import {
@@ -83,6 +85,7 @@ export default function ChatPageClient({
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
+	const panelIdCounterRef = useRef(1);
 
 	const [githubToken, setGithubToken] = useState<string | null>(null);
 
@@ -259,6 +262,15 @@ export default function ChatPageClient({
 			imageSize,
 		],
 	);
+
+	// Additional comparison chat windows (primary + one comparison)
+	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
+	const [syncInput, setSyncInput] = useState(true);
+	const [syncedText, setSyncedText] = useState("");
+	const extraSubmitRef = useRef<
+		((content: string) => Promise<void> | void) | null
+	>(null);
+	const [comparisonResetToken, setComparisonResetToken] = useState(0);
 
 	// Chat API hooks
 	const createChat = useCreateChat();
@@ -457,6 +469,20 @@ export default function ChatPageClient({
 		} finally {
 			setIsLoading(false);
 		}
+
+		// When sync is enabled and a comparison window is open, mirror the
+		// submitted prompt into the extra window as a separate user message.
+		if (syncInput && extraSubmitRef.current) {
+			try {
+				await extraSubmitRef.current(content);
+			} catch (mirrorError) {
+				// Don't surface comparison errors as hard failures
+				console.warn(
+					"Failed to mirror prompt to comparison window",
+					mirrorError,
+				);
+			}
+		}
 	};
 
 	const clearMessages = () => {
@@ -470,6 +496,8 @@ export default function ChatPageClient({
 		try {
 			setCurrentChatId(null);
 			setMessages([]);
+			// Clear comparison window as well
+			setComparisonResetToken((token) => token + 1);
 		} catch {
 			setError("Failed to create new chat. Please try again.");
 		} finally {
@@ -497,6 +525,13 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const [text, setText] = useState("");
+	const primaryText = syncInput ? syncedText : text;
+	const setPrimaryText = (value: string) => {
+		if (syncInput) {
+			setSyncedText(value);
+		}
+		setText(value);
+	};
 
 	// Reset reasoning effort when switching to a non-reasoning model
 	useEffect(() => {
@@ -581,33 +616,333 @@ export default function ChatPageClient({
 							setSelectedModel={setSelectedModel}
 						/>
 					</div>
-					<div className="flex flex-col flex-1 min-h-0 w-full max-w-3xl mx-auto overflow-hidden">
-						<ChatUI
-							messages={messages}
-							supportsImages={supportsImages}
-							supportsImageGen={supportsImageGen}
-							sendMessage={sendMessageWithHeaders}
-							selectedModel={selectedModel}
-							text={text}
-							setText={setText}
-							status={status}
-							stop={stop}
-							regenerate={regenerate}
-							reasoningEffort={reasoningEffort}
-							setReasoningEffort={setReasoningEffort}
-							supportsReasoning={supportsReasoning}
-							imageAspectRatio={imageAspectRatio}
-							setImageAspectRatio={setImageAspectRatio}
-							imageSize={imageSize}
-							setImageSize={setImageSize}
-							onUserMessage={handleUserMessage}
-							isLoading={isLoading || isChatLoading}
-							error={error}
-						/>
+					<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
+						<div className="flex items-center gap-2 text-xs text-muted-foreground">
+							<span className="font-medium">Chat windows</span>
+							<span>
+								{1 + extraPanelIds.length}
+								{" / "}2
+							</span>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={extraPanelIds.length >= 1}
+								onClick={() =>
+									setExtraPanelIds((prev) => {
+										if (prev.length >= 1) {
+											return prev;
+										}
+										const nextId = panelIdCounterRef.current + 1;
+										panelIdCounterRef.current = nextId;
+										return [...prev, nextId];
+									})
+								}
+							>
+								Add model for comparison
+							</Button>
+							{extraPanelIds.length > 0 ? (
+								<Button
+									size="sm"
+									variant="ghost"
+									onClick={() => setExtraPanelIds((prev) => prev.slice(0, -1))}
+								>
+									Remove window
+								</Button>
+							) : null}
+						</div>
+						<div className="flex items-center gap-2 text-xs text-muted-foreground">
+							<span className="font-medium">Sync prompt input</span>
+							<Button
+								size="sm"
+								variant={syncInput ? "default" : "outline"}
+								onClick={() => setSyncInput((prev) => !prev)}
+							>
+								{syncInput ? "On" : "Off"}
+							</Button>
+						</div>
+					</div>
+					<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+						<div
+							className={`grid h-full gap-4 px-4 pb-4 ${
+								extraPanelIds.length === 0
+									? "grid-cols-1 max-w-3xl mx-auto"
+									: extraPanelIds.length === 1
+										? "grid-cols-1 md:grid-cols-2"
+										: "grid-cols-1 md:grid-cols-3"
+							}`}
+						>
+							<div className="flex flex-col min-h-0">
+								<ChatUI
+									messages={messages}
+									supportsImages={supportsImages}
+									supportsImageGen={supportsImageGen}
+									sendMessage={sendMessageWithHeaders}
+									selectedModel={selectedModel}
+									text={primaryText}
+									setText={setPrimaryText}
+									status={status}
+									stop={stop}
+									regenerate={regenerate}
+									reasoningEffort={reasoningEffort}
+									setReasoningEffort={setReasoningEffort}
+									supportsReasoning={supportsReasoning}
+									imageAspectRatio={imageAspectRatio}
+									setImageAspectRatio={setImageAspectRatio}
+									imageSize={imageSize}
+									setImageSize={setImageSize}
+									onUserMessage={handleUserMessage}
+									isLoading={isLoading || isChatLoading}
+									error={error}
+								/>
+							</div>
+							{extraPanelIds.map((panelId, index) => (
+								<div key={panelId} className="hidden md:flex flex-col min-h-0">
+									<ExtraChatPanel
+										panelIndex={index + 2}
+										models={models}
+										providers={providers}
+										availableModels={availableModels}
+										initialModel={selectedModel}
+										githubToken={githubToken}
+										syncInput={syncInput}
+										syncedText={syncedText}
+										setSyncedText={setSyncedText}
+										onRegisterExternalSubmit={(fn) => {
+											extraSubmitRef.current = fn;
+										}}
+										resetToken={comparisonResetToken}
+									/>
+								</div>
+							))}
+						</div>
 					</div>
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
+	);
+}
+
+interface ExtraChatPanelProps {
+	panelIndex: number;
+	models: ModelDefinition[];
+	providers: ProviderDefinition[];
+	availableModels: ComboboxModel[];
+	initialModel: string;
+	githubToken: string | null;
+	syncInput: boolean;
+	syncedText: string;
+	setSyncedText: (value: string) => void;
+	onRegisterExternalSubmit: (
+		submit: (content: string) => Promise<void> | void,
+	) => void;
+	resetToken: number;
+}
+
+function ExtraChatPanel({
+	panelIndex,
+	models,
+	providers,
+	availableModels,
+	initialModel,
+	githubToken,
+	syncInput,
+	syncedText,
+	setSyncedText,
+	onRegisterExternalSubmit,
+	resetToken,
+}: ExtraChatPanelProps) {
+	const [selectedModel, setSelectedModel] = useState(initialModel);
+	const [reasoningEffort, setReasoningEffort] = useState<
+		"" | "minimal" | "low" | "medium" | "high"
+	>("");
+	const [imageAspectRatio, setImageAspectRatio] = useState<
+		| "auto"
+		| "1:1"
+		| "9:16"
+		| "3:4"
+		| "4:3"
+		| "3:2"
+		| "2:3"
+		| "5:4"
+		| "4:5"
+		| "21:9"
+	>("auto");
+	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [text, setText] = useState("");
+
+	const { messages, sendMessage, status, stop, regenerate } = useChat({
+		onError: async (e) => {
+			const msg = getErrorMessage(e);
+			toast.error(msg);
+		},
+	});
+
+	const supportsImages = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.vision;
+	}, [availableModels, selectedModel]);
+
+	const supportsImageGen = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.imageGen;
+	}, [availableModels, selectedModel]);
+
+	const supportsReasoning = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const [providerId, modelId] = selectedModel.includes("/")
+			? (selectedModel.split("/") as [string, string])
+			: ["", selectedModel];
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.providers.some((p) => p.reasoning);
+		}
+		const mapping = def.providers.find((p) => p.providerId === providerId);
+		return !!mapping?.reasoning;
+	}, [models, selectedModel]);
+
+	const sendMessageWithHeaders = useCallback(
+		(message: any, options?: any) => {
+			const imageConfig =
+				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
+					? {
+							...(imageAspectRatio !== "auto" && {
+								aspect_ratio: imageAspectRatio,
+							}),
+							...(imageSize !== "1K" && { image_size: imageSize }),
+						}
+					: undefined;
+
+			const noFallback =
+				typeof window !== "undefined" &&
+				localStorage.getItem("llmgateway_no_fallback") === "true";
+
+			const mergedOptions = {
+				...options,
+				headers: {
+					...(options?.headers || {}),
+					...(githubToken ? { "x-github-token": githubToken } : {}),
+					...(noFallback ? { "x-no-fallback": "true" } : {}),
+				},
+				body: {
+					...(options?.body || {}),
+					...(githubToken ? { githubToken } : {}),
+					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+					...(imageConfig ? { image_config: imageConfig } : {}),
+				},
+			};
+			return sendMessage(message, mergedOptions);
+		},
+		[
+			sendMessage,
+			githubToken,
+			reasoningEffort,
+			supportsImageGen,
+			imageAspectRatio,
+			imageSize,
+		],
+	);
+
+	const effectiveText = syncInput ? syncedText : text;
+	const handleSetText = (value: string) => {
+		if (syncInput) {
+			setSyncedText(value);
+		}
+		setText(value);
+	};
+
+	// When the primary chat is reset (New Chat), clear this panel's messages
+	// and local input as well.
+	useEffect(() => {
+		if (!resetToken) {
+			return;
+		}
+		setText("");
+		setSyncedText("");
+	}, [resetToken, setSyncedText]);
+
+	// Allow the parent to trigger a user message in this panel when
+	// syncInput is enabled and the primary window is submitted.
+	useEffect(() => {
+		if (!onRegisterExternalSubmit) {
+			return;
+		}
+
+		const submitFromPrimary = async (content: string) => {
+			const trimmed = content.trim();
+			if (!trimmed) {
+				return;
+			}
+
+			const parts: any[] = [{ type: "text", text: trimmed }];
+
+			await sendMessageWithHeaders(
+				{
+					id: crypto.randomUUID(),
+					role: "user",
+					parts,
+				},
+				{
+					body: {
+						model: selectedModel,
+					},
+				},
+			);
+		};
+
+		onRegisterExternalSubmit(submitFromPrimary);
+	}, [onRegisterExternalSubmit, sendMessageWithHeaders, selectedModel]);
+
+	return (
+		<div className="flex flex-col h-full min-h-0 rounded-lg border bg-background">
+			<div className="shrink-0 border-b bg-muted/40 px-3 py-2 flex items-center justify-between gap-2">
+				<span className="text-xs font-medium text-muted-foreground">
+					Model {panelIndex}
+				</span>
+				<div className="w-full max-w-xs">
+					<ModelSelector
+						models={models}
+						providers={providers}
+						value={selectedModel}
+						onValueChange={setSelectedModel}
+						placeholder="Select a model..."
+					/>
+				</div>
+			</div>
+			<div className="flex-1 min-h-0">
+				<ChatUI
+					messages={messages}
+					supportsImages={supportsImages}
+					supportsImageGen={supportsImageGen}
+					sendMessage={sendMessageWithHeaders}
+					selectedModel={selectedModel}
+					text={effectiveText}
+					setText={handleSetText}
+					status={status}
+					stop={stop}
+					regenerate={regenerate}
+					reasoningEffort={reasoningEffort}
+					setReasoningEffort={setReasoningEffort}
+					supportsReasoning={supportsReasoning}
+					imageAspectRatio={imageAspectRatio}
+					setImageAspectRatio={setImageAspectRatio}
+					imageSize={imageSize}
+					setImageSize={setImageSize}
+					isLoading={false}
+					error={null}
+				/>
+			</div>
+		</div>
 	);
 }

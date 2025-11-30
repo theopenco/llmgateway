@@ -22,7 +22,12 @@ import { Loader } from "@/components/ai-elements/loader";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
 	PromptInput,
+	PromptInputActionAddAttachments,
 	PromptInputActionMenu,
+	PromptInputActionMenuContent,
+	PromptInputActionMenuTrigger,
+	PromptInputAttachment,
+	PromptInputAttachments,
 	PromptInputBody,
 	PromptInputButton,
 	PromptInputSpeechButton,
@@ -153,7 +158,7 @@ const heroSuggestionGroups = {
 
 export const ChatUI = ({
 	messages,
-	// supportsImages,
+	supportsImages,
 	supportsImageGen,
 	sendMessage,
 	selectedModel,
@@ -176,6 +181,75 @@ export const ChatUI = ({
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const handlePromptSubmit = async (
+		textContent: string,
+		files?: Array<{
+			url?: string | null;
+			mediaType?: string | null;
+			filename?: string | null;
+		}>,
+	) => {
+		if (isLoading || status === "streaming") {
+			return;
+		}
+
+		try {
+			const content = textContent ?? "";
+			if (!content.trim() && !files?.length) {
+				return;
+			}
+
+			setText(""); // Clear input immediately
+
+			const parts: any[] = [];
+
+			if (content.trim()) {
+				parts.push({ type: "text", text: content });
+			}
+
+			// Attach user images/files as AI SDK "file" parts so vision /
+			// image-generation models can actually consume them.
+			if (supportsImages && files?.length) {
+				for (const file of files) {
+					if (file.mediaType?.startsWith("image/") && file.url) {
+						parts.push({
+							type: "file",
+							url: file.url,
+							mediaType: file.mediaType,
+							name: file.filename,
+						});
+					}
+				}
+			}
+
+			if (parts.length === 0) {
+				return;
+			}
+
+			// Call sendMessage which will handle adding the user message and API request
+			await sendMessage(
+				{
+					id: crypto.randomUUID(),
+					role: "user",
+					parts,
+				},
+				{
+					body: {
+						model: selectedModel,
+					},
+				},
+			);
+
+			// Then save to database in the background
+			if (onUserMessage && content.trim()) {
+				onUserMessage(content).catch((error) => {
+					toast.error(`Failed to save message to database: ${error}`);
+				});
+			}
+		} catch {
+			toast.error("Could not send message.");
+		}
+	};
 	return (
 		<div className="flex flex-col h-full min-h-0">
 			<div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
@@ -218,7 +292,9 @@ export const ChatUI = ({
 											<button
 												key={s}
 												type="button"
-												onClick={() => setText(s)}
+												onClick={() => {
+													void handlePromptSubmit(s);
+												}}
 												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
 											>
 												{s}
@@ -393,15 +469,43 @@ export const ChatUI = ({
 										</div>
 									);
 								} else {
+									// User messages: show text plus any attached images
+									const textParts = m.parts
+										.filter((p) => p.type === "text")
+										.map((p) => p.text);
+
+									const imageParts = (m.parts as any[]).filter(
+										(p: any) =>
+											p.type === "file" && p.mediaType?.startsWith("image/"),
+									);
+
 									return (
 										<Message key={m.id} from={m.role}>
 											<MessageContent variant="flat">
-												{m.parts.map((p, i) => {
-													if (p.type === "text") {
-														return <div key={i}>{p.text}</div>;
-													}
-													return null;
-												})}
+												{textParts.map((t, idx) => (
+													<div key={idx}>{t}</div>
+												))}
+												{imageParts.length > 0 && (
+													<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+														{imageParts.map((part: any, idx: number) => {
+															const { base64Only, mediaType } =
+																parseImagePartToDataUrl(part);
+															if (!base64Only) {
+																return null;
+															}
+															return (
+																<ImageZoom key={idx}>
+																	<Image
+																		base64={base64Only}
+																		mediaType={mediaType}
+																		alt={part.name || "Uploaded image"}
+																		className="h-[300px] aspect-auto border rounded-lg object-cover"
+																	/>
+																</ImageZoom>
+															);
+														})}
+													</div>
+												)}
 											</MessageContent>
 											{isLastMessage &&
 												(status === "submitted" || status === "streaming") && (
@@ -424,54 +528,18 @@ export const ChatUI = ({
 					</Alert>
 				)}
 				<PromptInput
-					// accept={supportsImages ? "image/*" : undefined}
-					// multiple
-					// globalDrop
+					accept={supportsImages ? "image/*" : undefined}
+					multiple
+					globalDrop
 					aria-disabled={isLoading || status === "streaming"}
 					onSubmit={async (message) => {
-						if (isLoading || status === "streaming") {
-							return;
-						}
-
-						try {
-							const textContent = message.text ?? "";
-							if (!textContent.trim()) {
-								return;
-							}
-
-							setText(""); // Clear input immediately
-
-							const parts: any[] = [{ type: "text", text: textContent }];
-
-							// Call sendMessage which will handle adding the user message and API request
-							sendMessage(
-								{
-									id: crypto.randomUUID(),
-									role: "user",
-									parts,
-								},
-								{
-									body: {
-										model: selectedModel,
-									},
-								},
-							);
-
-							// Then save to database in the background
-							if (onUserMessage) {
-								onUserMessage(textContent).catch((error) => {
-									toast.error(`Failed to save message to database: ${error}`);
-								});
-							}
-						} catch {
-							toast.error("Could not send message.");
-						}
+						await handlePromptSubmit(message.text ?? "", message.files);
 					}}
 				>
 					<PromptInputBody>
-						{/* <PromptInputAttachments>
+						<PromptInputAttachments>
 							{(attachment) => <PromptInputAttachment data={attachment} />}
-						</PromptInputAttachments> */}
+						</PromptInputAttachments>
 						<PromptInputTextarea
 							ref={textareaRef}
 							value={text}
@@ -482,10 +550,10 @@ export const ChatUI = ({
 					<PromptInputToolbar>
 						<PromptInputTools>
 							<PromptInputActionMenu>
-								{/* <PromptInputActionMenuTrigger /> */}
-								{/* <PromptInputActionMenuContent>
+								<PromptInputActionMenuTrigger />
+								<PromptInputActionMenuContent>
 									<PromptInputActionAddAttachments />
-								</PromptInputActionMenuContent> */}
+								</PromptInputActionMenuContent>
 							</PromptInputActionMenu>
 							<PromptInputSpeechButton
 								onTranscriptionChange={setText}

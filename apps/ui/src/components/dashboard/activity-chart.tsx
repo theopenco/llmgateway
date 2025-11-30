@@ -119,6 +119,13 @@ const CustomTooltip = ({
 					<span className="font-medium">${data.cost.toFixed(4)}</span> estimated
 					cost
 				</p>
+				{Array.isArray(data.modelBreakdown) &&
+					data.modelBreakdown.length === 1 && (
+						<p className="mt-1 text-xs text-muted-foreground">
+							Model:{" "}
+							<span className="font-medium">{data.modelBreakdown[0]?.id}</span>
+						</p>
+					)}
 				{payload.length > 1 && (
 					<div className="mt-2 pt-2 border-t">
 						<p className="text-sm font-medium">Model Breakdown:</p>
@@ -177,6 +184,7 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 	const [breakdownField, setBreakdownField] = useState<
 		"requests" | "cost" | "tokens"
 	>("requests");
+	const [showAllModels, setShowAllModels] = useState(false);
 	const { selectedProject } = useDashboardNavigation();
 	const api = useApi();
 
@@ -343,6 +351,9 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 		};
 	});
 
+	const uniqueModels = getUniqueModels(data.activity);
+	const visibleModels = showAllModels ? uniqueModels : uniqueModels.slice(0, 7);
+
 	return (
 		<Card>
 			<CardHeader className="flex flex-col space-y-4 md:flex-row items-center justify-between pb-2">
@@ -376,6 +387,36 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 				</div>
 			</CardHeader>
 			<CardContent>
+				{uniqueModels.length > 0 && (
+					<div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+						{visibleModels.map((model) => (
+							<div key={model} className="flex items-center gap-2">
+								<span
+									className="h-2 w-2 rounded-sm"
+									style={{
+										backgroundColor: getModelColor(
+											model,
+											uniqueModels.indexOf(model),
+										),
+									}}
+								/>
+								<span className="truncate max-w-[140px]">{model}</span>
+							</div>
+						))}
+						{uniqueModels.length > 7 && (
+							<button
+								type="button"
+								onClick={() => setShowAllModels((prev) => !prev)}
+								className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
+							>
+								{showAllModels
+									? "Show less"
+									: `+${uniqueModels.length - 7} more`}
+							</button>
+						)}
+					</div>
+				)}
+
 				<ResponsiveContainer width="100%" height={350}>
 					<BarChart data={chartData}>
 						<CartesianGrid strokeDasharray="3 3" vertical={false} />
