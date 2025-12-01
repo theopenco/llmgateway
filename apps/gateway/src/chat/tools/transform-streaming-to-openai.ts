@@ -207,14 +207,12 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "google-vertex": {
-			// Helper: map Gemini finishReason / blockReason -> OpenAI finish_reason
 			const mapFinishReason = (
 				finishReason?: string,
 				hasFunctionCalls?: boolean,
 				promptBlockReason?: string,
 			): string => {
 				if (promptBlockReason) {
-					// Prompt was blocked before generation
 					switch (promptBlockReason) {
 						case "SAFETY":
 						case "PROHIBITED_CONTENT":
@@ -235,13 +233,9 @@ export function transformStreamingToOpenai(
 						return hasFunctionCalls ? "tool_calls" : "stop";
 					case "MAX_TOKENS":
 						return "length";
-
-					// tool / function call specific
 					case "MALFORMED_FUNCTION_CALL":
 					case "UNEXPECTED_TOOL_CALL":
 						return "tool_calls";
-
-					// safety / content filters
 					case "SAFETY":
 					case "PROHIBITED_CONTENT":
 					case "RECITATION":
@@ -252,14 +246,11 @@ export function transformStreamingToOpenai(
 					case "IMAGE_PROHIBITED_CONTENT":
 					case "NO_IMAGE":
 						return "content_filter";
-
-					// fallthrough: treat as stop
 					default:
 						return "stop";
 				}
 			};
 
-			// Usage mapping according to latest UsageMetadata fields
 			const buildUsage = (
 				usageMetadata: any | undefined,
 				messagesForFallback: any[],
@@ -300,13 +291,15 @@ export function transformStreamingToOpenai(
 					usage.reasoning_tokens = reasoningTokenCount;
 				}
 
-				// If you ever want to expose Google-specific counts further:
-				// usage._provider_google = { tool_use_prompt_tokens: toolUsePromptTokenCount };
+				// I am exposing this google-specific metric under a provider-specific namespace
+				// please remove it if you don't need it :)
+				usage._provider_google = {
+					tool_use_prompt_tokens: toolUsePromptTokenCount,
+				};
 
 				return usage;
 			};
 
-			// Debug logging for Google streaming chunks
 			const hasCandidatesArray = Array.isArray(data.candidates);
 			const firstCandidate = hasCandidatesArray
 				? data.candidates[0]
@@ -330,7 +323,6 @@ export function transformStreamingToOpenai(
 
 			const candidates: any[] = hasCandidatesArray ? data.candidates : [];
 
-			// Detect if any candidate in this chunk has content / calls
 			let anyHasContent = false;
 
 			const choices: any[] = candidates.map((candidate, candidateIdx) => {
@@ -360,7 +352,6 @@ export function transformStreamingToOpenai(
 					anyHasContent = true;
 				}
 
-				// Build delta (allow provider-specific metadata)
 				const delta: StreamingDelta & { provider_extra?: any } = {
 					role: "assistant",
 				};
@@ -374,7 +365,6 @@ export function transformStreamingToOpenai(
 				}
 
 				if (hasImages) {
-					// Keep your existing image extraction util; it likely understands candidates
 					delta.images = extractImages(data, "google-ai-studio");
 				}
 
@@ -395,7 +385,10 @@ export function transformStreamingToOpenai(
 								name: part.functionCall.name,
 								arguments: JSON.stringify(part.functionCall.args || {}),
 							},
-							// provider-specific metadata so you can re-inject the signature later
+							// provider-specific metadata we re-inject the signature later
+							// this is following the latest Google tool call schema
+							// as long as we need a response, sending back the signature is required
+							// it represents the thought process that led to the tool call
 							provider_extra: sig
 								? {
 										google: {
@@ -436,7 +429,6 @@ export function transformStreamingToOpenai(
 			});
 
 			if (anyHasContent) {
-				// Content / tool / thought / signature chunk
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -449,7 +441,6 @@ export function transformStreamingToOpenai(
 				data.promptFeedback?.blockReason ||
 				firstCandidate?.finishReason
 			) {
-				// Finish / block chunk with no new content
 				const promptBlockReason: string | undefined =
 					data.promptFeedback?.blockReason;
 
@@ -495,8 +486,6 @@ export function transformStreamingToOpenai(
 					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
-				// Other Google chunks with neither content nor finishReason,
-				// but still keep stream shape + usage if present
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -517,7 +506,6 @@ export function transformStreamingToOpenai(
 		}
 
 		case "openai": {
-			// (unchanged OpenAI branch)
 			if (data.type) {
 				switch (data.type) {
 					case "response.created":
@@ -665,7 +653,6 @@ export function transformStreamingToOpenai(
 		}
 
 		case "aws-bedrock": {
-			// (unchanged Bedrock branch)
 			const eventType = data.__aws_event_type;
 
 			if (eventType === "contentBlockDelta" && data.delta?.text) {
