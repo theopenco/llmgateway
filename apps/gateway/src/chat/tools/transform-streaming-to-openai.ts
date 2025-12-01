@@ -17,7 +17,6 @@ export function transformStreamingToOpenai(
 
 	switch (usedProvider) {
 		case "anthropic": {
-			// Handle different types of Anthropic streaming events
 			if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
@@ -41,7 +40,6 @@ export function transformStreamingToOpenai(
 				data.delta?.type === "thinking_delta" &&
 				data.delta?.thinking
 			) {
-				// Handle thinking content delta - convert to unified reasoning format
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -63,7 +61,6 @@ export function transformStreamingToOpenai(
 				data.type === "content_block_start" &&
 				data.content_block?.type === "tool_use"
 			) {
-				// Handle tool call start
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -95,7 +92,6 @@ export function transformStreamingToOpenai(
 				data.type === "content_block_delta" &&
 				data.delta?.partial_json
 			) {
-				// Handle tool call arguments delta
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -171,7 +167,6 @@ export function transformStreamingToOpenai(
 					usage: data.usage || null,
 				};
 			} else if (data.delta?.text) {
-				// Fallback for older format
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -190,8 +185,6 @@ export function transformStreamingToOpenai(
 					usage: data.usage || null,
 				};
 			} else {
-				// For other Anthropic events (like message_start, content_block_start, etc.)
-				// Transform them to OpenAI format but without content
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -211,10 +204,114 @@ export function transformStreamingToOpenai(
 			}
 			break;
 		}
+
 		case "google-ai-studio":
 		case "google-vertex": {
+			// Helper: map Gemini finishReason / blockReason -> OpenAI finish_reason
+			const mapFinishReason = (
+				finishReason?: string,
+				hasFunctionCalls?: boolean,
+				promptBlockReason?: string,
+			): string => {
+				if (promptBlockReason) {
+					// Prompt was blocked before generation
+					switch (promptBlockReason) {
+						case "SAFETY":
+						case "PROHIBITED_CONTENT":
+						case "BLOCKLIST":
+						case "OTHER":
+							return "content_filter";
+						default:
+							return "stop";
+					}
+				}
+
+				if (!finishReason) {
+					return hasFunctionCalls ? "tool_calls" : "stop";
+				}
+
+				switch (finishReason) {
+					case "STOP":
+						return hasFunctionCalls ? "tool_calls" : "stop";
+					case "MAX_TOKENS":
+						return "length";
+
+					// tool / function call specific
+					case "MALFORMED_FUNCTION_CALL":
+					case "UNEXPECTED_TOOL_CALL":
+						return "tool_calls";
+
+					// safety / content filters
+					case "SAFETY":
+					case "PROHIBITED_CONTENT":
+					case "RECITATION":
+					case "BLOCKLIST":
+					case "SPII":
+					case "LANGUAGE":
+					case "IMAGE_SAFETY":
+					case "IMAGE_PROHIBITED_CONTENT":
+					case "NO_IMAGE":
+						return "content_filter";
+
+					// fallthrough: treat as stop
+					default:
+						return "stop";
+				}
+			};
+
+			// Usage mapping according to latest UsageMetadata fields
+			const buildUsage = (
+				usageMetadata: any | undefined,
+				messagesForFallback: any[],
+			) => {
+				if (!usageMetadata) {
+					return null;
+				}
+
+				const promptTokenCount =
+					typeof usageMetadata.promptTokenCount === "number" &&
+					usageMetadata.promptTokenCount > 0
+						? usageMetadata.promptTokenCount
+						: calculatePromptTokensFromMessages(messagesForFallback);
+
+				const completionTokenCount = usageMetadata.candidatesTokenCount || 0;
+
+				const reasoningTokenCount = usageMetadata.thoughtsTokenCount || 0;
+
+				const toolUsePromptTokenCount =
+					usageMetadata.toolUsePromptTokenCount || 0;
+
+				const totalTokenCount =
+					typeof usageMetadata.totalTokenCount === "number" &&
+					usageMetadata.totalTokenCount > 0
+						? usageMetadata.totalTokenCount
+						: promptTokenCount +
+							completionTokenCount +
+							reasoningTokenCount +
+							toolUsePromptTokenCount;
+
+				const usage: any = {
+					prompt_tokens: promptTokenCount,
+					completion_tokens: completionTokenCount,
+					total_tokens: totalTokenCount,
+				};
+
+				if (reasoningTokenCount) {
+					usage.reasoning_tokens = reasoningTokenCount;
+				}
+
+				// If you ever want to expose Google-specific counts further:
+				// usage._provider_google = { tool_use_prompt_tokens: toolUsePromptTokenCount };
+
+				return usage;
+			};
+
 			// Debug logging for Google streaming chunks
-			// Only log as error if there's no promptFeedback explaining why candidates are missing
+			const hasCandidatesArray = Array.isArray(data.candidates);
+			const firstCandidate = hasCandidatesArray
+				? data.candidates[0]
+				: undefined;
+
 			if (
 				(!data.candidates || data.candidates.length === 0) &&
 				!data.promptFeedback?.blockReason
@@ -231,170 +328,175 @@ export function transformStreamingToOpenai(
 				);
 			}
 
-			const parts = data.candidates?.[0]?.content?.parts || [];
-			const hasText = parts.some((part: any) => part.text && !part.thought);
-			const hasThought = parts.some((part: any) => part.thought && part.text);
-			const hasImages = parts.some((part: any) => part.inlineData);
-			const hasFunctionCalls = parts.some((part: any) => part.functionCall);
+			const candidates: any[] = hasCandidatesArray ? data.candidates : [];
 
-			if (hasText || hasThought || hasImages || hasFunctionCalls) {
-				const delta: StreamingDelta = {
+			// Detect if any candidate in this chunk has content / calls
+			let anyHasContent = false;
+
+			const choices: any[] = candidates.map((candidate, candidateIdx) => {
+				const parts: any[] = candidate?.content?.parts || [];
+
+				const textParts = parts.filter(
+					(part) => typeof part.text === "string" && !part.thought,
+				);
+				const thoughtParts = parts.filter(
+					(part) => part.thought && typeof part.text === "string",
+				);
+				const hasImages = parts.some((part) => part.inlineData);
+				const hasFunctionCalls = parts.some((part) => part.functionCall);
+
+				const hasThoughtSignature = parts.some(
+					(part) => part.thoughtSignature || part.thought_signature,
+				);
+
+				const hasAnyContent =
+					textParts.length ||
+					thoughtParts.length ||
+					hasImages ||
+					hasFunctionCalls ||
+					hasThoughtSignature;
+
+				if (hasAnyContent) {
+					anyHasContent = true;
+				}
+
+				// Build delta (allow provider-specific metadata)
+				const delta: StreamingDelta & { provider_extra?: any } = {
 					role: "assistant",
 				};
 
-				// Add text content if present (excluding thoughts)
-				if (hasText) {
-					delta.content =
-						parts
-							.filter((part: any) => !part.thought)
-							.map((part: any) =>
-								typeof part.text === "string" ? part.text : "",
-							)
-							.join("") || "";
+				if (textParts.length) {
+					delta.content = textParts.map((p) => p.text as string).join("");
 				}
 
-				// Add thinking/reasoning content if present
-				if (hasThought) {
-					delta.reasoning =
-						parts
-							.filter((part: any) => part.thought)
-							.map((part: any) =>
-								typeof part.text === "string" ? part.text : "",
-							)
-							.join("") || "";
+				if (thoughtParts.length) {
+					delta.reasoning = thoughtParts.map((p) => p.text as string).join("");
 				}
 
-				// Add images if present
 				if (hasImages) {
+					// Keep your existing image extraction util; it likely understands candidates
 					delta.images = extractImages(data, "google-ai-studio");
 				}
 
-				// Emit tool_calls if present
-				if (hasFunctionCalls) {
-					const toolCalls = parts
-						.filter((part: any) => part.functionCall)
-						.map((part: any, index: number) => ({
-							id: part.functionCall.name + "_" + Date.now() + "_" + index,
+				const toolCalls: any[] = [];
+				const thoughtSignatures: string[] = [];
+
+				parts.forEach((part, partIndex) => {
+					const sig: string | undefined =
+						part.thoughtSignature || part.thought_signature;
+
+					if (part.functionCall) {
+						const callIndex = toolCalls.length;
+						toolCalls.push({
+							id: part.functionCall.name + "_" + Date.now() + "_" + callIndex,
 							type: "function",
-							index: index,
+							index: partIndex,
 							function: {
 								name: part.functionCall.name,
 								arguments: JSON.stringify(part.functionCall.args || {}),
 							},
-						}));
-					if (toolCalls.length > 0) {
-						delta.tool_calls = toolCalls;
+							// provider-specific metadata so you can re-inject the signature later
+							provider_extra: sig
+								? {
+										google: {
+											thought_signature: sig,
+										},
+									}
+								: undefined,
+						});
 					}
+
+					if (sig) {
+						thoughtSignatures.push(sig);
+					}
+				});
+
+				if (toolCalls.length > 0) {
+					(delta as any).tool_calls = toolCalls;
 				}
 
+				if (thoughtSignatures.length > 0) {
+					delta.provider_extra = {
+						...(delta.provider_extra || {}),
+						google: {
+							...(delta.provider_extra?.google || {}),
+							thought_signatures: thoughtSignatures,
+						},
+					};
+				}
+
+				return {
+					index:
+						typeof candidate.index === "number"
+							? candidate.index
+							: candidateIdx,
+					delta,
+					finish_reason: null,
+				};
+			});
+
+			if (anyHasContent) {
+				// Content / tool / thought / signature chunk
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
 					model: data.modelVersion || usedModel,
-					choices: [
-						{
-							index: data.candidates[0].index || 0,
-							delta,
-							finish_reason: null,
-						},
-					],
-					usage: data.usageMetadata
-						? {
-								prompt_tokens:
-									data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages),
-								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
-								// Calculate total including reasoning tokens for Google models
-								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages)) +
-									(data.usageMetadata.candidatesTokenCount || 0) +
-									(data.usageMetadata.thoughtsTokenCount || 0),
-								...(data.usageMetadata.thoughtsTokenCount && {
-									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
-								}),
-							}
-						: null,
+					choices,
+					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else if (
 				data.promptFeedback?.blockReason ||
-				data.candidates?.[0]?.finishReason
+				firstCandidate?.finishReason
 			) {
-				// Handle prompt feedback block reason (when content is blocked before generation)
-				const promptBlockReason = data.promptFeedback?.blockReason;
-				const finishReason = data.candidates?.[0]?.finishReason;
-				// Check if there are function calls in this response
-				const hasFunctionCalls = data.candidates?.[0]?.content?.parts?.some(
-					(part: any) => part.functionCall,
-				);
+				// Finish / block chunk with no new content
+				const promptBlockReason: string | undefined =
+					data.promptFeedback?.blockReason;
 
-				let mappedFinishReason: string;
-				if (promptBlockReason) {
-					// Content was blocked at the prompt level (before generation)
-					mappedFinishReason =
-						promptBlockReason === "SAFETY" ||
-						promptBlockReason === "PROHIBITED_CONTENT" ||
-						promptBlockReason === "BLOCKLIST" ||
-						promptBlockReason === "OTHER"
-							? "content_filter"
-							: "stop";
-				} else {
-					mappedFinishReason =
-						finishReason === "STOP"
-							? hasFunctionCalls
-								? "tool_calls"
-								: "stop"
-							: finishReason === "MAX_TOKENS"
-								? "length"
-								: finishReason === "SAFETY" ||
-									  finishReason === "PROHIBITED_CONTENT" ||
-									  finishReason === "RECITATION" ||
-									  finishReason === "BLOCKLIST" ||
-									  finishReason === "SPII"
-									? "content_filter"
-									: "stop";
-				}
+				const finishChoices = candidates.length
+					? candidates.map((candidate, candidateIdx) => {
+							const candidateParts: any[] = candidate?.content?.parts || [];
+							const candidateHasFunctionCalls = candidateParts.some(
+								(part) => part.functionCall,
+							);
+							const finishReason = candidate.finishReason as string | undefined;
+
+							return {
+								index:
+									typeof candidate.index === "number"
+										? candidate.index
+										: candidateIdx,
+								delta: { role: "assistant" },
+								finish_reason: mapFinishReason(
+									finishReason,
+									candidateHasFunctionCalls,
+									promptBlockReason,
+								),
+							};
+						})
+					: [
+							{
+								index: 0,
+								delta: { role: "assistant" },
+								finish_reason: mapFinishReason(
+									firstCandidate?.finishReason,
+									false,
+									promptBlockReason,
+								),
+							},
+						];
 
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
 					model: data.modelVersion || usedModel,
-					choices: [
-						{
-							index: data.candidates?.[0]?.index || 0,
-							delta: {
-								role: "assistant",
-							},
-							finish_reason: mappedFinishReason,
-						},
-					],
-					usage: data.usageMetadata
-						? {
-								prompt_tokens:
-									data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages),
-								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
-								// Calculate total including reasoning tokens for Google models
-								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages)) +
-									(data.usageMetadata.candidatesTokenCount || 0) +
-									(data.usageMetadata.thoughtsTokenCount || 0),
-								...(data.usageMetadata.thoughtsTokenCount && {
-									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
-								}),
-							}
-						: null,
+					choices: finishChoices,
+					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
-				// Handle any other Google chunks that don't have content or finishReason
-				// but still need to be in proper OpenAI format
+				// Other Google chunks with neither content nor finishReason,
+				// but still keep stream shape + usage if present
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -402,42 +504,24 @@ export function transformStreamingToOpenai(
 					model: data.modelVersion || usedModel,
 					choices: [
 						{
-							index: data.candidates?.[0]?.index || 0,
-							delta: {},
+							index: firstCandidate?.index || 0,
+							delta: { role: "assistant" },
 							finish_reason: null,
 						},
 					],
-					usage: data.usageMetadata
-						? {
-								prompt_tokens:
-									data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages),
-								completion_tokens: data.usageMetadata.candidatesTokenCount || 0,
-								// Calculate total including reasoning tokens for Google models
-								total_tokens:
-									(data.usageMetadata.promptTokenCount > 0
-										? data.usageMetadata.promptTokenCount
-										: calculatePromptTokensFromMessages(messages)) +
-									(data.usageMetadata.candidatesTokenCount || 0) +
-									(data.usageMetadata.thoughtsTokenCount || 0),
-								...(data.usageMetadata.thoughtsTokenCount && {
-									reasoning_tokens: data.usageMetadata.thoughtsTokenCount,
-								}),
-							}
-						: null,
+					usage: buildUsage(data.usageMetadata, messages),
 				};
 			}
+
 			break;
 		}
+
 		case "openai": {
-			// Handle OpenAI responses API streaming format (event-based)
+			// (unchanged OpenAI branch)
 			if (data.type) {
-				// Handle different OpenAI responses streaming event types
 				switch (data.type) {
 					case "response.created":
 					case "response.in_progress":
-						// Initial/progress events - return empty delta to maintain stream
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -456,7 +540,6 @@ export function transformStreamingToOpenai(
 						break;
 
 					case "response.output_item.added":
-						// New output item added (reasoning or message) - return empty delta
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -476,7 +559,6 @@ export function transformStreamingToOpenai(
 
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":
-						// Reasoning content delta
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -500,7 +582,6 @@ export function transformStreamingToOpenai(
 					case "response.content_part.added":
 					case "response.output_text.delta":
 					case "response.text.delta":
-						// Message content delta
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -522,11 +603,9 @@ export function transformStreamingToOpenai(
 						break;
 
 					case "response.completed": {
-						// Final completion event with usage data
 						const responseUsage = data.response?.usage;
 						let usage = null;
 						if (responseUsage) {
-							// Map OpenAI responses usage format to chat completions format
 							usage = {
 								prompt_tokens: responseUsage.input_tokens || 0,
 								completion_tokens: responseUsage.output_tokens || 0,
@@ -562,7 +641,6 @@ export function transformStreamingToOpenai(
 					}
 
 					default:
-						// Unknown event type - still provide basic OpenAI format structure
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -581,18 +659,16 @@ export function transformStreamingToOpenai(
 						break;
 				}
 			} else {
-				// If not responses format, handle as regular OpenAI streaming
 				transformedData = transformOpenaiStreaming(data, usedModel);
 			}
 			break;
 		}
+
 		case "aws-bedrock": {
-			// AWS Bedrock Converse Stream API format
-			// The event type is in __aws_event_type field added by the parser
+			// (unchanged Bedrock branch)
 			const eventType = data.__aws_event_type;
 
 			if (eventType === "contentBlockDelta" && data.delta?.text) {
-				// Text content delta
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -610,7 +686,6 @@ export function transformStreamingToOpenai(
 					],
 				};
 			} else if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
-				// Tool use delta
 				const toolUse = data.delta.toolUse;
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -639,7 +714,6 @@ export function transformStreamingToOpenai(
 					],
 				};
 			} else if (eventType === "messageStart") {
-				// Message start - send initial chunk with role
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -656,7 +730,6 @@ export function transformStreamingToOpenai(
 					],
 				};
 			} else if (eventType === "messageStop") {
-				// Message stop event with finish reason
 				const stopReason = data.stopReason;
 				let finishReason = "stop";
 				if (stopReason === "max_tokens") {
@@ -681,7 +754,6 @@ export function transformStreamingToOpenai(
 					],
 				};
 			} else if (eventType === "metadata" && data.usage) {
-				// Usage metadata event
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -701,12 +773,11 @@ export function transformStreamingToOpenai(
 					},
 				};
 			} else {
-				// For other event types (e.g., contentBlockStop), return null to skip
 				transformedData = null;
 			}
 			break;
 		}
-		// OpenAI and other providers that already use OpenAI format
+
 		default: {
 			transformedData = transformOpenaiStreaming(data, usedModel);
 			break;
