@@ -7,6 +7,7 @@ export interface AppConfig {
 	twitterUrl: string;
 	docsUrl: string;
 	playgroundUrl: string;
+	adminUrl: string;
 	posthogKey?: string;
 	posthogHost?: string;
 	crispId?: string;
@@ -24,6 +25,7 @@ export function getConfig(): AppConfig {
 		twitterUrl: process.env.TWITTER_URL || "https://x.com/llmgateway",
 		docsUrl: process.env.DOCS_URL || "http://localhost:3005",
 		playgroundUrl: process.env.PLAYGROUND_URL || "http://localhost:3003",
+		adminUrl: process.env.ADMIN_URL || "http://localhost:3006",
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
 		crispId: process.env.CRISP_ID,

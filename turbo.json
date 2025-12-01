@@ -24,7 +24,6 @@
 				".next-dev/**",
 				".vercel/**",
 				".output/**",
-				".vinxi/**",
 				"out/**",
 				".source/**",
 				"openapi.json"
