@@ -236,6 +236,7 @@ export interface paths {
                                 name: string | null;
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
+                                isAdmin: boolean;
                             };
                         };
                     };
@@ -320,6 +321,7 @@ export interface paths {
                                 name: string | null;
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
+                                isAdmin: boolean;
                             };
                             message: string;
                         };
@@ -491,6 +493,7 @@ export interface paths {
                                 name: string | null;
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
+                                isAdmin: boolean;
                             };
                             message: string;
                         };
@@ -776,6 +779,48 @@ export interface paths {
                                     cost: number;
                                 }[];
                             }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Admin dashboard metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            totalCreditsIssued: number;
+                            totalRevenue: number;
+                            netProfit: number;
+                            totalSignups: number;
+                            verifiedUsers: number;
+                            payingCustomers: number;
                         };
                     };
                 };

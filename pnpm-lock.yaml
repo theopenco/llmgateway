@@ -98,9 +98,6 @@ importers:
       '@hookform/resolvers':
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.0))
-      '@llmgateway/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
