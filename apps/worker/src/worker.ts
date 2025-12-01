@@ -653,7 +653,7 @@ export async function batchProcessLogs(): Promise<void> {
 						})
 						.where(eq(organization.id, orgId));
 
-					logger.info(
+					logger.debug(
 						`Deducted ${costNumber} credits from organization ${orgId}`,
 					);
 
@@ -706,7 +706,7 @@ export async function batchProcessLogs(): Promise<void> {
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					logger.info(`Added ${costNumber} usage to API key ${apiKeyId}`);
+					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -718,7 +718,7 @@ export async function batchProcessLogs(): Promise<void> {
 				})
 				.where(inArray(log.id, logIds));
 
-			logger.info(`Marked ${logIds.length} logs as processed`);
+			logger.debug(`Marked ${logIds.length} logs as processed`);
 		});
 	} catch (error) {
 		logger.error(
