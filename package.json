@@ -54,7 +54,7 @@
 		"sort-package-json": "3.4.0",
 		"tsc-watch": "7.2.0",
 		"tsx": "4.20.6",
-		"turbo": "^2.6.0",
+		"turbo": "^2.6.1",
 		"typescript": "5.9.2",
 		"vite": "^7.1.11",
 		"vite-tsconfig-paths": "^5.1.4",
