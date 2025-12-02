@@ -8,7 +8,6 @@ import { microsoftModels } from "./models/microsoft.js";
 import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
-import { nebiusModels } from "./models/nebius.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
@@ -239,6 +238,5 @@ export const models = [
 	...nousresearchModels,
 	...routewayModels,
 	...zaiModels,
-	...nebiusModels,
 	...zhipuModels,
 ] as const satisfies ModelDefinition[];
