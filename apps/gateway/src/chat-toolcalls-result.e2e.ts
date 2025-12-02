@@ -26,6 +26,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		"tool calls res $model",
 		getTestOptions(),
 		async ({ model }) => {
+			if (model.endsWith("gemini-3-pro-preview")) {
+				// gemini-3-pro-preview uses thought signals for tool calls which are not supported in this test
+				return;
+			}
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
