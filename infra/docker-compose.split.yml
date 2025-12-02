@@ -171,6 +171,8 @@ services:
     networks:
       - llmgateway-network
     environment:
+      - API_URL=${API_URL:-http://localhost:4002}
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - CI=${CI}
 
