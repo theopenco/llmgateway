@@ -94,4 +94,28 @@ export const mistralModels = [
 			},
 		],
 	},
+	{
+		id: "devstral-small-2505",
+		name: "Devstral Small 2505",
+		description:
+			"Mistral's compact coding model optimized for development tasks.",
+		family: "mistral",
+		releasedAt: new Date("2025-05-01"),
+		publishedAt: new Date("2025-05-01"),
+		providers: [
+			{
+				providerId: "nebius",
+				modelName: "mistralai/Devstral-Small-2505",
+				inputPrice: 0.08 / 1e6,
+				outputPrice: 0.24 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

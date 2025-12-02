@@ -246,7 +246,7 @@ export const alibabaModels = [
 				providerId: "nebius",
 				modelName: "Qwen/Qwen3-235B-A22B-Thinking-2507",
 				inputPrice: 0.2 / 1e6,
-				outputPrice: 0.6 / 1e6,
+				outputPrice: 0.8 / 1e6,
 				requestPrice: 0,
 				contextSize: 262000,
 				maxOutput: 8192,
@@ -340,9 +340,9 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen2.5-Coder-7B-fast",
-				inputPrice: 0.01 / 1e6,
-				outputPrice: 0.03 / 1e6,
+				modelName: "Qwen/Qwen2.5-Coder-7B-Instruct",
+				inputPrice: 0.03 / 1e6,
+				outputPrice: 0.09 / 1e6,
 				requestPrice: 0,
 				contextSize: 32768,
 				maxOutput: 8192,

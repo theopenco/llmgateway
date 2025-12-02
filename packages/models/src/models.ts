@@ -8,12 +8,14 @@ import { microsoftModels } from "./models/microsoft.js";
 import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
+import { nebiusModels } from "./models/nebius.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { routewayModels } from "./models/routeway.js";
 import { xaiModels } from "./models/xai.js";
 import { zaiModels } from "./models/zai.js";
+import { zhipuModels } from "./models/zhipu.js";
 
 import type { providers } from "./providers.js";
 
@@ -237,4 +239,6 @@ export const models = [
 	...nousresearchModels,
 	...routewayModels,
 	...zaiModels,
+	...nebiusModels,
+	...zhipuModels,
 ] as const satisfies ModelDefinition[];
