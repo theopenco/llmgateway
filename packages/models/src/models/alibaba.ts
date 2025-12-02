@@ -597,6 +597,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
+				stability: "unstable",
 				modelName: "qwen3-next-80b-a3b-thinking",
 				inputPrice: 0.5 / 1e6,
 				outputPrice: 6 / 1e6,

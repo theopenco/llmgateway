@@ -397,6 +397,7 @@ export async function beforeAllHook() {
 			name: "Test Organization",
 			billingEmail: "user@test.com",
 			plan: "pro",
+			retentionLevel: "retain",
 		})
 		.onConflictDoNothing();
 
