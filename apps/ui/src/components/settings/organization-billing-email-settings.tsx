@@ -53,6 +53,7 @@ export function OrganizationBillingEmailSettings() {
 		setBillingTaxId(selectedOrganization.billingTaxId || "");
 		setBillingNotes(selectedOrganization.billingNotes || "");
 		setEmailError("");
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedOrganization?.id]);
 
 	const validateEmail = (email: string): boolean => {
