@@ -220,6 +220,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
+				stability: "unstable",
 				modelName: "Qwen/Qwen3-235B-A22B-Instruct-2507",
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.6 / 1e6,
