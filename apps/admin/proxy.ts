@@ -10,7 +10,7 @@ interface MeResponse {
 	};
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
 	const { pathname } = req.nextUrl;
 
 	// Allow auth, static routes, and root path without admin check
