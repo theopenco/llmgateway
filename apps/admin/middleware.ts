@@ -13,8 +13,9 @@ interface MeResponse {
 export async function middleware(req: NextRequest) {
 	const { pathname } = req.nextUrl;
 
-	// Allow auth and static routes without admin check
+	// Allow auth, static routes, and root path without admin check
 	if (
+		pathname === "/" ||
 		pathname.startsWith("/login") ||
 		pathname.startsWith("/signup") ||
 		pathname.startsWith("/_next") ||

@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-
 import { fetchServerData } from "./server-api";
 
 export interface AdminDashboardMetrics {
@@ -11,15 +9,11 @@ export interface AdminDashboardMetrics {
 	payingCustomers: number;
 }
 
-export async function getAdminDashboardMetrics(): Promise<AdminDashboardMetrics> {
+export async function getAdminDashboardMetrics(): Promise<AdminDashboardMetrics | null> {
 	const data = await fetchServerData<AdminDashboardMetrics>(
 		"GET",
 		"/admin/metrics",
 	);
-
-	if (!data) {
-		redirect("/login");
-	}
 
 	return data;
 }
