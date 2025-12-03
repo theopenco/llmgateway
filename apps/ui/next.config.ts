@@ -12,9 +12,11 @@ const nextConfig: NextConfig = {
 	typedRoutes: true,
 	reactStrictMode: true,
 	reactCompiler: true,
-	experimental: {
-		turbopackFileSystemCacheForDev: true,
-		// turbopackFileSystemCacheForBuild: true,
+	webpack: (config, { isServer }) => {
+		if (isServer) {
+			config.devtool = "source-map";
+		}
+		return config;
 	},
 	async redirects() {
 		return [

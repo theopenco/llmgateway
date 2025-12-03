@@ -10,9 +10,11 @@ const nextConfig: NextConfig = {
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
-	experimental: {
-		// turbopackFileSystemCacheForDev: true,
-		// turbopackFileSystemCacheForBuild: true,
+	webpack: (config, { isServer }) => {
+		if (isServer) {
+			config.devtool = "source-map";
+		}
+		return config;
 	},
 	typescript: {
 		ignoreBuildErrors: true,
