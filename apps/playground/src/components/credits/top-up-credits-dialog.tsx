@@ -206,7 +206,6 @@ function AmountStep({
 						required
 					/>
 				</div>
-				{/* Promo code UI removed */}
 				<div className="flex flex-wrap gap-2">
 					{presetAmounts.map((preset) => (
 						<Button
@@ -258,23 +257,8 @@ function AmountStep({
 										<span>$0.00</span>
 									</div>
 								)}
-								{(feeData as any).promoDiscountAmount && (
-									<div className="flex justify-between">
-										<span>Total before promo</span>
-										<span>
-											$
-											{(
-												(feeData as any).totalAmountBeforePromo as number
-											).toFixed(2)}
-										</span>
-									</div>
-								)}
 								<div className="border-t pt-1 flex justify-between font-medium">
-									<span>
-										{(feeData as any).promoDiscountAmount
-											? "Total after promo"
-											: "Total"}
-									</span>
+									<span>Total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
 								</div>
 							</div>
@@ -663,23 +647,9 @@ function ConfirmPaymentStep({
 									<span>$0.00</span>
 								</div>
 							)}
-							{(feeData as any).promoDiscountAmount && (
-								<div className="flex justify-between">
-									<span>Total before promo</span>
-									<span>
-										$
-										{(
-											(feeData as any).totalAmountBeforePromo as number
-										).toFixed(2)}
-									</span>
-								</div>
-							)}
+
 							<div className="border-t pt-2 flex justify-between font-medium">
-								<span>
-									{(feeData as any).promoDiscountAmount
-										? "Total after promo"
-										: "Total"}
-								</span>
+								<span>Total</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>
 							</div>
 						</div>

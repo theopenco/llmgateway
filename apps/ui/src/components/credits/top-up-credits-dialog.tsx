@@ -279,18 +279,8 @@ function AmountStep({
 										<span>$0.00</span>
 									</div>
 								)}
-								{feeData.promoDiscountAmount && (
-									<div className="flex justify-between">
-										<span>Total before promo</span>
-										<span>${feeData.totalAmountBeforePromo.toFixed(2)}</span>
-									</div>
-								)}
 								<div className="border-t pt-1 flex justify-between font-medium">
-									<span>
-										{feeData.promoDiscountAmount
-											? "Total after promo"
-											: "Total"}
-									</span>
+									<span>Total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
 								</div>
 								{hasBonus && feeData.bonusAmount && (
@@ -726,16 +716,8 @@ function ConfirmPaymentStep({
 										<span>$0.00</span>
 									</div>
 								)}
-							{feeData.promoDiscountAmount && (
-								<div className="flex justify-between">
-									<span>Total before promo</span>
-									<span>${feeData.totalAmountBeforePromo.toFixed(2)}</span>
-								</div>
-							)}
 							<div className="border-t pt-2 flex justify-between font-medium">
-								<span>
-									{feeData.promoDiscountAmount ? "Total after promo" : "Total"}
-								</span>
+								<span>Total</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>
 							</div>
 							{hasBonus && feeData.bonusAmount && (

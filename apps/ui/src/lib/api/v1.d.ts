@@ -2621,7 +2621,6 @@ export interface paths {
                 content: {
                     "application/json": {
                         amount: number;
-                        promoCode?: string;
                     };
                 };
             };
@@ -2831,7 +2830,6 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         paymentMethodId: string;
-                        promoCode?: string;
                     };
                 };
             };
@@ -2876,7 +2874,6 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         paymentMethodId?: string;
-                        promoCode?: string;
                     };
                 };
             };
@@ -2899,9 +2896,6 @@ export interface paths {
                             bonusEnabled: boolean;
                             bonusEligible: boolean;
                             bonusIneligibilityReason?: string;
-                            promoCodeApplied?: string;
-                            promoDiscountAmount?: number;
-                            totalAmountBeforePromo: number;
                         };
                     };
                 };
