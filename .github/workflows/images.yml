@@ -209,6 +209,9 @@ jobs:
               --build-arg APP_VERSION=${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }} \
               -t ghcr.io/${{ github.repository }}-$app:${{ github.event_name == 'pull_request' && 'pr-test' || needs.setup.outputs.image_tag }} \
               .
+
+            # Clean up dangling images and build cache to free disk space
+            docker image prune -f
           done
 
       - name: Test split Docker images
