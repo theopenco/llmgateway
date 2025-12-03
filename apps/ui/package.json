@@ -70,7 +70,7 @@
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
 		"react": "^19.2.1",
-		"react-dom": "^19.2.0",
+		"react-dom": "^19.2.1",
 		"react-hook-form": "7.65.0",
 		"react-tweet": "3.2.2",
 		"recharts": "^3.3.0",
