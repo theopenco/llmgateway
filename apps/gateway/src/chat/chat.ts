@@ -2331,7 +2331,7 @@ chat.openapi(completions, async (c) => {
 				} else if (error instanceof Error) {
 					// Handle fetch errors (timeout, connection failures, etc.)
 					const errorMessage = error.message;
-					logger.error("Fetch error", {
+					logger.warn("Fetch error", {
 						error: errorMessage,
 						usedProvider,
 						requestedProvider,
@@ -3768,7 +3768,7 @@ chat.openapi(completions, async (c) => {
 	// Handle fetch errors (timeout, connection failures, etc.)
 	if (fetchError) {
 		const errorMessage = fetchError.message;
-		logger.error("Fetch error", {
+		logger.warn("Fetch error", {
 			error: errorMessage,
 			usedProvider,
 			requestedProvider,
