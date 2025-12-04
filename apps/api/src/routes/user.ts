@@ -19,7 +19,22 @@ const publicUserSchema = z.object({
 	name: z.string().nullable(),
 	onboardingCompleted: z.boolean(),
 	emailVerified: z.boolean(),
+	isAdmin: z.boolean(),
 });
+
+function isAdminEmail(email: string | null | undefined): boolean {
+	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
+	const adminEmails = adminEmailsEnv
+		.split(",")
+		.map((value) => value.trim().toLowerCase())
+		.filter(Boolean);
+
+	if (!email || adminEmails.length === 0) {
+		return false;
+	}
+
+	return adminEmails.includes(email.toLowerCase());
+}
 
 const get = createRoute({
 	method: "get",
@@ -59,6 +74,8 @@ user.openapi(get, async (c) => {
 		});
 	}
 
+	const isAdmin = isAdminEmail(user.email);
+
 	return c.json({
 		user: {
 			id: user.id,
@@ -66,6 +83,7 @@ user.openapi(get, async (c) => {
 			name: user.name,
 			onboardingCompleted: user.onboardingCompleted,
 			emailVerified: user.emailVerified,
+			isAdmin,
 		},
 	});
 });
@@ -202,6 +220,8 @@ user.openapi(updateUser, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
+	const isAdmin = isAdminEmail(updatedUser.email);
+
 	return c.json({
 		user: {
 			id: updatedUser.id,
@@ -209,6 +229,7 @@ user.openapi(updateUser, async (c) => {
 			name: updatedUser.name,
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
+			isAdmin,
 		},
 		message: "User updated successfully",
 	});
@@ -452,6 +473,8 @@ user.openapi(completeOnboarding, async (c) => {
 		});
 	}
 
+	const isAdmin = isAdminEmail(updatedUser.email);
+
 	return c.json({
 		user: {
 			id: updatedUser.id,
@@ -459,6 +482,7 @@ user.openapi(completeOnboarding, async (c) => {
 			name: updatedUser.name,
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
+			isAdmin,
 		},
 		message: "Onboarding completed successfully",
 	});

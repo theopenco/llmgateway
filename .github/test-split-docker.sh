@@ -19,6 +19,7 @@ APP_ENDPOINTS["gateway"]="http://localhost:4001"
 APP_ENDPOINTS["ui"]="http://localhost:3002"
 APP_ENDPOINTS["playground"]="http://localhost:3003"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
+APP_ENDPOINTS["admin"]="http://localhost:3006"
 
 # Health check routes for each app (optional)
 declare -A HEALTH_ROUTES

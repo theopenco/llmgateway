@@ -9,6 +9,7 @@ services:
       - "3002:3002" # UI
       - "3003:3003" # Playground
       - "3005:3005" # Docs
+      - "3006:3006" # Admin
       - "4001:4001" # Gateway
       - "4002:4002" # API
       - "5432:5432" # PostgreSQL
@@ -19,6 +20,7 @@ services:
     environment:
       # URLs (update for your domain in production)
       - UI_URL=${UI_URL:-http://localhost:3002}
+      - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://localhost:4002}

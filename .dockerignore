@@ -7,7 +7,6 @@
 **/.pnpm-store
 **/.idea
 **/openapi.json
-**/.vinxi
 **/.next
 **/.next-dev
 **/.vercel
