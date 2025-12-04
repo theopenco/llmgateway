@@ -1446,7 +1446,9 @@ chat.openapi(completions, async (c) => {
 		finalModelInfo = models.find(
 			(m) =>
 				m.id === usedModel ||
-				m.providers.some((p) => p.modelName === usedModel),
+				m.providers.some(
+					(p) => p.modelName === usedModel && p.providerId === usedProvider,
+				),
 		);
 	}
 
