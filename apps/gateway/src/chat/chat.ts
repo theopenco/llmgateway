@@ -615,11 +615,26 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		modelInfo =
-			models.find((m) => m.id === requestedModel) ||
-			models.find((m) =>
-				m.providers.find((p) => p.modelName === requestedModel),
-			);
+		// First try to find by model ID
+		modelInfo = models.find((m) => m.id === requestedModel);
+
+		// If not found, search by provider model name
+		// If a specific provider is requested, match both modelName and providerId
+		if (!modelInfo) {
+			if (requestedProvider) {
+				modelInfo = models.find((m) =>
+					m.providers.find(
+						(p) =>
+							p.modelName === requestedModel &&
+							p.providerId === requestedProvider,
+					),
+				);
+			} else {
+				modelInfo = models.find((m) =>
+					m.providers.find((p) => p.modelName === requestedModel),
+				);
+			}
+		}
 
 		if (!modelInfo) {
 			throw new HTTPException(400, {
