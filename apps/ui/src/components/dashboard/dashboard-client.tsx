@@ -18,6 +18,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -242,157 +243,76 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					)}
 
 					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-5", {
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-3", {
 							"pointer-events-none opacity-20": shouldShowGetStartedState,
 						})}
 					>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Organization Credits
-								</CardTitle>
-								<CreditCard className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								<div className="text-2xl font-bold truncate overflow-ellipsis">
-									$
-									{selectedOrganization
-										? Number(selectedOrganization.credits).toFixed(8)
-										: "0.00"}
-								</div>
-								<p className="text-muted-foreground text-xs">
-									Available balance
-								</p>
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Total Requests
-								</CardTitle>
-								<Zap className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold">
-											{totalRequests.toLocaleString()}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											Last {days} days
-											{activityData.length > 0 && (
-												<span className="ml-1">
-													•{" "}
-													{(
+						<MetricCard
+							label="Organization Credits"
+							value={`$${
+								selectedOrganization
+									? Number(selectedOrganization.credits).toFixed(8)
+									: "0.00"
+							}`}
+							subtitle="Available balance"
+							icon={<CreditCard className="h-4 w-4" />}
+							accent="blue"
+						/>
+						<MetricCard
+							label="Total Requests"
+							value={isLoading ? "Loading..." : totalRequests.toLocaleString()}
+							subtitle={
+								isLoading
+									? "–"
+									: `Last ${days} days${
+											activityData.length > 0
+												? ` • ${(
 														activityData.reduce(
 															(sum, day) => sum + day.cacheRate,
 															0,
 														) / activityData.length
-													).toFixed(1)}
-													% cached
-												</span>
-											)}
-										</p>
-									</>
-								)}
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Tokens Used
-								</CardTitle>
-								<Coins className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold">
-											{formatTokens(totalTokens)}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											Last {days} days
-										</p>
-									</>
-								)}
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Inference Cost
-								</CardTitle>
-								<CircleDollarSign className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold">
-											${totalCost.toFixed(2)}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											<span>${totalInputCost.toFixed(2)} input</span>
-											&nbsp;+&nbsp;
-											<span>${totalOutputCost.toFixed(2)} output</span>
-											{totalRequestCost > 0 && (
-												<>
-													&nbsp;+&nbsp;
-													<span>${totalRequestCost.toFixed(2)} requests</span>
-												</>
-											)}
-										</p>
-										{totalDataStorageCost > 0 && (
-											<p className="text-muted-foreground text-xs mt-1 pt-1 border-t border-muted">
-												<span className="text-xs">
-													LLM Gateway: ${totalDataStorageCost.toFixed(4)}{" "}
-													storage
-												</span>
-											</p>
-										)}
-									</>
-								)}
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Total Savings
-								</CardTitle>
-								<TrendingDown className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold text-green-600">
-											${totalSavings.toFixed(4)}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											From discounts in last {days} days
-										</p>
-									</>
-								)}
-							</CardContent>
-						</Card>
+													).toFixed(1)}% cached`
+												: ""
+										}`
+							}
+							icon={<Zap className="h-4 w-4" />}
+							accent="purple"
+						/>
+						<MetricCard
+							label="Tokens Used"
+							value={isLoading ? "Loading..." : formatTokens(totalTokens)}
+							subtitle={isLoading ? "–" : `Last ${days} days`}
+							icon={<Coins className="h-4 w-4" />}
+							accent="blue"
+						/>
+						<MetricCard
+							label="Inference Cost"
+							value={isLoading ? "Loading..." : `$${totalCost.toFixed(2)}`}
+							subtitle={
+								isLoading
+									? "–"
+									: `$${totalInputCost.toFixed(
+											2,
+										)} input • $${totalOutputCost.toFixed(2)} output${
+											totalRequestCost > 0
+												? ` • $${totalRequestCost.toFixed(2)} requests`
+												: ""
+										}${
+											totalDataStorageCost > 0
+												? ` • $${totalDataStorageCost.toFixed(4)} storage`
+												: ""
+										}`
+							}
+							icon={<CircleDollarSign className="h-4 w-4" />}
+							accent="purple"
+						/>
+						<MetricCard
+							label="Total Savings"
+							value={isLoading ? "Loading..." : `$${totalSavings.toFixed(4)}`}
+							subtitle={isLoading ? "–" : `From discounts in last ${days} days`}
+							icon={<TrendingDown className="h-4 w-4" />}
+							accent="green"
+						/>
 					</div>
 					<div
 						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {

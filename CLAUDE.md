@@ -14,7 +14,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, API on :4002, Gateway on :4001, Docs on :3005)
+- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006)
 - `pnpm build` - Build all applications for production. Always run this after finishing work on a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 
@@ -145,6 +145,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - API: http://localhost:4002
 - Gateway: http://localhost:4001
 - Docs: http://localhost:3005
+- Admin: http://localhost:3006
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 
@@ -155,6 +156,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
 - `apps/docs`: Documentation site
+- `apps/admin`: Internal Admin Dashboard
 - `packages/db`: Drizzle ORM schema and migrations
 - `packages/models`: Model and provider definitions
 - `packages/shared`: Shared types and utilities

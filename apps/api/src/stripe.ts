@@ -400,18 +400,6 @@ async function handlePaymentIntentSucceeded(
 	// Convert amount from cents to dollars
 	const totalAmountInDollars = amount / 100;
 
-	// If a promo code discount was applied, record that this user has used it
-	if (metadata?.promoCode && metadata.promoDiscountAmount && metadata.userId) {
-		try {
-			await db.insert(tables.verification).values({
-				identifier: `promo:${metadata.promoCode.toLowerCase()}`,
-				value: metadata.userId,
-			});
-		} catch (error) {
-			logger.error("Failed to record promo code usage", error as Error);
-		}
-	}
-
 	// Calculate bonus for first-time credit purchases
 	let bonusAmount = 0;
 	let finalCreditAmount = creditAmount;
