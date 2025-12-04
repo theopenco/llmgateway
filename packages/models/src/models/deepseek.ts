@@ -190,7 +190,7 @@ export const deepseekModels = [
 				maxOutput: undefined,
 				streaming: true,
 				vision: true,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
