@@ -53,7 +53,7 @@ interface DashboardClientProps {
 export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const { buildUrl } = useDashboardNavigation();
+	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 
 	// Get days from URL params, fallback to initialDays, then to 7
 	const daysParam = searchParams.get("days");
@@ -410,7 +410,14 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 										variant="outline"
 										className="w-full justify-start"
 									>
-										<Link href={buildUrl(action.href)} prefetch={true}>
+										<Link
+											href={
+												action.href === "provider-keys"
+													? buildOrgUrl("org/provider-keys")
+													: buildUrl(action.href)
+											}
+											prefetch={true}
+										>
 											<action.icon className="mr-2 h-4 w-4" />
 											{action.label}
 										</Link>

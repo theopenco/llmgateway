@@ -9,9 +9,9 @@ import {
 	Sparkles,
 	Users,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -35,13 +35,13 @@ export function ReferralDialog({
 	children,
 	selectedOrganization,
 }: ReferralDialogProps) {
+	const router = useRouter();
 	const [open, setOpen] = useState(false);
 	const [mode, setMode] = useState<"overview" | "simulation">("overview");
 	const [origin, setOrigin] = useState<string>("https://llmgateway.io");
 	const [copied, setCopied] = useState(false);
 	const [referredTeams, setReferredTeams] = useState(5);
 	const [avgMonthlySpend, setAvgMonthlySpend] = useState(500);
-	const { buildOrgUrl } = useDashboardNavigation();
 
 	useEffect(() => {
 		if (typeof window !== "undefined") {
@@ -197,7 +197,7 @@ export function ReferralDialog({
 									size="sm"
 									className="w-full justify-center text-xs text-muted-foreground underline underline-offset-4 sm:w-auto"
 									onClick={() => {
-										window.location.href = buildOrgUrl("org/referrals");
+										router.push("/settings/referral");
 									}}
 								>
 									Manage referral settings
