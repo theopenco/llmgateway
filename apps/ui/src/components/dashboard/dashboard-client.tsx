@@ -18,8 +18,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
+import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
+import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
@@ -125,6 +128,36 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
 	const totalSavings =
 		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
+	const avgCostPer1kTokens =
+		totalTokens > 0 ? (totalCost / totalTokens) * 1000 : 0;
+
+	const quickActions = [
+		{
+			href: "api-keys",
+			icon: Key,
+			label: "Manage API Keys",
+		},
+		{
+			href: "provider-keys",
+			icon: KeyRound,
+			label: "Provider Keys",
+		},
+		{
+			href: "activity",
+			icon: Activity,
+			label: "View Activity",
+		},
+		{
+			href: "usage",
+			icon: BarChart3,
+			label: "Usage & Metrics",
+		},
+		{
+			href: "model-usage",
+			icon: ChartColumnBig,
+			label: "Model Usage",
+		},
+	] as const;
 
 	const formatTokens = (tokens: number) => {
 		if (tokens >= 1_000_000) {
@@ -313,6 +346,15 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							icon={<TrendingDown className="h-4 w-4" />}
 							accent="green"
 						/>
+						<MetricCard
+							label="Avg cost / 1K tokens"
+							value={
+								isLoading ? "Loading..." : `$${avgCostPer1kTokens.toFixed(4)}`
+							}
+							subtitle={isLoading ? "–" : `Last ${days} days`}
+							icon={<CircleDollarSign className="h-4 w-4" />}
+							accent="blue"
+						/>
 					</div>
 					<div
 						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
@@ -361,58 +403,41 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="space-y-2">
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("api-keys")} prefetch={true}>
-										<Key className="mr-2 h-4 w-4" />
-										Manage API Keys
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("provider-keys")} prefetch={true}>
-										<KeyRound className="mr-2 h-4 w-4" />
-										Provider Keys
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("activity")} prefetch={true}>
-										<Activity className="mr-2 h-4 w-4" />
-										View Activity
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("usage")} prefetch={true}>
-										<BarChart3 className="mr-2 h-4 w-4" />
-										Usage & Metrics
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("model-usage")} prefetch={true}>
-										<ChartColumnBig className="mr-2 h-4 w-4" />
-										Model Usage
-									</Link>
-								</Button>
+								{quickActions.map((action) => (
+									<Button
+										key={action.href}
+										asChild
+										variant="outline"
+										className="w-full justify-start"
+									>
+										<Link href={buildUrl(action.href)} prefetch={true}>
+											<action.icon className="mr-2 h-4 w-4" />
+											{action.label}
+										</Link>
+									</Button>
+								))}
 							</CardContent>
 						</Card>
+					</div>
+
+					<div
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
+							"pointer-events-none opacity-20": shouldShowGetStartedState,
+						})}
+					>
+						<div className="col-span-4 space-y-4">
+							<CostBreakdownCard initialActivityData={initialActivityData} />
+							<RecentActivityCard
+								activityData={activityData}
+								isLoading={isLoading}
+							/>
+						</div>
+						<div className="col-span-3">
+							<ErrorsReliabilityCard
+								activityData={activityData}
+								isLoading={isLoading}
+							/>
+						</div>
 					</div>
 				</div>
 			</div>

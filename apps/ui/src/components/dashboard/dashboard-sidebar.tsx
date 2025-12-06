@@ -33,7 +33,7 @@ import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
+import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
@@ -610,7 +610,7 @@ function UpgradeCTA({
 	onHide: () => void;
 	selectedOrganization: Organization | null;
 }) {
-	if (!show || !selectedOrganization || selectedOrganization.plan === "pro") {
+	if (!show || !selectedOrganization) {
 		return null;
 	}
 
@@ -619,9 +619,9 @@ function UpgradeCTA({
 			<div className="rounded-lg bg-linear-to-r from-blue-500 to-purple-600 p-4 text-white">
 				<div className="flex items-start justify-between">
 					<div className="flex-1">
-						<h3 className="text-sm font-semibold">Upgrade to Pro</h3>
+						<h3 className="text-sm font-semibold">Invite your friends</h3>
 						<p className="text-xs text-blue-100 mt-1">
-							Unlock advanced features and priority support
+							Invite friends and teammates and earn bonus credits
 						</p>
 					</div>
 					<Button
@@ -633,15 +633,15 @@ function UpgradeCTA({
 						<X className="h-3 w-3" />
 					</Button>
 				</div>
-				<UpgradeToProDialog>
+				<ReferralDialog selectedOrganization={selectedOrganization}>
 					<Button
 						variant="secondary"
 						size="sm"
 						className="mt-2 w-full bg-white text-blue-600 hover:bg-blue-50"
 					>
-						Start your 7-day trial
+						Invite &amp; earn
 					</Button>
-				</UpgradeToProDialog>
+				</ReferralDialog>
 			</div>
 		</div>
 	);
