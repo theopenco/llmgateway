@@ -12,6 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -36,6 +37,7 @@ export function ReferralDialog({
 	selectedOrganization,
 }: ReferralDialogProps) {
 	const router = useRouter();
+	const { buildOrgUrl } = useDashboardNavigation();
 	const [open, setOpen] = useState(false);
 	const [mode, setMode] = useState<"overview" | "simulation">("overview");
 	const [origin, setOrigin] = useState<string>("https://llmgateway.io");
@@ -197,7 +199,7 @@ export function ReferralDialog({
 									size="sm"
 									className="w-full justify-center text-xs text-muted-foreground underline underline-offset-4 sm:w-auto"
 									onClick={() => {
-										router.push("/settings/referral");
+										router.push(buildOrgUrl("/settings/referral"));
 									}}
 								>
 									Manage referral settings
