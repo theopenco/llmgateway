@@ -155,16 +155,6 @@ export function parseProviderResponse(
 			reasoningContent =
 				reasoningParts.map((part: any) => part.text).join("") || null;
 
-			// Debug logging to identify parsing issues
-			if (!content && !reasoningContent && parts.length > 0) {
-				logger.warn(
-					"[parse-provider-response] Google response has parts but no text extracted",
-					{
-						json,
-					},
-				);
-			}
-
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
 			images = imageParts.map(
@@ -175,6 +165,16 @@ export function parseProviderResponse(
 					},
 				}),
 			);
+
+			// Debug logging to identify parsing issues
+			if (!content && !reasoningContent && parts.length > 0 && !images.length) {
+				logger.warn(
+					"[parse-provider-response] Google response has parts but no text extracted",
+					{
+						json,
+					},
+				);
+			}
 
 			// Extract tool calls from Google format - reuse the same parts array
 			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)

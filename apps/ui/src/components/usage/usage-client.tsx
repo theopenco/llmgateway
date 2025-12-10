@@ -160,10 +160,7 @@ export function UsageClient({
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">
-								<CostBreakdownChart
-									initialData={initialActivityData}
-									projectId={projectId}
-								/>
+								<CostBreakdownChart initialData={initialActivityData} />
 							</CardContent>
 						</Card>
 					</TabsContent>

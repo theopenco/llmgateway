@@ -1,16 +1,19 @@
-import { Gift, Users, TrendingUp } from "lucide-react";
+import {
+	Gift,
+	Users,
+	TrendingUp,
+	Check,
+	Share2,
+	Sparkles,
+	DollarSign,
+} from "lucide-react";
 
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Badge } from "@/lib/components/badge";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/lib/components/card";
+import { Button } from "@/lib/components/button";
+import { Card, CardContent } from "@/lib/components/card";
 
 import type { Metadata } from "next";
 
@@ -36,116 +39,274 @@ export default function ReferralsPublicPage() {
 	return (
 		<div className="min-h-screen bg-background text-foreground">
 			<HeroRSC navbarOnly />
-			<main className="pt-24 md:pt-32 pb-16">
-				<div className="container mx-auto px-4 space-y-10 md:space-y-14">
-					<section className="max-w-3xl space-y-4">
-						<div className="inline-flex items-center gap-2 rounded-full border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+			<section className="relative overflow-hidden border-b bg-linear-to-b from-primary/5 via-background to-background">
+				<div className="absolute inset-0 bg-grid-slate-100 mask-[linear-gradient(0deg,transparent,black)] dark:bg-grid-slate-800" />
+				<div className="container relative mx-auto px-4 py-16 md:py-24 lg:py-32">
+					<div className="mx-auto max-w-3xl space-y-8 text-center">
+						<Badge
+							variant="secondary"
+							className="inline-flex items-center gap-2 px-4 py-1.5"
+						>
 							<Gift className="h-3.5 w-3.5 text-primary" />
-							<span>Referral Program</span>
-						</div>
-						<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-							Earn credits by referring teams to LLM Gateway
+							<span className="text-sm font-medium">Referral Program</span>
+						</Badge>
+
+						<h1 className="text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl">
+							Turn connections into{" "}
+							<span className="bg-linear-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+								credits
+							</span>
 						</h1>
-						<p className="text-muted-foreground text-sm md:text-base">
-							Once you&apos;re eligible, you&apos;ll earn{" "}
+
+						<p className="text-pretty text-base text-muted-foreground sm:text-lg md:text-xl">
+							Earn passive income by referring teams to LLM Gateway. Get{" "}
 							<span className="font-semibold text-foreground">
 								1% of all LLM spending
 							</span>{" "}
-							from users you refer. Referral rewards are paid in credits that
-							are added directly to your LLM Gateway account balance.
+							from every team you refer—paid directly as credits to your
+							account.
 						</p>
-						<div className="pt-2">
-							<AuthLink
-								href="/signup"
-								className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+
+						<div className="flex flex-col items-center justify-center gap-4 pt-4 sm:flex-row">
+							<Button
+								size="lg"
+								className="group h-12 px-8 text-base font-medium"
+								asChild
 							>
-								Sign up to get started
-							</AuthLink>
+								<AuthLink href="/signup">Get started</AuthLink>
+							</Button>
 						</div>
-					</section>
 
-					<section className="grid gap-6">
-						<Card className="border-primary/30 bg-primary/5">
-							<CardHeader className="space-y-1">
-								<CardTitle className="flex items-center gap-2">
-									<Users className="h-5 w-5 text-primary" />
-									<span>How referrals work</span>
-								</CardTitle>
-								<CardDescription className="text-sm">
-									Simple, transparent rewards for helping others ship with LLM
-									Gateway.
-								</CardDescription>
-							</CardHeader>
-							<CardContent className="space-y-4">
-								<div className="grid gap-3 text-sm">
-									<div className="flex gap-3">
-										<div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-											1
-										</div>
-										<div className="space-y-1">
-											<p className="font-semibold">Unlock referrals</p>
-											<p className="text-muted-foreground">
-												Top up at least $100 in credits on your organization to
-												become eligible.
-											</p>
-										</div>
+						<div className="grid gap-4 pt-8 sm:grid-cols-3">
+							<Card className="border-primary/20 bg-card/50 backdrop-blur">
+								<CardContent className="p-6 text-center">
+									<div className="text-3xl font-bold text-primary">1%</div>
+									<div className="mt-1 text-sm text-muted-foreground">
+										Commission rate
 									</div>
-									<div className="flex gap-3">
-										<div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-											2
-										</div>
-										<div className="space-y-1">
-											<p className="font-semibold">Share your referral link</p>
-											<p className="text-muted-foreground">
-												From your dashboard, copy a unique referral link tied to
-												your organization.
-											</p>
-										</div>
+								</CardContent>
+							</Card>
+							<Card className="border-primary/20 bg-card/50 backdrop-blur">
+								<CardContent className="p-6 text-center">
+									<div className="text-3xl font-bold text-primary">∞</div>
+									<div className="mt-1 text-sm text-muted-foreground">
+										Referral limit
 									</div>
-									<div className="flex gap-3">
-										<div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-											3
-										</div>
-										<div className="space-y-1">
-											<p className="font-semibold">Earn 1% of LLM spending</p>
-											<p className="text-muted-foreground">
-												Whenever referred users spend on LLMs, you earn 1% of
-												their usage as credits.
-											</p>
-										</div>
+								</CardContent>
+							</Card>
+							<Card className="border-primary/20 bg-card/50 backdrop-blur">
+								<CardContent className="p-6 text-center">
+									<div className="text-3xl font-bold text-primary">$100</div>
+									<div className="mt-1 text-sm text-muted-foreground">
+										To unlock
 									</div>
+								</CardContent>
+							</Card>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section className="container mx-auto px-4 py-16 md:py-24">
+				<div className="mx-auto max-w-5xl space-y-12">
+					<div className="space-y-4 text-center">
+						<Badge variant="outline" className="text-xs">
+							Simple & Transparent
+						</Badge>
+						<h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
+							How referrals work
+						</h2>
+						<p className="mx-auto max-w-2xl text-pretty text-muted-foreground md:text-lg">
+							Start earning in three simple steps. No complicated setup, just
+							straightforward rewards for helping teams discover LLM Gateway.
+						</p>
+					</div>
+
+					<div className="grid gap-6 md:grid-cols-3">
+						<Card className="group relative overflow-hidden border-2 transition-all hover:border-primary/50 hover:shadow-lg">
+							<div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-primary/10 transition-transform group-hover:scale-150" />
+							<CardContent className="relative p-8 space-y-4">
+								<div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+									<Sparkles className="h-6 w-6" />
 								</div>
-
-								<div className="rounded-lg border border-dashed border-primary/40 bg-background/40 p-4 space-y-2 text-xs md:text-sm text-muted-foreground">
+								<div className="space-y-2">
 									<div className="flex items-center gap-2">
-										<TrendingUp className="h-4 w-4 text-primary" />
-										<span className="font-semibold text-foreground">
-											Referral program details
-										</span>
-									</div>
-									<ul className="mt-1 space-y-1 list-disc list-inside">
-										<li>
-											Earnings are calculated on LLM usage{" "}
-											<span className="font-medium">after</span> any discounts.
-										</li>
-										<li>Credits are added directly to your account balance.</li>
-										<li>
-											Referral credits can be used for LLM usage but cannot be
-											withdrawn or paid out.
-										</li>
-										<li>There is no limit to how many users you can refer.</li>
-									</ul>
-									<div className="pt-2">
-										<Badge variant="outline" className="text-[11px]">
-											Available for eligible organizations in the dashboard
+										<Badge
+											variant="secondary"
+											className="h-6 w-6 justify-center rounded-full p-0 text-xs font-bold"
+										>
+											1
 										</Badge>
+										<h3 className="font-semibold text-lg">Unlock referrals</h3>
+									</div>
+									<p className="text-sm text-muted-foreground leading-relaxed">
+										Top up at least $100 in credits on your organization to
+										become eligible and access your unique referral link.
+									</p>
+								</div>
+							</CardContent>
+						</Card>
+
+						<Card className="group relative overflow-hidden border-2 transition-all hover:border-primary/50 hover:shadow-lg">
+							<div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-primary/10 transition-transform group-hover:scale-150" />
+							<CardContent className="relative p-8 space-y-4">
+								<div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+									<Share2 className="h-6 w-6" />
+								</div>
+								<div className="space-y-2">
+									<div className="flex items-center gap-2">
+										<Badge
+											variant="secondary"
+											className="h-6 w-6 justify-center rounded-full p-0 text-xs font-bold"
+										>
+											2
+										</Badge>
+										<h3 className="font-semibold text-lg">Share your link</h3>
+									</div>
+									<p className="text-sm text-muted-foreground leading-relaxed">
+										Copy your personalized referral link from the dashboard and
+										share it with teams who could benefit from LLM Gateway.
+									</p>
+								</div>
+							</CardContent>
+						</Card>
+
+						<Card className="group relative overflow-hidden border-2 transition-all hover:border-primary/50 hover:shadow-lg">
+							<div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-primary/10 transition-transform group-hover:scale-150" />
+							<CardContent className="relative p-8 space-y-4">
+								<div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+									<DollarSign className="h-6 w-6" />
+								</div>
+								<div className="space-y-2">
+									<div className="flex items-center gap-2">
+										<Badge
+											variant="secondary"
+											className="h-6 w-6 justify-center rounded-full p-0 text-xs font-bold"
+										>
+											3
+										</Badge>
+										<h3 className="font-semibold text-lg">Earn credits</h3>
+									</div>
+									<p className="text-sm text-muted-foreground leading-relaxed">
+										Automatically earn 1% of their LLM spending as credits.
+										Track earnings in real-time from your dashboard.
+									</p>
+								</div>
+							</CardContent>
+						</Card>
+					</div>
+				</div>
+			</section>
+
+			<section className="border-t bg-muted/30">
+				<div className="container mx-auto px-4 py-16 md:py-24">
+					<div className="mx-auto max-w-5xl">
+						<Card className="border-2">
+							<CardContent className="p-8 md:p-12">
+								<div className="space-y-8">
+									<div className="flex items-center gap-3">
+										<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+											<TrendingUp className="h-5 w-5 text-primary" />
+										</div>
+										<h3 className="text-2xl font-bold">Program details</h3>
+									</div>
+
+									<div className="grid gap-4 md:grid-cols-2">
+										<div className="flex gap-3">
+											<div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10">
+												<Check className="h-3 w-3 text-primary" />
+											</div>
+											<div className="space-y-1">
+												<p className="font-medium">Post-discount earnings</p>
+												<p className="text-sm text-muted-foreground leading-relaxed">
+													Earnings are calculated on LLM usage after any
+													discounts are applied.
+												</p>
+											</div>
+										</div>
+
+										<div className="flex gap-3">
+											<div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10">
+												<Check className="h-3 w-3 text-primary" />
+											</div>
+											<div className="space-y-1">
+												<p className="font-medium">Direct credit deposits</p>
+												<p className="text-sm text-muted-foreground leading-relaxed">
+													Credits are automatically added to your account
+													balance—no manual claims needed.
+												</p>
+											</div>
+										</div>
+
+										<div className="flex gap-3">
+											<div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10">
+												<Check className="h-3 w-3 text-primary" />
+											</div>
+											<div className="space-y-1">
+												<p className="font-medium">Use for LLM services</p>
+												<p className="text-sm text-muted-foreground leading-relaxed">
+													Referral credits can be used for any LLM usage but
+													cannot be withdrawn or paid out.
+												</p>
+											</div>
+										</div>
+
+										<div className="flex gap-3">
+											<div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10">
+												<Check className="h-3 w-3 text-primary" />
+											</div>
+											<div className="space-y-1">
+												<p className="font-medium">Unlimited referrals</p>
+												<p className="text-sm text-muted-foreground leading-relaxed">
+													There is no limit to how many users you can refer or
+													how much you can earn.
+												</p>
+											</div>
+										</div>
+									</div>
+
+									<div className="rounded-lg border bg-muted/50 p-6">
+										<div className="flex items-start gap-3">
+											<Users className="mt-0.5 h-5 w-5 text-primary" />
+											<div className="space-y-1">
+												<p className="font-medium">Eligibility</p>
+												<p className="text-sm text-muted-foreground leading-relaxed">
+													Available for eligible organizations in the dashboard.
+													Top up $100 in credits to unlock the referral program
+													and start sharing your link.
+												</p>
+											</div>
+										</div>
 									</div>
 								</div>
 							</CardContent>
 						</Card>
-					</section>
+					</div>
 				</div>
-			</main>
+			</section>
+
+			<section className="border-t">
+				<div className="container mx-auto px-4 py-16 md:py-24">
+					<div className="mx-auto max-w-3xl space-y-8 text-center">
+						<div className="space-y-4">
+							<h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
+								Ready to start earning?
+							</h2>
+							<p className="mx-auto max-w-2xl text-pretty text-muted-foreground md:text-lg">
+								Join the referral program today and turn your network into a
+								source of passive income.
+							</p>
+						</div>
+						<Button
+							asChild
+							size="lg"
+							className="h-12 px-8 text-base font-medium group"
+						>
+							<AuthLink href="/signup">Sign up to get started</AuthLink>
+						</Button>
+					</div>
+				</div>
+			</section>
 			<Footer />
 		</div>
 	);

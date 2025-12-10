@@ -64,6 +64,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
 - `apps/docs`: Documentation site
+- `apps/admin`: Internal admin dashboard
 - `packages/db`: Drizzle ORM schema and migrations
 - `packages/models`: Model and provider definitions
 - `packages/shared`: Shared types and utilities

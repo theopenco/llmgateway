@@ -1,8 +1,9 @@
 import { addDays, format, parseISO, subDays } from "date-fns";
 import {
-	Bar,
-	BarChart,
 	CartesianGrid,
+	Line,
+	LineChart,
+	Legend,
 	ResponsiveContainer,
 	Tooltip,
 	XAxis,
@@ -124,7 +125,7 @@ export function Overview({
 
 	return (
 		<ResponsiveContainer width="100%" height={350}>
-			<BarChart
+			<LineChart
 				data={chartData}
 				margin={{
 					top: 5,
@@ -156,7 +157,7 @@ export function Overview({
 						<CustomTooltip
 							active={true}
 							payload={[{ value: 0 }]}
-							label="test"
+							label="tooltip"
 							metric={metric}
 						/>
 					}
@@ -164,32 +165,42 @@ export function Overview({
 						fill: "color-mix(in srgb, currentColor 15%, transparent)",
 					}}
 				/>
+				<Legend
+					verticalAlign="top"
+					align="left"
+					iconType="circle"
+					wrapperStyle={{ paddingBottom: 20 }}
+				/>
 				{metric === "costs" ? (
 					<>
-						<Bar
+						<Line
+							type="monotone"
 							dataKey="cost"
-							fill="currentColor"
-							className="fill-primary"
-							radius={[4, 4, 0, 0]}
-							stackId="a"
+							name="Cost"
+							stroke="#3b82f6"
+							strokeWidth={2}
+							dot={false}
 						/>
-						<Bar
+						<Line
+							type="monotone"
 							dataKey="savings"
-							fill="currentColor"
-							className="fill-green-600"
-							radius={[4, 4, 0, 0]}
-							stackId="a"
+							name="Savings"
+							stroke="#16a34a"
+							strokeWidth={2}
+							dot={false}
 						/>
 					</>
 				) : (
-					<Bar
+					<Line
+						type="monotone"
 						dataKey="total"
-						fill="currentColor"
-						className="fill-primary"
-						radius={[4, 4, 0, 0]}
+						name="Requests"
+						stroke="#3b82f6"
+						strokeWidth={2}
+						dot={false}
 					/>
 				)}
-			</BarChart>
+			</LineChart>
 		</ResponsiveContainer>
 	);
 }

@@ -3,7 +3,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-import { useDashboardState } from "@/lib/dashboard-state";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers } from "@llmgateway/models";
@@ -13,7 +13,6 @@ import type { TooltipProps } from "recharts";
 
 interface CostBreakdownChartProps {
 	initialData?: ActivitT;
-	projectId: string | undefined;
 }
 
 const CustomTooltip = ({
@@ -40,12 +39,9 @@ const CustomTooltip = ({
 	return null;
 };
 
-export function CostBreakdownChart({
-	initialData,
-	projectId,
-}: CostBreakdownChartProps) {
+export function CostBreakdownChart({ initialData }: CostBreakdownChartProps) {
 	const searchParams = useSearchParams();
-	const { selectedProject } = useDashboardState();
+	const { selectedProject } = useDashboardNavigation();
 	const [showAllSegments, setShowAllSegments] = useState(false);
 
 	// Get days from URL parameter
@@ -60,17 +56,17 @@ export function CostBreakdownChart({
 			params: {
 				query: {
 					days: String(days),
-					...(projectId ? { projectId: projectId } : {}),
+					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!projectId,
+			enabled: !!selectedProject?.id,
 			initialData,
 		},
 	);
 
-	if (!projectId) {
+	if (!selectedProject?.id) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
 				<p className="text-muted-foreground">

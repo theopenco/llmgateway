@@ -397,8 +397,17 @@ export async function beforeAllHook() {
 			name: "Test Organization",
 			billingEmail: "user@test.com",
 			plan: "pro",
+			retentionLevel: "retain",
+			credits: "100",
 		})
-		.onConflictDoNothing();
+		.onConflictDoUpdate({
+			target: tables.organization.id,
+			set: {
+				retentionLevel: "retain",
+				plan: "pro",
+				credits: "100",
+			},
+		});
 
 	await db
 		.insert(tables.userOrganization)

@@ -1,9 +1,11 @@
 "use client";
-import { Menu, X, Github } from "lucide-react";
+
+import { Github, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
+import { ModelSearch } from "@/components/shared/model-search";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -68,24 +70,28 @@ function ListItem({
 export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 	const config = useAppConfig();
 
-	const menuItems = [
+	const menuItems: Array<{ name: string; href: string; external?: boolean }> = [
 		{ name: "Pricing", href: "/#pricing" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Models", href: "/models" },
-		{
-			name: "Chat",
-			href:
-				process.env.NODE_ENV === "development"
-					? "http://localhost:3003"
-					: "https://chat.llmgateway.io",
-		},
 	];
+
+	const chatItem: { name: string; href: string; external?: boolean } = {
+		name: "Chat",
+		href:
+			process.env.NODE_ENV === "development"
+				? "http://localhost:3003"
+				: "https://chat.llmgateway.io",
+		external: true,
+	};
 
 	const resourcesItems = [
 		{ name: "Blog", href: "/blog" },
-		{ name: "Changelog", href: "/changelog" },
 		{ name: "Providers", href: "/providers" },
+		{ name: "Changelog", href: "/changelog" },
+		{ name: "Referral Program", href: "/referrals" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
+		{ name: "Model Timeline", href: "/timeline" },
 		{ name: "Compare", href: "/models/compare" },
 		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
 	];
@@ -119,9 +125,19 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 			description: "What’s new in LLM Gateway across releases.",
 		},
 		{
+			title: "Referral Program",
+			href: "/referrals",
+			description: "Earn 1% of LLM spending.",
+		},
+		{
 			title: "Providers",
 			href: "/providers",
 			description: "Connect and manage your provider API keys.",
+		},
+		{
+			title: "Model Timeline",
+			href: "/timeline",
+			description: "Track the release history of all models.",
 		},
 	];
 
@@ -146,7 +162,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 					className={cn(
 						"mt-2 mx-auto max-w-7xl px-6 transition-all duration-300",
 						isScrolled &&
-							"bg-background/50 max-w-6xl rounded-2xl border backdrop-blur-lg lg:px-5",
+							"bg-background/50 max-w-7xl rounded-2xl border backdrop-blur-lg lg:px-5",
 					)}
 				>
 					<div className="relative flex flex-wrap items-center justify-between gap-6 py-3 lg:gap-0 lg:py-4">
@@ -174,33 +190,23 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 							</button>
 						</div>
 
-						<div className="m-auto hidden size-fit lg:block">
+						<div className="m-auto hidden items-center gap-4 lg:flex">
+							<div className="w-[140px] lg:w-[160px]">
+								<ModelSearch />
+							</div>
 							<NavigationMenu viewport={false}>
 								<NavigationMenuList className="flex gap-2 text-sm">
 									{menuItems.map((item, index) => (
 										<NavigationMenuItem key={index}>
-											{item.external ? (
-												<NavigationMenuLink asChild>
-													<a
-														href={item.href}
-														target="_blank"
-														rel="noopener noreferrer"
-														className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-													>
-														{item.name}
-													</a>
-												</NavigationMenuLink>
-											) : (
-												<NavigationMenuLink asChild>
-													<Link
-														href={item.href as Route}
-														className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-														prefetch={true}
-													>
-														{item.name}
-													</Link>
-												</NavigationMenuLink>
-											)}
+											<NavigationMenuLink asChild>
+												<Link
+													href={item.href as Route}
+													className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+													prefetch={true}
+												>
+													{item.name}
+												</Link>
+											</NavigationMenuLink>
 										</NavigationMenuItem>
 									))}
 
@@ -213,7 +219,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 												<li className="row-span-3">
 													<NavigationMenuLink asChild>
 														<a
-															className="flex h-full w-full select-none flex-col justify-end rounded-md bg-gradient-to-b from-muted/50 to-muted p-6 no-underline outline-none focus:shadow-md"
+															className="flex h-full w-full select-none flex-col justify-end rounded-md bg-linear-to-b from-muted/50 to-muted p-6 no-underline outline-none focus:shadow-md"
 															href={
 																config.docsUrl
 																	? `${config.docsUrl}/quick-start`
@@ -249,6 +255,21 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 											</ul>
 										</NavigationMenuContent>
 									</NavigationMenuItem>
+
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<a
+												href={chatItem.href}
+												target={chatItem.external ? "_blank" : undefined}
+												rel={
+													chatItem.external ? "noopener noreferrer" : undefined
+												}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+											>
+												{chatItem.name}
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
 								</NavigationMenuList>
 							</NavigationMenu>
 						</div>
@@ -278,6 +299,19 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 											)}
 										</li>
 									))}
+
+									<li>
+										<a
+											href={chatItem.href}
+											target={chatItem.external ? "_blank" : undefined}
+											rel={
+												chatItem.external ? "noopener noreferrer" : undefined
+											}
+											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+										>
+											{chatItem.name}
+										</a>
+									</li>
 
 									<li className="space-y-2">
 										<div className="text-muted-foreground text-sm font-medium">

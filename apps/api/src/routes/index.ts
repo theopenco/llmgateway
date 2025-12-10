@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
+import admin from "./admin.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
 import keysApi from "./keys-api.js";
@@ -39,6 +40,8 @@ routes.route("/user", user);
 routes.route("/logs", logs);
 
 routes.route("/activity", activity);
+
+routes.route("/admin", admin);
 
 routes.route("/keys", keysApi);
 routes.route("/keys", keysProvider);

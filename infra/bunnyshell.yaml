@@ -95,6 +95,44 @@ components:
         path: /
         servicePort: 3005
   - kind: Application
+    name: admin
+    gitRepo: "https://github.com/theopenco/llmgateway.git"
+    gitBranch: main
+    gitApplicationPath: /
+    dockerCompose:
+      build:
+        context: .
+        dockerfile: infra/split.dockerfile
+        target: admin
+      environment:
+        ADMIN_URL: "https://admin-{{env.base_domain}}"
+      healthcheck:
+        test:
+          - CMD
+          - wget
+          - "--no-verbose"
+          - "--tries=1"
+          - "--spider"
+          - "http://localhost:80/"
+        timeout: 10s
+        interval: 30s
+        retries: 3
+      deploy:
+        resources:
+          limits:
+            cpus: "0.2"
+            memory: 256M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
+      ports:
+        - "3006:80"
+      restart: unless-stopped
+    hosts:
+      - hostname: "admin-{{ env.base_domain }}"
+        path: /
+        servicePort: 3006
+  - kind: Application
     name: gateway
     gitRepo: "https://github.com/theopenco/llmgateway.git"
     gitBranch: main

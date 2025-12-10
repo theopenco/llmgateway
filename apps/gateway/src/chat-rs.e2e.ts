@@ -30,6 +30,11 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		getTestOptions(),
 		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();
+
+			// glm-4.6v needs higher max_tokens to ensure it produces content in addition to reasoning
+			const isGlm46v = model.includes("glm-4.6v");
+			const maxTokens = isGlm46v ? 2000 : undefined;
+
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -53,6 +58,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					],
 					reasoning_effort: "medium",
 					stream: true,
+					...(maxTokens && { max_tokens: maxTokens }),
 				}),
 			});
 

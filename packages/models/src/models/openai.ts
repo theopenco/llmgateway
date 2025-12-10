@@ -434,8 +434,8 @@ export const openaiModels = [
 		description:
 			"Next-generation reasoning model with enhanced problem-solving capabilities.",
 		family: "openai",
-		releasedAt: new Date("2025-04-16"),
-		publishedAt: new Date("2025-04-16"),
+		releasedAt: new Date("2025-06-01"),
+		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "openai",
@@ -475,8 +475,8 @@ export const openaiModels = [
 		description:
 			"Compact o3 reasoning model balancing performance and cost for complex tasks.",
 		family: "openai",
-		releasedAt: new Date("2025-01-31"),
-		publishedAt: new Date("2025-01-31"),
+		releasedAt: new Date("2025-06-01"),
+		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "openai",
@@ -596,8 +596,10 @@ export const openaiModels = [
 		description:
 			"Latest flagship model with reasoning, vision, and enhanced capabilities.",
 		family: "openai",
-		releasedAt: new Date("2025-05-06"),
-		publishedAt: new Date("2025-05-06"),
+		// Based on August 2025 launch from AI timeline:
+		// https://raw.githubusercontent.com/NHLOCAL/AiTimeline/refs/heads/main/_data/timeline.yml
+		releasedAt: new Date("2025-08-01"),
+		publishedAt: new Date("2025-08-01"),
 		providers: [
 			{
 				providerId: "openai",
@@ -686,8 +688,8 @@ export const openaiModels = [
 		description:
 			"Compact GPT-5 variant with reasoning and vision at reduced cost.",
 		family: "openai",
-		releasedAt: new Date("2025-05-06"),
-		publishedAt: new Date("2025-05-06"),
+		releasedAt: new Date("2025-08-01"),
+		publishedAt: new Date("2025-08-01"),
 		providers: [
 			{
 				providerId: "openai",
@@ -775,8 +777,8 @@ export const openaiModels = [
 		description:
 			"Ultra-efficient GPT-5 variant for high-volume applications with reasoning support.",
 		family: "openai",
-		releasedAt: new Date("2025-05-06"),
-		publishedAt: new Date("2025-05-06"),
+		releasedAt: new Date("2025-08-01"),
+		publishedAt: new Date("2025-08-01"),
 		providers: [
 			{
 				providerId: "openai",
@@ -864,8 +866,8 @@ export const openaiModels = [
 		description:
 			"GPT-5 optimized for conversational interactions without tool calling.",
 		family: "openai",
-		releasedAt: new Date("2025-05-06"),
-		publishedAt: new Date("2025-05-06"),
+		releasedAt: new Date("2025-08-01"),
+		publishedAt: new Date("2025-08-01"),
 		providers: [
 			{
 				providerId: "openai",
@@ -932,8 +934,8 @@ export const openaiModels = [
 		description:
 			"Premium GPT-5 tier with extended output limits and advanced reasoning for complex tasks.",
 		family: "openai",
-		releasedAt: new Date("2025-05-06"),
-		publishedAt: new Date("2025-05-06"),
+		releasedAt: new Date("2025-08-01"),
+		publishedAt: new Date("2025-08-01"),
 		providers: [
 			{
 				test: "skip",

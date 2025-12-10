@@ -18,7 +18,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
+import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
+import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
+import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
@@ -49,7 +53,7 @@ interface DashboardClientProps {
 export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const { buildUrl } = useDashboardNavigation();
+	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 
 	// Get days from URL params, fallback to initialDays, then to 7
 	const daysParam = searchParams.get("days");
@@ -124,6 +128,36 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
 	const totalSavings =
 		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
+	const avgCostPer1kTokens =
+		totalTokens > 0 ? (totalCost / totalTokens) * 1000 : 0;
+
+	const quickActions = [
+		{
+			href: "api-keys",
+			icon: Key,
+			label: "Manage API Keys",
+		},
+		{
+			href: "provider-keys",
+			icon: KeyRound,
+			label: "Provider Keys",
+		},
+		{
+			href: "activity",
+			icon: Activity,
+			label: "View Activity",
+		},
+		{
+			href: "usage",
+			icon: BarChart3,
+			label: "Usage & Metrics",
+		},
+		{
+			href: "model-usage",
+			icon: ChartColumnBig,
+			label: "Model Usage",
+		},
+	] as const;
 
 	const formatTokens = (tokens: number) => {
 		if (tokens >= 1_000_000) {
@@ -242,157 +276,85 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					)}
 
 					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-5", {
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-3", {
 							"pointer-events-none opacity-20": shouldShowGetStartedState,
 						})}
 					>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Organization Credits
-								</CardTitle>
-								<CreditCard className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								<div className="text-2xl font-bold truncate overflow-ellipsis">
-									$
-									{selectedOrganization
-										? Number(selectedOrganization.credits).toFixed(8)
-										: "0.00"}
-								</div>
-								<p className="text-muted-foreground text-xs">
-									Available balance
-								</p>
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Total Requests
-								</CardTitle>
-								<Zap className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold">
-											{totalRequests.toLocaleString()}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											Last {days} days
-											{activityData.length > 0 && (
-												<span className="ml-1">
-													•{" "}
-													{(
+						<MetricCard
+							label="Organization Credits"
+							value={`$${
+								selectedOrganization
+									? Number(selectedOrganization.credits).toFixed(8)
+									: "0.00"
+							}`}
+							subtitle="Available balance"
+							icon={<CreditCard className="h-4 w-4" />}
+							accent="blue"
+						/>
+						<MetricCard
+							label="Total Requests"
+							value={isLoading ? "Loading..." : totalRequests.toLocaleString()}
+							subtitle={
+								isLoading
+									? "–"
+									: `Last ${days} days${
+											activityData.length > 0
+												? ` • ${(
 														activityData.reduce(
 															(sum, day) => sum + day.cacheRate,
 															0,
 														) / activityData.length
-													).toFixed(1)}
-													% cached
-												</span>
-											)}
-										</p>
-									</>
-								)}
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Tokens Used
-								</CardTitle>
-								<Coins className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold">
-											{formatTokens(totalTokens)}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											Last {days} days
-										</p>
-									</>
-								)}
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Inference Cost
-								</CardTitle>
-								<CircleDollarSign className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold">
-											${totalCost.toFixed(2)}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											<span>${totalInputCost.toFixed(2)} input</span>
-											&nbsp;+&nbsp;
-											<span>${totalOutputCost.toFixed(2)} output</span>
-											{totalRequestCost > 0 && (
-												<>
-													&nbsp;+&nbsp;
-													<span>${totalRequestCost.toFixed(2)} requests</span>
-												</>
-											)}
-										</p>
-										{totalDataStorageCost > 0 && (
-											<p className="text-muted-foreground text-xs mt-1 pt-1 border-t border-muted">
-												<span className="text-xs">
-													LLM Gateway: ${totalDataStorageCost.toFixed(4)}{" "}
-													storage
-												</span>
-											</p>
-										)}
-									</>
-								)}
-							</CardContent>
-						</Card>
-						<Card>
-							<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-								<CardTitle className="text-sm font-medium">
-									Total Savings
-								</CardTitle>
-								<TrendingDown className="text-muted-foreground h-4 w-4" />
-							</CardHeader>
-							<CardContent>
-								{isLoading ? (
-									<>
-										<div className="text-2xl font-bold">Loading...</div>
-										<p className="text-muted-foreground text-xs">–</p>
-									</>
-								) : (
-									<>
-										<div className="text-2xl font-bold text-green-600">
-											${totalSavings.toFixed(4)}
-										</div>
-										<p className="text-muted-foreground text-xs">
-											From discounts in last {days} days
-										</p>
-									</>
-								)}
-							</CardContent>
-						</Card>
+													).toFixed(1)}% cached`
+												: ""
+										}`
+							}
+							icon={<Zap className="h-4 w-4" />}
+							accent="purple"
+						/>
+						<MetricCard
+							label="Tokens Used"
+							value={isLoading ? "Loading..." : formatTokens(totalTokens)}
+							subtitle={isLoading ? "–" : `Last ${days} days`}
+							icon={<Coins className="h-4 w-4" />}
+							accent="blue"
+						/>
+						<MetricCard
+							label="Inference Cost"
+							value={isLoading ? "Loading..." : `$${totalCost.toFixed(2)}`}
+							subtitle={
+								isLoading
+									? "–"
+									: `$${totalInputCost.toFixed(
+											2,
+										)} input • $${totalOutputCost.toFixed(2)} output${
+											totalRequestCost > 0
+												? ` • $${totalRequestCost.toFixed(2)} requests`
+												: ""
+										}${
+											totalDataStorageCost > 0
+												? ` • $${totalDataStorageCost.toFixed(4)} storage`
+												: ""
+										}`
+							}
+							icon={<CircleDollarSign className="h-4 w-4" />}
+							accent="purple"
+						/>
+						<MetricCard
+							label="Total Savings"
+							value={isLoading ? "Loading..." : `$${totalSavings.toFixed(4)}`}
+							subtitle={isLoading ? "–" : `From discounts in last ${days} days`}
+							icon={<TrendingDown className="h-4 w-4" />}
+							accent="green"
+						/>
+						<MetricCard
+							label="Avg cost / 1K tokens"
+							value={
+								isLoading ? "Loading..." : `$${avgCostPer1kTokens.toFixed(4)}`
+							}
+							subtitle={isLoading ? "–" : `Last ${days} days`}
+							icon={<CircleDollarSign className="h-4 w-4" />}
+							accent="blue"
+						/>
 					</div>
 					<div
 						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
@@ -441,58 +403,48 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="space-y-2">
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("api-keys")} prefetch={true}>
-										<Key className="mr-2 h-4 w-4" />
-										Manage API Keys
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("provider-keys")} prefetch={true}>
-										<KeyRound className="mr-2 h-4 w-4" />
-										Provider Keys
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("activity")} prefetch={true}>
-										<Activity className="mr-2 h-4 w-4" />
-										View Activity
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("usage")} prefetch={true}>
-										<BarChart3 className="mr-2 h-4 w-4" />
-										Usage & Metrics
-									</Link>
-								</Button>
-								<Button
-									asChild
-									variant="outline"
-									className="w-full justify-start"
-								>
-									<Link href={buildUrl("model-usage")} prefetch={true}>
-										<ChartColumnBig className="mr-2 h-4 w-4" />
-										Model Usage
-									</Link>
-								</Button>
+								{quickActions.map((action) => (
+									<Button
+										key={action.href}
+										asChild
+										variant="outline"
+										className="w-full justify-start"
+									>
+										<Link
+											href={
+												action.href === "provider-keys"
+													? buildOrgUrl("org/provider-keys")
+													: buildUrl(action.href)
+											}
+											prefetch={true}
+										>
+											<action.icon className="mr-2 h-4 w-4" />
+											{action.label}
+										</Link>
+									</Button>
+								))}
 							</CardContent>
 						</Card>
+					</div>
+
+					<div
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
+							"pointer-events-none opacity-20": shouldShowGetStartedState,
+						})}
+					>
+						<div className="col-span-4 space-y-4">
+							<CostBreakdownCard initialActivityData={initialActivityData} />
+							<RecentActivityCard
+								activityData={activityData}
+								isLoading={isLoading}
+							/>
+						</div>
+						<div className="col-span-3">
+							<ErrorsReliabilityCard
+								activityData={activityData}
+								isLoading={isLoading}
+							/>
+						</div>
 					</div>
 				</div>
 			</div>

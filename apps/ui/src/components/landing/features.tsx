@@ -59,40 +59,6 @@ const features = [
 				className="h-8 w-8"
 				fill="none"
 				xmlns="http://www.w3.org/2000/svg"
-				viewBox="0 0 137 137"
-			>
-				<path
-					d="M90.7484 63.8789c0-4.9706 4.0295-9.0001 9-9.0001h12.3736c4.97 0 9 4.0295 9 9v63.4552c0 4.971-4.03 9-9 9H99.7484c-4.9706 0-9-4.029-9-9V63.8789Z"
-					fill="#6555AE"
-				/>
-				<rect
-					x="11.3639"
-					y="98.3678"
-					width="30.3732"
-					height="37.9665"
-					rx="9"
-					fill="#6555AE"
-				/>
-				<path
-					d="M52.7819 95.6327c0-4.9706 4.0295-9 9-9h12.3732c4.9706 0 9 4.0294 9 9v31.7013c0 4.971-4.0294 9-9 9H61.7819c-4.9705 0-9-4.029-9-9V95.6327Z"
-					fill="#6555AE"
-				/>
-				<path
-					d="M100.548 5.64259c11.561-3.04553 31.931-7.54587 34.489-4.779295 3.668 3.966835-1.652 23.433505-4.756 35.030305-1.809 5.5539-5.503 4.5863-7.125 3.4082l-8.039-7.6739-.769-.832-44.3519 44.6914c-3.6003 4.4767-8.1936 2.7984-10.04 1.3994L46.418 64.1631c-.7608-.715-1.9437-.7242-2.7158-.0215L14.3711 90.8399c-2.7672 2.5187-6.4831 4.6303-9.95116 3.2255-2.3508-.9522-3.596104-2.7301-4.170898-4.6318-.990844-3.2785 1.139118-6.4705 3.612308-8.8398l36.36135-34.835c3.8771-2.7978 7.1544-1.1658 8.3086 0l14.1894 13.3789c.7777.7332 1.9945.7256 2.7627-.0176L104.839 21.044l-.141-.1377-7.5867-8.126c-1.1622-1.6365-2.102-5.35499 3.4367-7.13771Zm10.426 21.50591-.917-.9913-.775-.7587 1.692 1.75Z"
-					fill="#4CAA52"
-				/>
-			</svg>
-		),
-		title: "Usage Analytics",
-		description:
-			"Track requests, tokens used, response times, and costs across all providers.",
-	},
-	{
-		icon: (
-			<svg
-				className="h-8 w-8"
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
 				viewBox="0 0 161 161"
 			>
 				<circle cx="80.5" cy="80.5" r="61.457" fill="#C9C4BE" />
@@ -211,6 +177,97 @@ const features = [
 		),
 		title: "Self-hosted or Cloud",
 		description: "Deploy on your own infrastructure or use our hosted version.",
+	},
+	{
+		icon: (
+			<svg
+				className="h-8 w-8"
+				fill="none"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 144 144"
+			>
+				<rect x="10" y="20" width="124" height="94" rx="16" fill="#0F172A" />
+				<rect x="24" y="34" width="96" height="6" rx="3" fill="#4ADE80" />
+				<rect x="24" y="50" width="72" height="6" rx="3" fill="#38BDF8" />
+				<rect x="24" y="66" width="54" height="6" rx="3" fill="#A855F7" />
+				<circle cx="40" cy="96" r="10" fill="#22C55E" />
+				<path
+					d="M40 90c-3.3137 0-6 2.6863-6 6s2.6863 6 6 6 6-2.6863 6-6"
+					stroke="#DCFCE7"
+					strokeWidth="2"
+					strokeLinecap="round"
+				/>
+			</svg>
+		),
+		title: "Cost-aware analytics",
+		description:
+			"See requests, tokens, total spend, and average cost per 1K tokens across 7 or 30 days.",
+	},
+	{
+		icon: (
+			<svg
+				className="h-8 w-8"
+				fill="none"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 144 144"
+			>
+				<rect x="14" y="22" width="116" height="100" rx="12" fill="#020617" />
+				<rect x="30" y="40" width="20" height="54" rx="4" fill="#38BDF8" />
+				<rect x="62" y="30" width="20" height="64" rx="4" fill="#A855F7" />
+				<rect x="94" y="52" width="20" height="42" rx="4" fill="#22C55E" />
+				<circle cx="38" cy="106" r="3" fill="#38BDF8" />
+				<circle cx="70" cy="106" r="3" fill="#A855F7" />
+				<circle cx="102" cy="106" r="3" fill="#22C55E" />
+			</svg>
+		),
+		title: "Per‑model/provider breakdown",
+		description:
+			"Break down usage and spend by provider and model so you can quickly spot expensive outliers.",
+	},
+	{
+		icon: (
+			<svg
+				className="h-8 w-8"
+				fill="none"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 144 144"
+			>
+				<rect x="16" y="24" width="112" height="96" rx="12" fill="#020617" />
+				<path
+					d="M36 92c8 0 8-16 16-16s8 16 16 16 8-16 16-16 8 16 16 16"
+					stroke="#22C55E"
+					strokeWidth="3"
+					strokeLinecap="round"
+				/>
+				<circle cx="40" cy="52" r="6" fill="#F97316" />
+				<circle cx="72" cy="44" r="6" fill="#F97316" />
+				<circle cx="104" cy="60" r="6" fill="#F97316" />
+			</svg>
+		),
+		title: "Errors & reliability monitoring",
+		description:
+			"Monitor error rate, cache hit rate, and reliability trends directly from the dashboard.",
+	},
+	{
+		icon: (
+			<svg
+				className="h-8 w-8"
+				fill="none"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 144 144"
+			>
+				<rect x="14" y="24" width="116" height="96" rx="12" fill="#020617" />
+				<rect x="30" y="40" width="84" height="14" rx="4" fill="#0EA5E9" />
+				<rect x="30" y="62" width="56" height="10" rx="3" fill="#4ADE80" />
+				<rect x="30" y="80" width="72" height="10" rx="3" fill="#A855F7" />
+				<circle cx="40" cy="102" r="4" fill="#4ADE80" />
+				<circle cx="60" cy="102" r="4" fill="#38BDF8" />
+				<circle cx="80" cy="102" r="4" fill="#F97316" />
+			</svg>
+		),
+		title: "Project‑level usage explorer",
+		description:
+			"Drill into each project’s requests, models, errors, cache, and costs with dedicated charts and tables.",
 	},
 ];
 

@@ -2,6 +2,8 @@
 
 import { usePathname } from "next/navigation";
 
+import { ModelSearch } from "@/components/shared/model-search";
+
 import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -37,7 +39,11 @@ export function TopBar({
 					onProjectCreated={onProjectCreated}
 				/>
 			)}
-			<div className="ml-auto" />
+			<div className="ml-auto flex items-center gap-3">
+				<div className="w-[160px] sm:w-[200px]">
+					<ModelSearch />
+				</div>
+			</div>
 		</header>
 	);
 }

@@ -263,13 +263,14 @@ export default function ChatPageClient({
 		],
 	);
 
-	// Additional comparison chat windows (primary + one comparison)
+	// Additional comparison chat windows (primary + up to two comparison panels)
+	const [comparisonEnabled, setComparisonEnabled] = useState(false);
 	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
 	const [syncInput, setSyncInput] = useState(true);
 	const [syncedText, setSyncedText] = useState("");
-	const extraSubmitRef = useRef<
-		((content: string) => Promise<void> | void) | null
-	>(null);
+	const extraSubmitRefs = useRef<
+		Record<number, (content: string) => Promise<void> | void>
+	>({});
 	const [comparisonResetToken, setComparisonResetToken] = useState(0);
 
 	// Chat API hooks
@@ -359,8 +360,6 @@ export default function ChatPageClient({
 			return prev;
 		});
 	}, [currentChatData, setMessages, setSelectedModel]);
-
-	// Removed showApiKeyManager
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
@@ -470,17 +469,20 @@ export default function ChatPageClient({
 			setIsLoading(false);
 		}
 
-		// When sync is enabled and a comparison window is open, mirror the
-		// submitted prompt into the extra window as a separate user message.
-		if (syncInput && extraSubmitRef.current) {
-			try {
-				await extraSubmitRef.current(content);
-			} catch (mirrorError) {
-				// Don't surface comparison errors as hard failures
-				console.warn(
-					"Failed to mirror prompt to comparison window",
-					mirrorError,
-				);
+		// When sync is enabled and comparison windows are open, mirror the
+		// submitted prompt into each extra window as a separate user message.
+		if (syncInput) {
+			const submitFns = Object.values(extraSubmitRefs.current);
+			for (const submit of submitFns) {
+				try {
+					await submit(content);
+				} catch (mirrorError) {
+					// Don't surface comparison errors as hard failures
+					console.warn(
+						"Failed to mirror prompt to comparison window",
+						mirrorError,
+					);
+				}
 			}
 		}
 	};
@@ -496,8 +498,9 @@ export default function ChatPageClient({
 		try {
 			setCurrentChatId(null);
 			setMessages([]);
-			// Clear comparison window as well
+			// Clear comparison windows as well
 			setComparisonResetToken((token) => token + 1);
+			extraSubmitRefs.current = {};
 		} catch {
 			setError("Failed to create new chat. Please try again.");
 		} finally {
@@ -614,106 +617,180 @@ export default function ChatPageClient({
 							providers={providers}
 							selectedModel={selectedModel}
 							setSelectedModel={setSelectedModel}
+							comparisonEnabled={comparisonEnabled}
+							onComparisonEnabledChange={(enabled) => {
+								setComparisonEnabled(enabled);
+								if (!enabled) {
+									setExtraPanelIds([]);
+									setComparisonResetToken((token) => token + 1);
+									extraSubmitRefs.current = {};
+								}
+							}}
+							showGlobalModelSelector={
+								!(comparisonEnabled && extraPanelIds.length > 0)
+							}
 						/>
 					</div>
-					<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
-						<div className="flex items-center gap-2 text-xs text-muted-foreground">
-							<span className="font-medium">Chat windows</span>
-							<span>
-								{1 + extraPanelIds.length}
-								{" / "}2
-							</span>
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={extraPanelIds.length >= 1}
-								onClick={() =>
-									setExtraPanelIds((prev) => {
-										if (prev.length >= 1) {
-											return prev;
-										}
-										const nextId = panelIdCounterRef.current + 1;
-										panelIdCounterRef.current = nextId;
-										return [...prev, nextId];
-									})
-								}
-							>
-								Add model for comparison
-							</Button>
-							{extraPanelIds.length > 0 ? (
+					{comparisonEnabled ? (
+						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
+							<div className="flex items-center gap-2 text-xs text-muted-foreground">
+								<span className="font-medium">Chat windows</span>
+								<span>
+									{1 + extraPanelIds.length}
+									{" / "}3
+								</span>
 								<Button
 									size="sm"
-									variant="ghost"
-									onClick={() => setExtraPanelIds((prev) => prev.slice(0, -1))}
+									variant="outline"
+									disabled={extraPanelIds.length >= 2}
+									onClick={() =>
+										setExtraPanelIds((prev) => {
+											if (prev.length >= 2) {
+												return prev;
+											}
+											const nextId = panelIdCounterRef.current + 1;
+											panelIdCounterRef.current = nextId;
+											return [...prev, nextId];
+										})
+									}
 								>
-									Remove window
+									Add model for comparison
 								</Button>
-							) : null}
+								{extraPanelIds.length > 0 ? (
+									<Button
+										size="sm"
+										variant="ghost"
+										onClick={() =>
+											setExtraPanelIds((prev) => {
+												if (prev.length === 0) {
+													return prev;
+												}
+												const removedId = prev[prev.length - 1];
+												const next = prev.slice(0, -1);
+												const { [removedId]: _removed, ...rest } =
+													extraSubmitRefs.current;
+												extraSubmitRefs.current = rest;
+												return next;
+											})
+										}
+									>
+										Remove window
+									</Button>
+								) : null}
+							</div>
+							<div className="flex items-center gap-2 text-xs text-muted-foreground">
+								<span className="font-medium">Sync prompt input</span>
+								<Button
+									size="sm"
+									variant={syncInput ? "default" : "outline"}
+									onClick={() => setSyncInput((prev) => !prev)}
+								>
+									{syncInput ? "On" : "Off"}
+								</Button>
+							</div>
 						</div>
-						<div className="flex items-center gap-2 text-xs text-muted-foreground">
-							<span className="font-medium">Sync prompt input</span>
-							<Button
-								size="sm"
-								variant={syncInput ? "default" : "outline"}
-								onClick={() => setSyncInput((prev) => !prev)}
-							>
-								{syncInput ? "On" : "Off"}
-							</Button>
-						</div>
-					</div>
+					) : null}
 					<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
 						<div
 							className={`grid h-full gap-4 px-4 pb-4 ${
-								extraPanelIds.length === 0
-									? "grid-cols-1 max-w-3xl mx-auto"
+								!comparisonEnabled || extraPanelIds.length === 0
+									? "grid-cols-1 mx-auto md:max-w-4xl md:min-w-[720px]"
 									: extraPanelIds.length === 1
 										? "grid-cols-1 md:grid-cols-2"
 										: "grid-cols-1 md:grid-cols-3"
 							}`}
 						>
-							<div className="flex flex-col min-h-0">
-								<ChatUI
-									messages={messages}
-									supportsImages={supportsImages}
-									supportsImageGen={supportsImageGen}
-									sendMessage={sendMessageWithHeaders}
-									selectedModel={selectedModel}
-									text={primaryText}
-									setText={setPrimaryText}
-									status={status}
-									stop={stop}
-									regenerate={regenerate}
-									reasoningEffort={reasoningEffort}
-									setReasoningEffort={setReasoningEffort}
-									supportsReasoning={supportsReasoning}
-									imageAspectRatio={imageAspectRatio}
-									setImageAspectRatio={setImageAspectRatio}
-									imageSize={imageSize}
-									setImageSize={setImageSize}
-									onUserMessage={handleUserMessage}
-									isLoading={isLoading || isChatLoading}
-									error={error}
-								/>
-							</div>
-							{extraPanelIds.map((panelId, index) => (
-								<div key={panelId} className="hidden md:flex flex-col min-h-0">
-									<ExtraChatPanel
-										panelIndex={index + 2}
-										models={models}
-										providers={providers}
-										availableModels={availableModels}
-										initialModel={selectedModel}
-										githubToken={githubToken}
-										syncInput={syncInput}
-										syncedText={syncedText}
-										setSyncedText={setSyncedText}
-										onRegisterExternalSubmit={(fn) => {
-											extraSubmitRef.current = fn;
-										}}
-										resetToken={comparisonResetToken}
+							{comparisonEnabled && extraPanelIds.length > 0 ? (
+								<div className="flex flex-col h-full min-h-0 rounded-lg border bg-background">
+									<div className="shrink-0 border-b bg-muted/40 px-3 py-2 flex items-center justify-between gap-2">
+										<span className="text-xs font-medium text-muted-foreground">
+											Model 1
+										</span>
+										<div className="w-full max-w-xs">
+											<ModelSelector
+												models={models}
+												providers={providers}
+												value={selectedModel}
+												onValueChange={setSelectedModel}
+												placeholder="Select a model..."
+											/>
+										</div>
+									</div>
+									<div className="flex-1 min-h-0">
+										<ChatUI
+											messages={messages}
+											supportsImages={supportsImages}
+											supportsImageGen={supportsImageGen}
+											sendMessage={sendMessageWithHeaders}
+											selectedModel={selectedModel}
+											text={primaryText}
+											setText={setPrimaryText}
+											status={status}
+											stop={stop}
+											regenerate={regenerate}
+											reasoningEffort={reasoningEffort}
+											setReasoningEffort={setReasoningEffort}
+											supportsReasoning={supportsReasoning}
+											imageAspectRatio={imageAspectRatio}
+											setImageAspectRatio={setImageAspectRatio}
+											imageSize={imageSize}
+											setImageSize={setImageSize}
+											onUserMessage={handleUserMessage}
+											isLoading={isLoading || isChatLoading}
+											error={error}
+										/>
+									</div>
+								</div>
+							) : (
+								<div className="flex flex-col min-h-0">
+									<ChatUI
+										messages={messages}
+										supportsImages={supportsImages}
+										supportsImageGen={supportsImageGen}
+										sendMessage={sendMessageWithHeaders}
+										selectedModel={selectedModel}
+										text={primaryText}
+										setText={setPrimaryText}
+										status={status}
+										stop={stop}
+										regenerate={regenerate}
+										reasoningEffort={reasoningEffort}
+										setReasoningEffort={setReasoningEffort}
+										supportsReasoning={supportsReasoning}
+										imageAspectRatio={imageAspectRatio}
+										setImageAspectRatio={setImageAspectRatio}
+										imageSize={imageSize}
+										setImageSize={setImageSize}
+										onUserMessage={handleUserMessage}
+										isLoading={isLoading || isChatLoading}
+										error={error}
 									/>
 								</div>
-							))}
+							)}
+							{comparisonEnabled
+								? extraPanelIds.map((panelId, index) => (
+										<div
+											key={panelId}
+											className="hidden md:flex flex-col min-h-0"
+										>
+											<ExtraChatPanel
+												panelIndex={index + 2}
+												models={models}
+												providers={providers}
+												availableModels={availableModels}
+												initialModel={selectedModel}
+												githubToken={githubToken}
+												syncInput={syncInput}
+												syncedText={syncedText}
+												setSyncedText={setSyncedText}
+												onRegisterExternalSubmit={(fn) => {
+													extraSubmitRefs.current[panelId] = fn;
+												}}
+												resetToken={comparisonResetToken}
+											/>
+										</div>
+									))
+								: null}
 						</div>
 					</div>
 				</div>

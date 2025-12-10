@@ -15,7 +15,7 @@ const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
 const uiUrl = process.env.UI_URL || "http://localhost:3002";
 const originUrls =
 	process.env.ORIGIN_URLS ||
-	"http://localhost:3002,http://localhost:3003,http://localhost:4002";
+	"http://localhost:3002,http://localhost:3003,http://localhost:4002,http://localhost:3006";
 const isHosted = process.env.HOSTED === "true";
 
 export const redisClient = new Redis({

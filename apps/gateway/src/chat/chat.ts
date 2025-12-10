@@ -615,11 +615,26 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		modelInfo =
-			models.find((m) => m.id === requestedModel) ||
-			models.find((m) =>
-				m.providers.find((p) => p.modelName === requestedModel),
-			);
+		// First try to find by model ID
+		modelInfo = models.find((m) => m.id === requestedModel);
+
+		// If not found, search by provider model name
+		// If a specific provider is requested, match both modelName and providerId
+		if (!modelInfo) {
+			if (requestedProvider) {
+				modelInfo = models.find((m) =>
+					m.providers.find(
+						(p) =>
+							p.modelName === requestedModel &&
+							p.providerId === requestedProvider,
+					),
+				);
+			} else {
+				modelInfo = models.find((m) =>
+					m.providers.find((p) => p.modelName === requestedModel),
+				);
+			}
+		}
 
 		if (!modelInfo) {
 			throw new HTTPException(400, {
@@ -1446,7 +1461,9 @@ chat.openapi(completions, async (c) => {
 		finalModelInfo = models.find(
 			(m) =>
 				m.id === usedModel ||
-				m.providers.some((p) => p.modelName === usedModel),
+				m.providers.some(
+					(p) => p.modelName === usedModel && p.providerId === usedProvider,
+				),
 		);
 	}
 
@@ -2331,7 +2348,7 @@ chat.openapi(completions, async (c) => {
 				} else if (error instanceof Error) {
 					// Handle fetch errors (timeout, connection failures, etc.)
 					const errorMessage = error.message;
-					logger.error("Fetch error", {
+					logger.warn("Fetch error", {
 						error: errorMessage,
 						usedProvider,
 						requestedProvider,
@@ -3768,7 +3785,7 @@ chat.openapi(completions, async (c) => {
 	// Handle fetch errors (timeout, connection failures, etc.)
 	if (fetchError) {
 		const errorMessage = fetchError.message;
-		logger.error("Fetch error", {
+		logger.warn("Fetch error", {
 			error: errorMessage,
 			usedProvider,
 			requestedProvider,

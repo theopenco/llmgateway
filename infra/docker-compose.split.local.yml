@@ -124,6 +124,7 @@ services:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
@@ -158,9 +159,41 @@ services:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
+      - CI=${CI}
+
+  # Admin Service
+  admin:
+    build:
+      context: ..
+      dockerfile: infra/split.dockerfile
+      target: admin
+    container_name: llmgateway-admin
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-3006}:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - API_URL=${API_URL:-http://localhost:4002}
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - CI=${CI}
 
   # Docs Service
@@ -190,6 +223,7 @@ services:
       - llmgateway-network
     environment:
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
+      - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - POSTHOG_KEY=${POSTHOG_KEY}
       - POSTHOG_HOST=${POSTHOG_HOST}

@@ -71,12 +71,6 @@ export function CreateApiKeyDialog({
 				onSuccess: (data) => {
 					const createdKey = data.apiKey;
 
-					const queryKey = api.queryOptions("get", "/keys/api", {
-						params: { query: { projectId: selectedProject.id } },
-					}).queryKey;
-
-					void queryClient.invalidateQueries({ queryKey });
-
 					posthog.capture("api_key_created", {
 						description: createdKey.description,
 						keyId: createdKey.id,
@@ -100,6 +94,12 @@ export function CreateApiKeyDialog({
 	const handleClose = () => {
 		setOpen(false);
 		setTimeout(() => {
+			const queryKey = api.queryOptions("get", "/keys/api", {
+				params: { query: { projectId: selectedProject.id } },
+			}).queryKey;
+
+			void queryClient.invalidateQueries({ queryKey });
+
 			setStep("form");
 			setName("");
 			setApiKey("");
