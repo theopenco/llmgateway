@@ -2137,6 +2137,43 @@ chat.openapi(completions, async (c) => {
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
+	// For Google providers, enrich messages with cached thought_signatures
+	// This is needed for multi-turn tool call conversations with Gemini 3+
+	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+		const { redisClient } = await import("@llmgateway/cache");
+		for (const message of messages) {
+			if (
+				message.role === "assistant" &&
+				message.tool_calls &&
+				Array.isArray(message.tool_calls)
+			) {
+				for (const toolCall of message.tool_calls) {
+					if (toolCall.id) {
+						try {
+							// Use redisClient.get directly since thought_signature is a plain string, not JSON
+							const cachedSignature = await redisClient.get(
+								`thought_signature:${toolCall.id}`,
+							);
+							if (cachedSignature) {
+								// Add to extra_content so transformGoogleMessages can find it
+								if (!(toolCall as any).extra_content) {
+									(toolCall as any).extra_content = {};
+								}
+								if (!(toolCall as any).extra_content.google) {
+									(toolCall as any).extra_content.google = {};
+								}
+								(toolCall as any).extra_content.google.thought_signature =
+									cachedSignature;
+							}
+						} catch {
+							// Silently fail - thought_signature is optional
+						}
+					}
+				}
+			}
+		}
+	}
+
 	const requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,

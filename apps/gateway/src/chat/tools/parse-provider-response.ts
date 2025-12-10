@@ -1,3 +1,4 @@
+import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
@@ -190,13 +191,24 @@ export function parseProviderResponse(
 								arguments: JSON.stringify(part.functionCall.args || {}),
 							},
 						};
-						// Include thoughtSignature in extra_content for client to pass back
+						// Cache thoughtSignature for multi-turn conversations (expires in 1 hour)
+						// This allows us to retrieve it when the client sends back the conversation history
 						if (part.thoughtSignature) {
 							toolCall.extra_content = {
 								google: {
 									thought_signature: part.thoughtSignature,
 								},
 							};
+							// Store in Redis for server-side retrieval since OpenAI SDKs don't preserve extra_content
+							redisClient
+								.setex(
+									`thought_signature:${toolCall.id}`,
+									3600,
+									part.thoughtSignature,
+								)
+								.catch((err) => {
+									logger.error("Failed to cache thought_signature", { err });
+								});
 						}
 						return toolCall;
 					}) || null;

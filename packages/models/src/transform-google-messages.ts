@@ -39,6 +39,8 @@ export async function transformGoogleMessages(
 	isProd = false,
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
+	// Map of tool_call IDs to their thought signatures (retrieved from cache at gateway level)
+	thoughtSignatureCache?: Map<string, string>,
 ): Promise<GoogleMessageExtended[]> {
 	const result: GoogleMessageExtended[] = [];
 
@@ -113,6 +115,12 @@ export async function transformGoogleMessages(
 					if (extraContent?.google?.thought_signature) {
 						functionCallPart.thoughtSignature =
 							extraContent.google.thought_signature;
+					} else if (thoughtSignatureCache && toolCall.id) {
+						// Retrieve from cache passed from gateway level
+						const cachedSignature = thoughtSignatureCache.get(toolCall.id);
+						if (cachedSignature) {
+							functionCallPart.thoughtSignature = cachedSignature;
+						}
 					}
 					parts.push(functionCallPart);
 				}
