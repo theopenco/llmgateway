@@ -203,7 +203,7 @@ export function parseProviderResponse(
 							redisClient
 								.setex(
 									`thought_signature:${toolCall.id}`,
-									3600,
+									86400, // 1 day expiration
 									part.thoughtSignature,
 								)
 								.catch((err) => {
