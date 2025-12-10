@@ -1,5 +1,6 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import type { InferInsertModel } from "@llmgateway/db";
 import type { log } from "@llmgateway/db";
@@ -126,6 +127,18 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 				logData.finishReason,
 				logData.usedProvider,
 			);
+
+			if (
+				logData.unifiedFinishReason === UnifiedFinishReason.UNKNOWN &&
+				logData.finishReason
+			) {
+				logger.error("Unknown finish reason encountered", {
+					requestId: logData.requestId,
+					finishReason: logData.finishReason,
+					provider: logData.usedProvider,
+					model: logData.usedModel,
+				});
+			}
 		}
 	}
 	await publishToQueue(LOG_QUEUE, logData);
