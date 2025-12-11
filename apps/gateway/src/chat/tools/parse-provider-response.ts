@@ -191,7 +191,7 @@ export function parseProviderResponse(
 								arguments: JSON.stringify(part.functionCall.args || {}),
 							},
 						};
-						// Cache thoughtSignature for multi-turn conversations (expires in 1 hour)
+						// Cache thoughtSignature for multi-turn conversations
 						// This allows us to retrieve it when the client sends back the conversation history
 						if (part.thoughtSignature) {
 							toolCall.extra_content = {
