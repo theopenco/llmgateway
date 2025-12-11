@@ -14,19 +14,19 @@ const comparisonData = [
 				title: "Free tier",
 				description: "Get started without upfront costs",
 				llmgateway:
-					"5% fee + Stripe (2.9% + $0.35) on credit purchases; 0% fee with own API key (Pro only)",
+					"5% fee + Stripe (2.9% + $0.35) on credit purchases (Free plan); 2.5% fee with Pro plan",
 				openrouter:
 					"5% fee + $0.35 per credit purchase; 5% fee still applies with own API key",
 			},
 			{
 				title: "Pro plan pricing",
 				description: "Monthly subscription cost",
-				llmgateway: "$50/month — zero gateway fee with credits or own API key",
+				llmgateway: "$50/month — 2.5% gateway fee (half the free plan rate)",
 				openrouter: "No subscription — always pay 5% fee",
 			},
 			{
-				title: "Zero usage fees",
-				description: "No additional fees when using your own API keys",
+				title: "Reduced usage fees",
+				description: "Lower fees on Pro plan (2.5% vs 5%)",
 				llmgateway: "Pro plan",
 				openrouter: false,
 			},
@@ -133,8 +133,7 @@ export function Comparison() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Zero gateway fees</strong> on Pro plan with your own API
-								keys
+								<strong>50% lower gateway fees</strong> on Pro plan (2.5% vs 5%)
 							</span>
 						</div>
 						<div className="flex items-start gap-2">

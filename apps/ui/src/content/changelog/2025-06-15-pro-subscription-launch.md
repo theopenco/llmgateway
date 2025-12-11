@@ -3,7 +3,7 @@ id: "4"
 slug: "pro-subscription-launch"
 date: "2025-06-15"
 title: "Pro Subscription Launch"
-summary: "Bring your own LLM provider keys or use credits with zero gateway fees. Includes premium analytics, higher rate limits, and priority email support."
+summary: "Bring your own LLM provider keys or use credits with reduced gateway fees (2.5% vs 5%). Includes premium analytics, higher rate limits, and priority email support."
 image:
   src: "/changelog/pricing.png"
   alt: "Pro subscription dashboard showing provider key management and billing controls"
@@ -13,11 +13,11 @@ image:
 
 ## Bring Your Own Provider Keys
 
-**0% LLM Gateway fees** when using your own OpenAI, Anthropic, Google AI Studio keys
+**Reduced Gateway fees** Just 2.5% (half the free plan rate) when using your own OpenAI, Anthropic, Google AI Studio keys
 
-**Direct cost control** Pay providers directly at their exact rates
+**Direct cost control** Pay providers directly at their rates
 
-**No markup** What you pay the provider is what you pay, period
+**Lower markup** 50% lower fees than the free plan
 
 **Full transparency** See exact provider costs in real-time
 
@@ -55,19 +55,19 @@ Choose the billing approach that works best for your team:
 
 Use our credit system with transparent pricing
 
-**Free plan**: 5% service fee | **Pro plan**: 0% gateway fees
+**Free plan**: 5% service fee | **Pro plan**: 2.5% gateway fees (50% discount)
 
 **API Keys Mode** (Pro only)
 
 Use your own provider API keys exclusively
 
-**Zero gateway fees** pay providers directly at their exact rates
+**Reduced gateway fees** just 2.5% (half the free plan rate)
 
 **Hybrid Mode** (Pro only)
 
 Best of both worlds use API keys with credit fallback
 
-**Zero fees on both** automatic switching based on availability and cost
+**2.5% fee on both** automatic switching based on availability and cost
 
 ---
 

@@ -113,11 +113,11 @@ Multi-dimensional analytics:
 
 ### Use Your Own API Keys
 
-The biggest Pro feature - use your own provider keys **without any surcharges**:
+The biggest Pro feature - use your own provider keys **with reduced fees**:
 
 **Direct cost control** Pay providers directly at their rates
 
-**0% LLM Gateway fees** No markup on your API key usage
+**2.5% LLM Gateway fees** Half the free plan rate on your API key usage
 
 **Hybrid mode** Automatic fallback to credits when keys hit limits
 

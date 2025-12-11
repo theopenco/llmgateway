@@ -59,8 +59,8 @@ export function Faq() {
 										for every request
 									</li>
 									<li>
-										<strong>Zero gateway fee</strong> on the $50 Pro plan when
-										you bring your own provider keys
+										<strong>Reduced gateway fee</strong> (2.5% vs 5%) on the $50
+										Pro plan
 									</li>
 									<li>
 										Flexible <strong>enterprise add‑ons</strong> (dedicated
@@ -137,9 +137,10 @@ export function Faq() {
 									</li>
 									<li>
 										<strong>Pro – $50/month:</strong> Bring your own LLM
-										provider keys <em>or</em> use credits with{" "}
-										<strong>zero</strong> gateway fee. Includes premium
-										analytics, higher rate limits, and priority email support.
+										provider keys <em>or</em> use credits with just a{" "}
+										<strong>2.5%</strong> gateway fee (half the free plan rate).
+										Includes premium analytics, higher rate limits, and priority
+										email support.
 									</li>
 									<li>
 										<strong>Enterprise:</strong> Custom SLA, dedicated

@@ -247,14 +247,12 @@ function AmountStep({
 								)}
 								{feeData.planFee > 0 && (
 									<div className="flex justify-between">
-										<span>Service fee (5% - Free plan)</span>
+										<span>
+											Service fee (
+											{organization?.plan === "pro" ? "2.5%" : "5%"} -{" "}
+											{organization?.plan === "pro" ? "Pro" : "Free"} plan)
+										</span>
 										<span>${feeData.planFee.toFixed(2)}</span>
-									</div>
-								)}
-								{organization?.plan === "pro" && (
-									<div className="flex justify-between text-green-600">
-										<span>Service fee (Pro plan)</span>
-										<span>$0.00</span>
 									</div>
 								)}
 								<div className="border-t pt-1 flex justify-between font-medium">
