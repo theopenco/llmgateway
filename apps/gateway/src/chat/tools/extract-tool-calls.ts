@@ -1,3 +1,6 @@
+import { redisClient } from "@llmgateway/cache";
+import { logger } from "@llmgateway/logger";
+
 import type { Provider } from "@llmgateway/models";
 
 /**
@@ -63,6 +66,22 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 									thought_signature: part.thoughtSignature,
 								},
 							};
+							// Cache thoughtSignature in Redis for server-side retrieval in multi-turn conversations
+							// This is especially important when OpenAI SDKs don't preserve extra_content
+							redisClient
+								.setex(
+									`thought_signature:${toolCall.id}`,
+									86400, // 1 day expiration
+									part.thoughtSignature,
+								)
+								.catch((err) => {
+									logger.error(
+										"Failed to cache thought_signature in streaming",
+										{
+											err,
+										},
+									);
+								});
 						}
 						return toolCall;
 					}) || null
