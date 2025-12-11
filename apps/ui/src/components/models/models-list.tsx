@@ -100,7 +100,7 @@ export function ModelsList() {
 
 								return (
 									<div
-										key={provider.providerId}
+										key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 										className="flex items-center gap-1"
 									>
 										<Badge
@@ -160,7 +160,10 @@ export function ModelsList() {
 						</div>
 						<div className="text-sm">
 							{model.providers.map((provider) => (
-								<div key={provider.providerId} className="mt-2">
+								<div
+									key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+									className="mt-2"
+								>
 									<div className="font-medium">{provider.providerId}:</div>
 									{provider.contextSize && (
 										<div>

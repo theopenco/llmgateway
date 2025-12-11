@@ -254,7 +254,7 @@ export function MultiModelSelector({
 									<div className="flex items-center gap-2">
 										{model.providers.map((provider) => (
 											<div
-												key={provider.providerId}
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="w-3 h-3 rounded-full"
 												style={{
 													backgroundColor: provider.providerInfo?.color,

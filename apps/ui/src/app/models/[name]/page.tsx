@@ -324,7 +324,7 @@ export default async function ModelPage({ params }: PageProps) {
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
 							{modelProviders.map((provider) => (
 								<ModelProviderCard
-									key={provider.providerId}
+									key={`${provider.providerId}-${provider.modelName}-${decodedName}`}
 									provider={provider}
 									modelName={decodedName}
 									modelStability={modelDef.stability}

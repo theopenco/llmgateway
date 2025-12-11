@@ -175,7 +175,7 @@ export function ModelCard({
 
 							return (
 								<div
-									key={provider.providerId}
+									key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 									className="p-3 rounded-lg bg-muted/50 border space-y-3"
 								>
 									<div className="flex items-center gap-2">

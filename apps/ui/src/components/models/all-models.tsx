@@ -707,7 +707,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									color: "text-red-500",
 								},
 							].map(({ key, label, icon: Icon, color }) => (
-								<div key={key} className="flex items-center space-x-2">
+								<div
+									key={`${key}-${label}`}
+									className="flex items-center space-x-2"
+								>
 									<Checkbox
 										id={key}
 										checked={
@@ -763,7 +766,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								{providers.map((provider) => {
 									const ProviderIcon = getProviderIcon(provider.id);
 									return (
-										<SelectItem key={provider.id} value={provider.id}>
+										<SelectItem
+											key={`${provider.id}-${provider.name}`}
+											value={provider.id}
+										>
 											<div className="flex items-center gap-2">
 												{ProviderIcon && <ProviderIcon className="h-4 w-4" />}
 												<span>{provider.name}</span>
@@ -959,7 +965,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					<TableBody>
 						{modelsWithProviders.map((model) => (
 							<TableRow
-								key={model.id}
+								key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
 								className="cursor-pointer hover:bg-muted/50 transition-colors"
 								onClick={() =>
 									router.push(`/models/${encodeURIComponent(model.id)}`)
@@ -1026,7 +1032,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="flex flex-col flex-wrap gap-2">
 										{model.providerDetails.map(({ provider, providerInfo }) => (
 											<div
-												key={provider.providerId}
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="flex items-center gap-1"
 											>
 												<div className="w-5 h-5 flex items-center justify-center">
@@ -1069,7 +1075,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								<TableCell className="text-center">
 									<div className="space-y-1">
 										{model.providerDetails.map(({ provider }) => (
-											<div key={provider.providerId} className="text-sm">
+											<div
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+												className="text-sm"
+											>
 												{provider.contextSize
 													? formatContextSize(provider.contextSize)
 													: "—"}
@@ -1082,7 +1091,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="space-y-1">
 										{model.providerDetails.map(({ provider }) => (
 											<div
-												key={provider.providerId}
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="text-sm font-mono"
 											>
 												{typeof formatPrice(
@@ -1109,7 +1118,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="space-y-1">
 										{model.providerDetails.map(({ provider }) => (
 											<div
-												key={provider.providerId}
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="text-sm font-mono"
 											>
 												{typeof formatPrice(
@@ -1138,7 +1147,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="space-y-1">
 										{model.providerDetails.map(({ provider }) => (
 											<div
-												key={provider.providerId}
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="text-sm font-mono"
 											>
 												{typeof formatPrice(
@@ -1165,12 +1174,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									<div className="space-y-2">
 										{model.providerDetails.map(({ provider }) => (
 											<div
-												key={provider.providerId}
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="flex justify-center gap-1"
 											>
 												{getCapabilityIcons(provider, model).map(
 													({ icon: Icon, label, color }) => (
-														<Tooltip key={label}>
+														<Tooltip key={`${label}-${model.id}`}>
 															<TooltipTrigger asChild>
 																<div
 																	className="cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-0.5 -m-0.5"
@@ -1248,7 +1257,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 			{modelsWithProviders.map((model) => (
 				<ModelCard
-					key={model.id}
+					key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
 					shouldShowStabilityWarning={shouldShowStabilityWarning}
 					getCapabilityIcons={getCapabilityIcons}
 					model={model}

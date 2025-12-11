@@ -2,6 +2,7 @@
 
 import {
 	AlertCircle,
+	ArrowLeft,
 	Check,
 	Copy,
 	DollarSign,
@@ -199,7 +200,8 @@ export function ReferralDialog({
 									size="sm"
 									className="w-full justify-center text-xs text-muted-foreground underline underline-offset-4 sm:w-auto"
 									onClick={() => {
-										router.push(buildOrgUrl("/settings/referral"));
+										router.push(buildOrgUrl("/org/referrals"));
+										setOpen(false);
 									}}
 								>
 									Manage referral settings
@@ -218,11 +220,8 @@ export function ReferralDialog({
 									className="h-7 w-7 -ml-1"
 									onClick={() => setMode("overview")}
 								>
-									<AlertCircle className="h-4 w-4" />
+									<ArrowLeft className="h-4 w-4" />
 								</Button>
-								<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-									<DollarSign className="h-5 w-5 text-primary" />
-								</div>
 							</div>
 							<DialogTitle className="text-xl font-bold">
 								See your credits stack
