@@ -1,0 +1,141 @@
+---
+title: Cline Integration
+description: Use LLM Gateway with Cline for AI-powered coding assistance in VS Code
+icon: Cline
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Cline](https://cline.bot) is an autonomous AI coding assistant that lives in your VS Code editor. It can create and edit files, run terminal commands, and help you build complex projects. You can configure Cline to use LLM Gateway for access to multiple AI providers with unified billing and cost tracking.
+
+## Prerequisites
+
+- VS Code based IDE installed
+- An LLM Gateway API key
+
+## Setup
+
+Cline supports OpenAI-compatible API endpoints, making it straightforward to integrate with LLM Gateway.
+
+<Steps>
+<Step>
+### Install Cline Extension
+
+1. Open VS Code
+2. Go to the Extensions view (Cmd/Ctrl + Shift + X)
+3. Search for "Cline"
+4. Click **Install** on the Cline extension
+
+![Install Cline Extension](/guides/cline/clineinstall.webp)
+
+</Step>
+
+<Step>
+### Open Cline Settings
+
+1. Click on the Cline icon in the VS Code sidebar
+2. Click the settings gear icon in the Cline panel
+
+![Cline Settings](/guides/cline/configure%20model.webp)
+
+</Step>
+
+<Step>
+### Configure API Provider
+
+1. In the API Provider dropdown, select **OpenAI Compatible**
+2. Enter the following details:
+   - **Base URL**: `https://api.llmgateway.io/v1`
+   - **API Key**: Your LLM Gateway API key
+   - **Model ID**: Choose a model (e.g., `claude-opus-4-5-20251101`, `gpt-5.2`, `gemini-3-pro-preview`, `deepseek-3.2`). See [provider-specific routing](/features/routing#provider-specific-routing) for more options.
+
+![Configure API Provider](/guides/cline/modelsetup.webp)
+
+</Step>
+
+<Step>
+### Test the Integration
+
+1. Open a project in VS Code
+2. Click on the Cline icon in the sidebar
+3. Type a message like "Create a hello world function in Python"
+4. Cline should respond and offer to create the file
+
+![Test Cline](/guides/cline/clineexec.webp)
+
+All requests will now be routed through LLM Gateway.
+
+</Step>
+</Steps>
+
+## Recommended Models
+
+Different models excel at different tasks. Here are some recommendations:
+
+| Use Case              | Recommended Models                                                 |
+| --------------------- | ------------------------------------------------------------------ |
+| Complex coding tasks  | `claude-opus-4-5-20251101`, `gpt-5.2`, `gemini-3-pro-preview`      |
+| Quick edits           | `claude-sonnet-4-5`, `grok-code-fast-1`                            |
+| Reasoning-heavy tasks | `claude-opus-4-5-20251101`, `deepseek-3.2`, `gemini-3-pro-preview` |
+| Cost-effective        | `deepseek-3.2`, `grok-code-fast-1`                                 |
+
+<Callout type="info">
+	View all available models on the [models page](https://llmgateway.io/models).
+</Callout>
+
+## Features
+
+Once configured, you can use all of Cline's features with LLM Gateway:
+
+### Autonomous Coding
+
+- Create new files and projects from scratch
+- Edit existing code based on natural language instructions
+- Refactor and improve code quality
+
+### Terminal Commands
+
+- Run build commands, tests, and scripts
+- Install dependencies
+- Execute any terminal operation
+
+### File Management
+
+- Create, read, and modify files
+- Navigate your codebase
+- Search for relevant code
+
+## Model Selection Tips
+
+### Using Provider-Specific Models
+
+To use a specific provider's version of a model, prefix the model ID with the provider name:
+
+- `openai/gpt-5.2` - OpenAI's GPT-5.2
+- `anthropic/claude-opus-4-5-20251101` - Anthropic's Claude Opus
+- `anthropic/claude-sonnet-4-5` - Anthropic's Claude Sonnet
+- `google/gemini-3-pro-preview` - Google's Gemini 3
+- `deepseek/deepseek-3.2` - DeepSeek 3.2
+- `x-ai/grok-code-fast-1` - xAI's Grok Code
+
+### Using Discounted Models
+
+LLM Gateway offers discounted access to some models. Find them on the [models page](https://llmgateway.io/models?view=grid&filters=1&discounted=true) and copy the model ID.
+
+### Using Free Models
+
+Some models are available for free. Browse them on the [models page](https://llmgateway.io/models?view=grid&filters=1&free=true).
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
+
+## Benefits of Using LLM Gateway with Cline
+
+- **Multi-Provider Access**: Use models from OpenAI, Anthropic, Google, and more through a single API
+- **Cost Control**: Track and limit your AI spending with detailed usage analytics
+- **Unified Billing**: One account for all providers instead of managing multiple API keys
+- **Caching**: Reduce costs with response caching for repeated requests
+- **Analytics**: Monitor usage patterns and costs in the dashboard
