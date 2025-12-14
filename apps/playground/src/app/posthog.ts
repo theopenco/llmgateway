@@ -5,14 +5,16 @@ import { getConfig } from "@/lib/config-server";
 export default function PostHogClient() {
 	const config = getConfig();
 
-	if (!config.posthogKey) {
+	if (
+		!config.posthogKey ||
+		!config.posthogHost ||
+		process.env.NODE_ENV !== "production"
+	) {
 		return null;
 	}
 
 	const posthogClient = new PostHog(config.posthogKey!, {
 		host: config.posthogHost,
-		flushAt: 1,
-		flushInterval: 0,
 	});
 	return posthogClient;
 }
