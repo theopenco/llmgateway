@@ -7,6 +7,9 @@ export interface AdminDashboardMetrics {
 	totalSignups: number;
 	verifiedUsers: number;
 	payingCustomers: number;
+	revenuePerCustomerPerMonth: number;
+	peakLoadSuccessRate: number;
+	customerInfraReplacementRate: number;
 }
 
 export async function getAdminDashboardMetrics(): Promise<AdminDashboardMetrics | null> {

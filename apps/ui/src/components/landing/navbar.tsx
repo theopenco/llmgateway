@@ -1,6 +1,6 @@
 "use client";
 
-import { Github, Menu, X } from "lucide-react";
+import { ChevronDown, Github, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -143,6 +143,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 
 	const [menuState, setMenuState] = useState(false);
 	const [isScrolled, setIsScrolled] = useState(false);
+	const [isMobileResourcesOpen, setIsMobileResourcesOpen] = useState(false);
 
 	useEffect(() => {
 		const handleScroll = () => {
@@ -314,22 +315,41 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 									</li>
 
 									<li className="space-y-2">
-										<div className="text-muted-foreground text-sm font-medium">
-											Resources
-										</div>
-										<ul className="space-y-3 pl-4">
-											{resourcesItems.map((item, index) => (
-												<li key={index}>
-													<Link
-														href={item.href as Route}
-														className="text-muted-foreground hover:text-accent-foreground block duration-150"
-														prefetch={true}
-													>
-														{item.name}
-													</Link>
-												</li>
-											))}
-										</ul>
+										<button
+											type="button"
+											onClick={() => setIsMobileResourcesOpen((prev) => !prev)}
+											className="flex w-full items-center justify-between gap-2 text-left"
+											aria-expanded={isMobileResourcesOpen}
+											aria-controls="mobile-resources-menu"
+										>
+											<span className="text-muted-foreground text-sm font-medium">
+												Resources
+											</span>
+											<ChevronDown
+												className={cn(
+													"h-4 w-4 text-muted-foreground transition-transform duration-200",
+													isMobileResourcesOpen && "rotate-180",
+												)}
+											/>
+										</button>
+										{isMobileResourcesOpen ? (
+											<ul
+												id="mobile-resources-menu"
+												className="space-y-3 pl-4 pt-1"
+											>
+												{resourcesItems.map((item, index) => (
+													<li key={index}>
+														<Link
+															href={item.href as Route}
+															className="text-muted-foreground hover:text-accent-foreground block duration-150"
+															prefetch={true}
+														>
+															{item.name}
+														</Link>
+													</li>
+												))}
+											</ul>
+										) : null}
 									</li>
 
 									{/* Mobile Social Icons */}
