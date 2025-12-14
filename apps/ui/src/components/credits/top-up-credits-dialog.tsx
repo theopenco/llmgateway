@@ -394,11 +394,22 @@ function PaymentStep({
 			}
 		} catch (error) {
 			console.error("Payment error:", error);
-			toast({
-				title: "Payment Failed",
-				description: "An error occurred while processing your payment.",
-				variant: "destructive",
-			});
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			if (errorMessage.includes("Email verification required")) {
+				toast({
+					title: "Email Verification Required",
+					description:
+						"Please verify your email address before purchasing credits.",
+					variant: "destructive",
+				});
+			} else {
+				toast({
+					title: "Payment Failed",
+					description: "An error occurred while processing your payment.",
+					variant: "destructive",
+				});
+			}
 			setLoading(false);
 		}
 	};
@@ -652,11 +663,22 @@ function ConfirmPaymentStep({
 			onSuccess();
 		} catch (error) {
 			console.error("Payment error:", error);
-			toast({
-				title: "Payment Failed",
-				description: "An error occurred while processing your payment.",
-				variant: "destructive",
-			});
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			if (errorMessage.includes("Email verification required")) {
+				toast({
+					title: "Email Verification Required",
+					description:
+						"Please verify your email address before purchasing credits.",
+					variant: "destructive",
+				});
+			} else {
+				toast({
+					title: "Payment Failed",
+					description: "An error occurred while processing your payment.",
+					variant: "destructive",
+				});
+			}
 			setLoading(false);
 		}
 	};

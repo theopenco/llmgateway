@@ -54,6 +54,13 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		});
 	}
 
+	// Require email verification before subscribing to pro
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message: "Email verification required",
+		});
+	}
+
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
 			userId: user.id,
