@@ -133,6 +133,22 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "cerebras",
+		name: "Cerebras",
+		description:
+			"Cerebras high-performance inference with ultra-fast throughput",
+		env: {
+			required: {
+				apiKey: "LLM_CEREBRAS_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6b46c1",
+		website: "https://cerebras.ai",
+		announcement: null,
+	},
+	{
 		id: "xai",
 		name: "xAI",
 		description: "xAI's Grok large language models",

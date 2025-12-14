@@ -534,6 +534,21 @@ export const openaiModels = [
 				jsonOutput: true,
 			},
 			{
+				// Cerebras: FP16/FP8 (weights only)
+				providerId: "cerebras",
+				modelName: "gpt-oss-120b",
+				inputPrice: 0.35 / 1e6,
+				outputPrice: 0.75 / 1e6,
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 32768,
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: true,
+			},
+			{
 				test: "skip",
 				providerId: "nanogpt",
 				modelName: "openai/gpt-oss-120b",
