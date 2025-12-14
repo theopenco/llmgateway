@@ -63,6 +63,21 @@ export const metaModels = [
 				tools: true,
 				jsonOutput: false,
 			},
+			{
+				// Cerebras: FP16
+				providerId: "cerebras",
+				modelName: "llama3.1-8b",
+				inputPrice: 0.1 / 1e6,
+				outputPrice: 0.1 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				// Note: Tool calling is unreliable for llama3.1-8b on Cerebras
+				tools: false,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -171,6 +186,20 @@ export const metaModels = [
 				modelName: "meta-llama/Llama-3.3-70B-Instruct",
 				inputPrice: 0.13 / 1e6,
 				outputPrice: 0.4 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				// Cerebras: FP16
+				providerId: "cerebras",
+				modelName: "llama-3.3-70b",
+				inputPrice: 0.85 / 1e6,
+				outputPrice: 1.2 / 1e6,
 				requestPrice: 0,
 				contextSize: 128000,
 				maxOutput: undefined,

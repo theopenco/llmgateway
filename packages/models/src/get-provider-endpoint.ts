@@ -74,6 +74,9 @@ export function getProviderEndpoint(
 			case "groq":
 				url = "https://api.groq.com/openai";
 				break;
+			case "cerebras":
+				url = "https://api.cerebras.ai";
+				break;
 			case "deepseek":
 				url = "https://api.deepseek.com";
 				break;
@@ -277,6 +280,7 @@ export function getProviderEndpoint(
 		case "cloudrift":
 		case "xai":
 		case "groq":
+		case "cerebras":
 		case "deepseek":
 		case "moonshot":
 		case "alibaba":

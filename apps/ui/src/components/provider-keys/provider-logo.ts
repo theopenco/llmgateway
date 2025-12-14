@@ -28,6 +28,7 @@ export const providerLogoUrls: Partial<
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	canopywave: ProviderIcons.canopywave,
+	cerebras: ProviderIcons.cerebras,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

@@ -80,7 +80,7 @@ export function useUser(options?: UseUserOptions) {
 		const { redirectTo, redirectWhen, checkOnboarding } = options;
 		const hasUser = !!data?.user;
 
-		if (redirectWhen === "authenticated" && hasUser) {
+		if (redirectWhen === "authenticated" && hasUser && !isLoading && !error) {
 			if (checkOnboarding && !data.user.onboardingCompleted) {
 				router.push("/onboarding");
 			} else {

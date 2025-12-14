@@ -1,4 +1,11 @@
-import { ArrowUpRight, CircleDollarSign, Coins, Users } from "lucide-react";
+import {
+	Activity,
+	ArrowUpRight,
+	CircleDollarSign,
+	Coins,
+	Server,
+	Users,
+} from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +21,15 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+	style: "percent",
+	maximumFractionDigits: 1,
+});
+
+function safeNumber(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
 
 function MetricCard({
 	label,
@@ -43,7 +59,7 @@ function MetricCard({
 				{icon ? (
 					<div
 						className={cn(
-							"inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs",
+							"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
 							accent === "green" &&
 								"border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 							accent === "blue" &&
@@ -145,6 +161,33 @@ export default async function Page() {
 					value={numberFormatter.format(metrics.payingCustomers)}
 					subtitle="Organizations with at least one completed transaction"
 					icon={<Users className="h-4 w-4" />}
+					accent="purple"
+				/>
+				<MetricCard
+					label="$ / Customer / Month"
+					value={currencyFormatter.format(
+						safeNumber(metrics.revenuePerCustomerPerMonth),
+					)}
+					subtitle="Average monthly revenue per active paying customer (last 30 days)"
+					icon={<CircleDollarSign className="h-4 w-4" />}
+					accent="green"
+				/>
+				<MetricCard
+					label="Requests Under Peak Load"
+					value={percentFormatter.format(
+						safeNumber(metrics.peakLoadSuccessRate),
+					)}
+					subtitle="Share of successful requests in the last 24 hours"
+					icon={<Activity className="h-4 w-4" />}
+					accent="blue"
+				/>
+				<MetricCard
+					label="CIRR (Customer Infra Replacement Rate)"
+					value={percentFormatter.format(
+						safeNumber(metrics.customerInfraReplacementRate),
+					)}
+					subtitle="Weighted metric combining % of LLM traffic routed through LLM Gateway and % of infra control-plane features replaced"
+					icon={<Server className="h-4 w-4" />}
 					accent="purple"
 				/>
 			</section>

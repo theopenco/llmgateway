@@ -17,7 +17,10 @@ export function getTestOptions(
 		),
 	);
 	return process.env.CI || opts?.completions
-		? { retry: process.env.CI ? 3 : 0 }
+		? {
+				retry: process.env.CI ? 3 : 0,
+				timeout: process.env.CI ? 180000 : 60000,
+			}
 		: { skip: hasTestOnly || !!process.env.TEST_MODELS };
 }
 

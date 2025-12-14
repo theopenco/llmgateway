@@ -821,6 +821,63 @@ export interface paths {
                             totalSignups: number;
                             verifiedUsers: number;
                             payingCustomers: number;
+                            revenuePerCustomerPerMonth: number;
+                            peakLoadSuccessRate: number;
+                            customerInfraReplacementRate: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "7d" | "30d";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Admin token usage metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "7d" | "30d";
+                            startDate: string;
+                            endDate: string;
+                            totalRequests: number;
+                            totalTokens: number;
+                            totalCost: number;
+                            inputTokens: number;
+                            inputCost: number;
+                            outputTokens: number;
+                            outputCost: number;
+                            cachedTokens: number;
+                            cachedCost: number;
+                            mostUsedModel: string | null;
+                            mostUsedProvider: string | null;
+                            mostUsedModelRequestCount: number;
                         };
                     };
                 };

@@ -23,13 +23,13 @@ export interface ProviderEnvResult {
 export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
 	const envVar = getProviderEnvVar(usedProvider);
 	if (!envVar) {
-		throw new HTTPException(400, {
+		throw new HTTPException(500, {
 			message: `No environment variable set for provider: ${usedProvider}`,
 		});
 	}
 	const envValue = process.env[envVar];
 	if (!envValue) {
-		throw new HTTPException(400, {
+		throw new HTTPException(500, {
 			message: `No API key set in environment for provider: ${usedProvider}`,
 		});
 	}
@@ -42,7 +42,7 @@ export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
 				continue;
 			} // Already validated above
 			if (!process.env[envVarName]) {
-				throw new HTTPException(400, {
+				throw new HTTPException(500, {
 					message: `${envVarName} environment variable is required for ${usedProvider} provider`,
 				});
 			}
