@@ -59,7 +59,7 @@ function MetricCard({
 				{icon ? (
 					<div
 						className={cn(
-							"inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs",
+							"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
 							accent === "green" &&
 								"border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 							accent === "blue" &&
@@ -182,11 +182,11 @@ export default async function Page() {
 					accent="blue"
 				/>
 				<MetricCard
-					label="Customer Infra Replacement Rate"
+					label="CIRR (Customer Infra Replacement Rate)"
 					value={percentFormatter.format(
 						safeNumber(metrics.customerInfraReplacementRate),
 					)}
-					subtitle="Organizations retaining LLMGateway as core infra"
+					subtitle="Weighted metric combining % of LLM traffic routed through LLM Gateway and % of infra control-plane features replaced"
 					icon={<Server className="h-4 w-4" />}
 					accent="purple"
 				/>
