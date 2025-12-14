@@ -186,6 +186,7 @@ export const zaiModels = [
 			{
 				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
+				stability: "unstable",
 				modelName: "zai-glm-4.6",
 				inputPrice: 2.25 / 1e6,
 				outputPrice: 2.75 / 1e6,
