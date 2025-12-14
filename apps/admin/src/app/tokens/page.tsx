@@ -93,7 +93,7 @@ export default async function TokensPage({
 }: {
 	searchParams?: Promise<{ window?: string }>;
 }) {
-	const params = await searchParams
+	const params = await searchParams;
 	const windowParam =
 		params?.window === "30d" || params?.window === "7d"
 			? (params.window as TokenWindow)
