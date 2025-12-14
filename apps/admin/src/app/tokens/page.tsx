@@ -91,11 +91,12 @@ function SignInPrompt() {
 export default async function TokensPage({
 	searchParams,
 }: {
-	searchParams?: { window?: string };
+	searchParams?: Promise<{ window?: string }>;
 }) {
+	const params = await searchParams
 	const windowParam =
-		searchParams?.window === "30d" || searchParams?.window === "7d"
-			? (searchParams.window as TokenWindow)
+		params?.window === "30d" || params?.window === "7d"
+			? (params.window as TokenWindow)
 			: "7d";
 
 	const metrics = await getAdminTokenMetrics(windowParam);
