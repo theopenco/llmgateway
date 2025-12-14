@@ -5,6 +5,7 @@ import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 
+import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
@@ -646,6 +647,31 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 								},
 							},
 						);
+					}
+
+					// Validate email for blocked domains and + sign
+					const body = ctx.body as { email?: string } | undefined;
+					if (body?.email) {
+						const emailValidation = validateEmail(body.email);
+						if (!emailValidation.valid) {
+							logger.warn("Signup blocked due to invalid email", {
+								ip: ipAddress,
+								reason: emailValidation.reason,
+							});
+
+							return new Response(
+								JSON.stringify({
+									error: "invalid_email",
+									message: emailValidation.message,
+								}),
+								{
+									status: 400,
+									headers: {
+										"Content-Type": "application/json",
+									},
+								},
+							);
+						}
 					}
 				}
 				return;

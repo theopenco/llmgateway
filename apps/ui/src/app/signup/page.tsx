@@ -28,9 +28,14 @@ const formSchema = z.object({
 	name: z.string().min(2, {
 		message: "Name is required",
 	}),
-	email: z.string().email({
-		message: "Please enter a valid email address",
-	}),
+	email: z
+		.string()
+		.email({
+			message: "Please enter a valid email address",
+		})
+		.refine((email) => !email.split("@")[0]?.includes("+"), {
+			message: "Email addresses with '+' are not allowed",
+		}),
 	password: z.string().min(8, {
 		message: "Password must be at least 8 characters",
 	}),
