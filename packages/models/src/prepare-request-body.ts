@@ -781,6 +781,48 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "cerebras": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				// Cerebras requires strict: true for json_schema mode
+				if (response_format.type === "json_schema") {
+					requestBody.response_format = {
+						...response_format,
+						json_schema: {
+							...response_format.json_schema,
+							strict: true,
+						},
+					};
+				} else {
+					requestBody.response_format = response_format;
+				}
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
