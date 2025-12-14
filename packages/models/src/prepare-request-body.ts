@@ -802,6 +802,16 @@ export async function prepareRequestBody(
 				}
 			}
 
+			// Cerebras requires strict: true inside each tool's function object
+			if (requestBody.tools && Array.isArray(requestBody.tools)) {
+				requestBody.tools = requestBody.tools.map((tool: any) => ({
+					...tool,
+					function: {
+						...tool.function,
+						strict: true,
+					},
+				}));
+			}
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;

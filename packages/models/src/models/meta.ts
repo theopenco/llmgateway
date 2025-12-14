@@ -74,7 +74,8 @@ export const metaModels = [
 				maxOutput: undefined,
 				streaming: true,
 				vision: false,
-				tools: true,
+				// Note: Tool calling is unreliable for llama3.1-8b on Cerebras
+				tools: false,
 				jsonOutput: true,
 			},
 		],
