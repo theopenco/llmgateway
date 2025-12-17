@@ -1199,7 +1199,6 @@ export const ProviderIcons = {
 	nebius: NebiusIcon,
 	zai: ZaiIcon,
 	routeway: RoutewayIcon,
-	"routeway-discount": RoutewayIcon,
 	nanogpt: NanoGPTIcon,
 	"aws-bedrock": AWSBedrockIcon,
 	azure: AzureIcon,

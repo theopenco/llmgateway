@@ -101,9 +101,6 @@ export function getProviderEndpoint(
 			case "routeway":
 				url = "https://api.routeway.ai";
 				break;
-			case "routeway-discount":
-				url = getProviderEnvValue("routeway-discount", "baseUrl", configIndex);
-				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
 				break;
@@ -286,7 +283,6 @@ export function getProviderEndpoint(
 		case "alibaba":
 		case "nebius":
 		case "routeway":
-		case "routeway-discount":
 		case "nanogpt":
 		case "canopywave":
 		case "custom":
