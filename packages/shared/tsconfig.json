@@ -2,6 +2,7 @@
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
 		"baseUrl": ".",
+		"rootDir": "./src",
 		"target": "es5",
 		"lib": ["dom", "dom.iterable", "esnext"],
 		"allowJs": true,
@@ -14,11 +15,12 @@
 		"isolatedModules": true,
 		"jsx": "react-jsx",
 		"incremental": true,
+		"declaration": true,
 		"outDir": "./dist/",
 		"paths": {
 			"@/*": ["./src/*"]
 		}
 	},
 	"include": ["./src/**/*.ts", "./src/**/*.tsx"],
-	"exclude": ["node_modules"]
+	"exclude": ["node_modules", "dist"]
 }
