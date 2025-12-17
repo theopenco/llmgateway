@@ -4,8 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Shield, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import { MultiModelSelector } from "@/components/api-keys/multi-model-selector";
-import { MultiProviderSelector } from "@/components/api-keys/multi-provider-selector";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -35,6 +33,12 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
+import { models, providers } from "@llmgateway/models";
+import {
+	MultiModelSelector,
+	MultiProviderSelector,
+} from "@llmgateway/shared/components";
 
 import type { ApiKey } from "@/lib/types";
 
@@ -282,11 +286,13 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 								<div>
 									<Label htmlFor="models">Models</Label>
 									<MultiModelSelector
+										models={models}
+										providers={providers}
 										selectedModels={newRule.models}
-										onModelsChange={(models) =>
+										onModelsChange={(selectedModels) =>
 											setNewRule((prev) => ({
 												...prev,
-												models,
+												models: selectedModels,
 											}))
 										}
 										placeholder="Select models..."
@@ -299,11 +305,12 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 								<div>
 									<Label htmlFor="providers">Providers</Label>
 									<MultiProviderSelector
+										providers={providers}
 										selectedProviders={newRule.providers}
-										onProvidersChange={(providers) =>
+										onProvidersChange={(selectedProviders) =>
 											setNewRule((prev) => ({
 												...prev,
-												providers,
+												providers: selectedProviders,
 											}))
 										}
 										placeholder="Select providers..."

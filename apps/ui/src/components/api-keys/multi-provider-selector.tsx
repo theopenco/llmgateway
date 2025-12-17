@@ -3,7 +3,6 @@
 import { Check, ChevronDown, X } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 
-import { providerLogoUrls } from "@/components/provider-keys/provider-logo";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -15,6 +14,7 @@ import {
 import { Input } from "@/lib/components/input";
 
 import { providers } from "@llmgateway/models";
+import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import type { ProviderId } from "@llmgateway/models";
 

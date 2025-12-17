@@ -1,5 +1,5 @@
 "use client";
-import { providerLogoUrls } from "@/components/provider-keys/provider-logo";
+
 import {
 	Select,
 	SelectContent,
@@ -7,6 +7,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+
+import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import type { ProviderId } from "@llmgateway/models";
 

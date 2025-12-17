@@ -15,7 +15,6 @@ import { useState } from "react";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
-import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Tooltip,
 	TooltipContent,
@@ -23,6 +22,8 @@ import {
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
 import { formatContextSize } from "@/lib/utils";
+
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 import type {
 	ProviderModelMapping,

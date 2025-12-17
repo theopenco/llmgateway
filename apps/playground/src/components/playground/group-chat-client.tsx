@@ -6,15 +6,16 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useRef } from "react";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
-import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
 import { GroupChatUI } from "@/components/playground/group-chat-ui";
-import { getProviderIcon } from "@/components/provider-icons";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { mapModels } from "@/lib/mapmodels";
+
+import { getProviderIcon } from "@llmgateway/shared/components";
+import { ModelSelector } from "@llmgateway/shared/components";
 
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";

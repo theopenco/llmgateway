@@ -1,4 +1,3 @@
-import { providerLogoUrls } from "@/components/provider-keys/provider-logo";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import Logo from "@/lib/icons/Logo";
@@ -7,6 +6,7 @@ import {
 	providers as providerDefinitions,
 	type ProviderId,
 } from "@llmgateway/models";
+import { providerLogoUrls } from "@llmgateway/shared/components";
 
 interface HeroProps {
 	providerId: ProviderId;

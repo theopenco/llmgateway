@@ -17,7 +17,6 @@ import { useState } from "react";
 
 import { ModelCard } from "@/components/models/model-card";
 import { Button } from "@/lib/components/button";
-import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Select,
 	SelectContent,
@@ -36,8 +35,10 @@ import {
 	type ProviderId,
 	type StabilityLevel,
 } from "@llmgateway/models";
-
-import { providerLogoUrls } from "./provider-keys/provider-logo";
+import {
+	getProviderIcon,
+	providerLogoUrls,
+} from "@llmgateway/shared/components";
 
 interface ModelWithProviders extends ModelDefinition {
 	providerDetails: Array<{
@@ -383,9 +384,9 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 								</span>
 							</Link>
 							<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-								{models.map((model) => (
+								{models.map((model, index) => (
 									<ModelCard
-										key={`${model.providerDetails[0].provider.providerId}-${model.id}`}
+										key={`${model.providerDetails[0].provider.providerId}-${model.id}-${index}`}
 										model={model}
 										shouldShowStabilityWarning={shouldShowStabilityWarning}
 										getCapabilityIcons={getCapabilityIcons}

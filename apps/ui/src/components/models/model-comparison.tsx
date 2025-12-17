@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React, { useMemo, type ReactNode, useRef, useState } from "react";
 
-import { ModelSelector as PlaygroundModelSelector } from "@/components/models/playground-model-selector";
+import { ModelSelector } from "@/components/models/playground-model-selector";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -725,7 +725,7 @@ export function ModelComparison() {
 							<div className="text-sm font-medium text-muted-foreground">
 								Model A
 							</div>
-							<PlaygroundModelSelector
+							<ModelSelector
 								models={models}
 								providers={providerDefinitions}
 								value={
@@ -752,7 +752,7 @@ export function ModelComparison() {
 							<div className="text-sm font-medium text-muted-foreground">
 								Model B
 							</div>
-							<PlaygroundModelSelector
+							<ModelSelector
 								models={models}
 								providers={providerDefinitions}
 								value={

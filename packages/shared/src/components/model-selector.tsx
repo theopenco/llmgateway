@@ -25,7 +25,11 @@ import {
 } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon, providerLogoUrls } from "./provider-icons";
+import {
+	getProviderIcon,
+	providerLogoUrls,
+} from "@llmgateway/shared/components";
+
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -328,12 +332,6 @@ export function ModelSelector({
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedEntryKey =
-		selectedModel && selectedProviderId
-			? `${selectedProviderId}-${selectedModel.id}`
-			: selectedModel
-				? selectedModel.id
-				: "";
 
 	// Simple normalizer for search matching
 	const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, "");
@@ -348,7 +346,15 @@ export function ModelSelector({
 			searchText: string;
 		}[] = [];
 		const now = new Date();
-		for (const m of models) {
+
+		// Sort models by release date (newest first)
+		const sortedModels = [...models].sort((a, b) => {
+			const dateA = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+			const dateB = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+			return dateB - dateA;
+		});
+
+		for (const m of sortedModels) {
 			if (m.id === "custom") {
 				continue;
 			}
@@ -869,11 +875,14 @@ export function ModelSelector({
 											{filteredEntries.length !== 1 ? "s" : ""} found
 										</div>
 										{filteredEntries.map(
-											({ model, mapping, provider, isRoot }) => {
+											({ model, mapping, provider, isRoot }, index) => {
 												if (isRoot) {
-													const entryKey = model.id;
+													const entryKey = `${model.id}-root-${index}`;
 													const aggregate = getRootAggregateInfo(model);
 													const isFreeRoot = aggregate.minInputPrice === 0;
+													const isSelected =
+														selectedModel?.id === model.id &&
+														!selectedProviderId;
 													return (
 														<CommandItem
 															key={entryKey}
@@ -895,9 +904,7 @@ export function ModelSelector({
 															<Check
 																className={cn(
 																	"h-4 w-4",
-																	entryKey === selectedEntryKey
-																		? "opacity-100"
-																		: "opacity-0",
+																	isSelected ? "opacity-100" : "opacity-0",
 																)}
 															/>
 															<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
@@ -941,12 +948,15 @@ export function ModelSelector({
 												const ProviderIcon = provider
 													? getProviderIcon(provider.id)
 													: null;
-												const entryKey = `${mapping!.providerId}-${model.id}`;
+												const entryKey = `${mapping!.providerId}-${model.id}-${index}`;
 												const isUnstable = isModelUnstable(mapping!, model);
 												const isDeprecated =
 													mapping!.deprecatedAt &&
 													new Date(mapping!.deprecatedAt) <= new Date();
 												const isFreeMapping = mapping!.inputPrice === 0;
+												const isSelected =
+													selectedModel?.id === model.id &&
+													selectedProviderId === mapping!.providerId;
 												return (
 													<CommandItem
 														key={entryKey}
@@ -970,9 +980,7 @@ export function ModelSelector({
 														<Check
 															className={cn(
 																"h-4 w-4",
-																entryKey === selectedEntryKey
-																	? "opacity-100"
-																	: "opacity-0",
+																isSelected ? "opacity-100" : "opacity-0",
 															)}
 														/>
 														<div className="flex items-center justify-between w-[250px] md:w-full gap-2">

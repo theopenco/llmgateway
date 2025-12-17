@@ -17,7 +17,6 @@ import { ModelCodeExampleDialog } from "@/components/models/model-code-example-d
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
-import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Tooltip,
 	TooltipContent,
@@ -26,6 +25,8 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { formatContextSize } from "@/lib/utils";
+
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 import type {
 	ProviderModelMapping,

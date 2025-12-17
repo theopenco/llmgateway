@@ -21,10 +21,11 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/lib/components/popover";
-import { getProviderIcon } from "@/lib/components/providers-icons";
 import { Separator } from "@/lib/components/separator";
 import { getProviderForModel } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
+
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 import type {
 	ModelDefinition,
@@ -92,9 +93,12 @@ export function ModelSelector({
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
+	const selectedMapping = selectedModel?.providers.find(
+		(p) => p.providerId === selectedProviderId,
+	);
 	const selectedEntryKey =
-		selectedModel && selectedProviderId
-			? `${selectedProviderId}-${selectedModel.id}`
+		selectedModel && selectedProviderId && selectedMapping
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
 			: "";
 
 	// Build entries of model per provider mapping
@@ -329,11 +333,11 @@ export function ModelSelector({
 											<div className="space-y-2">
 												<Label className="text-sm font-medium">Providers</Label>
 												<div className="space-y-2 max-h-32 overflow-y-auto">
-													{availableProviders.map((provider) => {
+													{availableProviders.map((provider, index) => {
 														const ProviderIcon = getProviderIcon(provider.id);
 														return (
 															<div
-																key={provider.id}
+																key={`${provider.id}-${index}`}
 																className="flex items-center space-x-2"
 															>
 																<Checkbox
@@ -462,7 +466,7 @@ export function ModelSelector({
 										const ProviderIcon = provider
 											? getProviderIcon(provider.id)
 											: null;
-										const entryKey = `${mapping.providerId}-${model.id}`;
+										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}`;
 										const isDeprecated =
 											mapping.deprecatedAt &&
 											new Date(mapping.deprecatedAt) <= new Date();

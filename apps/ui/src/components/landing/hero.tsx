@@ -7,15 +7,13 @@ import { useTheme } from "next-themes";
 import { Highlight, themes } from "prism-react-renderer";
 import { useEffect, useState } from "react";
 
-import {
-	providerLogoUrls,
-	getProviderLogoDarkModeClasses,
-} from "@/components/provider-keys/provider-logo";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
+
+import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
@@ -391,17 +389,11 @@ export function Hero({
 							<div className="group-hover:blur-xs mx-auto mt-12 grid max-w-2xl grid-cols-5 gap-x-12 gap-y-8 transition-all duration-500 group-hover:opacity-50 sm:gap-x-16 sm:gap-y-14">
 								{PROVIDER_LOGOS.map((provider) => {
 									const LogoComponent = providerLogoUrls[provider.providerId];
-									const darkModeClasses = getProviderLogoDarkModeClasses();
 
 									return (
 										<div key={provider.name} className="flex">
 											{LogoComponent && (
-												<LogoComponent
-													className={cn(
-														"mx-auto h-16 w-fit object-contain",
-														darkModeClasses,
-													)}
-												/>
+												<LogoComponent className="mx-auto h-16 w-fit object-contain" />
 											)}
 										</div>
 									);

@@ -112,9 +112,9 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 
 	return (
 		<div className="grid gap-6 md:grid-cols-3">
-			{models.map((model) => (
+			{models.map((model, index) => (
 				<ModelCard
-					key={`${model.providerDetails[0].provider.providerId}-${model.id}`}
+					key={`${model.providerDetails[0].provider.providerId}-${model.id}-${index}`}
 					model={model}
 					shouldShowStabilityWarning={shouldShowStabilityWarning}
 					getCapabilityIcons={getCapabilityIcons}

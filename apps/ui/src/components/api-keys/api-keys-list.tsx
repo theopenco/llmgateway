@@ -6,7 +6,9 @@ import {
 	PlusIcon,
 	Shield,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import {
 	AlertDialog,
@@ -58,11 +60,12 @@ import {
 } from "@/lib/components/tooltip";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
-import { IamRulesDialog } from "./iam-rules-dialog";
 
 import type { ApiKey, Project } from "@/lib/types";
+import type { Route } from "next";
 
 interface ApiKeysListProps {
 	selectedProject: Project | null;
@@ -78,8 +81,16 @@ export function ApiKeysList({
 }: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const pathname = usePathname();
+	const { orgId, projectId } = useMemo(
+		() => extractOrgAndProjectFromPath(pathname),
+		[pathname],
+	);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+
+	const getIamRulesUrl = (keyId: string) =>
+		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -559,8 +570,13 @@ export function ApiKeysList({
 								</TableCell>
 								<TableCell>
 									{key.iamRules && key.iamRules.length > 0 ? (
-										<IamRulesDialog apiKey={key}>
-											<Button variant="outline" size="sm" className="text-xs">
+										<Button
+											variant="outline"
+											size="sm"
+											className="text-xs"
+											asChild
+										>
+											<Link href={getIamRulesUrl(key.id)}>
 												{
 													key.iamRules.filter(
 														(rule) => rule.status === "active",
@@ -571,18 +587,17 @@ export function ApiKeysList({
 													.length !== 1
 													? "s"
 													: ""}
-											</Button>
-										</IamRulesDialog>
+											</Link>
+										</Button>
 									) : (
-										<IamRulesDialog apiKey={key}>
-											<Button
-												variant="ghost"
-												size="sm"
-												className="text-xs text-muted-foreground"
-											>
-												No rules
-											</Button>
-										</IamRulesDialog>
+										<Button
+											variant="ghost"
+											size="sm"
+											className="text-xs text-muted-foreground"
+											asChild
+										>
+											<Link href={getIamRulesUrl(key.id)}>No rules</Link>
+										</Button>
 									)}
 								</TableCell>
 								<TableCell className="text-right">
@@ -595,12 +610,12 @@ export function ApiKeysList({
 										</DropdownMenuTrigger>
 										<DropdownMenuContent align="end">
 											<DropdownMenuLabel>Actions</DropdownMenuLabel>
-											<IamRulesDialog apiKey={key}>
-												<DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+											<DropdownMenuItem asChild>
+												<Link href={getIamRulesUrl(key.id)}>
 													<Shield className="mr-2 h-4 w-4" />
 													Manage IAM Rules
-												</DropdownMenuItem>
-											</IamRulesDialog>
+												</Link>
+											</DropdownMenuItem>
 											<DropdownMenuSeparator />
 											<DropdownMenuItem
 												onClick={() => toggleStatus(key.id, key.status)}
@@ -679,12 +694,12 @@ export function ApiKeysList({
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
 									<DropdownMenuLabel>Actions</DropdownMenuLabel>
-									<IamRulesDialog apiKey={key}>
-										<DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+									<DropdownMenuItem asChild>
+										<Link href={getIamRulesUrl(key.id)}>
 											<Shield className="mr-2 h-4 w-4" />
 											Manage IAM Rules
-										</DropdownMenuItem>
-									</IamRulesDialog>
+										</Link>
+									</DropdownMenuItem>
 									<DropdownMenuSeparator />
 									<DropdownMenuItem
 										onClick={() => toggleStatus(key.id, key.status)}
@@ -827,8 +842,13 @@ export function ApiKeysList({
 							</div>
 							<div className="flex items-center">
 								{key.iamRules && key.iamRules.length > 0 ? (
-									<IamRulesDialog apiKey={key}>
-										<Button variant="outline" size="sm" className="text-xs h-7">
+									<Button
+										variant="outline"
+										size="sm"
+										className="text-xs h-7"
+										asChild
+									>
+										<Link href={getIamRulesUrl(key.id)}>
 											{
 												key.iamRules.filter((rule) => rule.status === "active")
 													.length
@@ -838,18 +858,19 @@ export function ApiKeysList({
 												.length !== 1
 												? "s"
 												: ""}
-										</Button>
-									</IamRulesDialog>
+										</Link>
+									</Button>
 								) : (
-									<IamRulesDialog apiKey={key}>
-										<Button
-											variant="ghost"
-											size="sm"
-											className="text-xs text-muted-foreground h-7"
-										>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="text-xs text-muted-foreground h-7"
+										asChild
+									>
+										<Link href={getIamRulesUrl(key.id)}>
 											No rules configured
-										</Button>
-									</IamRulesDialog>
+										</Link>
+									</Button>
 								)}
 							</div>
 						</div>

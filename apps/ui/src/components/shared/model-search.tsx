@@ -17,9 +17,9 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/lib/components/popover";
-import { getProviderIcon } from "@/lib/components/providers-icons";
 
 import { getProviderDefinition, models } from "@llmgateway/models";
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 interface ModelSearchEntry {
 	id: string;
@@ -167,21 +167,21 @@ export function ModelSearch() {
 												setOpen(false);
 											}}
 										>
-											<div className="flex items-center gap-2">
-												<div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+											<div className="flex items-center gap-3">
+												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
 													{ProviderIcon ? (
-														<ProviderIcon className="h-4 w-4" />
+														<ProviderIcon className="h-5 w-5" />
 													) : (
-														<span className="text-[10px] font-medium uppercase text-muted-foreground">
+														<span className="text-xs font-medium uppercase text-muted-foreground">
 															{entry.providerName.charAt(0)}
 														</span>
 													)}
 												</div>
 												<div className="flex flex-col items-start">
-													<span className="text-xs font-medium">
+													<span className="text-sm font-medium">
 														{entry.providerName}: {entry.name}
 													</span>
-													<span className="text-[11px] text-muted-foreground">
+													<span className="text-xs text-muted-foreground">
 														{entry.id}
 														{entry.free ? " · Free tier" : null}
 													</span>
