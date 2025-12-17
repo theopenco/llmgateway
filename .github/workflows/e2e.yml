@@ -116,7 +116,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download all shard results
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           path: ./e2e-results
           pattern: e2e-results-*
