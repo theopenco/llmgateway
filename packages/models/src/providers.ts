@@ -411,22 +411,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "routeway-discount",
-		name: "RouteWay Discount",
-		description: "RouteWay's discounted models with special pricing",
-		env: {
-			required: {
-				apiKey: "LLM_ROUTEWAY_DISCOUNT_API_KEY",
-				baseUrl: "LLM_ROUTEWAY_DISCOUNT_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4f46e5",
-		website: "https://routeway.ai",
-		announcement: null,
-	},
-	{
 		id: "cloudrift",
 		name: "CloudRift",
 		description:

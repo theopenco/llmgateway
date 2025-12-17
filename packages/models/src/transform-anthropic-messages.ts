@@ -26,7 +26,7 @@ export async function transformAnthropicMessages(
 	const results: AnthropicMessage[] = [];
 
 	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider only (routeway-discount handles this separately in prepare-request-body)
+	// Apply for anthropic provider only
 	const shouldApplyCacheControl = provider === "anthropic";
 
 	// Track cache_control usage to limit to maximum of 4 blocks
