@@ -5,6 +5,7 @@ on:
     paths:
       - "apps/gateway/**"
       - "packages/models/**"
+      - "packages/shared/**"
       - "**/*.e2e.ts"
       - ".github/workflows/e2e.yml"
 
