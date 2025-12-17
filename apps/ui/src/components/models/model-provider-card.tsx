@@ -322,10 +322,29 @@ export function ModelProviderCard({
 												? `>${(provider.pricingTiers![index - 1]?.upToTokens || 0) / 1000}K tokens`
 												: `≤${tier.upToTokens / 1000}K tokens`}
 										</span>
-										<span className="font-mono">
-											{formatPrice(tier.inputPrice)} in /{" "}
-											{formatPrice(tier.outputPrice)} out
-										</span>
+										{provider.discount ? (
+											<span className="font-mono">
+												<span className="line-through text-muted-foreground">
+													{formatPrice(tier.inputPrice)} in /{" "}
+													{formatPrice(tier.outputPrice)} out
+												</span>
+												<span className="text-green-600 font-semibold ml-2">
+													{formatPrice(
+														tier.inputPrice * (1 - provider.discount),
+													)}{" "}
+													in /{" "}
+													{formatPrice(
+														tier.outputPrice * (1 - provider.discount),
+													)}{" "}
+													out
+												</span>
+											</span>
+										) : (
+											<span className="font-mono">
+												{formatPrice(tier.inputPrice)} in /{" "}
+												{formatPrice(tier.outputPrice)} out
+											</span>
+										)}
 									</div>
 								))}
 							</div>
