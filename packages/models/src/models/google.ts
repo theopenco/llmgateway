@@ -727,8 +727,8 @@ export const googleModels = [
 		aliases: ["nano banana", "nano banana 2"],
 		family: "google",
 		output: ["text", "image"],
-		releasedAt: new Date("2025-11-18"),
-		publishedAt: new Date("2025-11-18"),
+		releasedAt: new Date("2025-11-20"),
+		publishedAt: new Date("2025-11-20"),
 		providers: [
 			{
 				test: "skip",
