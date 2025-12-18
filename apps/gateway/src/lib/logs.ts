@@ -58,7 +58,11 @@ export function getUnifiedFinishReason(
 				finishReason === "PROHIBITED_CONTENT" ||
 				finishReason === "RECITATION" ||
 				finishReason === "BLOCKLIST" ||
-				finishReason === "SPII"
+				finishReason === "SPII" ||
+				finishReason === "LANGUAGE" ||
+				finishReason === "IMAGE_SAFETY" ||
+				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
+				finishReason === "NO_IMAGE"
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}

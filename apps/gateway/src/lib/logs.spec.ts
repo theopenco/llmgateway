@@ -51,6 +51,18 @@ describe("getUnifiedFinishReason", () => {
 		expect(getUnifiedFinishReason("SPII", "google-ai-studio")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
+		expect(getUnifiedFinishReason("LANGUAGE", "google-ai-studio")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("IMAGE_SAFETY", "google-ai-studio")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(
+			getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "google-ai-studio"),
+		).toBe(UnifiedFinishReason.CONTENT_FILTER);
+		expect(getUnifiedFinishReason("NO_IMAGE", "google-ai-studio")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
 	});
 
 	it("handles special cases", () => {
