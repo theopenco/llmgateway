@@ -62,6 +62,7 @@ export function getUnifiedFinishReason(
 				finishReason === "LANGUAGE" ||
 				finishReason === "IMAGE_SAFETY" ||
 				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
+				finishReason === "IMAGE_OTHER" ||
 				finishReason === "NO_IMAGE"
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
