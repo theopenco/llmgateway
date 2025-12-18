@@ -279,8 +279,8 @@ export const xaiModels = [
 		name: "Grok 4.1 Fast Reasoning",
 		description: "Grok 4.1 with fast reasoning and vision support.",
 		family: "xai",
-		releasedAt: new Date("2025-10-01"),
-		publishedAt: new Date("2025-10-01"),
+		releasedAt: new Date("2025-11-17"),
+		publishedAt: new Date("2025-11-17"),
 		providers: [
 			{
 				providerId: "xai",

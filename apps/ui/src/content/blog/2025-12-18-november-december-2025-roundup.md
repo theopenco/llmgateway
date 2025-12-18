@@ -1,0 +1,191 @@
+---
+id: blog-november-december-2025-roundup
+slug: november-december-2025-roundup
+date: 2025-12-18
+title: "November & December 2025: Major Platform Updates"
+summary: "Two months of updates: 15+ new models, team management, referral program, tiered pricing, data retention, admin dashboard, and much more."
+categories: ["Announcements"]
+image:
+  src: "/blog/november-december-2025-roundup.png"
+  alt: "November & December 2025 Feature Roundup"
+  width: 2282
+  height: 1198
+---
+
+Here's everything new in LLM Gateway over the past two months — from cutting-edge models to powerful platform features.
+
+## 🤖 New Models
+
+![New models](/blog/updates/new-models.png)
+
+[Explore models](/models)
+
+## 👥 Team Management
+
+Full **team collaboration** is now available:
+
+- **Roles**: Owner, Admin, and Developer with granular permissions
+- **Seat-based pricing**: 3 included seats, additional seats at $10/seat/month
+- **Prorated billing**: Fair charges based on your billing cycle
+- **Enterprise options**: SSO/SAML, SCIM provisioning, audit logs for larger teams
+
+[Learn more](/changelog/team-members-roles-and-seats)
+
+## 🏢 Admin Dashboard
+
+New internal **admin dashboard** for platform management with:
+
+- Token metrics calculation and aggregation
+- User and organization management
+- Performance monitoring
+
+## 💰 Referral Program
+
+**Earn 1% of every referral's spending** — forever!
+
+- Automatic tracking via referral links and cookies
+- Earnings credited to your account
+- No cap on earnings
+
+Find your referral link in **Settings → Referrals**.
+
+[Learn more here](/referrals)
+
+## 🛡️ Routing Improvements
+
+![Routing Improvements](/blog/updates/routing.png)
+
+- **Uptime-aware routing** — Automatically routes away from low-uptime providers
+- **X-No-Fallback header** — Prevent automatic provider fallback when needed
+- **Provider metrics** — Routing decisions include provider performance data
+- **Multi-API key support** — Load balance across multiple provider keys
+- **Latency optimization** — Only consider latency when streaming is enabled
+
+[Learn more](https://docs.llmgateway.io/features/routing)
+
+## 📊 Tiered Pricing
+
+**Volume-based pricing** is now available:
+
+- The more you use, the more you save
+- Tiered cache pricing for supported models
+- Discounts calculated automatically based on usage
+- View pricing tiers on any model's detail page
+
+## 🔒 Data Retention & Storage
+
+![Data Retention](/blog/updates/data-retention.png)
+
+New **data retention controls** with billing:
+
+- **Metadata-only** (default): Only request metadata is stored
+- **Full retention**: Store complete request and response data
+- **Data storage billing**: Pay only for what you store
+- **Data limits**: Set maximum storage limits per organization
+
+Configure in **Settings → Organization → Data Retention**.
+
+## 🔍 Model Discovery
+
+### Global Model Search
+
+**Search bar in the top navigation** — instantly find any model across all providers.
+
+### Model Timeline & Metadata
+
+- **Release dates** (`releasedAt`, `publishedAt`) for all models
+- **Model descriptions** on detail pages
+- **Visual indicators** for free models and provider mappings
+- **Filtered counts** showing matching models and providers
+
+[Explore timeline](/timeline)
+
+## 🎮 Playground Enhancements
+
+- **Comparison mode** — Compare responses from multiple models side-by-side
+- **Group chat** — Chat with multiple models simultaneously
+- **GitHub MCP tools** — Integrated GitHub operations via Model Context Protocol
+- **Redirect after signin** — Return to your original URL after authentication
+- **Image configuration** — Set image parameters and reasoning effort options
+
+## 📈 Analytics & Metrics
+
+![New dashboard](/blog/updates/new-dashboard.png)
+
+- **Cost breakdown** — Detailed breakdown in usage API responses
+- **Discount savings visualization** — See savings on dashboard
+- **Throughput metrics** — Monitor tokens per second
+- **Provider tracking** — Track which providers serve requests
+- **Real-time metrics** — Current minute history calculation
+- **Reasoning tokens** — Included in cost calculations
+
+[Learn more](https://docs.llmgateway.io/features/cost-breakdown)
+
+## 💳 Billing Enhancements
+
+![Billing](/blog/updates/billing.png)
+
+- **PDF invoices** — Automatically generated and emailed for subscriptions and credits
+- **Company address** on invoices
+- **Billing email management** — Set separate billing contact
+- **Top-up credits button** — Quick access to add credits
+- **Refund tracking** — Full visibility in transaction history
+- **First-time bonus** — Bonus credits on first purchase
+
+## 🔐 Security Enhancements
+
+- **Email verification required** — New accounts must verify before API access
+- **Enhanced email validation** — Blocks plus signs, disposable emails, blacklisted domains
+- **Masked provider keys** — Tokens masked in API responses
+- **Content filter detection** — Proper error handling for filtered content
+
+## 💸 Discounts
+
+- **20% off all Google models** — Applied automatically
+- **10% off all Z.ai models** — Applied automatically
+- **75% off CanopyWave models** — Qwen3-Coder, MiniMax M2, GLM-4.6, Kimi K2 Thinking
+- **90% off DeepSeek V3.1** via CanopyWave partnership
+
+[View discounted models](/models?discounted=true)
+
+## 📱 API Enhancements
+
+- **Effort parameter** — Control reasoning depth for Claude Opus 4.5
+- **no_reasoning flag** — Disable reasoning when not needed
+- **Responses API** — Support for GPT-5 Pro and GPT-5.1 Codex
+- **Thought signatures** — Included in Google tool calls
+- **Custom upload limits** — Configure per-gateway limits
+- **Unsupported message handling** — Clear feedback for unsupported features
+
+## 📚 Documentation
+
+- **Cline integration guide** — Use LLM Gateway with Cline
+- **Cursor guide** — IDE integration documentation
+- **Data retention & caching docs** — Full documentation
+- **Reasoning docs** — Guidelines for reasoning models
+- **Collapsible links** — Improved navigation
+- **GitHub timestamps** — Last edit dates on all pages
+
+[Visit our Docs](https://docs.llmgateway.io)
+
+## 📧 Email & Notifications
+
+- **Transactional emails** — Trial start and cancellation notifications
+- **PDF invoice emails** — Automatic invoice delivery
+- **Onboarding status** — Synced with Brevo for marketing
+
+## 🎉 Other Improvements
+
+- **Organization name editing** — Update org name in preferences
+- **Free model rate limits** — Tiered rate limiting for free models
+- **Sensitive word check** — Parameter support for Z.ai
+- **Decimal.js** — Precise cost calculations
+- **Shared UI package** — Reusable components across apps
+
+## 📢 Pro Plan Pricing Update
+
+Starting **December 19th, 2025**, Pro plan fees will increase from **0% to 1%**. This remains **80% less** than the 5% fee on the Free plan, ensuring you continue to get exceptional value as you scale.
+
+---
+
+**[Explore all models](/models)** | **[Try the Playground](https://chat.llmgateway.io)** | **[Get started now](/signup)** 🚀

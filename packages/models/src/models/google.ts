@@ -487,8 +487,8 @@ export const googleModels = [
 		description:
 			"Preview of next-generation Gemini 3 Pro with enhanced capabilities.",
 		family: "google",
-		releasedAt: new Date("2025-10-01"),
-		publishedAt: new Date("2025-10-01"),
+		releasedAt: new Date("2025-11-18"),
+		publishedAt: new Date("2025-11-18"),
 		providers: [
 			{
 				discount: 0.2,
@@ -727,8 +727,8 @@ export const googleModels = [
 		aliases: ["nano banana", "nano banana 2"],
 		family: "google",
 		output: ["text", "image"],
-		releasedAt: new Date("2025-10-01"),
-		publishedAt: new Date("2025-10-01"),
+		releasedAt: new Date("2025-11-18"),
+		publishedAt: new Date("2025-11-18"),
 		providers: [
 			{
 				test: "skip",

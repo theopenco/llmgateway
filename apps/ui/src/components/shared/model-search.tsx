@@ -151,7 +151,7 @@ export function ModelSearch() {
 			>
 				<Command>
 					<CommandInput placeholder="Search models…" />
-					<CommandList>
+					<CommandList className="max-h-[400px]">
 						<CommandEmpty>No models found.</CommandEmpty>
 						{groups.map(([label, items]) => (
 							<CommandGroup key={label} heading={label}>
