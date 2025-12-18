@@ -2419,7 +2419,7 @@ export interface paths {
                                 updatedAt: string;
                                 organizationId: string;
                                 /** @enum {string} */
-                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup";
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund";
                                 amount: string | null;
                                 creditAmount: string | null;
                                 currency: string;
@@ -2428,6 +2428,8 @@ export interface paths {
                                 stripePaymentIntentId: string | null;
                                 stripeInvoiceId: string | null;
                                 description: string | null;
+                                relatedTransactionId: string | null;
+                                refundReason: string | null;
                             }[];
                         };
                     };
