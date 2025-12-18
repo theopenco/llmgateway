@@ -23,11 +23,11 @@ export const providerLogoUrls: Partial<
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
 	routeway: ProviderIcons.routeway,
-	"routeway-discount": ProviderIcons.routeway,
 	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	canopywave: ProviderIcons.canopywave,
+	cerebras: ProviderIcons.cerebras,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

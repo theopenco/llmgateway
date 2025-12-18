@@ -24,12 +24,12 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
-import { ProviderIcons } from "@/lib/components/providers-icons";
 import { StatusBadge } from "@/lib/components/status-badge";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers } from "@llmgateway/models";
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
 
@@ -169,8 +169,7 @@ export function ProviderKeysList({
 		<div className="space-y-6">
 			<div className="space-y-2">
 				{availableProviders.map((provider) => {
-					const LogoComponent =
-						ProviderIcons[provider.id as keyof typeof ProviderIcons];
+					const LogoComponent = getProviderIcon(provider.id);
 					const existingKey = existingKeysMap.get(provider.id);
 					const hasKey = !!existingKey;
 

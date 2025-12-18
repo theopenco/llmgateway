@@ -133,6 +133,22 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "cerebras",
+		name: "Cerebras",
+		description:
+			"Cerebras high-performance inference with ultra-fast throughput",
+		env: {
+			required: {
+				apiKey: "LLM_CEREBRAS_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6b46c1",
+		website: "https://cerebras.ai",
+		announcement: null,
+	},
+	{
 		id: "xai",
 		name: "xAI",
 		description: "xAI's Grok large language models",
@@ -392,22 +408,6 @@ export const providers = [
 		cancellation: true,
 		color: "#6b7280",
 		website: null,
-		announcement: null,
-	},
-	{
-		id: "routeway-discount",
-		name: "RouteWay Discount",
-		description: "RouteWay's discounted models with special pricing",
-		env: {
-			required: {
-				apiKey: "LLM_ROUTEWAY_DISCOUNT_API_KEY",
-				baseUrl: "LLM_ROUTEWAY_DISCOUNT_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4f46e5",
-		website: "https://routeway.ai",
 		announcement: null,
 	},
 	{

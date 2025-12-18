@@ -129,7 +129,6 @@ describe(
 				// TODO temporarily skip routeway and nanogpt
 				if (
 					providerId === "routeway" ||
-					providerId === "routeway-discount" ||
 					providerId === "inference.net" ||
 					providerId === "nanogpt"
 				) {

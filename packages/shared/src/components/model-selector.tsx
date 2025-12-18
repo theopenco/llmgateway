@@ -18,10 +18,21 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
-import { getProviderIcon, providerLogoUrls } from "@/components/provider-icons";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+	formatPrice,
+	formatContextSize,
+	getProviderForModel,
+} from "@/lib/model-utils";
+import { cn } from "@/lib/utils";
+
+import {
+	getProviderIcon,
+	providerLogoUrls,
+} from "@llmgateway/shared/components";
+
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import {
 	Command,
 	CommandEmpty,
@@ -29,26 +40,11 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
-} from "@/components/ui/command";
-import {
-	Dialog,
-	DialogContent,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
-import {
-	formatPrice,
-	formatContextSize,
-	getProviderForModel,
-} from "@/lib/model-utils";
-import { cn } from "@/lib/utils";
+} from "./ui/command";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Label } from "./ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Separator } from "./ui/separator";
 
 import type {
 	ModelDefinition,
@@ -336,12 +332,6 @@ export function ModelSelector({
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedEntryKey =
-		selectedModel && selectedProviderId
-			? `${selectedProviderId}-${selectedModel.id}`
-			: selectedModel
-				? selectedModel.id
-				: "";
 
 	// Simple normalizer for search matching
 	const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, "");
@@ -356,7 +346,15 @@ export function ModelSelector({
 			searchText: string;
 		}[] = [];
 		const now = new Date();
-		for (const m of models) {
+
+		// Sort models by release date (newest first)
+		const sortedModels = [...models].sort((a, b) => {
+			const dateA = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+			const dateB = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+			return dateB - dateA;
+		});
+
+		for (const m of sortedModels) {
 			if (m.id === "custom") {
 				continue;
 			}
@@ -700,9 +698,9 @@ export function ModelSelector({
 													<Checkbox
 														id="show-root"
 														checked={filters.showOnlyRoot}
-														onCheckedChange={(checked) =>
-															updateFilter("showOnlyRoot", checked)
-														}
+														onCheckedChange={(
+															checked: boolean | "indeterminate" | undefined,
+														) => updateFilter("showOnlyRoot", checked)}
 													/>
 													<Label
 														htmlFor="show-root"
@@ -841,9 +839,9 @@ export function ModelSelector({
 														<Checkbox
 															id="hide-unstable"
 															checked={filters.hideUnstable}
-															onCheckedChange={(checked) =>
-																updateFilter("hideUnstable", checked)
-															}
+															onCheckedChange={(
+																checked: boolean | "indeterminate" | undefined,
+															) => updateFilter("hideUnstable", checked)}
 														/>
 														<Label
 															htmlFor="hide-unstable"
@@ -877,11 +875,14 @@ export function ModelSelector({
 											{filteredEntries.length !== 1 ? "s" : ""} found
 										</div>
 										{filteredEntries.map(
-											({ model, mapping, provider, isRoot }) => {
+											({ model, mapping, provider, isRoot }, index) => {
 												if (isRoot) {
-													const entryKey = model.id;
+													const entryKey = `${model.id}-root-${index}`;
 													const aggregate = getRootAggregateInfo(model);
 													const isFreeRoot = aggregate.minInputPrice === 0;
+													const isSelected =
+														selectedModel?.id === model.id &&
+														!selectedProviderId;
 													return (
 														<CommandItem
 															key={entryKey}
@@ -903,9 +904,7 @@ export function ModelSelector({
 															<Check
 																className={cn(
 																	"h-4 w-4",
-																	entryKey === selectedEntryKey
-																		? "opacity-100"
-																		: "opacity-0",
+																	isSelected ? "opacity-100" : "opacity-0",
 																)}
 															/>
 															<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
@@ -929,7 +928,9 @@ export function ModelSelector({
 																	variant="ghost"
 																	size="sm"
 																	className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-																	onClick={(e) => {
+																	onClick={(
+																		e: React.MouseEvent<HTMLButtonElement>,
+																	) => {
 																		e.stopPropagation();
 																		setSelectedDetails({
 																			model,
@@ -947,12 +948,15 @@ export function ModelSelector({
 												const ProviderIcon = provider
 													? getProviderIcon(provider.id)
 													: null;
-												const entryKey = `${mapping!.providerId}-${model.id}`;
+												const entryKey = `${mapping!.providerId}-${model.id}-${index}`;
 												const isUnstable = isModelUnstable(mapping!, model);
 												const isDeprecated =
 													mapping!.deprecatedAt &&
 													new Date(mapping!.deprecatedAt) <= new Date();
 												const isFreeMapping = mapping!.inputPrice === 0;
+												const isSelected =
+													selectedModel?.id === model.id &&
+													selectedProviderId === mapping!.providerId;
 												return (
 													<CommandItem
 														key={entryKey}
@@ -976,9 +980,7 @@ export function ModelSelector({
 														<Check
 															className={cn(
 																"h-4 w-4",
-																entryKey === selectedEntryKey
-																	? "opacity-100"
-																	: "opacity-0",
+																isSelected ? "opacity-100" : "opacity-0",
 															)}
 														/>
 														<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
@@ -1007,7 +1009,9 @@ export function ModelSelector({
 																variant="ghost"
 																size="sm"
 																className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-																onClick={(e) => {
+																onClick={(
+																	e: React.MouseEvent<HTMLButtonElement>,
+																) => {
 																	e.stopPropagation();
 																	setSelectedDetails({
 																		model,

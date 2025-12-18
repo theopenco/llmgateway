@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
 import { getStoredGithubMcpToken } from "@/components/connectors/github-connector";
-import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
@@ -26,6 +25,8 @@ import { useUser } from "@/hooks/useUser";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { getErrorMessage } from "@/lib/utils";
+
+import { ModelSelector } from "@llmgateway/shared/components";
 
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";

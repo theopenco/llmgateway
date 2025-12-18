@@ -74,6 +74,9 @@ export function getProviderEndpoint(
 			case "groq":
 				url = "https://api.groq.com/openai";
 				break;
+			case "cerebras":
+				url = "https://api.cerebras.ai";
+				break;
 			case "deepseek":
 				url = "https://api.deepseek.com";
 				break;
@@ -97,9 +100,6 @@ export function getProviderEndpoint(
 				break;
 			case "routeway":
 				url = "https://api.routeway.ai";
-				break;
-			case "routeway-discount":
-				url = getProviderEnvValue("routeway-discount", "baseUrl", configIndex);
 				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
@@ -277,12 +277,12 @@ export function getProviderEndpoint(
 		case "cloudrift":
 		case "xai":
 		case "groq":
+		case "cerebras":
 		case "deepseek":
 		case "moonshot":
 		case "alibaba":
 		case "nebius":
 		case "routeway":
-		case "routeway-discount":
 		case "nanogpt":
 		case "canopywave":
 		case "custom":

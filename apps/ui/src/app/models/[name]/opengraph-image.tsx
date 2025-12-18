@@ -1,6 +1,5 @@
 import { ImageResponse } from "next/og";
 
-import { getProviderIcon } from "@/lib/components/providers-icons";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -10,6 +9,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 export const size = {
 	width: 1200,

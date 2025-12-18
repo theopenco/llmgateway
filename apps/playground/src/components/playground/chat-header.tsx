@@ -1,8 +1,9 @@
 import { ThemeToggle } from "@/components/landing/theme-toggle";
-import { ModelSelector } from "@/components/model-selector";
 import { Label } from "@/components/ui/label";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
+
+import { ModelSelector } from "@llmgateway/shared/components";
 
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 

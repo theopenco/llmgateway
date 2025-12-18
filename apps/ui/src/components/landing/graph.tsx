@@ -5,7 +5,6 @@ import Link from "next/link";
 import React, { forwardRef, useId, useRef } from "react";
 
 import { Button } from "@/lib/components/button";
-import { ProviderIcons } from "@/lib/components/providers-icons";
 import {
 	Tooltip,
 	TooltipProvider,
@@ -14,6 +13,8 @@ import {
 } from "@/lib/components/tooltip";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
+
+import { ProviderIcons } from "@llmgateway/shared/components";
 
 import { AnimatedBeam } from "./animated-beam";
 

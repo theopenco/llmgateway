@@ -184,6 +184,22 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				// Cerebras: FP16/FP8 (weights only)
+				providerId: "cerebras",
+				stability: "unstable",
+				modelName: "zai-glm-4.6",
+				inputPrice: 2.25 / 1e6,
+				outputPrice: 2.75 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: undefined,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "canopywave",
 				modelName: "zai/glm-4.6",
 				inputPrice: 0.45 / 1e6,

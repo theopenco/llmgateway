@@ -52,19 +52,12 @@ export function useUser(options?: UseUserOptions) {
 		}
 
 		const currentPath = pathname;
-		const isAuthPage = ["/login", "/signup", "/onboarding"].includes(
-			currentPath,
-		);
+		const isAuthPage = ["/login", "/signup"].includes(currentPath);
 		const isLandingPage = currentPath === "/";
 
 		// Don't redirect if already on auth pages
 		if (isAuthPage || isLandingPage) {
 			return;
-		}
-
-		// Redirect to onboarding if user hasn't completed it
-		if (!data.user.onboardingCompleted) {
-			router.push("/onboarding");
 		}
 	}, [data?.user, isLoading, router, pathname]);
 

@@ -8,6 +8,10 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
+		},
+		"./components": {
+			"types": "./dist/components/index.d.ts",
+			"import": "./dist/components/index.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -16,12 +20,46 @@
 		"dist/"
 	],
 	"scripts": {
-		"build": "tsc && resolve-tspaths",
+		"build": "rm -rf dist tsconfig.tsbuildinfo && tsc && resolve-tspaths",
 		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
+		"@llmgateway/models": "workspace:*",
+		"@radix-ui/react-avatar": "1.1.11",
+		"@radix-ui/react-checkbox": "^1.3.3",
+		"@radix-ui/react-collapsible": "1.1.12",
+		"@radix-ui/react-dialog": "^1.1.15",
+		"@radix-ui/react-dropdown-menu": "2.1.16",
+		"@radix-ui/react-hover-card": "1.1.15",
+		"@radix-ui/react-label": "2.1.8",
+		"@radix-ui/react-popover": "^1.1.15",
+		"@radix-ui/react-progress": "^1.1.8",
+		"@radix-ui/react-scroll-area": "1.2.10",
+		"@radix-ui/react-select": "^2.2.6",
+		"@radix-ui/react-separator": "^1.1.8",
+		"@radix-ui/react-slot": "1.2.4",
+		"@radix-ui/react-switch": "1.2.6",
+		"@radix-ui/react-tabs": "^1.1.13",
+		"@radix-ui/react-tooltip": "^1.2.8",
+		"@radix-ui/react-use-controllable-state": "1.2.2",
+		"class-variance-authority": "0.7.1",
+		"clsx": "^2.1.1",
+		"cmdk": "^1.1.1",
+		"embla-carousel-react": "8.6.0",
+		"lucide-react": "0.561.0",
+		"next-themes": "^0.4.6",
+		"react": "19.2.3",
+		"react-dom": "19.2.3",
+		"react-hook-form": "7.65.0",
+		"react-medium-image-zoom": "5.4.0",
+		"sonner": "^2.0.7",
+		"tailwind-merge": "3.4.0",
 		"zod": "3.25.75"
+	},
+	"devDependencies": {
+		"@types/react": "^19.2.7",
+		"@types/react-dom": "^19.2.3"
 	}
 }

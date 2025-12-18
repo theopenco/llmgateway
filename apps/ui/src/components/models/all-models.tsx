@@ -37,7 +37,6 @@ import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
-import { getProviderIcon } from "@/lib/components/providers-icons";
 import {
 	Select,
 	SelectContent,
@@ -63,6 +62,7 @@ import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
 
 import { models, providers } from "@llmgateway/models";
+import { getProviderIcon } from "@llmgateway/shared/components";
 
 import { ModelCard } from "./model-card";
 
