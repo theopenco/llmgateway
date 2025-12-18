@@ -218,6 +218,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "customer.subscription.trial_will_end":
 				await handleTrialWillEnd(event);
 				break;
+			case "charge.refunded":
+				await handleChargeRefunded(event);
+				break;
 			default:
 				logger.warn(`Unhandled event type: ${event.type}`);
 		}
@@ -657,6 +660,131 @@ async function handlePaymentIntentFailed(
 
 	logger.info(
 		`Payment intent failed for organization ${organizationId}: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+	);
+}
+
+async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
+	const charge = event.data.object;
+	const { payment_intent, amount_refunded, refunds } = charge;
+
+	if (!payment_intent) {
+		logger.error("No payment intent in charge.refunded event");
+		return;
+	}
+
+	// Find the original transaction by stripePaymentIntentId
+	const originalTransaction = await db.query.transaction.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: payment_intent as string },
+			type: { eq: "credit_topup" },
+		},
+	});
+
+	if (!originalTransaction) {
+		logger.error(
+			`Original transaction not found for payment intent: ${payment_intent}`,
+		);
+		return;
+	}
+
+	// Get organization
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: { eq: originalTransaction.organizationId },
+		},
+	});
+
+	if (!organization) {
+		logger.error(
+			`Organization not found: ${originalTransaction.organizationId}`,
+		);
+		return;
+	}
+
+	// Get the latest refund from the refunds array
+	const latestRefund = refunds?.data[refunds.data.length - 1];
+	if (!latestRefund) {
+		logger.error("No refund data available in charge.refunded event");
+		return;
+	}
+
+	// Calculate refund amounts
+	const refundAmountInDollars = amount_refunded / 100;
+	const originalAmount = Number.parseFloat(originalTransaction.amount || "0");
+	const originalCreditAmount = Number.parseFloat(
+		originalTransaction.creditAmount || "0",
+	);
+
+	// Calculate proportional credit refund
+	const refundRatio =
+		originalAmount > 0 ? refundAmountInDollars / originalAmount : 0;
+	const creditRefundAmount = originalCreditAmount * refundRatio;
+
+	// Check if refund already exists (prevent duplicates)
+	const existingRefund = await db.query.transaction.findFirst({
+		where: {
+			relatedTransactionId: { eq: originalTransaction.id },
+			type: { eq: "credit_refund" },
+			amount: { eq: refundAmountInDollars.toString() },
+		},
+	});
+
+	if (existingRefund) {
+		logger.info(
+			`Refund already processed for transaction ${originalTransaction.id}`,
+		);
+		return;
+	}
+
+	// Create refund transaction
+	await db.insert(tables.transaction).values({
+		organizationId: originalTransaction.organizationId,
+		type: "credit_refund",
+		amount: refundAmountInDollars.toString(),
+		creditAmount: (-creditRefundAmount).toString(),
+		currency: originalTransaction.currency,
+		status: "completed",
+		stripePaymentIntentId: payment_intent as string,
+		relatedTransactionId: originalTransaction.id,
+		refundReason: latestRefund.reason || null,
+		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
+	});
+
+	// Deduct credits from organization (allow negative)
+	await db
+		.update(tables.organization)
+		.set({
+			credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
+		})
+		.where(eq(tables.organization.id, originalTransaction.organizationId));
+
+	// Track in PostHog
+	posthog.groupIdentify({
+		groupType: "organization",
+		groupKey: originalTransaction.organizationId,
+		properties: {
+			name: organization.name,
+		},
+	});
+	posthog.capture({
+		distinctId: "organization",
+		event: "credits_refunded",
+		groups: {
+			organization: originalTransaction.organizationId,
+		},
+		properties: {
+			refundAmount: refundAmountInDollars,
+			creditRefundAmount: creditRefundAmount,
+			refundRatio: refundRatio,
+			originalTransactionId: originalTransaction.id,
+			organization: originalTransaction.organizationId,
+			reason: latestRefund.reason,
+		},
+	});
+
+	logger.info(
+		`Processed refund for organization ${originalTransaction.organizationId}: ` +
+			`refunded $${refundAmountInDollars} (${creditRefundAmount} credits deducted)`,
 	);
 }
 

@@ -69,6 +69,7 @@ const transactionSchema = z.object({
 		"subscription_cancel",
 		"subscription_end",
 		"credit_topup",
+		"credit_refund",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),
@@ -77,6 +78,8 @@ const transactionSchema = z.object({
 	stripePaymentIntentId: z.string().nullable(),
 	stripeInvoiceId: z.string().nullable(),
 	description: z.string().nullable(),
+	relatedTransactionId: z.string().nullable(),
+	refundReason: z.string().nullable(),
 });
 
 const getOrganizations = createRoute({

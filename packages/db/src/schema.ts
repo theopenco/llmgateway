@@ -191,6 +191,7 @@ export const transaction = pgTable(
 				"subscription_cancel",
 				"subscription_end",
 				"credit_topup",
+				"credit_refund",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -204,6 +205,8 @@ export const transaction = pgTable(
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
 		description: text(),
+		relatedTransactionId: text(),
+		refundReason: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
