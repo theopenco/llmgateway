@@ -66,23 +66,14 @@ function UpgradeDialogContent({
 
 			// Redirect to Stripe Checkout
 			window.location.href = checkoutUrl;
-		} catch (error) {
-			const errorMessage =
-				error instanceof Error ? error.message : String(error);
-			if (errorMessage.includes("Email verification required")) {
-				toast({
-					title: "Email Verification Required",
-					description:
-						"Please verify your email address before upgrading to Pro.",
-					variant: "destructive",
-				});
-			} else {
-				toast({
-					title: "Error",
-					description: "Failed to start checkout. Please try again.",
-					variant: "destructive",
-				});
-			}
+		} catch (error: any) {
+			toast({
+				title: "Error",
+				description:
+					(error as any)?.message ||
+					"Failed to start checkout. Please try again.",
+				variant: "destructive",
+			});
 			setLoading(false);
 		}
 	};

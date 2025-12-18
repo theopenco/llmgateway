@@ -13,7 +13,6 @@
 /.next-prod/
 /out/
 /build
-*.tsbuildinfo
 
 # misc
 .DS_Store

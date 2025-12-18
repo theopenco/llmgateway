@@ -98,11 +98,10 @@ export function CreditsStep({
 				title: "Payment successful",
 				description: `$${selectedAmount} has been added to your account.`,
 			});
-		} catch (error) {
+		} catch (error: any) {
 			toast({
 				title: "Payment failed",
-				description:
-					error instanceof Error ? error.message : "An error occurred",
+				description: error?.message || "An error occurred",
 				variant: "destructive",
 			});
 		} finally {

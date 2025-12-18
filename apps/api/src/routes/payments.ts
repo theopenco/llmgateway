@@ -59,7 +59,8 @@ payments.openapi(createPaymentIntent, async (c) => {
 	// Require email verification before buying credits
 	if (!user.emailVerified) {
 		throw new HTTPException(403, {
-			message: "Email verification required",
+			message:
+				"Email verification required. Please check your inbox or tap 'Resend Email' in the dashboard.",
 		});
 	}
 
@@ -138,7 +139,8 @@ payments.openapi(createSetupIntent, async (c) => {
 	// Require email verification before adding a card
 	if (!user.emailVerified) {
 		throw new HTTPException(403, {
-			message: "Email verification required",
+			message:
+				"Email verification required. Please check your inbox or tap 'Resend Email' in the dashboard.",
 		});
 	}
 
@@ -461,7 +463,8 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	// Require email verification before buying credits
 	if (!user.emailVerified) {
 		throw new HTTPException(403, {
-			message: "Email verification required",
+			message:
+				"Email verification required. Please check your inbox or tap 'Resend Email' in the dashboard.",
 		});
 	}
 

@@ -380,9 +380,10 @@ function PaymentStep({
 			} else {
 				await onSuccess();
 			}
-		} catch {
+		} catch (error: any) {
 			toast.error("Payment Failed", {
-				description: "An error occurred while processing your payment.",
+				description:
+					error?.message || "An error occurred while processing your payment.",
 			});
 			setLoading(false);
 		}
@@ -593,9 +594,10 @@ function ConfirmPaymentStep({
 				body: { amount, paymentMethodId },
 			});
 			await onSuccess();
-		} catch {
+		} catch (error: any) {
 			toast.error("Payment Failed", {
-				description: "An error occurred while processing your payment.",
+				description:
+					error?.message || "An error occurred while processing your payment.",
 			});
 			setLoading(false);
 		}
