@@ -16,6 +16,7 @@ interface Transaction {
 	id: string;
 	createdAt: string;
 	type:
+		| "credit_refund"
 		| "credit_topup"
 		| "subscription_start"
 		| "subscription_cancel"
@@ -35,6 +36,8 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
 		switch (type) {
 			case "credit_topup":
 				return "Credit Top-up";
+			case "credit_refund":
+				return "Credit Refund";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_cancel":
@@ -179,6 +182,8 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 												<td className="p-4 align-middle whitespace-nowrap">
 													{transaction.type === "credit_topup" &&
 														"Credit Top-up"}
+													{transaction.type === "credit_refund" &&
+														"Credit Refund"}
 													{transaction.type === "subscription_start" &&
 														"Subscription Start"}
 													{transaction.type === "subscription_cancel" &&

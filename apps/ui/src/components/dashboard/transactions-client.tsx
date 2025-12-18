@@ -120,6 +120,8 @@ export function TransactionsClient({
 		switch (type) {
 			case "credit_topup":
 				return "Credit Top-up";
+			case "credit_refund":
+				return "Credit Refund";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_renewal":

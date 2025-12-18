@@ -665,7 +665,7 @@ async function handlePaymentIntentFailed(
 
 async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	const charge = event.data.object;
-	const { payment_intent, amount_refunded, refunds } = charge;
+	const { payment_intent, amount_refunded } = charge;
 
 	if (!payment_intent) {
 		logger.error("No payment intent in charge.refunded event");
@@ -701,10 +701,17 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
-	// Get the latest refund from the refunds array
-	const latestRefund = refunds?.data[refunds.data.length - 1];
+	// Fetch refunds for this charge since they're not expanded in webhook events
+	const refundsResponse = await stripe.refunds.list({
+		charge: charge.id,
+		limit: 1,
+	});
+
+	const latestRefund = refundsResponse.data[0];
 	if (!latestRefund) {
-		logger.error("No refund data available in charge.refunded event");
+		logger.error(
+			`No refund data found for charge ${charge.id} despite charge.refunded event`,
+		);
 		return;
 	}
 
