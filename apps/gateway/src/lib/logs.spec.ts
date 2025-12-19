@@ -63,6 +63,9 @@ describe("getUnifiedFinishReason", () => {
 		expect(getUnifiedFinishReason("NO_IMAGE", "google-ai-studio")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
+		expect(getUnifiedFinishReason("OTHER", "google-ai-studio")).toBe(
+			UnifiedFinishReason.UNKNOWN,
+		);
 	});
 
 	it("handles special cases", () => {

@@ -67,6 +67,9 @@ export function getUnifiedFinishReason(
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
+			if (finishReason === "OTHER") {
+				return UnifiedFinishReason.UNKNOWN;
+			}
 			break;
 		default: // OpenAI format (also used by inference.net and other providers)
 			if (finishReason === "stop") {
