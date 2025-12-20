@@ -250,11 +250,13 @@ const completionsRequestSchema = z.object({
 			status: z.enum(["DISABLE", "ENABLE"]),
 		})
 		.optional(),
-	// Google image generation config
+	// Image generation config (Google and Alibaba)
 	image_config: z
 		.object({
 			aspect_ratio: z.string().optional(),
 			image_size: z.string().optional(),
+			n: z.number().optional(),
+			seed: z.number().optional(),
 		})
 		.optional(),
 });
@@ -1469,6 +1471,14 @@ chat.openapi(completions, async (c) => {
 
 	const baseModelName = finalModelInfo?.id || usedModel;
 
+	// Check if this is an image generation model
+	const imageGenProviderMapping = finalModelInfo?.providers.find(
+		(p) => p.providerId === usedProvider && p.modelName === usedModel,
+	);
+	const isImageGeneration =
+		(imageGenProviderMapping as ProviderModelMapping)?.imageGenerations ===
+		true;
+
 	// Create the model mapping values according to new schema
 	const usedModelMapping = usedModel; // Store the original provider model name
 	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
@@ -1773,6 +1783,7 @@ chat.openapi(completions, async (c) => {
 			hasExistingToolCalls,
 			providerKey?.options || undefined,
 			configIndex,
+			isImageGeneration,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -2109,6 +2120,12 @@ chat.openapi(completions, async (c) => {
 
 	// Check if streaming is requested and if the model/provider combination supports it
 	if (stream) {
+		// Image generation models don't support streaming
+		if (isImageGeneration) {
+			throw new HTTPException(400, {
+				message: `Model ${usedModel} does not support streaming. Image generation is synchronous only.`,
+			});
+		}
 		if (getModelStreamingSupport(baseModelName, usedProvider) === false) {
 			throw new HTTPException(400, {
 				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
@@ -2195,6 +2212,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		isImageGeneration,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody

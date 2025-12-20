@@ -314,6 +314,47 @@ export function parseProviderResponse(
 			// Extract tool calls from Mistral format (same as OpenAI)
 			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			break;
+		case "alibaba":
+			// Check if this is an image generation response (has data array from /v1/images/generations)
+			if (json.data && Array.isArray(json.data)) {
+				images = json.data.map(
+					(item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url || `data:image/png;base64,${item.b64_json}`,
+						},
+					}),
+				);
+				// Use revised_prompt if available, otherwise generic message
+				content = json.data[0]?.revised_prompt || "Generated image";
+				finishReason = "stop";
+				// Image generation doesn't provide token counts
+				promptTokens = 0;
+				completionTokens = 0;
+				totalTokens = 0;
+			} else {
+				// Alibaba chat completions use OpenAI format
+				toolResults = json.choices?.[0]?.message?.tool_calls || null;
+				content = json.choices?.[0]?.message?.content || null;
+				reasoningContent =
+					json.choices?.[0]?.message?.reasoning ||
+					json.choices?.[0]?.message?.reasoning_content ||
+					null;
+				finishReason = json.choices?.[0]?.finish_reason || null;
+				promptTokens = json.usage?.prompt_tokens || null;
+				completionTokens = json.usage?.completion_tokens || null;
+				reasoningTokens = json.usage?.reasoning_tokens || null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
+				totalTokens =
+					json.usage?.total_tokens ||
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens || 0)
+						: null);
+				if (json.choices?.[0]?.message?.images) {
+					images = json.choices[0].message.images;
+				}
+			}
+			break;
 		default: // OpenAI format
 			// Check if this is an OpenAI responses format (has output array instead of choices)
 			if (json.output && Array.isArray(json.output)) {

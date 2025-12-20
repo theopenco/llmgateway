@@ -17,6 +17,7 @@ export function getProviderEndpoint(
 	hasExistingToolCalls?: boolean,
 	providerKeyOptions?: ProviderKeyOptions,
 	configIndex?: number,
+	imageGenerations?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -272,6 +273,11 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
+		case "alibaba":
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":
@@ -280,7 +286,6 @@ export function getProviderEndpoint(
 		case "cerebras":
 		case "deepseek":
 		case "moonshot":
-		case "alibaba":
 		case "nebius":
 		case "routeway":
 		case "nanogpt":

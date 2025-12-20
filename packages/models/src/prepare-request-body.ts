@@ -10,6 +10,7 @@ import type { ProviderId } from "./providers.js";
 import type {
 	BaseMessage,
 	FunctionParameter,
+	ImageGenerationRequestBody,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	OpenAIToolInput,
@@ -141,9 +142,45 @@ export async function prepareRequestBody(
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
-	image_config?: { aspect_ratio?: string; image_size?: string },
+	image_config?: {
+		aspect_ratio?: string;
+		image_size?: string;
+		n?: number;
+		seed?: number;
+	},
 	effort?: "low" | "medium" | "high",
+	imageGenerations?: boolean,
 ): Promise<ProviderRequestBody> {
+	// Handle image generation models (route to /v1/images/generations)
+	if (imageGenerations && usedProvider === "alibaba") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		const imageRequest: ImageGenerationRequestBody = {
+			model: usedModel,
+			prompt,
+			response_format: "b64_json",
+			n: image_config?.n ?? 1,
+			...(image_config?.image_size && { size: image_config.image_size }),
+			...(image_config?.seed !== undefined && { seed: image_config.seed }),
+		};
+
+		return imageRequest;
+	}
+
 	// Check if the model supports system role
 	const modelDef = models.find((m) => m.id === usedModel);
 	const supportsSystemRole =

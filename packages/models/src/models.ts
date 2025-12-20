@@ -154,6 +154,11 @@ export interface ProviderModelMapping {
 	 * Date when the model mapping will be deactivated (returns error when requested)
 	 */
 	deactivatedAt?: Date;
+	/**
+	 * Whether this model uses the images/generations API instead of chat completions.
+	 * When true, requests are routed to /v1/images/generations and transformed.
+	 */
+	imageGenerations?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";

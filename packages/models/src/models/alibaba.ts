@@ -718,4 +718,32 @@ export const alibabaModels = [
 			},
 		],
 	},
+	{
+		id: "qwen-image",
+		name: "Qwen Image",
+		description:
+			"Alibaba's text-to-image generation model via DashScope OpenAI-compatible API.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2024-12-01"),
+		publishedAt: new Date("2024-12-01"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				modelName: "wanx2.1-t2i-plus",
+				inputPrice: 0.001 / 1e6,
+				outputPrice: 0.001 / 1e6,
+				imageOutputPrice: 0.02,
+				requestPrice: 0,
+				contextSize: 2000,
+				maxOutput: 4,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
