@@ -60,6 +60,12 @@ describe("getUnifiedFinishReason", () => {
 		expect(
 			getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "google-ai-studio"),
 		).toBe(UnifiedFinishReason.CONTENT_FILTER);
+		expect(getUnifiedFinishReason("IMAGE_RECITATION", "google-ai-studio")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("IMAGE_OTHER", "google-ai-studio")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
 		expect(getUnifiedFinishReason("NO_IMAGE", "google-ai-studio")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
