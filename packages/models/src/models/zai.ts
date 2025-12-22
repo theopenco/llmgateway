@@ -164,7 +164,7 @@ export const zaiModels = [
 		name: "GLM-4.7",
 		description: "Latest GLM with enhanced reasoning capabilities.",
 		family: "glm",
-		releasedAt: new Date("2025-12-01"),
+		releasedAt: new Date("2025-12-22"),
 		publishedAt: new Date("2025-12-22"),
 		providers: [
 			{
