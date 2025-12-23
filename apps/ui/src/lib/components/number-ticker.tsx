@@ -39,6 +39,8 @@ export function NumberTicker({
 			}, delay * 1000);
 			return () => clearTimeout(timer);
 		}
+
+		return () => {};
 	}, [motionValue, isInView, delay, value, direction, startValue]);
 
 	useEffect(
