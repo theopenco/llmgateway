@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { PostHogProvider } from "posthog-js/react";
 import { useMemo, useEffect } from "react";
+import { Toaster as SonnerToaster } from "sonner";
 
 import { ReferralHandler } from "@/components/referral-handler";
 import { Toaster } from "@/lib/components/toaster";
@@ -100,6 +101,7 @@ export function Providers({ children, config }: ProvidersProps) {
 					)}
 				</QueryClientProvider>
 				<Toaster />
+				<SonnerToaster richColors position="bottom-right" />
 				<ReferralHandler />
 			</ThemeProvider>
 		</AppConfigProvider>

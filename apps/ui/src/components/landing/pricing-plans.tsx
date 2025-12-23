@@ -163,7 +163,7 @@ export function PricingPlans() {
 				router.push("https://docs.llmgateway.io");
 				return;
 			case "Enterprise":
-				router.push("mailto:contact@llmgateway.io");
+				router.push("/enterprise");
 				return;
 			case "Pro":
 				handleCreateProSubscription();

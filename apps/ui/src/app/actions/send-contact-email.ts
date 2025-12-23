@@ -99,169 +99,162 @@ async function checkRateLimit(identifier: string): Promise<boolean> {
 }
 
 export async function sendContactEmail(data: ContactFormData) {
-	try {
-		// Validate the data
-		const validatedData = contactFormSchema.parse(data);
+	// Validate the data
+	const parseResult = contactFormSchema.safeParse(data);
+	if (!parseResult.success) {
+		return {
+			success: false,
+			message: "Invalid form data",
+			errors: parseResult.error.flatten().fieldErrors,
+		};
+	}
 
-		// Anti-spam check 1: Honeypot field (should be empty)
-		if (validatedData.honeypot && validatedData.honeypot.trim() !== "") {
-			console.warn("Spam detected: Honeypot field filled");
+	const validatedData = parseResult.data;
+
+	// Anti-spam check 1: Honeypot field (should be empty)
+	if (validatedData.honeypot && validatedData.honeypot.trim() !== "") {
+		return {
+			success: false,
+			message: "Invalid submission",
+		};
+	}
+
+	// Anti-spam check 2: Time-based validation (form should take at least 3 seconds)
+	if (validatedData.timestamp) {
+		const submissionTime = Date.now();
+		const timeTaken = submissionTime - validatedData.timestamp;
+		const minTime = 3000; // 3 seconds
+
+		if (timeTaken < minTime) {
 			return {
 				success: false,
-				message: "Invalid submission",
+				message: "Please take your time filling out the form",
 			};
 		}
+	}
 
-		// Anti-spam check 2: Time-based validation (form should take at least 3 seconds)
-		if (validatedData.timestamp) {
-			const submissionTime = Date.now();
-			const timeTaken = submissionTime - validatedData.timestamp;
-			const minTime = 3000; // 3 seconds
+	// Anti-spam check 3: Rate limiting by IP
+	const headersList = await headers();
+	const forwardedFor = headersList.get("x-forwarded-for");
+	const ip = forwardedFor
+		? forwardedFor.split(",")[0]
+		: headersList.get("x-real-ip") || "unknown";
 
-			if (timeTaken < minTime) {
-				console.warn("Spam detected: Form submitted too quickly");
-				return {
-					success: false,
-					message: "Please take your time filling out the form",
-				};
-			}
-		}
+	const canSubmit = await checkRateLimit(ip);
+	if (!canSubmit) {
+		return {
+			success: false,
+			message: "Too many submissions. Please try again later (max 3 per hour)",
+		};
+	}
 
-		// Anti-spam check 3: Rate limiting by IP
-		const headersList = await headers();
-		const forwardedFor = headersList.get("x-forwarded-for");
-		const ip = forwardedFor
-			? forwardedFor.split(",")[0]
-			: headersList.get("x-real-ip") || "unknown";
+	// Anti-spam check 4: Disposable email check
+	if (isDisposableEmail(validatedData.email)) {
+		return {
+			success: false,
+			message: "Please use a valid company email address",
+		};
+	}
 
-		const canSubmit = await checkRateLimit(ip);
-		if (!canSubmit) {
-			console.warn(`Rate limit exceeded for IP: ${ip}`);
-			return {
-				success: false,
-				message:
-					"Too many submissions. Please try again later (max 3 per hour)",
-			};
-		}
+	// Anti-spam check 5: Content spam detection
+	const contentToCheck = `${validatedData.name} ${validatedData.message}`;
+	if (checkForSpam(contentToCheck)) {
+		return {
+			success: false,
+			message: "Your message contains prohibited content",
+		};
+	}
 
-		// Anti-spam check 4: Disposable email check
-		if (isDisposableEmail(validatedData.email)) {
-			console.warn(`Disposable email detected: ${validatedData.email}`);
-			return {
-				success: false,
-				message: "Please use a valid company email address",
-			};
-		}
+	const brevoApiKey = process.env.BREVO_API_KEY;
+	if (!brevoApiKey) {
+		return {
+			success: false,
+			message: "Email service is not configured. Please try again later.",
+		};
+	}
 
-		// Anti-spam check 5: Content spam detection
-		const contentToCheck = `${validatedData.name} ${validatedData.message}`;
-		if (checkForSpam(contentToCheck)) {
-			console.warn("Spam keywords detected in submission");
-			return {
-				success: false,
-				message: "Your message contains prohibited content",
-			};
-		}
-
-		const brevoApiKey = process.env.BREVO_API_KEY;
-		if (!brevoApiKey) {
-			throw new Error("Brevo API key not configured");
-		}
-
-		// Prepare email content
-		const htmlContent = `
-			<html>
-				<head>
-					<style>
-						body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-						.container { max-width: 600px; margin: 0 auto; padding: 20px; }
-						.header { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-						.field { margin-bottom: 15px; }
-						.label { font-weight: bold; color: #555; }
-						.value { color: #333; margin-top: 5px; }
-					</style>
-				</head>
-				<body>
-					<div class="container">
-						<div class="header">
-							<h2 style="margin: 0; color: #2563eb;">New Enterprise Contact Request</h2>
-						</div>
-						
-						<div class="field">
-							<div class="label">Name:</div>
-							<div class="value">${validatedData.name}</div>
-						</div>
-						
-						<div class="field">
-							<div class="label">Email:</div>
-							<div class="value">${validatedData.email}</div>
-						</div>
-						
-						<div class="field">
-							<div class="label">Country:</div>
-							<div class="value">${validatedData.country}</div>
-						</div>
-						
-						<div class="field">
-							<div class="label">Company Size:</div>
-							<div class="value">${validatedData.size}</div>
-						</div>
-						
-						<div class="field">
-							<div class="label">Message:</div>
-							<div class="value" style="white-space: pre-wrap;">${validatedData.message}</div>
-						</div>
+	// Prepare email content
+	const htmlContent = `
+		<html>
+			<head>
+				<style>
+					body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+					.container { max-width: 600px; margin: 0 auto; padding: 20px; }
+					.header { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+					.field { margin-bottom: 15px; }
+					.label { font-weight: bold; color: #555; }
+					.value { color: #333; margin-top: 5px; }
+				</style>
+			</head>
+			<body>
+				<div class="container">
+					<div class="header">
+						<h2 style="margin: 0; color: #2563eb;">New Enterprise Contact Request</h2>
 					</div>
-				</body>
-			</html>
-		`;
+					
+					<div class="field">
+						<div class="label">Name:</div>
+						<div class="value">${validatedData.name}</div>
+					</div>
+					
+					<div class="field">
+						<div class="label">Email:</div>
+						<div class="value">${validatedData.email}</div>
+					</div>
+					
+					<div class="field">
+						<div class="label">Country:</div>
+						<div class="value">${validatedData.country}</div>
+					</div>
+					
+					<div class="field">
+						<div class="label">Company Size:</div>
+						<div class="value">${validatedData.size}</div>
+					</div>
+					
+					<div class="field">
+						<div class="label">Message:</div>
+						<div class="value" style="white-space: pre-wrap;">${validatedData.message}</div>
+					</div>
+				</div>
+			</body>
+		</html>
+	`;
 
-		// Send email via Brevo
-		const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-			method: "POST",
-			headers: {
-				accept: "application/json",
-				"api-key": brevoApiKey,
-				"content-type": "application/json",
+	// Send email via Brevo
+	const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+		method: "POST",
+		headers: {
+			accept: "application/json",
+			"api-key": brevoApiKey,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			sender: {
+				name: "LLMGateway Contact Form",
+				email: "contact@llmgateway.io",
 			},
-			body: JSON.stringify({
-				sender: {
-					name: "LLMGateway Contact Form",
+			to: [
+				{
 					email: "contact@llmgateway.io",
+					name: "LLMGateway Enterprise",
 				},
-				to: [
-					{
-						email: "contact@llmgateway.io",
-						name: "LLMGateway Enterprise",
-					},
-				],
-				replyTo: {
-					email: validatedData.email,
-					name: validatedData.name,
-				},
-				subject: `Enterprise Contact Request from ${validatedData.name}`,
-				htmlContent,
-			}),
-		});
+			],
+			replyTo: {
+				email: validatedData.email,
+				name: validatedData.name,
+			},
+			subject: `Enterprise Contact Request from ${validatedData.name}`,
+			htmlContent,
+		}),
+	});
 
-		if (!response.ok) {
-			throw new Error(
-				`Failed to send email: ${response.status} ${response.statusText}`,
-			);
-		}
-
-		return { success: true, message: "Email sent successfully" };
-	} catch (error) {
-		if (error instanceof z.ZodError) {
-			return {
-				success: false,
-				message: "Invalid form data",
-				errors: error.flatten().fieldErrors,
-			};
-		}
+	if (!response.ok) {
 		return {
 			success: false,
 			message: "Failed to send email. Please try again later.",
 		};
 	}
+
+	return { success: true, message: "Email sent successfully" };
 }

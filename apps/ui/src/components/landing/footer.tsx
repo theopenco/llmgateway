@@ -146,6 +146,33 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href={"/integrations" as any}
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch
+									>
+										Integrations
+									</Link>
+								</li>
+								<li>
+									<Link
+										href={"/guides" as any}
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch
+									>
+										Guides
+									</Link>
+								</li>
+								<li>
+									<Link
+										href={"/brand" as any}
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch
+									>
+										Brand Assets
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/referrals"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>
