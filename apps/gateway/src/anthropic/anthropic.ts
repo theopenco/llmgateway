@@ -460,8 +460,8 @@ anthropic.openapi(messages, async (c) => {
 	});
 
 	if (!response.ok) {
-		// Don't log 402 as error - it's an expected business logic response (e.g., insufficient credits)
-		if (response.status !== 402) {
+		// Don't log 402/429 as errors - they're expected business logic responses (insufficient credits, rate limiting)
+		if (response.status !== 402 && response.status !== 429) {
 			logger.error("Anthropic -> OpenAI request failed", {
 				status: response.status,
 				statusText: response.statusText,
@@ -469,7 +469,7 @@ anthropic.openapi(messages, async (c) => {
 		}
 		const errorData = await response.text();
 		throw new HTTPException(
-			response.status as 400 | 401 | 402 | 403 | 404 | 500,
+			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
 			{
 				message: `Request failed: ${errorData}`,
 			},
