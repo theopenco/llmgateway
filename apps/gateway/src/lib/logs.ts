@@ -6,6 +6,27 @@ import type { InferInsertModel } from "@llmgateway/db";
 import type { log } from "@llmgateway/db";
 
 /**
+ * Check if a finish reason is expected to map to UNKNOWN
+ * (i.e., it's a known finish reason that intentionally maps to unknown)
+ */
+export function isExpectedUnknownFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	if (!finishReason) {
+		return false;
+	}
+	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
+	if (
+		(provider === "google-ai-studio" || provider === "google-vertex") &&
+		finishReason === "OTHER"
+	) {
+		return true;
+	}
+	return false;
+}
+
+/**
  * Maps provider-specific finish reasons to unified finish reasons
  */
 export function getUnifiedFinishReason(
@@ -139,7 +160,11 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 
 			if (
 				logData.unifiedFinishReason === UnifiedFinishReason.UNKNOWN &&
-				logData.finishReason
+				logData.finishReason &&
+				!isExpectedUnknownFinishReason(
+					logData.finishReason,
+					logData.usedProvider,
+				)
 			) {
 				logger.error("Unknown finish reason encountered", {
 					requestId: logData.requestId,

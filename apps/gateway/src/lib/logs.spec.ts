@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { UnifiedFinishReason } from "@llmgateway/db";
 
-import { calculateDataStorageCost, getUnifiedFinishReason } from "./logs.js";
+import {
+	calculateDataStorageCost,
+	getUnifiedFinishReason,
+	isExpectedUnknownFinishReason,
+} from "./logs.js";
 
 describe("getUnifiedFinishReason", () => {
 	it("maps OpenAI finish reasons correctly", () => {
@@ -92,6 +96,36 @@ describe("getUnifiedFinishReason", () => {
 		);
 		expect(getUnifiedFinishReason("unknown_reason", "any-provider")).toBe(
 			UnifiedFinishReason.UNKNOWN,
+		);
+	});
+});
+
+describe("isExpectedUnknownFinishReason", () => {
+	it("returns true for Google OTHER finish reason", () => {
+		expect(isExpectedUnknownFinishReason("OTHER", "google-ai-studio")).toBe(
+			true,
+		);
+		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
+	});
+
+	it("returns false for OTHER from other providers", () => {
+		expect(isExpectedUnknownFinishReason("OTHER", "openai")).toBe(false);
+		expect(isExpectedUnknownFinishReason("OTHER", "anthropic")).toBe(false);
+	});
+
+	it("returns false for other finish reasons from Google", () => {
+		expect(isExpectedUnknownFinishReason("STOP", "google-ai-studio")).toBe(
+			false,
+		);
+		expect(isExpectedUnknownFinishReason("unknown", "google-ai-studio")).toBe(
+			false,
+		);
+	});
+
+	it("returns false for null or undefined finish reasons", () => {
+		expect(isExpectedUnknownFinishReason(null, "google-ai-studio")).toBe(false);
+		expect(isExpectedUnknownFinishReason(undefined, "google-ai-studio")).toBe(
+			false,
 		);
 	});
 });
