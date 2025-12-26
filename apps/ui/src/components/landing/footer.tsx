@@ -260,6 +260,15 @@ export default function Footer() {
 										OpenRouter
 									</Link>
 								</li>
+								<li>
+									<Link
+										href={"/compare/litellm" as any}
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										LiteLLM
+									</Link>
+								</li>
 							</ul>
 						</div>
 
