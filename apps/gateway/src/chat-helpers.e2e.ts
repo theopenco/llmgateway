@@ -59,24 +59,6 @@ if (hasOnlyModels) {
 export const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
-	// Filter out models where all provider mappings are deactivated
-	.filter((model) => {
-		const allDeactivated = model.providers.every(
-			(provider) =>
-				(provider as ProviderModelMapping).deactivatedAt &&
-				new Date() > (provider as ProviderModelMapping).deactivatedAt!,
-		);
-		return !allDeactivated;
-	})
-	// Filter out models where all provider mappings are deprecated
-	.filter((model) => {
-		const allDeprecated = model.providers.every(
-			(provider) =>
-				(provider as ProviderModelMapping).deprecatedAt &&
-				new Date() > (provider as ProviderModelMapping).deprecatedAt!,
-		);
-		return !allDeprecated;
-	})
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -189,6 +171,16 @@ export const testModels = filteredModels
 
 		// Create entries for provider-specific requests using provider/model format
 		for (const provider of model.providers as ProviderModelMapping[]) {
+			// Skip deactivated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+
+			// Skip deprecated provider mappings
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
 			// Filter by TEST_MODELS if specified
 			if (specifiedModels) {
 				const providerModelId = `${provider.providerId}/${model.id}`;
@@ -251,6 +243,16 @@ export const providerModels = filteredModels
 		const testCases = [];
 
 		for (const provider of model.providers as ProviderModelMapping[]) {
+			// Skip deactivated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+
+			// Skip deprecated provider mappings
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
 			// Filter by TEST_MODELS if specified
 			if (specifiedModels) {
 				const providerModelId = `${provider.providerId}/${model.id}`;
