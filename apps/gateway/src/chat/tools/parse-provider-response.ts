@@ -286,14 +286,21 @@ export function parseProviderResponse(
 			break;
 		}
 		case "mistral":
+		case "novita": {
 			content = json.choices?.[0]?.message?.content || null;
+			// Extract reasoning content - check both reasoning and reasoning_content fields
+			reasoningContent =
+				json.choices?.[0]?.message?.reasoning ||
+				json.choices?.[0]?.message?.reasoning_content ||
+				null;
 			finishReason = json.choices?.[0]?.finish_reason || null;
 			promptTokens = json.usage?.prompt_tokens || null;
 			completionTokens = json.usage?.completion_tokens || null;
 			reasoningTokens = json.usage?.reasoning_tokens || null;
+			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
 			totalTokens = json.usage?.total_tokens || null;
 
-			// Handle Mistral's JSON output mode which wraps JSON in markdown code blocks
+			// Handle Mistral/Novita JSON output mode which wraps JSON in markdown code blocks
 			if (
 				content &&
 				typeof content === "string" &&
@@ -311,9 +318,17 @@ export function parseProviderResponse(
 				}
 			}
 
-			// Extract tool calls from Mistral format (same as OpenAI)
+			// Map non-standard finish reasons to OpenAI-compatible values
+			if (finishReason === "end_turn") {
+				finishReason = "stop";
+			} else if (finishReason === "tool_use") {
+				finishReason = "tool_calls";
+			}
+
+			// Extract tool calls from Mistral/Novita format (same as OpenAI)
 			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			break;
+		}
 		default: // OpenAI format
 			// Check if this is an OpenAI responses format (has output array instead of choices)
 			if (json.output && Array.isArray(json.output)) {

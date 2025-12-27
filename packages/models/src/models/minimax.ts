@@ -32,8 +32,8 @@ export const minimaxModels = [
 		description:
 			"MiniMax M2.1 is a 10B-activated open-source coding and agent model with function calling, structured output, and reasoning support.",
 		family: "minimax",
-		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
+		releasedAt: new Date("2025-12-26"),
+		publishedAt: new Date("2025-12-27"),
 		providers: [
 			{
 				providerId: "novita",
