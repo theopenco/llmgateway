@@ -480,6 +480,8 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				modelName: "anthropic.claude-3-5-haiku-20241022-v1:0",
+				deprecatedAt: new Date("2025-12-19"),
+				deactivatedAt: new Date("2026-06-19"),
 				inputPrice: 0.8 / 1e6,
 				outputPrice: 4.0 / 1e6,
 				cachedInputPrice: 0.08 / 1e6,

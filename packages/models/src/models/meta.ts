@@ -12,6 +12,7 @@ export const metaModels = [
 			{
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-1-8b-instruct-v1:0",
+				stability: "unstable",
 				inputPrice: 0.22 / 1e6,
 				outputPrice: 0.22 / 1e6,
 				requestPrice: 0,
