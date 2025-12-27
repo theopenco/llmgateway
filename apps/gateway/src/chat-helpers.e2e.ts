@@ -68,6 +68,15 @@ export const filteredModels = models
 		);
 		return !allDeactivated;
 	})
+	// Filter out models where all provider mappings are deprecated
+	.filter((model) => {
+		const allDeprecated = model.providers.every(
+			(provider) =>
+				(provider as ProviderModelMapping).deprecatedAt &&
+				new Date() > (provider as ProviderModelMapping).deprecatedAt!,
+		);
+		return !allDeprecated;
+	})
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
