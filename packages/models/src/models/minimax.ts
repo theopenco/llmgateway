@@ -49,7 +49,7 @@ export const minimaxModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
+				jsonOutputSchema: false,
 			},
 		],
 	},

@@ -2848,6 +2848,16 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (eventData === "[DONE]") {
+							// Set default finish_reason if not provided by the stream
+							// Some providers (like Novita) don't send finish_reason in streaming chunks
+							if (finishReason === null) {
+								// Default to "stop" unless we have tool calls
+								finishReason =
+									streamingToolCalls && streamingToolCalls.length > 0
+										? "tool_calls"
+										: "stop";
+							}
+
 							// Calculate final usage if we don't have complete data
 							let finalPromptTokens = promptTokens;
 							let finalCompletionTokens = completionTokens;

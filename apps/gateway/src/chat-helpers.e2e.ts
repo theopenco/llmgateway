@@ -313,9 +313,12 @@ export const streamingReasoningModels = reasoningModels.filter((m) =>
 	}),
 );
 
-export const toolCallModels = testModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => p.tools === true),
-);
+export const toolCallModels = testModels
+	.filter((m) =>
+		m.providers.some((p: ProviderModelMapping) => p.tools === true),
+	)
+	// Exclude novita/minimax-m2.1 due to model variability in tool calling
+	.filter((m) => m.model !== "novita/minimax-m2.1");
 
 export const imageModels = testModels.filter((m) => {
 	const model = models.find((mo) => m.originalModel === mo.id);
