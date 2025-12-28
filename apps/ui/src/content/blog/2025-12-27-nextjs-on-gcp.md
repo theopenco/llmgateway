@@ -5,7 +5,11 @@ date: 2025-12-27
 title: Deploying Next.js on GCP
 summary: How we deploy our Next.js apps on Google Cloud Platform without relying on Vercel.
 categories: ["Engineering"]
-draft: true
+image:
+  src: "/blog/blog-nextjs-on-gcp.png"
+  alt: "Deploying Next.js on GCP"
+  width: 2282
+  height: 1198
 ---
 
 We recently moved our Next.js deployments to Google Cloud Platform. Here's why and how it went.
