@@ -1,9 +1,10 @@
 import { Inter, Geist_Mono } from "next/font/google";
+import { getLocale } from "next-intl/server";
 
-import { Providers } from "@/components/providers";
-import { getConfig } from "@/lib/config-server";
+import { isRtlLocale } from "@llmgateway/i18n/config";
 
 import "./globals.css";
+import LayoutWrapper from "./layout-wrapper";
 
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
@@ -49,15 +50,20 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
-	const config = getConfig();
+export default async function RootLayout({
+	children,
+}: {
+	children: ReactNode;
+}) {
+	const locale = await getLocale();
+	const dir = isRtlLocale(locale) ? "rtl" : "ltr";
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html lang={locale} dir={dir} suppressHydrationWarning>
 			<body
 				className={`${inter.variable} ${geistMono.variable} min-h-screen antialiased`}
 			>
-				<Providers config={config}>{children}</Providers>
+				<LayoutWrapper>{children}</LayoutWrapper>
 			</body>
 		</html>
 	);

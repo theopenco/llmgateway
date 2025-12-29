@@ -69,6 +69,7 @@ import {
 	SidebarMenuSubItem,
 	useSidebar,
 } from "@/lib/components/sidebar";
+import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
@@ -194,7 +195,9 @@ function DashboardSidebarHeader({
 					prefetch={true}
 				>
 					<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
-					<span className="text-xl font-bold tracking-tight">LLM Gateway</span>
+					<span className="text-xl font-bold tracking-tight">
+						{getConfig().appName}
+					</span>
 				</Link>
 			</div>
 			<OrganizationSwitcher

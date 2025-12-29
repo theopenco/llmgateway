@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Github } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -25,35 +26,36 @@ import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 
-const createFormSchema = (isHosted: boolean) =>
-	z.object({
-		name: z.string().min(2, {
-			message: "Name is required",
-		}),
-		email: isHosted
-			? z
-					.string()
-					.email({
-						message: "Please enter a valid email address",
-					})
-					.refine((email) => !email.split("@")[0]?.includes("+"), {
-						message: "Email addresses with '+' are not allowed",
-					})
-			: z.string().email({
-					message: "Please enter a valid email address",
-				}),
-		password: z.string().min(8, {
-			message: "Password must be at least 8 characters",
-		}),
-	});
-
 export default function Signup() {
+	const t = useTranslations("auth");
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signUp, signIn } = useAuth();
 	const config = useAppConfig();
+
+	const createFormSchema = (isHosted: boolean) =>
+		z.object({
+			name: z.string().min(2, {
+				message: t("nameRequired"),
+			}),
+			email: isHosted
+				? z
+						.string()
+						.email({
+							message: t("validEmailRequired"),
+						})
+						.refine((email) => !email.split("@")[0]?.includes("+"), {
+							message: t("emailWithPlusNotAllowed"),
+						})
+				: z.string().email({
+						message: t("validEmailRequired"),
+					}),
+			password: z.string().min(8, {
+				message: t("passwordMinLength"),
+			}),
+		});
 
 	const formSchema = createFormSchema(config.hosted);
 
@@ -98,15 +100,14 @@ export default function Signup() {
 						name: values.name,
 					});
 					toast({
-						title: "Account created",
-						description:
-							"Please check your email to verify your account before signing in.",
+						title: t("accountCreated"),
+						description: t("checkEmailToVerify"),
 					});
 					router.push("/onboarding");
 				},
 				onError: (ctx) => {
 					toast({
-						title: ctx.error.message || "Failed to sign up",
+						title: ctx.error.message || t("failedToSignUp"),
 						variant: "destructive",
 					});
 				},
@@ -115,7 +116,7 @@ export default function Signup() {
 
 		if (error) {
 			toast({
-				title: error.message || "Failed to sign up",
+				title: error.message || t("failedToSignUp"),
 				variant: "destructive",
 			});
 		}
@@ -128,10 +129,10 @@ export default function Signup() {
 			<div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
 				<div className="flex flex-col space-y-2 text-center">
 					<h1 className="text-2xl font-semibold tracking-tight">
-						Create an account
+						{t("createAccount")}
 					</h1>
 					<p className="text-sm text-muted-foreground">
-						Enter your email below to create your account
+						{t("enterEmailToCreateAccount")}
 					</p>
 				</div>
 				<Form {...form}>
@@ -141,7 +142,7 @@ export default function Signup() {
 							name="name"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Name</FormLabel>
+									<FormLabel>{t("name")}</FormLabel>
 									<FormControl>
 										<Input placeholder="John Doe" {...field} />
 									</FormControl>
@@ -154,7 +155,7 @@ export default function Signup() {
 							name="email"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Email</FormLabel>
+									<FormLabel>{t("email")}</FormLabel>
 									<FormControl>
 										<Input
 											placeholder="name@example.com"
@@ -171,7 +172,7 @@ export default function Signup() {
 							name="password"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Password</FormLabel>
+									<FormLabel>{t("password")}</FormLabel>
 									<FormControl>
 										<Input placeholder="••••••••" type="password" {...field} />
 									</FormControl>
@@ -183,10 +184,10 @@ export default function Signup() {
 							{isLoading ? (
 								<>
 									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-									Creating account...
+									{t("creatingAccount")}
 								</>
 							) : (
-								"Create account"
+								t("createAccount")
 							)}
 						</Button>
 					</form>
@@ -196,7 +197,9 @@ export default function Signup() {
 						<span className="w-full border-t" />
 					</div>
 					<div className="relative flex justify-center text-xs uppercase">
-						<span className="bg-background px-2 text-muted-foreground">Or</span>
+						<span className="bg-background px-2 text-muted-foreground">
+							{t("or")}
+						</span>
 					</div>
 				</div>
 				<Button
@@ -210,7 +213,7 @@ export default function Signup() {
 							});
 							if (res?.error) {
 								toast({
-									title: res.error.message || "Failed to sign up with GitHub",
+									title: res.error.message || t("failedToSignUpWithGithub"),
 									variant: "destructive",
 								});
 							}
@@ -227,14 +230,14 @@ export default function Signup() {
 					) : (
 						<Github className="mr-2 h-4 w-4" />
 					)}
-					Sign up with GitHub
+					{t("signUpWithGithub")}
 				</Button>
 				<p className="px-8 text-center text-sm text-muted-foreground">
 					<Link
 						href="/login"
 						className="hover:text-brand underline underline-offset-4"
 					>
-						Already have an account? Sign in
+						{t("alreadyHaveAccount")}
 					</Link>
 				</p>
 			</div>

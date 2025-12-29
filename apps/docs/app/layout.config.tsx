@@ -34,7 +34,7 @@ export const baseOptions: BaseLayoutProps = {
 	links: [
 		{
 			text: "Dashboard",
-			url: "https://llmgateway.io/dashboard",
+			url: process.env.UI_URL + "/dashboard",
 			active: "none",
 		},
 	],

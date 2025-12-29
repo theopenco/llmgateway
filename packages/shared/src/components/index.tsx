@@ -1,3 +1,4 @@
+export * from "./language-selector";
 export * from "./model-selector";
 export * from "./multi-model-selector";
 export * from "./multi-provider-selector";

@@ -3,6 +3,7 @@
 import { ArrowRight, ChevronRight, Copy } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
 import { Highlight, themes } from "prism-react-renderer";
 import { useEffect, useState } from "react";
@@ -94,6 +95,7 @@ export function Hero({
 	navbarOnly?: boolean;
 	children: React.ReactNode;
 }) {
+	const t = useTranslations("hero");
 	const config = useAppConfig();
 	const { resolvedTheme } = useTheme();
 	const [mounted, setMounted] = useState(false);
@@ -174,12 +176,12 @@ export function Hero({
 									<div className="text-center lg:text-left">
 										<AnimatedGroup variants={transitionVariants}>
 											<h1 className="max-w-4xl mx-auto lg:mx-0 text-balance text-4xl md:text-6xl xl:text-6xl font-bold">
-												Use any model, from any provider
-												<br />— with just one API.
+												{t("title")}
+												<br />
+												{t("titleSuffix")}
 											</h1>
 											<p className="mx-auto lg:mx-0 mt-8 max-w-2xl text-balance text-lg">
-												Route, manage, and analyze your LLM requests across
-												multiple providers with a unified API interface.
+												{t("description")}
 											</p>
 										</AnimatedGroup>
 
@@ -208,7 +210,7 @@ export function Hero({
 												>
 													<AuthLink href="/signup">
 														<span className="text-nowrap">
-															Get your API key
+															{t("getApiKey")}
 														</span>
 													</AuthLink>
 												</Button>
@@ -222,7 +224,7 @@ export function Hero({
 											>
 												<a href={config.docsUrl ?? ""} target="_blank">
 													<span className="text-nowrap">
-														View documentation
+														{t("viewDocumentation")}
 													</span>
 												</a>
 											</Button>

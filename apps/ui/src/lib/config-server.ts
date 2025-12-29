@@ -1,4 +1,6 @@
 export interface AppConfig {
+	appName: string;
+
 	hosted: boolean;
 	apiUrl: string;
 	apiBackendUrl: string;
@@ -16,6 +18,8 @@ export interface AppConfig {
 export function getConfig(): AppConfig {
 	const apiUrl = process.env.API_URL || "http://localhost:4002";
 	return {
+		appName: "LLM Gateway",
+
 		hosted: process.env.HOSTED === "true",
 		apiUrl,
 		apiBackendUrl: process.env.API_BACKEND_URL || apiUrl,

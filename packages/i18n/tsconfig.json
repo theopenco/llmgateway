@@ -1,0 +1,19 @@
+{
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"baseUrl": ".",
+		"rootDir": "./src",
+		"target": "esnext",
+		"lib": ["esnext"],
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"jsx": "react-jsx"
+	},
+	"include": ["./src/**/*.ts", "./src/**/*.tsx", "./messages/**/*.json"],
+	"exclude": ["node_modules"]
+}

@@ -1,0 +1,66 @@
+{
+	"common": {
+		"welcome": "مرحباً",
+		"loading": "جاري التحميل...",
+		"error": "حدث خطأ",
+		"success": "نجح",
+		"cancel": "إلغاء",
+		"confirm": "تأكيد",
+		"save": "حفظ",
+		"delete": "حذف",
+		"edit": "تعديل",
+		"close": "إغلاق",
+		"language": "اللغة"
+	},
+	"auth": {
+		"welcomeBack": "مرحباً بعودتك",
+		"signIn": "تسجيل الدخول",
+		"signUp": "إنشاء حساب",
+		"signingIn": "جاري تسجيل الدخول...",
+		"email": "البريد الإلكتروني",
+		"password": "كلمة المرور",
+		"enterEmailPassword": "أدخل بريدك الإلكتروني وكلمة المرور لتسجيل الدخول إلى حسابك",
+		"or": "أو",
+		"signInWithGithub": "تسجيل الدخول باستخدام GitHub",
+		"signInWithPasskey": "تسجيل الدخول باستخدام Passkey",
+		"dontHaveAccount": "ليس لديك حساب؟ إنشاء حساب",
+		"loginSuccessful": "تم تسجيل الدخول بنجاح",
+		"failedToSignIn": "فشل تسجيل الدخول",
+		"failedToSignInWithPasskey": "فشل تسجيل الدخول باستخدام Passkey",
+		"failedToSignInWithGithub": "فشل تسجيل الدخول باستخدام GitHub",
+		"validEmailRequired": "يرجى إدخال عنوان بريد إلكتروني صحيح",
+		"passwordMinLength": "يجب أن تكون كلمة المرور 8 أحرف على الأقل",
+		"unknownError": "حدث خطأ غير معروف",
+		"createAccount": "إنشاء حساب",
+		"enterEmailToCreateAccount": "أدخل بريدك الإلكتروني أدناه لإنشاء حسابك",
+		"name": "الاسم",
+		"nameRequired": "الاسم مطلوب",
+		"emailWithPlusNotAllowed": "عناوين البريد الإلكتروني التي تحتوي على '+' غير مسموحة",
+		"creatingAccount": "جاري إنشاء الحساب...",
+		"signUpWithGithub": "إنشاء حساب باستخدام GitHub",
+		"failedToSignUp": "فشل إنشاء الحساب",
+		"failedToSignUpWithGithub": "فشل إنشاء الحساب باستخدام GitHub",
+		"accountCreated": "تم إنشاء الحساب",
+		"checkEmailToVerify": "يرجى التحقق من بريدك الإلكتروني للتحقق من حسابك قبل تسجيل الدخول.",
+		"alreadyHaveAccount": "هل لديك حساب بالفعل؟ تسجيل الدخول"
+	},
+	"playground": {
+		"title": "ساحة الدردشة",
+		"description": "تحدث مع نماذج LLM المفضلة لديك"
+	},
+	"admin": {
+		"dashboard": "لوحة التحكم الإدارية",
+		"description": "إدارة مثيل LLM Gateway الخاص بك"
+	},
+	"docs": {
+		"title": "التوثيق",
+		"description": "توثيق LLM Gateway"
+	},
+	"hero": {
+		"title": "استخدم أي نموذج، من أي مزود",
+		"titleSuffix": "— باستخدام واجهة API واحدة فقط.",
+		"description": "توجيه وإدارة وتحليل طلبات LLM الخاصة بك عبر مزودين متعددين بواجهة API موحدة.",
+		"getApiKey": "احصل على مفتاح API",
+		"viewDocumentation": "عرض التوثيق"
+	}
+}

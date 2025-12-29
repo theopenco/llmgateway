@@ -16,8 +16,11 @@ import {
 	NavigationMenuTrigger,
 } from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
+
+import { LanguageSelector } from "@llmgateway/shared/components";
 
 import { ThemeToggle } from "./theme-toggle";
 
@@ -177,7 +180,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 							>
 								<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
 								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
-									LLM Gateway
+									{getConfig().appName}
 								</span>
 							</Link>
 
@@ -394,6 +397,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 									>
 										<Github className="h-5 w-5" />
 									</a>
+									<LanguageSelector />
 									<a
 										href={config.discordUrl}
 										target="_blank"

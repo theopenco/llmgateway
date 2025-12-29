@@ -1,0 +1,66 @@
+{
+	"common": {
+		"welcome": "Welcome",
+		"loading": "Loading...",
+		"error": "An error occurred",
+		"success": "Success",
+		"cancel": "Cancel",
+		"confirm": "Confirm",
+		"save": "Save",
+		"delete": "Delete",
+		"edit": "Edit",
+		"close": "Close",
+		"language": "Language"
+	},
+	"auth": {
+		"welcomeBack": "Welcome back",
+		"signIn": "Sign in",
+		"signUp": "Sign up",
+		"signingIn": "Signing in...",
+		"email": "Email",
+		"password": "Password",
+		"enterEmailPassword": "Enter your email and password to sign in to your account",
+		"or": "Or",
+		"signInWithGithub": "Sign in with GitHub",
+		"signInWithPasskey": "Sign in with passkey",
+		"dontHaveAccount": "Don't have an account? Sign up",
+		"loginSuccessful": "Login successful",
+		"failedToSignIn": "Failed to sign in",
+		"failedToSignInWithPasskey": "Failed to sign in with passkey",
+		"failedToSignInWithGithub": "Failed to sign in with GitHub",
+		"validEmailRequired": "Please enter a valid email address",
+		"passwordMinLength": "Password must be at least 8 characters",
+		"unknownError": "An unknown error occurred",
+		"createAccount": "Create an account",
+		"enterEmailToCreateAccount": "Enter your email below to create your account",
+		"name": "Name",
+		"nameRequired": "Name is required",
+		"emailWithPlusNotAllowed": "Email addresses with '+' are not allowed",
+		"creatingAccount": "Creating account...",
+		"signUpWithGithub": "Sign up with GitHub",
+		"failedToSignUp": "Failed to sign up",
+		"failedToSignUpWithGithub": "Failed to sign up with GitHub",
+		"accountCreated": "Account created",
+		"checkEmailToVerify": "Please check your email to verify your account before signing in.",
+		"alreadyHaveAccount": "Already have an account? Sign in"
+	},
+	"playground": {
+		"title": "Chat Playground",
+		"description": "Chat with your favorite LLM models"
+	},
+	"admin": {
+		"dashboard": "Admin Dashboard",
+		"description": "Manage your LLM Gateway instance"
+	},
+	"docs": {
+		"title": "Documentation",
+		"description": "LLM Gateway Documentation"
+	},
+	"hero": {
+		"title": "Use any model, from any provider",
+		"titleSuffix": "— with just one API.",
+		"description": "Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
+		"getApiKey": "Get your API key",
+		"viewDocumentation": "View documentation"
+	}
+}

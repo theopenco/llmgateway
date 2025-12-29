@@ -1,8 +1,11 @@
 import { join } from "path";
 
 import { withContentCollections } from "@content-collections/next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 import type { NextConfig } from "next";
+
+const withNextIntl = createNextIntlPlugin("./src/i18n.ts");
 
 const nextConfig: NextConfig = {
 	outputFileTracingRoot: join(__dirname, "../../"),
@@ -78,4 +81,4 @@ const nextConfig: NextConfig = {
 };
 
 // withContentCollections must be the outermost plugin
-export default withContentCollections(nextConfig);
+export default withContentCollections(withNextIntl(nextConfig));

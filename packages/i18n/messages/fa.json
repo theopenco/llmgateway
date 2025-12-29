@@ -1,0 +1,66 @@
+{
+	"common": {
+		"welcome": "خوش آمدید",
+		"loading": "در حال بارگذاری...",
+		"error": "خطایی رخ داد",
+		"success": "موفقیت‌آمیز",
+		"cancel": "لغو",
+		"confirm": "تایید",
+		"save": "ذخیره",
+		"delete": "حذف",
+		"edit": "ویرایش",
+		"close": "بستن",
+		"language": "زبان"
+	},
+	"auth": {
+		"welcomeBack": "خوش برگشتید",
+		"signIn": "ورود",
+		"signUp": "ثبت‌نام",
+		"signingIn": "در حال ورود...",
+		"email": "ایمیل",
+		"password": "رمز عبور",
+		"enterEmailPassword": "ایمیل و رمز عبور خود را برای ورود به حساب کاربری وارد کنید",
+		"or": "یا",
+		"signInWithGithub": "ورود با GitHub",
+		"signInWithPasskey": "ورود با Passkey",
+		"dontHaveAccount": "حساب کاربری ندارید؟ ثبت‌نام کنید",
+		"loginSuccessful": "ورود موفقیت‌آمیز بود",
+		"failedToSignIn": "ورود ناموفق بود",
+		"failedToSignInWithPasskey": "ورود با Passkey ناموفق بود",
+		"failedToSignInWithGithub": "ورود با GitHub ناموفق بود",
+		"validEmailRequired": "لطفاً یک آدرس ایمیل معتبر وارد کنید",
+		"passwordMinLength": "رمز عبور باید حداقل ۸ کاراکتر باشد",
+		"unknownError": "خطای نامشخصی رخ داد",
+		"createAccount": "ایجاد حساب کاربری",
+		"enterEmailToCreateAccount": "ایمیل خود را برای ایجاد حساب کاربری وارد کنید",
+		"name": "نام",
+		"nameRequired": "نام الزامی است",
+		"emailWithPlusNotAllowed": "آدرس‌های ایمیل با '+' مجاز نیستند",
+		"creatingAccount": "در حال ایجاد حساب کاربری...",
+		"signUpWithGithub": "ثبت‌نام با GitHub",
+		"failedToSignUp": "ثبت‌نام ناموفق بود",
+		"failedToSignUpWithGithub": "ثبت‌نام با GitHub ناموفق بود",
+		"accountCreated": "حساب کاربری ایجاد شد",
+		"checkEmailToVerify": "لطفاً ایمیل خود را بررسی کنید تا حساب کاربری خود را قبل از ورود تأیید کنید.",
+		"alreadyHaveAccount": "قبلاً حساب کاربری دارید؟ وارد شوید"
+	},
+	"playground": {
+		"title": "محیط گفتگو",
+		"description": "با مدل‌های LLM مورد علاقه خود گفتگو کنید"
+	},
+	"admin": {
+		"dashboard": "پنل مدیریت",
+		"description": "نمایشگاه LLM Gateway خود را مدیریت کنید"
+	},
+	"docs": {
+		"title": "مستندات",
+		"description": "مستندات LLM Gateway"
+	},
+	"hero": {
+		"title": "استفاده از هر مدلی، از هر ارائه‌دهنده‌ای",
+		"titleSuffix": "— تنها با یک API.",
+		"description": "مسیریابی، مدیریت و تحلیل درخواست‌های LLM خود در ارائه‌دهندگان متعدد با یک رابط API یکپارچه.",
+		"getApiKey": "دریافت کلید API",
+		"viewDocumentation": "مشاهده مستندات"
+	}
+}

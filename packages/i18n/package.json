@@ -1,0 +1,34 @@
+{
+	"name": "@llmgateway/i18n",
+	"version": "0.0.0",
+	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"type": "module",
+	"exports": {
+		"./config": "./src/config.ts",
+		"./request": "./src/request.ts",
+		"./navigation": "./src/navigation.ts",
+		"./provider": "./src/provider.tsx",
+		"./messages/en": "./messages/en.json",
+		"./messages/fa": "./messages/fa.json",
+		"./messages/ar": "./messages/ar.json"
+	},
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"scripts": {
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check ."
+	},
+	"dependencies": {
+		"next-intl": "^3.21.0"
+	},
+	"devDependencies": {
+		"@types/node": "^24.3.3",
+		"@types/react": "^19.2.7",
+		"typescript": "^5.9.2"
+	},
+	"peerDependencies": {
+		"next": ">=16.0.0",
+		"react": ">=18.0.0"
+	}
+}

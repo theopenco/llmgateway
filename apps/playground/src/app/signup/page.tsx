@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -24,14 +25,6 @@ import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
-const formSchema = z.object({
-	name: z.string().min(2, { message: "Name is required" }),
-	email: z.string().email({ message: "Please enter a valid email address" }),
-	password: z
-		.string()
-		.min(8, { message: "Password must be at least 8 characters" }),
-});
-
 function getSafeRedirectUrl(url: string | null): string {
 	if (!url) {
 		return "/";
@@ -43,6 +36,7 @@ function getSafeRedirectUrl(url: string | null): string {
 }
 
 export default function Signup() {
+	const t = useTranslations("auth");
 	const searchParams = useSearchParams();
 	const queryClient = useQueryClient();
 	const router = useRouter();
@@ -50,6 +44,12 @@ export default function Signup() {
 	const [isLoading, setIsLoading] = useState(false);
 	const { signUp } = useAuth();
 	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+
+	const formSchema = z.object({
+		name: z.string().min(2, { message: t("nameRequired") }),
+		email: z.string().email({ message: t("validEmailRequired") }),
+		password: z.string().min(8, { message: t("passwordMinLength") }),
+	});
 
 	useUser({
 		redirectTo: returnUrl,
@@ -89,14 +89,13 @@ export default function Signup() {
 						email: values.email,
 						name: values.name,
 					});
-					toast.success("Account created", {
-						description:
-							"Please check your email to verify your account before signing in.",
+					toast.success(t("accountCreated"), {
+						description: t("checkEmailToVerify"),
 					});
 					router.push(returnUrl);
 				},
 				onError: (ctx) => {
-					toast.error(ctx.error.message || "Failed to sign up", {
+					toast.error(ctx.error.message || t("failedToSignUp"), {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -107,7 +106,7 @@ export default function Signup() {
 		);
 
 		if (error) {
-			toast.error(error.message || "Failed to sign up", {
+			toast.error(error.message || t("failedToSignUp"), {
 				style: {
 					backgroundColor: "var(--destructive)",
 					color: "var(--destructive-foreground)",
@@ -123,10 +122,10 @@ export default function Signup() {
 			<div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
 				<div className="flex flex-col space-y-2 text-center">
 					<h1 className="text-2xl font-semibold tracking-tight">
-						Create an account
+						{t("createAccount")}
 					</h1>
 					<p className="text-sm text-muted-foreground">
-						Enter your email below to create your account
+						{t("enterEmailToCreateAccount")}
 					</p>
 				</div>
 				<Form {...form}>
@@ -136,7 +135,7 @@ export default function Signup() {
 							name="name"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Name</FormLabel>
+									<FormLabel>{t("name")}</FormLabel>
 									<FormControl>
 										<Input placeholder="John Doe" {...field} />
 									</FormControl>
@@ -149,7 +148,7 @@ export default function Signup() {
 							name="email"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Email</FormLabel>
+									<FormLabel>{t("email")}</FormLabel>
 									<FormControl>
 										<Input
 											placeholder="name@example.com"
@@ -166,7 +165,7 @@ export default function Signup() {
 							name="password"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Password</FormLabel>
+									<FormLabel>{t("password")}</FormLabel>
 									<FormControl>
 										<Input placeholder="••••••••" type="password" {...field} />
 									</FormControl>
@@ -178,10 +177,10 @@ export default function Signup() {
 							{isLoading ? (
 								<>
 									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-									Creating account...
+									{t("creatingAccount")}
 								</>
 							) : (
-								"Create account"
+								t("createAccount")
 							)}
 						</Button>
 					</form>
@@ -191,7 +190,7 @@ export default function Signup() {
 						href="/login"
 						className="hover:text-brand underline underline-offset-4"
 					>
-						Already have an account? Sign in
+						{t("alreadyHaveAccount")}
 					</Link>
 				</p>
 			</div>
