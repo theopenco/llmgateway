@@ -402,7 +402,8 @@ export default function GroupChatClient({
 								href={
 									process.env.NODE_ENV === "development"
 										? "http://localhost:3002/dashboard"
-										: process.env.UI_URL + "/dashboard"
+										: (process.env.UI_URL || "https://llmgateway.io") +
+											"/dashboard"
 								}
 								target="_blank"
 								rel="noopener noreferrer"

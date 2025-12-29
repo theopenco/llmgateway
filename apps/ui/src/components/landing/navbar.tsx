@@ -16,7 +16,6 @@ import {
 	NavigationMenuTrigger,
 } from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
-import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
@@ -180,7 +179,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 							>
 								<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
 								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
-									{getConfig().appName}
+									{config.appName}
 								</span>
 							</Link>
 

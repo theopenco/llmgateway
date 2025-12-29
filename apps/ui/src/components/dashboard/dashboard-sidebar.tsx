@@ -69,7 +69,7 @@ import {
 	SidebarMenuSubItem,
 	useSidebar,
 } from "@/lib/components/sidebar";
-import { getConfig } from "@/lib/config-server";
+import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
@@ -185,6 +185,7 @@ function DashboardSidebarHeader({
 	onOrganizationCreated: (org: Organization) => void;
 }) {
 	const { buildUrl } = useDashboardNavigation();
+	const config = useAppConfig();
 
 	return (
 		<SidebarHeader>
@@ -196,7 +197,7 @@ function DashboardSidebarHeader({
 				>
 					<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
 					<span className="text-xl font-bold tracking-tight">
-						{getConfig().appName}
+						{config.appName}
 					</span>
 				</Link>
 			</div>
