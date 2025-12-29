@@ -473,10 +473,12 @@ chat.openapi(completions, async (c) => {
 		c.req.header("HTTP-Referer"),
 	);
 
+	// Extract User-Agent header for logging
+	const userAgent = c.req.header("User-Agent") || undefined;
+
 	// Match specific user agents and set source if x-source header is not specified
 	if (!source) {
-		const userAgent = c.req.header("User-Agent") || "";
-		if (/^claude-cli\/.+/.test(userAgent)) {
+		if (userAgent && /^claude-cli\/.+/.test(userAgent)) {
 			source = "claude.com/claude-code";
 		}
 	}
@@ -1904,6 +1906,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -2021,6 +2024,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -2334,6 +2338,7 @@ chat.openapi(completions, async (c) => {
 						source,
 						customHeaders,
 						debugMode,
+						userAgent,
 						image_config,
 						routingMetadata,
 						rawBody,
@@ -2418,6 +2423,7 @@ chat.openapi(completions, async (c) => {
 						source,
 						customHeaders,
 						debugMode,
+						userAgent,
 						image_config,
 						routingMetadata,
 						rawBody,
@@ -2569,6 +2575,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -3646,6 +3653,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -3865,6 +3873,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			userAgent,
 			image_config,
 			routingMetadata,
 			rawBody,
@@ -3954,6 +3963,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			userAgent,
 			image_config,
 			routingMetadata,
 			rawBody,
@@ -4048,6 +4058,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			userAgent,
 			image_config,
 			routingMetadata,
 			rawBody,
@@ -4285,6 +4296,7 @@ chat.openapi(completions, async (c) => {
 		source,
 		customHeaders,
 		debugMode,
+		userAgent,
 		image_config,
 		routingMetadata,
 		rawBody,

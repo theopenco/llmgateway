@@ -30,6 +30,7 @@ export function createLogEntry(
 	source: string | undefined,
 	customHeaders: Record<string, string>,
 	debugMode: boolean,
+	userAgent: string | undefined,
 	imageConfig?:
 		| {
 				aspect_ratio?: string;
@@ -76,6 +77,7 @@ export function createLogEntry(
 				: null,
 		routingMetadata: routingMetadata || null,
 		traceId,
+		userAgent: userAgent || null,
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: debugMode ? rawRequest || null : null,
 		rawResponse: debugMode ? rawResponse || null : null,
