@@ -315,8 +315,8 @@ export const zaiModels = [
 		name: "GLM-4.6V FlashX",
 		description: "Fast vision-language model with extended capabilities.",
 		family: "glm",
-		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
+		releasedAt: new Date("2025-12-08"),
+		publishedAt: new Date("2025-12-08"),
 		providers: [
 			{
 				providerId: "zai",
