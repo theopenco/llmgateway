@@ -864,7 +864,6 @@ export const openaiModels = [
 				jsonOutput: true,
 			},
 			{
-				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-5.1",
 				inputPrice: 1.25 / 1e6,
@@ -1049,7 +1048,6 @@ export const openaiModels = [
 				jsonOutput: true,
 			},
 			{
-				test: "skip",
 				providerId: "azure",
 				modelName: "gpt-5.2",
 				inputPrice: 1.75 / 1e6,
