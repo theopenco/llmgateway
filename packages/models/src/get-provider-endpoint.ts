@@ -237,20 +237,6 @@ export function getProviderEndpoint(
 				) ||
 				"ai-foundry";
 
-			// Check if model supports responses API
-			const supportsResponsesApi = model
-				? (() => {
-						const modelDef = models.find((m) => m.id === model);
-						const providerMapping = modelDef?.providers.find(
-							(p) => p.providerId === "azure",
-						);
-						return (
-							(providerMapping as ProviderModelMapping)
-								?.supportsResponsesApi === true
-						);
-					})()
-				: false;
-
 			if (deploymentType === "openai") {
 				// Traditional Azure (deployment-based)
 				const apiVersion =
@@ -259,21 +245,13 @@ export function getProviderEndpoint(
 						"azure",
 						"apiVersion",
 						configIndex,
-						"2024-05-01-preview",
+						"2024-10-21",
 					) ||
-					"2024-05-01-preview";
+					"2024-10-21";
 
-				// Use responses endpoint for models that support responses API
-				if (supportsResponsesApi) {
-					return `${url}/openai/responses?api-version=${apiVersion}`;
-				}
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
-				// Use responses endpoint for models that support responses API
-				if (supportsResponsesApi) {
-					return `${url}/openai/v1/responses`;
-				}
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}

@@ -852,7 +852,6 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				reasoningOutput: "omit",
-				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -879,7 +878,6 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				reasoningOutput: "omit",
-				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -1039,7 +1037,6 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				reasoningOutput: "omit",
-				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -1066,7 +1063,6 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				reasoningOutput: "omit",
-				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
