@@ -185,7 +185,9 @@ export async function prepareRequestBody(
 				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
 				true;
 
-			if (supportsResponsesApi) {
+			// Only use responses API if model supports it AND response_format is not specified
+			// (responses API doesn't support response_format)
+			if (supportsResponsesApi && !response_format) {
 				// Transform to responses API format
 				// gpt-5-pro only supports "high" reasoning effort
 				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
@@ -739,6 +741,115 @@ export async function prepareRequestBody(
 				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
+		}
+		case "azure": {
+			// Check if the model supports responses API
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === "azure",
+			);
+			const supportsResponsesApi =
+				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+				true;
+
+			// Only use responses API if model supports it AND response_format is not specified
+			// (responses API doesn't support response_format)
+			if (supportsResponsesApi && !response_format) {
+				// Transform to responses API format
+				// gpt-5-pro only supports "high" reasoning effort
+				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
+
+				// Transform messages for responses API - remove tool_calls and convert tool results
+				const transformedMessages = processedMessages.map((msg: any) => {
+					const transformed = { ...msg };
+					// Remove tool_calls from assistant messages (not supported in responses API input)
+					if (transformed.tool_calls) {
+						delete transformed.tool_calls;
+					}
+					// Responses API doesn't support tool_call_id in tool messages
+					if (transformed.tool_call_id) {
+						delete transformed.tool_call_id;
+					}
+					// Responses API doesn't support 'tool' role - convert to 'user'
+					if (transformed.role === "tool") {
+						transformed.role = "user";
+					}
+					return transformed;
+				});
+
+				const responsesBody: OpenAIResponsesRequestBody = {
+					model: usedModel,
+					input: transformedMessages,
+					reasoning: {
+						effort: reasoning_effort || defaultEffort,
+						summary: "detailed",
+					},
+				};
+
+				// Add streaming support
+				if (stream) {
+					responsesBody.stream = true;
+				}
+
+				// Add tools support for responses API (transform format if needed)
+				if (tools && tools.length > 0) {
+					// Transform tools from chat completions format to responses API format
+					responsesBody.tools = tools.map((tool) => ({
+						type: "function" as const,
+						name: tool.function.name,
+						description: tool.function.description,
+						parameters: tool.function.parameters as FunctionParameter,
+					}));
+				}
+				if (tool_choice) {
+					responsesBody.tool_choice = tool_choice;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					responsesBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					responsesBody.max_output_tokens = max_tokens;
+				}
+
+				return responsesBody;
+			} else {
+				// Standard Azure chat completions format
+				if (stream) {
+					requestBody.stream_options = {
+						include_usage: true,
+					};
+				}
+				if (response_format) {
+					requestBody.response_format = response_format;
+				}
+
+				// Add optional parameters if they are provided
+				if (temperature !== undefined) {
+					requestBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					// GPT-5 models use max_completion_tokens instead of max_tokens
+					if (usedModel.startsWith("gpt-5")) {
+						requestBody.max_completion_tokens = max_tokens;
+					} else {
+						requestBody.max_tokens = max_tokens;
+					}
+				}
+				if (top_p !== undefined) {
+					requestBody.top_p = top_p;
+				}
+				if (frequency_penalty !== undefined) {
+					requestBody.frequency_penalty = frequency_penalty;
+				}
+				if (presence_penalty !== undefined) {
+					requestBody.presence_penalty = presence_penalty;
+				}
+				if (reasoning_effort !== undefined) {
+					requestBody.reasoning_effort = reasoning_effort;
+				}
+				break;
+			}
 		}
 		default: {
 			if (stream) {
