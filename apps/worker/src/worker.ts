@@ -405,6 +405,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						rawResponse: null,
 						upstreamRequest: null,
 						upstreamResponse: null,
+						userAgent: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));
@@ -477,6 +478,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						rawResponse: null,
 						upstreamRequest: null,
 						upstreamResponse: null,
+						userAgent: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));

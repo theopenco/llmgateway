@@ -613,7 +613,10 @@ export function ModelSelector({
 											<Sparkles className="h-5 w-5 shrink-0 text-primary" />
 										);
 									}
-									return getProviderLogo(selectedModel.providers[0].providerId);
+									return getProviderLogo(
+										(selectedProviderId ||
+											selectedModel.providers[0].providerId) as ProviderId,
+									);
 								})()}
 								<div className="flex flex-col items-start min-w-0 flex-1">
 									<div className="flex items-center gap-1 max-w-full">
@@ -653,8 +656,7 @@ export function ModelSelector({
 					</Button>
 				</PopoverTrigger>
 				<PopoverContent
-					className="w-[300px] sm:w-[720px] p-0"
-					style={{ zIndex: 99999 }}
+					className="w-[300px] sm:w-[720px] p-0 z-99999"
 					sideOffset={4}
 					align="start"
 				>

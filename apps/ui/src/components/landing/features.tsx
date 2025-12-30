@@ -1,8 +1,18 @@
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+
 import { GlowingEffect } from "./glowing-effect";
 
 import type { ReactNode } from "react";
 
-const features = [
+interface FeatureItem {
+	icon: ReactNode;
+	title: string;
+	description: string;
+	slug: string;
+}
+
+const features: FeatureItem[] = [
 	{
 		icon: (
 			<svg
@@ -28,6 +38,7 @@ const features = [
 		title: "Unified API Interface",
 		description:
 			"Compatible with the OpenAI API format for seamless migration and integration.",
+		slug: "unified-api-interface",
 	},
 	{
 		icon: (
@@ -52,6 +63,7 @@ const features = [
 		),
 		title: "Multi-provider Support",
 		description: "Connect to various LLM providers through a single gateway.",
+		slug: "multi-provider-support",
 	},
 	{
 		icon: (
@@ -99,6 +111,7 @@ const features = [
 		title: "Performance Monitoring",
 		description:
 			"Compare different models' performance and cost-effectiveness.",
+		slug: "performance-monitoring",
 	},
 	{
 		icon: (
@@ -138,6 +151,7 @@ const features = [
 		),
 		title: "Secure Key Management",
 		description: "Manage API keys for different providers in one secure place.",
+		slug: "secure-key-management",
 	},
 	{
 		icon: (
@@ -177,6 +191,7 @@ const features = [
 		),
 		title: "Self-hosted or Cloud",
 		description: "Deploy on your own infrastructure or use our hosted version.",
+		slug: "self-hosted-or-cloud",
 	},
 	{
 		icon: (
@@ -202,6 +217,7 @@ const features = [
 		title: "Cost-aware analytics",
 		description:
 			"See requests, tokens, total spend, and average cost per 1K tokens across 7 or 30 days.",
+		slug: "cost-aware-analytics",
 	},
 	{
 		icon: (
@@ -223,6 +239,7 @@ const features = [
 		title: "Per‑model/provider breakdown",
 		description:
 			"Break down usage and spend by provider and model so you can quickly spot expensive outliers.",
+		slug: "per-model-provider-breakdown",
 	},
 	{
 		icon: (
@@ -247,6 +264,7 @@ const features = [
 		title: "Errors & reliability monitoring",
 		description:
 			"Monitor error rate, cache hit rate, and reliability trends directly from the dashboard.",
+		slug: "errors-reliability-monitoring",
 	},
 	{
 		icon: (
@@ -267,7 +285,8 @@ const features = [
 		),
 		title: "Project‑level usage explorer",
 		description:
-			"Drill into each project’s requests, models, errors, cache, and costs with dedicated charts and tables.",
+			"Drill into each project's requests, models, errors, cache, and costs with dedicated charts and tables.",
+		slug: "project-level-usage-explorer",
 	},
 ];
 
@@ -288,6 +307,7 @@ export default function Features() {
 							icon={feature.icon}
 							title={feature.title}
 							description={feature.description}
+							slug={feature.slug}
 						/>
 					))}
 				</ul>
@@ -300,36 +320,43 @@ interface GridItemProps {
 	icon: ReactNode;
 	title: string;
 	description: ReactNode;
+	slug: string;
 }
 
-const GridItem = ({ icon, title, description }: GridItemProps) => {
+const GridItem = ({ icon, title, description, slug }: GridItemProps) => {
 	return (
 		<li className="min-h-[14rem] list-none">
-			<div className="relative h-full rounded-[1.25rem] border-[0.75px] border-border p-2 md:rounded-[1.5rem] md:p-3">
-				<GlowingEffect
-					spread={40}
-					glow={true}
-					disabled={false}
-					proximity={64}
-					inactiveZone={0.01}
-					borderWidth={3}
-				/>
-				<div className="relative flex h-full flex-col justify-between gap-6 overflow-hidden rounded-xl border-[0.75px] bg-background p-6 shadow-sm dark:shadow-[0px_0px_27px_0px_rgba(45,45,45,0.3)] md:p-6">
-					<div className="relative flex flex-1 flex-col justify-between gap-3">
-						<div className="w-fit rounded-lg border-[0.75px] border-border bg-muted p-2">
-							{icon}
+			<Link href={`/features/${slug}`} className="block h-full group">
+				<div className="relative h-full rounded-[1.25rem] border-[0.75px] border-border p-2 md:rounded-[1.5rem] md:p-3 transition-transform hover:scale-[1.02]">
+					<GlowingEffect
+						spread={40}
+						glow={true}
+						disabled={false}
+						proximity={64}
+						inactiveZone={0.01}
+						borderWidth={3}
+					/>
+					<div className="relative flex h-full flex-col justify-between gap-6 overflow-hidden rounded-xl border-[0.75px] bg-background p-6 shadow-sm dark:shadow-[0px_0px_27px_0px_rgba(45,45,45,0.3)] md:p-6">
+						<div className="relative flex flex-1 flex-col justify-between gap-3">
+							<div className="w-fit rounded-lg border-[0.75px] border-border bg-muted p-2">
+								{icon}
+							</div>
+							<div className="space-y-3">
+								<h3 className="pt-0.5 text-xl leading-[1.375rem] font-semibold font-sans tracking-[-0.04em] md:text-2xl md:leading-[1.875rem] text-balance text-foreground">
+									{title}
+								</h3>
+								<h2 className="[&_b]:md:font-semibold [&_strong]:md:font-semibold font-sans text-sm leading-[1.125rem] md:text-base md:leading-[1.375rem] text-muted-foreground">
+									{description}
+								</h2>
+							</div>
 						</div>
-						<div className="space-y-3">
-							<h3 className="pt-0.5 text-xl leading-[1.375rem] font-semibold font-sans tracking-[-0.04em] md:text-2xl md:leading-[1.875rem] text-balance text-foreground">
-								{title}
-							</h3>
-							<h2 className="[&_b]:md:font-semibold [&_strong]:md:font-semibold font-sans text-sm leading-[1.125rem] md:text-base md:leading-[1.375rem] text-muted-foreground">
-								{description}
-							</h2>
+						<div className="flex items-center gap-1 text-sm font-medium text-primary">
+							<span>Learn more</span>
+							<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
 						</div>
 					</div>
 				</div>
-			</div>
+			</Link>
 		</li>
 	);
 };

@@ -29,13 +29,14 @@ import {
 import type { Metadata } from "next";
 
 interface PageProps {
-	params: Promise<{ name: string }>;
+	params: Promise<{ name: string; provider: string }>;
 }
 
-export default async function ModelPage({ params }: PageProps) {
+export default async function ModelProviderPage({ params }: PageProps) {
 	const config = getConfig();
-	const { name } = await params;
+	const { name, provider } = await params;
 	const decodedName = decodeURIComponent(name);
+	const decodedProvider = decodeURIComponent(provider);
 
 	const modelDef = modelDefinitions.find(
 		(m) => m.id === decodedName,
@@ -44,6 +45,18 @@ export default async function ModelPage({ params }: PageProps) {
 	if (!modelDef) {
 		notFound();
 	}
+
+	const providerMapping = modelDef.providers.find(
+		(p) => p.providerId === decodedProvider,
+	);
+
+	if (!providerMapping) {
+		notFound();
+	}
+
+	const providerInfo = providerDefinitions.find(
+		(p) => p.id === decodedProvider,
+	);
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -74,15 +87,7 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const modelProviders = modelDef.providers.map((provider) => {
-		const providerInfo = providerDefinitions.find(
-			(p) => p.id === provider.providerId,
-		);
-		return {
-			...provider,
-			providerInfo,
-		};
-	});
+	const allProviderIds = modelDef.providers.map((p) => p.providerId);
 
 	return (
 		<>
@@ -127,7 +132,7 @@ export default async function ModelPage({ params }: PageProps) {
 							})()}
 
 							<a
-								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${modelDef.providers[0]?.providerId}/${modelDef.id}`)}`}
+								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${decodedProvider}/${modelDef.id}`)}`}
 								target="_blank"
 								rel="noopener noreferrer"
 							>
@@ -138,116 +143,17 @@ export default async function ModelPage({ params }: PageProps) {
 							</a>
 						</div>
 
-						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
-							<div>
-								{Math.max(
-									...modelProviders.map((p) => p.contextSize || 0),
-								).toLocaleString()}{" "}
-								context
-							</div>
-							<div>
-								Starting at{" "}
-								{(() => {
-									const inputPrices = modelProviders
-										.filter((p) => p.inputPrice)
-										.map((p) => ({
-											price:
-												p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1),
-											originalPrice: p.inputPrice! * 1e6,
-											discount: p.discount,
-										}));
-									if (inputPrices.length === 0) {
-										return "Free";
-									}
-									const minPrice = Math.min(...inputPrices.map((p) => p.price));
-									const minPriceItem = inputPrices.find(
-										(p) => p.price === minPrice,
-									);
-									return minPriceItem?.discount
-										? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
-										: `$${minPrice.toFixed(2)}/M`;
-								})()}{" "}
-								input tokens
-							</div>
-							<div>
-								Starting at{" "}
-								{(() => {
-									const outputPrices = modelProviders
-										.filter((p) => p.outputPrice)
-										.map((p) => ({
-											price:
-												p.outputPrice! *
-												1e6 *
-												(p.discount ? 1 - p.discount : 1),
-											originalPrice: p.outputPrice! * 1e6,
-											discount: p.discount,
-										}));
-									if (outputPrices.length === 0) {
-										return "Free";
-									}
-									const minPrice = Math.min(
-										...outputPrices.map((p) => p.price),
-									);
-									const minPriceItem = outputPrices.find(
-										(p) => p.price === minPrice,
-									);
-									return minPriceItem?.discount
-										? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
-										: `$${minPrice.toFixed(2)}/M`;
-								})()}{" "}
-								output tokens
-							</div>
-							{modelProviders.some((p) => p.imageOutputPrice) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										const imageOutputPrices = modelProviders
-											.filter((p) => p.imageOutputPrice)
-											.map((p) => ({
-												price:
-													p.imageOutputPrice! *
-													1e6 *
-													(p.discount ? 1 - p.discount : 1),
-												originalPrice: p.imageOutputPrice! * 1e6,
-												discount: p.discount,
-											}));
-										if (imageOutputPrices.length === 0) {
-											return "Free";
-										}
-										const minPrice = Math.min(
-											...imageOutputPrices.map((p) => p.price),
-										);
-										const minPriceItem = imageOutputPrices.find(
-											(p) => p.price === minPrice,
-										);
-										return minPriceItem?.discount
-											? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
-											: `$${minPrice.toFixed(2)}/M`;
-									})()}{" "}
-									image output tokens
-								</div>
-							)}
-						</div>
-
-						{/* Capabilities (using same icons as /models) */}
+						{/* Capabilities */}
 						<div className="flex flex-wrap items-center gap-4 mb-6">
 							{(() => {
 								const items: Array<{
 									key: string;
-									icon: any;
+									icon: typeof Zap;
 									label: string;
 									color: string;
 								}> = [];
-								const hasStreaming = modelProviders.some((p) => p.streaming);
-								const hasVision = modelProviders.some((p) => p.vision);
-								const hasTools = modelProviders.some((p) => p.tools);
-								const hasReasoning = modelProviders.some((p) => p.reasoning);
-								const hasJsonOutput = modelProviders.some((p) => p.jsonOutput);
-								const hasImageGen = Array.isArray((modelDef as any)?.output)
-									? ((modelDef as any).output as string[]).includes("image")
-									: false;
 
-								if (hasStreaming) {
+								if (providerMapping.streaming) {
 									items.push({
 										key: "streaming",
 										icon: Zap,
@@ -255,7 +161,7 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-blue-500",
 									});
 								}
-								if (hasVision) {
+								if (providerMapping.vision) {
 									items.push({
 										key: "vision",
 										icon: Eye,
@@ -263,7 +169,7 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-green-500",
 									});
 								}
-								if (hasTools) {
+								if (providerMapping.tools) {
 									items.push({
 										key: "tools",
 										icon: Wrench,
@@ -271,7 +177,7 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-purple-500",
 									});
 								}
-								if (hasReasoning) {
+								if (providerMapping.reasoning) {
 									items.push({
 										key: "reasoning",
 										icon: MessageSquare,
@@ -279,7 +185,7 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-orange-500",
 									});
 								}
-								if (hasJsonOutput) {
+								if (providerMapping.jsonOutput) {
 									items.push({
 										key: "jsonOutput",
 										icon: Braces,
@@ -287,6 +193,9 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-cyan-500",
 									});
 								}
+								const hasImageGen = Array.isArray((modelDef as any)?.output)
+									? ((modelDef as any).output as string[]).includes("image")
+									: false;
 								if (hasImageGen) {
 									items.push({
 										key: "image",
@@ -315,8 +224,8 @@ export default async function ModelPage({ params }: PageProps) {
 						</h2>
 						<ProviderTabs
 							modelId={decodedName}
-							providerIds={modelProviders.map((p) => p.providerId)}
-							activeProviderId=""
+							providerIds={allProviderIds}
+							activeProviderId={decodedProvider}
 						/>
 					</div>
 
@@ -324,24 +233,24 @@ export default async function ModelPage({ params }: PageProps) {
 						<div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-2">
 							<div>
 								<h2 className="text-xl md:text-2xl font-semibold mb-2">
-									All Providers for {modelDef.name}
+									{providerInfo?.name || decodedProvider} Pricing for{" "}
+									{modelDef.name}
 								</h2>
 								<p className="text-muted-foreground">
-									LLM Gateway routes requests to the best providers that are
-									able to handle your prompt size and parameters.
+									View detailed pricing and capabilities for this provider.
 								</p>
 							</div>
 						</div>
 
-						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-							{modelProviders.map((provider) => (
-								<ModelProviderCard
-									key={`${provider.providerId}-${provider.modelName}-${decodedName}`}
-									provider={provider}
-									modelName={decodedName}
-									modelStability={modelDef.stability}
-								/>
-							))}
+						<div className="max-w-md">
+							<ModelProviderCard
+								provider={{
+									...providerMapping,
+									providerInfo,
+								}}
+								modelName={decodedName}
+								modelStability={modelDef.stability}
+							/>
 						</div>
 					</div>
 				</div>
@@ -352,16 +261,30 @@ export default async function ModelPage({ params }: PageProps) {
 }
 
 export async function generateStaticParams() {
-	return modelDefinitions.map((model) => ({
-		name: encodeURIComponent(model.id),
-	}));
+	const params: { name: string; provider: string }[] = [];
+
+	for (const model of modelDefinitions) {
+		const uniqueProviders = Array.from(
+			new Set(model.providers.map((p) => p.providerId)),
+		);
+		for (const providerId of uniqueProviders) {
+			params.push({
+				name: encodeURIComponent(model.id),
+				provider: encodeURIComponent(providerId),
+			});
+		}
+	}
+
+	return params;
 }
 
 export async function generateMetadata({
 	params,
 }: PageProps): Promise<Metadata> {
-	const { name } = await params;
+	const { name, provider } = await params;
 	const decodedName = decodeURIComponent(name);
+	const decodedProvider = decodeURIComponent(provider);
+
 	const model = modelDefinitions.find((m) => m.id === decodedName) as
 		| ModelDefinition
 		| undefined;
@@ -370,13 +293,13 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name || model.id} – AI Model on LLM Gateway`;
-	const description =
-		model.description ||
-		`Details, pricing, and capabilities for ${model.name || model.id} on LLM Gateway.`;
+	const providerInfo = providerDefinitions.find(
+		(p) => p.id === decodedProvider,
+	);
+	const providerName = providerInfo?.name || decodedProvider;
 
-	const primaryProvider = model.providers[0]?.providerId || "default";
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
+	const title = `${model.name || model.id} on ${providerName} – LLM Gateway`;
+	const description = `Pricing and capabilities for ${model.name || model.id} via ${providerName} on LLM Gateway.`;
 
 	return {
 		title,
@@ -385,20 +308,11 @@ export async function generateMetadata({
 			title,
 			description,
 			type: "website",
-			images: [
-				{
-					url: ogImageUrl,
-					width: 1200,
-					height: 630,
-					alt: `${model.name || model.id} model card`,
-				},
-			],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
-			images: [ogImageUrl],
 		},
 	};
 }

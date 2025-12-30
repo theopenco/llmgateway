@@ -51,6 +51,11 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/x",
+				destination: "https://x.com/llmgateway",
+				permanent: true,
+			},
+			{
 				source: "/terms",
 				destination: "/legal/terms",
 				permanent: true,
