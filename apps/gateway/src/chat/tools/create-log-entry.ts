@@ -5,7 +5,6 @@ import type { OpenAIToolInput, RoutingMetadata } from "@llmgateway/models";
 
 /**
  * Creates a partial log entry with common fields to reduce duplication
- * When retentionLevel is "none", sensitive data (messages, tools, etc.) is excluded
  */
 export function createLogEntry(
 	requestId: string,
@@ -43,10 +42,7 @@ export function createLogEntry(
 	rawResponse?: unknown,
 	upstreamRequest?: unknown,
 	upstreamResponse?: unknown,
-	retentionLevel?: "retain" | "none" | null,
 ) {
-	// When retention level is "none", exclude sensitive data (request payloads, messages, tools)
-	const excludeData = retentionLevel === "none";
 	const activeSpan = trace.getActiveSpan();
 	const traceId = activeSpan?.spanContext().traceId || null;
 
@@ -61,8 +57,7 @@ export function createLogEntry(
 		usedProvider,
 		requestedModel,
 		requestedProvider,
-		// Exclude request payload when retention level is "none"
-		messages: excludeData ? null : messages,
+		messages,
 		temperature: temperature || null,
 		maxTokens: max_tokens || null,
 		topP: top_p || null,
@@ -71,28 +66,22 @@ export function createLogEntry(
 		reasoningEffort: reasoningEffort || null,
 		effort: effort || null,
 		responseFormat: responseFormat || null,
-		// Exclude tools when retention level is "none"
-		tools: excludeData ? null : tools || null,
-		toolChoice: excludeData ? null : toolChoice || null,
+		tools: tools || null,
+		toolChoice: toolChoice || null,
 		mode: project.mode,
 		source: source || null,
-		customHeaders: excludeData
-			? null
-			: Object.keys(customHeaders).length > 0
-				? customHeaders
-				: null,
+		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
 		params:
 			imageConfig?.aspect_ratio || imageConfig?.image_size
 				? { image_config: imageConfig }
 				: null,
 		routingMetadata: routingMetadata || null,
 		traceId,
-		userAgent: excludeData ? null : userAgent || null,
-		// Only include raw payloads if x-debug header is set to true AND retention level allows
-		rawRequest: debugMode && !excludeData ? rawRequest || null : null,
-		rawResponse: debugMode && !excludeData ? rawResponse || null : null,
-		upstreamRequest: debugMode && !excludeData ? upstreamRequest || null : null,
-		upstreamResponse:
-			debugMode && !excludeData ? upstreamResponse || null : null,
+		userAgent: userAgent || null,
+		// Only include raw payloads if x-debug header is set to true
+		rawRequest: debugMode ? rawRequest || null : null,
+		rawResponse: debugMode ? rawResponse || null : null,
+		upstreamRequest: debugMode ? upstreamRequest || null : null,
+		upstreamResponse: debugMode ? upstreamResponse || null : null,
 	} as const;
 }

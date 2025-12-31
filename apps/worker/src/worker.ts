@@ -761,6 +761,10 @@ export async function processLogQueue(): Promise<void> {
 					const {
 						messages: _messages,
 						content: _content,
+						reasoningContent: _reasoningContent,
+						tools: _tools,
+						toolChoice: _toolChoice,
+						toolResults: _toolResults,
 						...metadataOnly
 					} = data;
 					return metadataOnly;
