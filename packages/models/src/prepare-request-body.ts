@@ -498,13 +498,66 @@ export async function prepareRequestBody(
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
-			// Transform messages to Bedrock format
-			requestBody.messages = processedMessages.map((msg: any) => {
+			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
+			let bedrockCacheControlCount = 0;
+			const bedrockMaxCacheControlBlocks = 4;
+
+			// Extract system messages for Bedrock's system field (required for prompt caching)
+			const bedrockSystemMessages = processedMessages.filter(
+				(m) => m.role === "system",
+			);
+			const bedrockNonSystemMessages = processedMessages.filter(
+				(m) => m.role !== "system",
+			);
+
+			// Build the system field with cachePoint for long prompts
+			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
+			if (bedrockSystemMessages.length > 0) {
+				const systemContent: Array<
+					{ text: string } | { cachePoint: { type: "default" } }
+				> = [];
+
+				for (const sysMsg of bedrockSystemMessages) {
+					let text: string;
+					if (typeof sysMsg.content === "string") {
+						text = sysMsg.content;
+					} else if (Array.isArray(sysMsg.content)) {
+						text = sysMsg.content
+							.filter((c: any) => c.type === "text" && "text" in c)
+							.map((c: any) => c.text)
+							.join("");
+					} else {
+						continue;
+					}
+
+					if (!text || text.trim() === "") {
+						continue;
+					}
+
+					// Add text block first
+					systemContent.push({ text });
+
+					// Add cachePoint as separate block for long text (1024+ tokens, roughly 4096+ characters)
+					const shouldCache =
+						text.length >= 1024 * 4 &&
+						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+					if (shouldCache) {
+						bedrockCacheControlCount++;
+						systemContent.push({ cachePoint: { type: "default" } });
+					}
+				}
+
+				if (systemContent.length > 0) {
+					requestBody.system = systemContent;
+				}
+			}
+
+			// Transform non-system messages to Bedrock format
+			requestBody.messages = bedrockNonSystemMessages.map((msg: any) => {
 				// Map OpenAI roles to Bedrock roles
 				const role =
-					msg.role === "system" || msg.role === "user" || msg.role === "tool"
-						? "user"
-						: "assistant";
+					msg.role === "user" || msg.role === "tool" ? "user" : "assistant";
 
 				const bedrockMessage: any = {
 					role: role,
@@ -550,20 +603,47 @@ export async function prepareRequestBody(
 				}
 
 				// Handle regular content (user/assistant messages)
+				// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
 				if (typeof msg.content === "string") {
 					if (msg.content.trim()) {
+						// Add text block first
 						bedrockMessage.content.push({
 							text: msg.content,
 						});
+
+						// Add cachePoint as separate block for long user messages
+						const shouldCache =
+							msg.content.length >= 1024 * 4 &&
+							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+						if (shouldCache) {
+							bedrockCacheControlCount++;
+							bedrockMessage.content.push({
+								cachePoint: { type: "default" },
+							});
+						}
 					}
 				} else if (Array.isArray(msg.content)) {
 					// Handle multi-part content (text + images)
 					msg.content.forEach((part: any) => {
 						if (part.type === "text") {
 							if (part.text && part.text.trim()) {
+								// Add text block first
 								bedrockMessage.content.push({
 									text: part.text,
 								});
+
+								// Add cachePoint as separate block for long text parts
+								const shouldCache =
+									part.text.length >= 1024 * 4 &&
+									bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+								if (shouldCache) {
+									bedrockCacheControlCount++;
+									bedrockMessage.content.push({
+										cachePoint: { type: "default" },
+									});
+								}
 							}
 						} else if (part.type === "image_url") {
 							// Bedrock uses a different image format

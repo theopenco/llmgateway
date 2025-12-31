@@ -53,11 +53,18 @@ export function parseProviderResponse(
 				finishReason = "stop"; // default fallback
 			}
 
-			// Extract usage tokens
+			// Extract usage tokens (including cached tokens for prompt caching)
 			if (json.usage) {
-				promptTokens = json.usage.inputTokens || null;
+				const inputTokens = json.usage.inputTokens || 0;
+				const cacheReadTokens = json.usage.cacheReadInputTokens || 0;
+				const cacheWriteTokens = json.usage.cacheWriteInputTokens || 0;
+
+				// Total prompt tokens = regular input + cache read + cache write
+				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = json.usage.outputTokens || null;
 				totalTokens = json.usage.totalTokens || null;
+				// Cached tokens are the tokens read from cache (discount applies to these)
+				cachedTokens = cacheReadTokens || null;
 			}
 
 			// Extract tool calls if present
