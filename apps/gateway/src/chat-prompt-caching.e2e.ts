@@ -81,9 +81,14 @@ const promptCachingModels = filteredModels
 		return testCases;
 	});
 
-console.log(
-	`Testing ${promptCachingModels.length} models with prompt caching support`,
-);
+// Only run prompt caching tests when TEST_CACHE_MODE=true
+const testCacheMode = process.env.TEST_CACHE_MODE === "true";
+
+if (testCacheMode) {
+	console.log(
+		`Testing ${promptCachingModels.length} models with prompt caching support`,
+	);
+}
 
 describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -94,152 +99,154 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	test.each(promptCachingModels)(
-		"prompt caching works for $model",
-		getTestOptions(),
-		async ({ model, originalModel, provider, minCacheableTokens }) => {
-			// Generate a long system prompt that exceeds the model's minimum cacheable token threshold
-			// We need significantly more than the minimum to ensure caching is triggered
-			// Using 2x the minimum + buffer to be safe (Anthropic's tokenizer is ~4 chars per token)
-			const targetTokens = minCacheableTokens * 2 + 1000;
-			const charsPerRepeat = 95; // approximate chars in each repeat string
-			const repeatCount = Math.ceil((targetTokens * 4) / charsPerRepeat);
-			const longSystemPrompt = `You are a helpful AI assistant specialized in analyzing complex data and providing detailed insights. ${"This is detailed context information that should be cached for optimal efficiency and performance. ".repeat(repeatCount)}Please analyze any questions carefully.`;
+	if (testCacheMode) {
+		test.each(promptCachingModels)(
+			"prompt caching works for $model",
+			getTestOptions(),
+			async ({ model, originalModel, provider, minCacheableTokens }) => {
+				// Generate a long system prompt that exceeds the model's minimum cacheable token threshold
+				// We need significantly more than the minimum to ensure caching is triggered
+				// Using 2x the minimum + buffer to be safe (Anthropic's tokenizer is ~4 chars per token)
+				const targetTokens = minCacheableTokens * 2 + 1000;
+				const charsPerRepeat = 95; // approximate chars in each repeat string
+				const repeatCount = Math.ceil((targetTokens * 4) / charsPerRepeat);
+				const longSystemPrompt = `You are a helpful AI assistant specialized in analyzing complex data and providing detailed insights. ${"This is detailed context information that should be cached for optimal efficiency and performance. ".repeat(repeatCount)}Please analyze any questions carefully.`;
 
-			if (logMode) {
-				console.log(
-					`Generated system prompt with ~${longSystemPrompt.length} chars for ${model} (minCacheableTokens: ${minCacheableTokens}, targetTokens: ${targetTokens})`,
-				);
-			}
+				if (logMode) {
+					console.log(
+						`Generated system prompt with ~${longSystemPrompt.length} chars for ${model} (minCacheableTokens: ${minCacheableTokens}, targetTokens: ${targetTokens})`,
+					);
+				}
 
-			// First request - should write to cache
-			const firstRequestId = generateTestRequestId();
-			const firstRes = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-request-id": firstRequestId,
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "system",
-							content: longSystemPrompt,
-						},
-						{
-							role: "user",
-							content:
-								"Just reply with 'OK' to confirm you received the context.",
-						},
-					],
-				}),
-			});
-
-			const firstJson = await firstRes.json();
-			if (logMode) {
-				console.log("First response:", JSON.stringify(firstJson, null, 2));
-			}
-
-			expect(firstRes.status).toBe(200);
-			validateResponse(firstJson);
-
-			const firstLog = await validateLogByRequestId(firstRequestId);
-			expect(firstLog.streamed).toBe(false);
-
-			if (logMode) {
-				console.log("First request log:", {
-					model,
-					provider: provider.providerId,
-					cachedInputCost: firstLog.cachedInputCost,
-					cachedTokens: firstLog.cachedTokens,
-					inputCost: firstLog.inputCost,
-					totalCost: firstLog.cost,
-					promptTokens: firstJson.usage?.prompt_tokens,
+				// First request - should write to cache
+				const firstRequestId = generateTestRequestId();
+				const firstRes = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": firstRequestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: model,
+						messages: [
+							{
+								role: "system",
+								content: longSystemPrompt,
+							},
+							{
+								role: "user",
+								content:
+									"Just reply with 'OK' to confirm you received the context.",
+							},
+						],
+					}),
 				});
-			}
 
-			// Second request - should read from cache
-			const secondRequestId = generateTestRequestId();
-			const secondRes = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-request-id": secondRequestId,
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "system",
-							content: longSystemPrompt,
-						},
-						{
-							role: "user",
-							content:
-								"Just reply with 'OK' to confirm you received the context.",
-						},
-					],
-				}),
-			});
+				const firstJson = await firstRes.json();
+				if (logMode) {
+					console.log("First response:", JSON.stringify(firstJson, null, 2));
+				}
 
-			const secondJson = await secondRes.json();
-			if (logMode) {
-				console.log("Second response:", JSON.stringify(secondJson, null, 2));
-			}
+				expect(firstRes.status).toBe(200);
+				validateResponse(firstJson);
 
-			expect(secondRes.status).toBe(200);
-			validateResponse(secondJson);
+				const firstLog = await validateLogByRequestId(firstRequestId);
+				expect(firstLog.streamed).toBe(false);
 
-			const secondLog = await validateLogByRequestId(secondRequestId);
-			expect(secondLog.streamed).toBe(false);
+				if (logMode) {
+					console.log("First request log:", {
+						model,
+						provider: provider.providerId,
+						cachedInputCost: firstLog.cachedInputCost,
+						cachedTokens: firstLog.cachedTokens,
+						inputCost: firstLog.inputCost,
+						totalCost: firstLog.cost,
+						promptTokens: firstJson.usage?.prompt_tokens,
+					});
+				}
 
-			if (logMode) {
-				console.log("Second request log:", {
-					model,
-					provider: provider.providerId,
-					cachedInputCost: secondLog.cachedInputCost,
-					cachedTokens: secondLog.cachedTokens,
-					inputCost: secondLog.inputCost,
-					totalCost: secondLog.cost,
-					promptTokens: secondJson.usage?.prompt_tokens,
-					promptTokensDetails: secondJson.usage?.prompt_tokens_details,
+				// Second request - should read from cache
+				const secondRequestId = generateTestRequestId();
+				const secondRes = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": secondRequestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: model,
+						messages: [
+							{
+								role: "system",
+								content: longSystemPrompt,
+							},
+							{
+								role: "user",
+								content:
+									"Just reply with 'OK' to confirm you received the context.",
+							},
+						],
+					}),
 				});
-			}
 
-			// Verify that the second request has cached tokens
-			// The usage response should include prompt_tokens_details.cached_tokens
-			expect(secondJson.usage).toHaveProperty("prompt_tokens_details");
-			expect(secondJson.usage.prompt_tokens_details).toHaveProperty(
-				"cached_tokens",
-			);
-			expect(
-				secondJson.usage.prompt_tokens_details.cached_tokens,
-			).toBeGreaterThan(0);
+				const secondJson = await secondRes.json();
+				if (logMode) {
+					console.log("Second response:", JSON.stringify(secondJson, null, 2));
+				}
 
-			// Also verify the log has cachedTokens recorded
-			// Note: cachedTokens is stored as a string in the database
-			expect(Number(secondLog.cachedTokens)).toBeGreaterThan(0);
+				expect(secondRes.status).toBe(200);
+				validateResponse(secondJson);
 
-			// Verify cached input cost is recorded (should be lower than regular input cost)
-			// Note: cachedInputCost is stored as a string in the database
-			expect(Number(secondLog.cachedInputCost)).toBeGreaterThan(0);
+				const secondLog = await validateLogByRequestId(secondRequestId);
+				expect(secondLog.streamed).toBe(false);
 
-			// The cached input cost should be less than the non-cached input cost
-			// because cached tokens are charged at a discounted rate
-			const modelDef = models.find((m) => m.id === originalModel);
-			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === provider.providerId,
-			) as ProviderModelMapping | undefined;
+				if (logMode) {
+					console.log("Second request log:", {
+						model,
+						provider: provider.providerId,
+						cachedInputCost: secondLog.cachedInputCost,
+						cachedTokens: secondLog.cachedTokens,
+						inputCost: secondLog.inputCost,
+						totalCost: secondLog.cost,
+						promptTokens: secondJson.usage?.prompt_tokens,
+						promptTokensDetails: secondJson.usage?.prompt_tokens_details,
+					});
+				}
 
-			if (providerMapping?.cachedInputPrice && providerMapping?.inputPrice) {
-				// Verify the pricing ratio is correct (cached should be cheaper)
-				expect(providerMapping.cachedInputPrice).toBeLessThan(
-					providerMapping.inputPrice,
+				// Verify that the second request has cached tokens
+				// The usage response should include prompt_tokens_details.cached_tokens
+				expect(secondJson.usage).toHaveProperty("prompt_tokens_details");
+				expect(secondJson.usage.prompt_tokens_details).toHaveProperty(
+					"cached_tokens",
 				);
-			}
-		},
-	);
+				expect(
+					secondJson.usage.prompt_tokens_details.cached_tokens,
+				).toBeGreaterThan(0);
+
+				// Also verify the log has cachedTokens recorded
+				// Note: cachedTokens is stored as a string in the database
+				expect(Number(secondLog.cachedTokens)).toBeGreaterThan(0);
+
+				// Verify cached input cost is recorded (should be lower than regular input cost)
+				// Note: cachedInputCost is stored as a string in the database
+				expect(Number(secondLog.cachedInputCost)).toBeGreaterThan(0);
+
+				// The cached input cost should be less than the non-cached input cost
+				// because cached tokens are charged at a discounted rate
+				const modelDef = models.find((m) => m.id === originalModel);
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === provider.providerId,
+				) as ProviderModelMapping | undefined;
+
+				if (providerMapping?.cachedInputPrice && providerMapping?.inputPrice) {
+					// Verify the pricing ratio is correct (cached should be cheaper)
+					expect(providerMapping.cachedInputPrice).toBeLessThan(
+						providerMapping.inputPrice,
+					);
+				}
+			},
+		);
+	}
 });
