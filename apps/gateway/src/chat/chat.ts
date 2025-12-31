@@ -54,6 +54,7 @@ import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
+import { healJsonResponse } from "./tools/heal-json-response.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
@@ -257,6 +258,22 @@ const completionsRequestSchema = z.object({
 			image_size: z.string().optional(),
 		})
 		.optional(),
+	// Plugins configuration
+	plugins: z
+		.array(
+			z.object({
+				id: z.enum(["response-healing"]).openapi({
+					description: "Plugin identifier",
+					example: "response-healing",
+				}),
+			}),
+		)
+		.optional()
+		.openapi({
+			description:
+				"Plugins to enable for this request. Currently supported: response-healing (automatically repairs malformed JSON responses when using response_format)",
+			example: [{ id: "response-healing" }],
+		}),
 });
 
 const completions = createRoute({
@@ -429,6 +446,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		plugins,
 	} = validationResult.data;
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
@@ -4161,7 +4179,7 @@ chat.openapi(completions, async (c) => {
 	const responseText = JSON.stringify(json);
 
 	// Extract content and token usage based on provider
-	const {
+	let {
 		content,
 		reasoningContent,
 		finishReason,
@@ -4173,6 +4191,26 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		images,
 	} = parseProviderResponse(usedProvider, json, messages);
+
+	// Apply response healing if enabled and response_format is json_object or json_schema
+	const responseHealingEnabled = plugins?.some(
+		(p) => p.id === "response-healing",
+	);
+	const isJsonResponseFormat =
+		response_format?.type === "json_object" ||
+		response_format?.type === "json_schema";
+
+	if (responseHealingEnabled && isJsonResponseFormat && content) {
+		const healingResult = healJsonResponse(content);
+		if (healingResult.healed) {
+			logger.debug("Response healing applied", {
+				method: healingResult.healingMethod,
+				originalLength: healingResult.originalContent.length,
+				healedLength: healingResult.content.length,
+			});
+			content = healingResult.content;
+		}
+	}
 
 	// Enhanced logging for Google models to debug missing responses
 	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
