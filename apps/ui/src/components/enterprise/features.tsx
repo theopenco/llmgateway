@@ -1,50 +1,71 @@
 import {
-	Shield,
-	Settings,
-	Cloud,
-	Palette,
-	Zap,
+	BarChart3,
+	Database,
 	Headphones,
+	Key,
+	MessageSquare,
+	Rocket,
+	Shield,
+	Users,
+	Wallet,
 } from "lucide-react";
 
 import { Card } from "@/lib/components/card";
 
 const features = [
 	{
-		icon: Shield,
-		title: "Enterprise SSO",
+		icon: Key,
+		title: "Use Your Own API Keys",
 		description:
-			"Seamless integration with your existing identity provider. Support for SAML, OAuth, and OIDC protocols.",
+			"Bring your own provider API keys without any surcharges. Full control over your costs.",
 	},
 	{
-		icon: Settings,
-		title: "Provider Configuration UI",
+		icon: Wallet,
+		title: "No Fees on Credits",
 		description:
-			"Configure and manage your LLM providers through an intuitive interface. No code changes required.",
+			"Purchase credits without any platform fees. Keep 100% of your budget for actual usage.",
 	},
 	{
-		icon: Cloud,
-		title: "Infrastructure as Code",
+		icon: BarChart3,
+		title: "Advanced Analytics",
 		description:
-			"Deploy to AWS, GCP, or bare metal with Terraform modules. Full control over your infrastructure.",
+			"Deep insights into usage patterns, costs, and performance across all your LLM operations.",
 	},
 	{
-		icon: Palette,
-		title: "White Label Solution",
+		icon: Users,
+		title: "Unlimited Seats",
 		description:
-			"Customize the gateway and chat playground with your branding. Make it truly yours.",
+			"Add as many team members as you need. No per-seat pricing or user limits.",
 	},
 	{
-		icon: Zap,
-		title: "Prioritized Features",
+		icon: Rocket,
+		title: "On-boarding Assistance",
 		description:
-			"Your feature requests go to the front of the queue. Direct influence on product roadmap.",
+			"Dedicated support during setup and migration. We ensure a smooth transition for your team.",
+	},
+	{
+		icon: Database,
+		title: "Unlimited Data Retention",
+		description:
+			"Keep your request logs and analytics data forever. No automatic deletion or storage limits.",
 	},
 	{
 		icon: Headphones,
-		title: "Dedicated Support",
+		title: "24/7 Premium Support",
 		description:
-			"On-boarding assistance and ongoing support from our engineering team. We ensure your success.",
+			"Round-the-clock access to our engineering team. Priority response for any issues.",
+	},
+	{
+		icon: MessageSquare,
+		title: "Chat App & Whitelabel",
+		description:
+			"Full-featured chat playground included. Customize with your branding for internal or customer use.",
+	},
+	{
+		icon: Shield,
+		title: "Single Sign-On (SSO)",
+		description:
+			"Seamless integration with your identity provider. Support for SAML, OAuth, and OIDC.",
 	},
 ];
 

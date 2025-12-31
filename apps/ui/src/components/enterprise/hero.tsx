@@ -1,7 +1,39 @@
+"use client";
+
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/lib/components/button";
+import { NumberTicker } from "@/lib/components/number-ticker";
+
+interface StatCardProps {
+	value: number;
+	suffix?: string;
+	prefix?: string;
+	label: string;
+	delay?: number;
+}
+
+function StatCard({
+	value,
+	suffix = "",
+	prefix = "",
+	label,
+	delay,
+}: StatCardProps) {
+	return (
+		<div className="flex flex-col items-center p-6 rounded-2xl border border-border bg-card/50 backdrop-blur-sm hover:border-primary/50 transition-all duration-300">
+			<div className="text-2xl sm:text-3xl font-bold text-primary">
+				{prefix}
+				<NumberTicker value={value} delay={delay} className="text-primary" />
+				{suffix}
+			</div>
+			<span className="mt-2 text-sm text-muted-foreground font-medium">
+				{label}
+			</span>
+		</div>
+	);
+}
 
 export function HeroEnterprise() {
 	return (
@@ -17,7 +49,7 @@ export function HeroEnterprise() {
 					<h1 className="mb-6 text-4xl font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
 						Enterprise LLM Gateway for mission-critical applications
 					</h1>
-					<p className="mb-10 text-lg text-muted-foreground text-balance sm:text-xl max-w-2xl mx-auto leading-relaxed">
+					<p className="mb-10 text-lg text-muted-foreground text-balance sm:text-xl max-w-3xl mx-auto leading-relaxed">
 						Deploy a fully-managed or self-hosted LLM gateway with enterprise
 						SSO, white-labeling, and infrastructure-as-code support for your
 						cloud or bare metal infrastructure.
@@ -37,6 +69,18 @@ export function HeroEnterprise() {
 						>
 							<Link href="/signup">Explore The Product</Link>
 						</Button>
+					</div>
+
+					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
+						<StatCard value={27} suffix="B+" label="Total Tokens Processed" />
+						<StatCard value={5} suffix="M" label="Total Requests" delay={0.1} />
+						<StatCard value={500} suffix="M" label="Daily Tokens" delay={0.2} />
+						<StatCard
+							value={7500}
+							prefix="$"
+							label="Customer Savings"
+							delay={0.3}
+						/>
 					</div>
 				</div>
 			</div>

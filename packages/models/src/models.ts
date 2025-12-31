@@ -67,6 +67,12 @@ export interface ProviderModelMapping {
 	 */
 	cachedInputPrice?: number;
 	/**
+	 * Minimum number of tokens required for a segment to be cacheable.
+	 * Prompts smaller than this threshold won't be cached even with cache_control set.
+	 * Model-specific: Claude 3 Haiku requires 2048, Claude Opus 4.5 requires 4096, most others require 1024.
+	 */
+	minCacheableTokens?: number;
+	/**
 	 * Price per image input in USD
 	 */
 	imageInputPrice?: number;

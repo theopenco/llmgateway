@@ -225,13 +225,22 @@ export function transformResponseToOpenai(
 				};
 			} else {
 				// Ensure reasoning field is present if we have reasoning content
+				// Also update content and finish_reason with parsed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
+					// Update content with parsed content (handles JSON unwrapping for Mistral/Novita)
+					if (content !== null) {
+						message.content = content;
+					}
 					if (reasoningContent !== null) {
 						message.reasoning = reasoningContent;
 						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
+				}
+				// Update finish_reason with the mapped value
+				if (transformedResponse.choices?.[0] && finishReason !== null) {
+					transformedResponse.choices[0].finish_reason = finishReason;
 				}
 				// Add metadata and usage with costs to existing response
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;
@@ -302,6 +311,8 @@ export function transformResponseToOpenai(
 			};
 			break;
 		}
+		case "mistral":
+		case "novita":
 		case "openai": {
 			// Handle OpenAI responses format transformation to chat completions format
 			if (json.output && Array.isArray(json.output)) {
@@ -345,6 +356,24 @@ export function transformResponseToOpenai(
 			} else {
 				// For standard chat completions format, update model field and add metadata
 				if (transformedResponse && typeof transformedResponse === "object") {
+					// Update content and finish_reason with parsed values
+					if (transformedResponse.choices?.[0]?.message) {
+						const message = transformedResponse.choices[0].message;
+						// Update content with parsed content (handles JSON unwrapping for Mistral/Novita)
+						if (content !== null) {
+							message.content = content;
+						}
+						if (reasoningContent !== null) {
+							message.reasoning = reasoningContent;
+							// Remove the old reasoning_content field if it exists
+							delete message.reasoning_content;
+						}
+					}
+					// Update finish_reason with the mapped value
+					if (transformedResponse.choices?.[0] && finishReason !== null) {
+						transformedResponse.choices[0].finish_reason = finishReason;
+					}
+
 					transformedResponse.model = `${usedProvider}/${baseModelName}`;
 					transformedResponse.metadata = {
 						requested_model: requestedModel,

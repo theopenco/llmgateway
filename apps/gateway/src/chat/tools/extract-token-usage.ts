@@ -53,6 +53,21 @@ export function extractTokenUsage(
 					(reasoningTokens ?? 0);
 			}
 			break;
+		case "aws-bedrock":
+			if (data.usage) {
+				// AWS Bedrock uses camelCase field names
+				const inputTokens = data.usage.inputTokens ?? 0;
+				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
+				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+
+				// Total prompt tokens = regular input + cache read + cache write
+				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+				completionTokens = data.usage.outputTokens ?? null;
+				// Cached tokens are the tokens read from cache (discount applies to these)
+				cachedTokens = cacheReadTokens || null;
+				totalTokens = data.usage.totalTokens ?? null;
+			}
+			break;
 		case "anthropic":
 			if (data.usage) {
 				// For Anthropic: input_tokens are the non-cached tokens

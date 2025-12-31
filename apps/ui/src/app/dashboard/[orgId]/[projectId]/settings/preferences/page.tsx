@@ -11,8 +11,10 @@ import {
 import { ArchiveProjectSettings } from "./_components/archive-project";
 import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
 import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
+import { ProjectNameSettingsRsc } from "./_components/project-name-settings-rsc";
 import { CachingSettingsSkeleton } from "./_skeletons/caching-settings-skeleton";
 import { ProjectModeSkeleton } from "./_skeletons/project-mode-skeleton";
+import { ProjectNameSkeleton } from "./_skeletons/project-name-skeleton";
 
 export default async function PreferencesPage({
 	params,
@@ -28,6 +30,20 @@ export default async function PreferencesPage({
 					<h2 className="text-3xl font-bold tracking-tight">Preferences</h2>
 				</div>
 				<div className="space-y-6">
+					<Card>
+						<CardHeader>
+							<CardTitle>Project Name</CardTitle>
+							<CardDescription>
+								Update your project's display name
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<Suspense fallback={<ProjectNameSkeleton />}>
+								<ProjectNameSettingsRsc orgId={orgId} projectId={projectId} />
+							</Suspense>
+						</CardContent>
+					</Card>
+
 					<Card>
 						<CardHeader>
 							<CardTitle>Project Mode</CardTitle>

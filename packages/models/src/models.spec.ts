@@ -4,6 +4,7 @@ import { getCheapestFromAvailableProviders } from "./get-cheapest-from-available
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { models } from "./models.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { getProviderDefinition } from "./providers.js";
 
 import type { ProviderModelMapping } from "./models.js";
 import type { BaseMessage, OpenAIRequestBody } from "./types.js";
@@ -518,15 +519,36 @@ describe("getCheapestFromAvailableProviders", () => {
 					modelWithDiscountProvider,
 				);
 
-				// Calculate actual prices with discount
-				const regularPrice =
-					(regularProvider.inputPrice! + regularProvider.outputPrice!) / 2;
-				const discountPrice =
-					((discountProvider.inputPrice! + discountProvider.outputPrice!) / 2) *
-					(discountProvider as ProviderModelMapping).discount!;
+				// Calculate actual effective prices with discount and priority
+				// The function uses: discountMultiplier = 1 - discount, effectivePrice = totalPrice / priority
+				const regularProviderDef = getProviderDefinition(
+					regularProvider.providerId,
+				);
+				const discountProviderDef = getProviderDefinition(
+					discountProvider.providerId,
+				);
+				const regularPriority = regularProviderDef?.priority ?? 1;
+				const discountPriority = discountProviderDef?.priority ?? 1;
 
-				// If discount provider is cheaper, it should be selected
-				if (discountPrice < regularPrice) {
+				const regularBasePrice =
+					(regularProvider.inputPrice! + regularProvider.outputPrice!) / 2;
+				const regularEffectivePrice =
+					regularPriority > 0
+						? regularBasePrice / regularPriority
+						: regularBasePrice;
+
+				const discount = (discountProvider as ProviderModelMapping).discount!;
+				const discountMultiplier = 1 - discount;
+				const discountBasePrice =
+					((discountProvider.inputPrice! + discountProvider.outputPrice!) / 2) *
+					discountMultiplier;
+				const discountEffectivePrice =
+					discountPriority > 0
+						? discountBasePrice / discountPriority
+						: discountBasePrice;
+
+				// The provider with lower effective price should be selected
+				if (discountEffectivePrice < regularEffectivePrice) {
 					expect(cheapestProvider?.provider.providerId).toBe(
 						discountProvider.providerId,
 					);

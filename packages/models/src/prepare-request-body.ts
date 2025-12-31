@@ -382,17 +382,87 @@ export async function prepareRequestBody(
 			const thinkingBudget = getThinkingBudget(reasoning_effort);
 			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 			requestBody.max_tokens = max_tokens ?? minMaxTokens;
+
+			// Extract system messages for Anthropic's system field (required for prompt caching)
+			const systemMessages = processedMessages.filter(
+				(m) => m.role === "system",
+			);
+			const nonSystemMessages = processedMessages.filter(
+				(m) => m.role !== "system",
+			);
+
+			// Build the system field with cache_control for long prompts
+			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
+			let systemCacheControlCount = 0;
+			const maxCacheControlBlocks = 4;
+
+			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const minCacheableTokens = providerMapping?.minCacheableTokens ?? 1024;
+			// Approximate 4 characters per token
+			const minCacheableChars = minCacheableTokens * 4;
+
+			if (systemMessages.length > 0) {
+				const systemContent: Array<{
+					type: "text";
+					text: string;
+					cache_control?: { type: "ephemeral" };
+				}> = [];
+
+				for (const sysMsg of systemMessages) {
+					let text: string;
+					if (typeof sysMsg.content === "string") {
+						text = sysMsg.content;
+					} else if (Array.isArray(sysMsg.content)) {
+						// Concatenate text from array content
+						text = sysMsg.content
+							.filter((c) => c.type === "text" && "text" in c)
+							.map((c) => (c as { type: "text"; text: string }).text)
+							.join("");
+					} else {
+						continue;
+					}
+
+					if (!text || text.trim() === "") {
+						continue;
+					}
+
+					// Add cache_control for text blocks exceeding the model's minimum cacheable threshold
+					const shouldCache =
+						text.length >= minCacheableChars &&
+						systemCacheControlCount < maxCacheControlBlocks;
+
+					if (shouldCache) {
+						systemCacheControlCount++;
+						systemContent.push({
+							type: "text",
+							text,
+							cache_control: { type: "ephemeral" },
+						});
+					} else {
+						systemContent.push({
+							type: "text",
+							text,
+						});
+					}
+				}
+
+				if (systemContent.length > 0) {
+					requestBody.system = systemContent;
+				}
+			}
+
 			requestBody.messages = await transformAnthropicMessages(
-				processedMessages.map((m) => ({
+				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
 						m.role === "assistant"
 							? "assistant"
-							: m.role === "system"
-								? "user"
-								: m.role === "tool"
-									? "user" // Tool results become user messages in Anthropic
-									: "user",
+							: m.role === "tool"
+								? "user" // Tool results become user messages in Anthropic
+								: "user",
 					content: m.content,
 					tool_calls: m.tool_calls, // Include tool_calls for transformation
 				})),
@@ -401,6 +471,8 @@ export async function prepareRequestBody(
 				usedModel,
 				maxImageSizeMB,
 				userPlan,
+				systemCacheControlCount, // Pass count to respect the 4 block limit
+				minCacheableChars, // Model-specific minimum cacheable characters
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -472,13 +544,75 @@ export async function prepareRequestBody(
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
-			// Transform messages to Bedrock format
-			requestBody.messages = processedMessages.map((msg: any) => {
+			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
+			let bedrockCacheControlCount = 0;
+			const bedrockMaxCacheControlBlocks = 4;
+
+			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
+			const bedrockProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const bedrockMinCacheableTokens =
+				bedrockProviderMapping?.minCacheableTokens ?? 1024;
+			// Approximate 4 characters per token
+			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
+
+			// Extract system messages for Bedrock's system field (required for prompt caching)
+			const bedrockSystemMessages = processedMessages.filter(
+				(m) => m.role === "system",
+			);
+			const bedrockNonSystemMessages = processedMessages.filter(
+				(m) => m.role !== "system",
+			);
+
+			// Build the system field with cachePoint for long prompts
+			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
+			if (bedrockSystemMessages.length > 0) {
+				const systemContent: Array<
+					{ text: string } | { cachePoint: { type: "default" } }
+				> = [];
+
+				for (const sysMsg of bedrockSystemMessages) {
+					let text: string;
+					if (typeof sysMsg.content === "string") {
+						text = sysMsg.content;
+					} else if (Array.isArray(sysMsg.content)) {
+						text = sysMsg.content
+							.filter((c: any) => c.type === "text" && "text" in c)
+							.map((c: any) => c.text)
+							.join("");
+					} else {
+						continue;
+					}
+
+					if (!text || text.trim() === "") {
+						continue;
+					}
+
+					// Add text block first
+					systemContent.push({ text });
+
+					// Add cachePoint as separate block for long text (model-specific threshold)
+					const shouldCache =
+						text.length >= bedrockMinCacheableChars &&
+						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+					if (shouldCache) {
+						bedrockCacheControlCount++;
+						systemContent.push({ cachePoint: { type: "default" } });
+					}
+				}
+
+				if (systemContent.length > 0) {
+					requestBody.system = systemContent;
+				}
+			}
+
+			// Transform non-system messages to Bedrock format
+			requestBody.messages = bedrockNonSystemMessages.map((msg: any) => {
 				// Map OpenAI roles to Bedrock roles
 				const role =
-					msg.role === "system" || msg.role === "user" || msg.role === "tool"
-						? "user"
-						: "assistant";
+					msg.role === "user" || msg.role === "tool" ? "user" : "assistant";
 
 				const bedrockMessage: any = {
 					role: role,
@@ -524,20 +658,47 @@ export async function prepareRequestBody(
 				}
 
 				// Handle regular content (user/assistant messages)
+				// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
 				if (typeof msg.content === "string") {
 					if (msg.content.trim()) {
+						// Add text block first
 						bedrockMessage.content.push({
 							text: msg.content,
 						});
+
+						// Add cachePoint as separate block for long user messages (model-specific threshold)
+						const shouldCache =
+							msg.content.length >= bedrockMinCacheableChars &&
+							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+						if (shouldCache) {
+							bedrockCacheControlCount++;
+							bedrockMessage.content.push({
+								cachePoint: { type: "default" },
+							});
+						}
 					}
 				} else if (Array.isArray(msg.content)) {
 					// Handle multi-part content (text + images)
 					msg.content.forEach((part: any) => {
 						if (part.type === "text") {
 							if (part.text && part.text.trim()) {
+								// Add text block first
 								bedrockMessage.content.push({
 									text: part.text,
 								});
+
+								// Add cachePoint as separate block for long text parts (model-specific threshold)
+								const shouldCache =
+									part.text.length >= bedrockMinCacheableChars &&
+									bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+								if (shouldCache) {
+									bedrockCacheControlCount++;
+									bedrockMessage.content.push({
+										cachePoint: { type: "default" },
+									});
+								}
 							}
 						} else if (part.type === "image_url") {
 							// Bedrock uses a different image format

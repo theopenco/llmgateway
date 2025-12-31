@@ -475,10 +475,12 @@ chat.openapi(completions, async (c) => {
 		c.req.header("HTTP-Referer"),
 	);
 
+	// Extract User-Agent header for logging
+	const userAgent = c.req.header("User-Agent") || undefined;
+
 	// Match specific user agents and set source if x-source header is not specified
 	if (!source) {
-		const userAgent = c.req.header("User-Agent") || "";
-		if (/^claude-cli\/.+/.test(userAgent)) {
+		if (userAgent && /^claude-cli\/.+/.test(userAgent)) {
 			source = "claude.com/claude-code";
 		}
 	}
@@ -1915,6 +1917,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -2032,6 +2035,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -2352,6 +2356,7 @@ chat.openapi(completions, async (c) => {
 						source,
 						customHeaders,
 						debugMode,
+						userAgent,
 						image_config,
 						routingMetadata,
 						rawBody,
@@ -2436,6 +2441,7 @@ chat.openapi(completions, async (c) => {
 						source,
 						customHeaders,
 						debugMode,
+						userAgent,
 						image_config,
 						routingMetadata,
 						rawBody,
@@ -2587,6 +2593,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -2866,6 +2873,16 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (eventData === "[DONE]") {
+							// Set default finish_reason if not provided by the stream
+							// Some providers (like Novita) don't send finish_reason in streaming chunks
+							if (finishReason === null) {
+								// Default to "stop" unless we have tool calls
+								finishReason =
+									streamingToolCalls && streamingToolCalls.length > 0
+										? "tool_calls"
+										: "stop";
+							}
+
 							// Calculate final usage if we don't have complete data
 							let finalPromptTokens = promptTokens;
 							let finalCompletionTokens = completionTokens;
@@ -3654,6 +3671,7 @@ chat.openapi(completions, async (c) => {
 					source,
 					customHeaders,
 					debugMode,
+					userAgent,
 					image_config,
 					routingMetadata,
 					rawBody,
@@ -3873,6 +3891,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			userAgent,
 			image_config,
 			routingMetadata,
 			rawBody,
@@ -3962,6 +3981,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			userAgent,
 			image_config,
 			routingMetadata,
 			rawBody,
@@ -4056,6 +4076,7 @@ chat.openapi(completions, async (c) => {
 			source,
 			customHeaders,
 			debugMode,
+			userAgent,
 			image_config,
 			routingMetadata,
 			rawBody,
@@ -4293,6 +4314,7 @@ chat.openapi(completions, async (c) => {
 		source,
 		customHeaders,
 		debugMode,
+		userAgent,
 		image_config,
 		routingMetadata,
 		rawBody,

@@ -550,7 +550,7 @@ export async function backfillHistoryIfNeeded() {
 export async function calculateMinutelyHistory() {
 	const previousMinuteStart = getPreviousMinuteStart();
 
-	logger.info(
+	logger.debug(
 		`Starting minutely history calculation for ${previousMinuteStart.toISOString()}...`,
 	);
 
@@ -559,7 +559,7 @@ export async function calculateMinutelyHistory() {
 		const modelResult =
 			await calculateModelHistoryForMinute(previousMinuteStart);
 
-		logger.info(
+		logger.debug(
 			`Recorded history for ${mappingResult.totalMappings} model-provider mappings (${mappingResult.activeMappings} active, ${mappingResult.inactiveMappings} inactive) and ${modelResult.totalModels} models (${modelResult.activeModels} active, ${modelResult.inactiveModels} inactive)`,
 		);
 	} catch (error) {
@@ -594,7 +594,7 @@ export async function calculateCurrentMinuteHistory() {
  * Calculate 5-minute aggregated statistics from historical data
  */
 export async function calculateAggregatedStatistics() {
-	logger.info("Starting 5-minute aggregated statistics calculation...");
+	logger.debug("Starting 5-minute aggregated statistics calculation...");
 
 	try {
 		const database = db;
@@ -652,7 +652,7 @@ export async function calculateAggregatedStatistics() {
 				.where(eq(provider.id, aggregate.providerId));
 		}
 
-		logger.info(
+		logger.debug(
 			`Updated statistics for ${providerAggregates.length} providers`,
 		);
 
@@ -708,7 +708,7 @@ export async function calculateAggregatedStatistics() {
 				.where(eq(model.id, aggregate.modelId));
 		}
 
-		logger.info(`Updated statistics for ${modelAggregates.length} models`);
+		logger.debug(`Updated statistics for ${modelAggregates.length} models`);
 
 		// Update model-provider mapping statistics (aggregated from history)
 		const mappingAggregates = await database
@@ -782,10 +782,10 @@ export async function calculateAggregatedStatistics() {
 			}
 		}
 
-		logger.info(
+		logger.debug(
 			`Updated statistics for ${mappingAggregates.length} model-provider mappings`,
 		);
-		logger.info(
+		logger.debug(
 			"5-minute aggregated statistics calculation completed successfully",
 		);
 	} catch (error) {

@@ -14,6 +14,8 @@ import {
 
 /**
  * Transforms Anthropic messages
+ * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
+ * @param minCacheableChars - Minimum number of characters for a text block to be cacheable (defaults to 4096, i.e., ~1024 tokens)
  */
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
@@ -22,6 +24,8 @@ export async function transformAnthropicMessages(
 	_model?: string,
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
+	initialCacheControlCount = 0,
+	minCacheableChars = 1024 * 4,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -29,8 +33,8 @@ export async function transformAnthropicMessages(
 	// Apply for anthropic provider only
 	const shouldApplyCacheControl = provider === "anthropic";
 
-	// Track cache_control usage to limit to maximum of 4 blocks
-	let cacheControlCount = 0;
+	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
+	let cacheControlCount = initialCacheControlCount;
 	const maxCacheControlBlocks = 4;
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
@@ -121,7 +125,7 @@ export async function transformAnthropicMessages(
 						// Automatically add cache_control for long text blocks
 						const shouldCache =
 							shouldApplyCacheControl &&
-							part.text.length >= 1024 * 4 && // Rough token estimation
+							part.text.length >= minCacheableChars &&
 							cacheControlCount < maxCacheControlBlocks;
 						if (shouldCache) {
 							cacheControlCount++;
@@ -135,10 +139,10 @@ export async function transformAnthropicMessages(
 				}),
 			);
 		} else if (m.content && typeof m.content === "string") {
-			// Handle string content - automatically add cache_control for long prompts (1024+ tokens)
+			// Handle string content - automatically add cache_control for long prompts
 			const shouldCache =
 				shouldApplyCacheControl &&
-				m.content.length >= 1024 * 4 && // Rough token estimation: 1 token ≈ 4 chars
+				m.content.length >= minCacheableChars &&
 				cacheControlCount < maxCacheControlBlocks;
 			const textContent: TextContent = {
 				type: "text",

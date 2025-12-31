@@ -1,5 +1,6 @@
 export interface AppConfig {
 	hosted: boolean;
+	appUrl: string;
 	apiUrl: string;
 	apiBackendUrl: string;
 	githubUrl: string;
@@ -17,6 +18,7 @@ export function getConfig(): AppConfig {
 	const apiUrl = process.env.API_URL || "http://localhost:4002";
 	return {
 		hosted: process.env.HOSTED === "true",
+		appUrl: process.env.APP_URL || "http://localhost:3002",
 		apiUrl,
 		apiBackendUrl: process.env.API_BACKEND_URL || apiUrl,
 		githubUrl:

@@ -162,7 +162,13 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						</div>
 						<div className="flex items-center gap-1">
 							<Zap className="h-3.5 w-3.5" />
-							<span>{log.cached ? "Cached" : "Not cached"}</span>
+							<span>
+								{log.cached
+									? "Fully cached"
+									: log.cachedTokens && Number(log.cachedTokens) > 0
+										? "Partially cached"
+										: "Not cached"}
+							</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Clock className="h-3.5 w-3.5" />

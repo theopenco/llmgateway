@@ -14,6 +14,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
@@ -309,10 +310,21 @@ export default async function ModelPage({ params }: PageProps) {
 					</div>
 
 					<div className="mb-8">
+						<h2 className="text-xl md:text-2xl font-semibold mb-4">
+							Select Provider
+						</h2>
+						<ProviderTabs
+							modelId={decodedName}
+							providerIds={modelProviders.map((p) => p.providerId)}
+							activeProviderId=""
+						/>
+					</div>
+
+					<div className="mb-8">
 						<div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-2">
 							<div>
 								<h2 className="text-xl md:text-2xl font-semibold mb-2">
-									Providers for {modelDef.name}
+									All Providers for {modelDef.name}
 								</h2>
 								<p className="text-muted-foreground">
 									LLM Gateway routes requests to the best providers that are
@@ -363,7 +375,8 @@ export async function generateMetadata({
 		model.description ||
 		`Details, pricing, and capabilities for ${model.name || model.id} on LLM Gateway.`;
 
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/opengraph-image`;
+	const primaryProvider = model.providers[0]?.providerId || "default";
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
 
 	return {
 		title,

@@ -342,12 +342,15 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			return true;
 		});
 
-		// Apply sorting
-		if (!sortField) {
-			return filteredModels;
-		}
-
+		// Apply sorting - default to publishedAt descending (newest first)
 		return [...filteredModels].sort((a, b) => {
+			// Default sorting by publishedAt when no sort field selected
+			if (!sortField) {
+				const aDate = a.publishedAt?.getTime() ?? 0;
+				const bDate = b.publishedAt?.getTime() ?? 0;
+				return bDate - aDate; // Descending (newest first)
+			}
+
 			let aValue: any;
 			let bValue: any;
 
