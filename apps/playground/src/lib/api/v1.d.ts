@@ -1862,6 +1862,7 @@ export interface paths {
             requestBody?: {
                 content: {
                     "application/json": {
+                        name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
                         /** @enum {string} */

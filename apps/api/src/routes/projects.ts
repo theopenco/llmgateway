@@ -30,6 +30,7 @@ const createProjectSchema = z.object({
 });
 
 const updateProjectCachingSchema = z.object({
+	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
@@ -161,7 +162,8 @@ projects.openapi(updateProject, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { cachingEnabled, cacheDurationSeconds, mode } = c.req.valid("json");
+	const { name, cachingEnabled, cacheDurationSeconds, mode } =
+		c.req.valid("json");
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -194,6 +196,10 @@ projects.openapi(updateProject, async (c) => {
 	}
 
 	const updateData: any = {};
+
+	if (name !== undefined) {
+		updateData.name = name;
+	}
 
 	if (cachingEnabled !== undefined) {
 		updateData.cachingEnabled = cachingEnabled;
