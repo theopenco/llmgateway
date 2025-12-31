@@ -359,6 +359,14 @@ export async function prepareRequestBody(
 			let systemCacheControlCount = 0;
 			const maxCacheControlBlocks = 4;
 
+			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const minCacheableTokens = providerMapping?.minCacheableTokens ?? 1024;
+			// Approximate 4 characters per token
+			const minCacheableChars = minCacheableTokens * 4;
+
 			if (systemMessages.length > 0) {
 				const systemContent: Array<{
 					type: "text";
@@ -384,9 +392,9 @@ export async function prepareRequestBody(
 						continue;
 					}
 
-					// Add cache_control for long text blocks (1024+ tokens, roughly 4096+ characters)
+					// Add cache_control for text blocks exceeding the model's minimum cacheable threshold
 					const shouldCache =
-						text.length >= 1024 * 4 &&
+						text.length >= minCacheableChars &&
 						systemCacheControlCount < maxCacheControlBlocks;
 
 					if (shouldCache) {
@@ -427,6 +435,7 @@ export async function prepareRequestBody(
 				maxImageSizeMB,
 				userPlan,
 				systemCacheControlCount, // Pass count to respect the 4 block limit
+				minCacheableChars, // Model-specific minimum cacheable characters
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -502,6 +511,15 @@ export async function prepareRequestBody(
 			let bedrockCacheControlCount = 0;
 			const bedrockMaxCacheControlBlocks = 4;
 
+			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
+			const bedrockProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const bedrockMinCacheableTokens =
+				bedrockProviderMapping?.minCacheableTokens ?? 1024;
+			// Approximate 4 characters per token
+			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
+
 			// Extract system messages for Bedrock's system field (required for prompt caching)
 			const bedrockSystemMessages = processedMessages.filter(
 				(m) => m.role === "system",
@@ -537,9 +555,9 @@ export async function prepareRequestBody(
 					// Add text block first
 					systemContent.push({ text });
 
-					// Add cachePoint as separate block for long text (1024+ tokens, roughly 4096+ characters)
+					// Add cachePoint as separate block for long text (model-specific threshold)
 					const shouldCache =
-						text.length >= 1024 * 4 &&
+						text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
 					if (shouldCache) {
@@ -611,9 +629,9 @@ export async function prepareRequestBody(
 							text: msg.content,
 						});
 
-						// Add cachePoint as separate block for long user messages
+						// Add cachePoint as separate block for long user messages (model-specific threshold)
 						const shouldCache =
-							msg.content.length >= 1024 * 4 &&
+							msg.content.length >= bedrockMinCacheableChars &&
 							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
 						if (shouldCache) {
@@ -633,9 +651,9 @@ export async function prepareRequestBody(
 									text: part.text,
 								});
 
-								// Add cachePoint as separate block for long text parts
+								// Add cachePoint as separate block for long text parts (model-specific threshold)
 								const shouldCache =
-									part.text.length >= 1024 * 4 &&
+									part.text.length >= bedrockMinCacheableChars &&
 									bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
 								if (shouldCache) {
