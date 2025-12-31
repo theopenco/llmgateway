@@ -220,8 +220,8 @@ export function getProviderEndpoint(
 		case "aws-bedrock": {
 			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ||
-				getProviderEnvValue("aws-bedrock", "region", configIndex, "us.") ||
-				"us.";
+				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ||
+				"global.";
 
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
