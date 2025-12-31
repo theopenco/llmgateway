@@ -345,17 +345,77 @@ export async function prepareRequestBody(
 			const thinkingBudget = getThinkingBudget(reasoning_effort);
 			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 			requestBody.max_tokens = max_tokens ?? minMaxTokens;
+
+			// Extract system messages for Anthropic's system field (required for prompt caching)
+			const systemMessages = processedMessages.filter(
+				(m) => m.role === "system",
+			);
+			const nonSystemMessages = processedMessages.filter(
+				(m) => m.role !== "system",
+			);
+
+			// Build the system field with cache_control for long prompts
+			if (systemMessages.length > 0) {
+				const systemContent: Array<{
+					type: "text";
+					text: string;
+					cache_control?: { type: "ephemeral" };
+				}> = [];
+				let cacheControlCount = 0;
+				const maxCacheControlBlocks = 4;
+
+				for (const sysMsg of systemMessages) {
+					let text: string;
+					if (typeof sysMsg.content === "string") {
+						text = sysMsg.content;
+					} else if (Array.isArray(sysMsg.content)) {
+						// Concatenate text from array content
+						text = sysMsg.content
+							.filter((c) => c.type === "text" && "text" in c)
+							.map((c) => (c as { type: "text"; text: string }).text)
+							.join("");
+					} else {
+						continue;
+					}
+
+					if (!text || text.trim() === "") {
+						continue;
+					}
+
+					// Add cache_control for long text blocks (1024+ tokens, roughly 4096+ characters)
+					const shouldCache =
+						text.length >= 1024 * 4 &&
+						cacheControlCount < maxCacheControlBlocks;
+
+					if (shouldCache) {
+						cacheControlCount++;
+						systemContent.push({
+							type: "text",
+							text,
+							cache_control: { type: "ephemeral" },
+						});
+					} else {
+						systemContent.push({
+							type: "text",
+							text,
+						});
+					}
+				}
+
+				if (systemContent.length > 0) {
+					requestBody.system = systemContent;
+				}
+			}
+
 			requestBody.messages = await transformAnthropicMessages(
-				processedMessages.map((m) => ({
+				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
 						m.role === "assistant"
 							? "assistant"
-							: m.role === "system"
-								? "user"
-								: m.role === "tool"
-									? "user" // Tool results become user messages in Anthropic
-									: "user",
+							: m.role === "tool"
+								? "user" // Tool results become user messages in Anthropic
+								: "user",
 					content: m.content,
 					tool_calls: m.tool_calls, // Include tool_calls for transformation
 				})),

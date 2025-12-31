@@ -205,8 +205,17 @@ export interface OpenAIResponsesRequestBody {
 	max_output_tokens?: number;
 }
 
+export interface AnthropicSystemContent {
+	type: "text";
+	text: string;
+	cache_control?: {
+		type: "ephemeral";
+	};
+}
+
 export interface AnthropicRequestBody extends BaseRequestBody {
 	messages: AnthropicMessage[];
+	system?: string | AnthropicSystemContent[];
 	tools?: AnthropicTool[];
 	tool_choice?: AnthropicToolChoice;
 	thinking?: {
