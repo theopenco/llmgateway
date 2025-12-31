@@ -69,7 +69,7 @@ export function CreateProviderKeyDialog({
 	const [token, setToken] = useState("");
 	const [awsBedrockRegionPrefix, setAwsBedrockRegionPrefix] = useState<
 		"us." | "global." | "eu."
-	>("us.");
+	>("global.");
 	const [azureResource, setAzureResource] = useState("");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
@@ -260,7 +260,7 @@ export function CreateProviderKeyDialog({
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
-			setAwsBedrockRegionPrefix("us.");
+			setAwsBedrockRegionPrefix("global.");
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
