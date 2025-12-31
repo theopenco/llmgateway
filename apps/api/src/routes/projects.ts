@@ -29,7 +29,7 @@ const createProjectSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
 
-const updateProjectCachingSchema = z.object({
+const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
@@ -68,7 +68,7 @@ const updateProject = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: updateProjectCachingSchema,
+					schema: updateProjectSchema,
 				},
 			},
 		},
