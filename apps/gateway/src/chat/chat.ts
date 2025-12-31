@@ -1913,6 +1913,7 @@ chat.openapi(completions, async (c) => {
 					rawCachedResponseData, // Raw SSE data from cached response
 					null, // No upstream request for cached response
 					rawCachedResponseData, // Raw SSE data from cached response (same for both)
+					retentionLevel,
 				);
 
 				// Calculate costs for cached response
@@ -1935,8 +1936,9 @@ chat.openapi(completions, async (c) => {
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: JSON.stringify(cachedStreamingResponse).length,
-					content: fullContent || null,
-					reasoningContent: fullReasoningContent || null,
+					content: retentionLevel === "none" ? null : fullContent || null,
+					reasoningContent:
+						retentionLevel === "none" ? null : fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
 					promptTokens: promptTokens?.toString() || null,
 					completionTokens: completionTokens?.toString() || null,
@@ -1964,8 +1966,10 @@ chat.openapi(completions, async (c) => {
 					),
 					cached: true,
 					toolResults:
-						(cachedStreamingResponse.metadata as { toolResults?: any })
-							?.toolResults || null,
+						retentionLevel === "none"
+							? null
+							: (cachedStreamingResponse.metadata as { toolResults?: any })
+									?.toolResults || null,
 				});
 
 				// Return cached streaming response by replaying chunks with original timing
@@ -2031,6 +2035,7 @@ chat.openapi(completions, async (c) => {
 					cachedResponse,
 					null, // No upstream request for cached response
 					cachedResponse, // upstream response is same as cached response
+					retentionLevel,
 				);
 
 				// Calculate costs for cached response
@@ -2053,9 +2058,14 @@ chat.openapi(completions, async (c) => {
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: JSON.stringify(cachedResponse).length,
-					content: cachedResponse.choices?.[0]?.message?.content || null,
+					content:
+						retentionLevel === "none"
+							? null
+							: cachedResponse.choices?.[0]?.message?.content || null,
 					reasoningContent:
-						cachedResponse.choices?.[0]?.message?.reasoning || null,
+						retentionLevel === "none"
+							? null
+							: cachedResponse.choices?.[0]?.message?.reasoning || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
 					promptTokens: cachedResponse.usage?.prompt_tokens || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
@@ -2083,7 +2093,10 @@ chat.openapi(completions, async (c) => {
 						retentionLevel,
 					),
 					cached: true,
-					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
+					toolResults:
+						retentionLevel === "none"
+							? null
+							: cachedResponse.choices?.[0]?.message?.tool_calls || null,
 				});
 
 				return c.json(cachedResponse);
@@ -2345,6 +2358,7 @@ chat.openapi(completions, async (c) => {
 						null, // No response for canceled request
 						requestBody, // The request that was sent before cancellation
 						null, // No upstream response for canceled request
+						retentionLevel,
 					);
 
 					await insertLog({
@@ -2430,6 +2444,7 @@ chat.openapi(completions, async (c) => {
 						null, // No response for fetch error
 						requestBody, // The request that resulted in error
 						null, // No upstream response for fetch error
+						retentionLevel,
 					);
 
 					await insertLog({
@@ -2449,11 +2464,14 @@ chat.openapi(completions, async (c) => {
 						hasError: true,
 						streamed: true,
 						canceled: false,
-						errorDetails: {
-							statusCode: 0,
-							statusText: error.name,
-							responseText: errorMessage,
-						},
+						errorDetails:
+							retentionLevel === "none"
+								? null
+								: {
+										statusCode: 0,
+										statusText: error.name,
+										responseText: errorMessage,
+									},
 						cachedInputCost: null,
 						requestCost: null,
 						discount: null,
@@ -2582,6 +2600,7 @@ chat.openapi(completions, async (c) => {
 					null, // No response for error case
 					requestBody, // The request that was sent and resulted in error
 					null, // No upstream response for error case
+					retentionLevel,
 				);
 
 				await insertLog({
@@ -2601,11 +2620,14 @@ chat.openapi(completions, async (c) => {
 					hasError: true,
 					streamed: true,
 					canceled: false,
-					errorDetails: {
-						statusCode: res.status,
-						statusText: res.statusText,
-						responseText: errorResponseText,
-					},
+					errorDetails:
+						retentionLevel === "none"
+							? null
+							: {
+									statusCode: res.status,
+									statusText: res.statusText,
+									responseText: errorResponseText,
+								},
 					cachedInputCost: null,
 					requestCost: null,
 					discount: null,
@@ -3664,6 +3686,7 @@ chat.openapi(completions, async (c) => {
 					streamingError
 						? streamingError // Pass structured error as upstream response too
 						: rawUpstreamData, // Raw streaming data received from upstream provider
+					retentionLevel,
 				);
 
 				if (!finishReason && !streamingError && usedProvider === "routeway") {
@@ -3697,8 +3720,9 @@ chat.openapi(completions, async (c) => {
 					timeToFirstToken,
 					timeToFirstReasoningToken,
 					responseSize: fullContent.length,
-					content: fullContent,
-					reasoningContent: fullReasoningContent || null,
+					content: retentionLevel === "none" ? null : fullContent,
+					reasoningContent:
+						retentionLevel === "none" ? null : fullReasoningContent || null,
 					finishReason: finishReason,
 					promptTokens: calculatedPromptTokens?.toString() || null,
 					completionTokens: calculatedCompletionTokens?.toString() || null,
@@ -3706,19 +3730,20 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens: calculatedReasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: streamingError !== null,
-					errorDetails: streamingError
-						? {
-								statusCode: 500,
-								statusText: "Streaming Error",
-								responseText:
-									typeof streamingError === "object" &&
-									"details" in streamingError
-										? JSON.stringify(streamingError) // Store structured error as JSON string
-										: streamingError instanceof Error
-											? streamingError.message
-											: String(streamingError),
-							}
-						: null,
+					errorDetails:
+						streamingError && retentionLevel !== "none"
+							? {
+									statusCode: 500,
+									statusText: "Streaming Error",
+									responseText:
+										typeof streamingError === "object" &&
+										"details" in streamingError
+											? JSON.stringify(streamingError) // Store structured error as JSON string
+											: streamingError instanceof Error
+												? streamingError.message
+												: String(streamingError),
+								}
+							: null,
 					streamed: true,
 					canceled: canceled,
 					inputCost: costs.inputCost,
@@ -3737,9 +3762,8 @@ chat.openapi(completions, async (c) => {
 						retentionLevel,
 					),
 					cached: false,
-					tools,
-					toolResults: streamingToolCalls,
-					toolChoice: tool_choice,
+					toolResults: retentionLevel === "none" ? null : streamingToolCalls,
+					toolChoice: retentionLevel === "none" ? null : tool_choice,
 				});
 
 				// Report key health for environment-based tokens
@@ -3880,6 +3904,7 @@ chat.openapi(completions, async (c) => {
 			null, // No response for fetch error
 			requestBody, // The request that resulted in error
 			null, // No upstream response for fetch error
+			retentionLevel,
 		);
 
 		await insertLog({
@@ -3899,11 +3924,14 @@ chat.openapi(completions, async (c) => {
 			hasError: true,
 			streamed: false,
 			canceled: false,
-			errorDetails: {
-				statusCode: 0,
-				statusText: fetchError.name,
-				responseText: errorMessage,
-			},
+			errorDetails:
+				retentionLevel === "none"
+					? null
+					: {
+							statusCode: 0,
+							statusText: fetchError.name,
+							responseText: errorMessage,
+						},
 			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
@@ -3970,6 +3998,7 @@ chat.openapi(completions, async (c) => {
 			null, // No response for canceled request
 			requestBody, // The request that was prepared before cancellation
 			null, // No upstream response for canceled request
+			retentionLevel,
 		);
 
 		await insertLog({
@@ -4065,6 +4094,7 @@ chat.openapi(completions, async (c) => {
 			errorResponseText, // Our formatted error response
 			requestBody, // The request that resulted in error
 			errorResponseText, // Raw upstream error response
+			retentionLevel,
 		);
 
 		await insertLog({
@@ -4084,27 +4114,30 @@ chat.openapi(completions, async (c) => {
 			hasError: true,
 			streamed: false,
 			canceled: false,
-			errorDetails: (() => {
-				// For client errors, try to parse the original error and include the message
-				if (finishReason === "client_error") {
-					try {
-						const originalError = JSON.parse(errorResponseText);
-						return {
-							statusCode: res.status,
-							statusText: res.statusText,
-							responseText: errorResponseText,
-							message: originalError.error?.message || errorResponseText,
-						};
-					} catch {
-						// If parsing fails, use default format
-					}
-				}
-				return {
-					statusCode: res.status,
-					statusText: res.statusText,
-					responseText: errorResponseText,
-				};
-			})(),
+			errorDetails:
+				retentionLevel === "none"
+					? null
+					: (() => {
+							// For client errors, try to parse the original error and include the message
+							if (finishReason === "client_error") {
+								try {
+									const originalError = JSON.parse(errorResponseText);
+									return {
+										statusCode: res.status,
+										statusText: res.statusText,
+										responseText: errorResponseText,
+										message: originalError.error?.message || errorResponseText,
+									};
+								} catch {
+									// If parsing fails, use default format
+								}
+							}
+							return {
+								statusCode: res.status,
+								statusText: res.statusText,
+								responseText: errorResponseText,
+							};
+						})(),
 			cachedInputCost: null,
 			requestCost: null,
 			estimatedCost: false,
@@ -4303,6 +4336,7 @@ chat.openapi(completions, async (c) => {
 		transformedResponse, // Our formatted response that we return to user
 		requestBody, // The request sent to the provider
 		json, // Raw upstream response from provider
+		retentionLevel,
 	);
 
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
@@ -4341,8 +4375,8 @@ chat.openapi(completions, async (c) => {
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
 		responseSize: responseText.length,
-		content: content,
-		reasoningContent: reasoningContent,
+		content: retentionLevel === "none" ? null : content,
+		reasoningContent: retentionLevel === "none" ? null : reasoningContent,
 		finishReason: hasEmptyNonStreamingResponse
 			? "upstream_error"
 			: finishReason,
@@ -4358,14 +4392,15 @@ chat.openapi(completions, async (c) => {
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,
 		canceled: false,
-		errorDetails: hasEmptyNonStreamingResponse
-			? {
-					statusCode: 500,
-					statusText: "Empty Response",
-					responseText:
-						"Response finished successfully but returned no content or tool calls",
-				}
-			: null,
+		errorDetails:
+			hasEmptyNonStreamingResponse && retentionLevel !== "none"
+				? {
+						statusCode: 500,
+						statusText: "Empty Response",
+						responseText:
+							"Response finished successfully but returned no content or tool calls",
+					}
+				: null,
 		inputCost: costs.inputCost,
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
@@ -4382,9 +4417,8 @@ chat.openapi(completions, async (c) => {
 			retentionLevel,
 		),
 		cached: false,
-		tools,
-		toolResults,
-		toolChoice: tool_choice,
+		toolResults: retentionLevel === "none" ? null : toolResults,
+		toolChoice: retentionLevel === "none" ? null : tool_choice,
 	});
 
 	// Report key health for environment-based tokens
