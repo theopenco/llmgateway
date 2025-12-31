@@ -14,6 +14,7 @@ import {
 
 /**
  * Transforms Anthropic messages
+ * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
  */
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
@@ -22,6 +23,7 @@ export async function transformAnthropicMessages(
 	_model?: string,
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
+	initialCacheControlCount = 0,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -29,8 +31,8 @@ export async function transformAnthropicMessages(
 	// Apply for anthropic provider only
 	const shouldApplyCacheControl = provider === "anthropic";
 
-	// Track cache_control usage to limit to maximum of 4 blocks
-	let cacheControlCount = 0;
+	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
+	let cacheControlCount = initialCacheControlCount;
 	const maxCacheControlBlocks = 4;
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness

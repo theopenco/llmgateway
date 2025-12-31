@@ -106,6 +106,60 @@ describe("prepareRequestBody - Anthropic", () => {
 		expect(Array.isArray(requestBody.system)).toBe(true);
 		expect((requestBody.system as any)[0].text).toBe("Part 1. Part 2.");
 	});
+
+	test("should limit cache_control blocks to 4 total across system and user messages", async () => {
+		// Create 5 long prompts that would each trigger cache_control
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent }, // Would be cache block 1
+				{ role: "system", content: longContent }, // Would be cache block 2
+				{ role: "user", content: longContent }, // Would be cache block 3
+				{ role: "user", content: longContent }, // Would be cache block 4
+				{ role: "user", content: longContent }, // Should NOT get cache_control (limit reached)
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as AnthropicRequestBody;
+
+		// Count total cache_control blocks
+		let totalCacheControlBlocks = 0;
+
+		// Count in system messages
+		if (requestBody.system && Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				if ((block as any).cache_control) {
+					totalCacheControlBlocks++;
+				}
+			}
+		}
+
+		// Count in user messages
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					if ((block as any).cache_control) {
+						totalCacheControlBlocks++;
+					}
+				}
+			}
+		}
+
+		// Should be exactly 4 (the limit)
+		expect(totalCacheControlBlocks).toBe(4);
+	});
 });
 
 describe("prepareRequestBody - Google AI Studio", () => {

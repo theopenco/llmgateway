@@ -355,14 +355,16 @@ export async function prepareRequestBody(
 			);
 
 			// Build the system field with cache_control for long prompts
+			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
+			let systemCacheControlCount = 0;
+			const maxCacheControlBlocks = 4;
+
 			if (systemMessages.length > 0) {
 				const systemContent: Array<{
 					type: "text";
 					text: string;
 					cache_control?: { type: "ephemeral" };
 				}> = [];
-				let cacheControlCount = 0;
-				const maxCacheControlBlocks = 4;
 
 				for (const sysMsg of systemMessages) {
 					let text: string;
@@ -385,10 +387,10 @@ export async function prepareRequestBody(
 					// Add cache_control for long text blocks (1024+ tokens, roughly 4096+ characters)
 					const shouldCache =
 						text.length >= 1024 * 4 &&
-						cacheControlCount < maxCacheControlBlocks;
+						systemCacheControlCount < maxCacheControlBlocks;
 
 					if (shouldCache) {
-						cacheControlCount++;
+						systemCacheControlCount++;
 						systemContent.push({
 							type: "text",
 							text,
@@ -424,6 +426,7 @@ export async function prepareRequestBody(
 				usedModel,
 				maxImageSizeMB,
 				userPlan,
+				systemCacheControlCount, // Pass count to respect the 4 block limit
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
