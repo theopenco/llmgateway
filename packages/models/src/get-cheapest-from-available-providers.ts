@@ -26,11 +26,11 @@ const UPTIME_PENALTY_THRESHOLD = 95;
  * Calculate exponential penalty for low uptime.
  * - 95-100% uptime: no penalty (returns 0)
  * - Below 95%: exponential penalty that increases rapidly
- *   - 90% -> 0.25 penalty
- *   - 80% -> 1.0 penalty
- *   - 70% -> 2.25 penalty
- *   - 60% -> 4.0 penalty
- *   - 50% -> 6.25 penalty
+ *   - 90% -> ~0.07 penalty
+ *   - 80% -> ~0.62 penalty
+ *   - 70% -> ~1.73 penalty
+ *   - 60% -> ~3.39 penalty
+ *   - 50% -> ~5.61 penalty
  */
 function calculateUptimePenalty(uptime: number): number {
 	if (uptime >= UPTIME_PENALTY_THRESHOLD) {
