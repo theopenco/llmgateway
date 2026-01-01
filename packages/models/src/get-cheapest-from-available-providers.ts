@@ -14,9 +14,9 @@ interface ProviderScore<T extends AvailableModelProvider> {
 }
 
 // Scoring weights (totaling 1.0)
-const PRICE_WEIGHT = 0.25;
-const UPTIME_WEIGHT = 0.4;
-const THROUGHPUT_WEIGHT = 0.25;
+const PRICE_WEIGHT = 0.2;
+const UPTIME_WEIGHT = 0.5;
+const THROUGHPUT_WEIGHT = 0.2;
 const LATENCY_WEIGHT = 0.1;
 
 // Uptime threshold below which exponential penalty kicks in
