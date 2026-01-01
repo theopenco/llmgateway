@@ -15,9 +15,9 @@ interface ProviderScore<T extends AvailableModelProvider> {
 
 // Scoring weights (totaling 1.0)
 // Prioritize uptime heavily to avoid unreliable providers
-const PRICE_WEIGHT = 0.2;
-const UPTIME_WEIGHT = 0.5;
-const THROUGHPUT_WEIGHT = 0.2;
+const PRICE_WEIGHT = 0.15;
+const UPTIME_WEIGHT = 0.6;
+const THROUGHPUT_WEIGHT = 0.15;
 const LATENCY_WEIGHT = 0.1;
 
 // Default values for providers with no metrics
