@@ -88,6 +88,61 @@ describe("healJsonResponse", () => {
 			expect(result.healed).toBe(true);
 			expect(JSON.parse(result.content)).toEqual([1, 2, 3, 4, 5]);
 		});
+
+		it("should handle brackets inside strings correctly", () => {
+			const input =
+				'Text with { bracket } and then {"valid": "json with } inside"}';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({
+				valid: "json with } inside",
+			});
+		});
+
+		it("should skip invalid first bracket and find valid JSON later", () => {
+			const input =
+				'Some text { not valid json } but here is {"actual": "data"}';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({ actual: "data" });
+		});
+
+		it("should handle nested objects with brackets in string values", () => {
+			const input =
+				'Response: {"outer": {"message": "Use {braces} here"}, "code": 200}';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({
+				outer: { message: "Use {braces} here" },
+				code: 200,
+			});
+		});
+
+		it("should handle escaped quotes in strings", () => {
+			const input = 'Result: {"text": "He said \\"hello\\"", "count": 1}';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({
+				text: 'He said "hello"',
+				count: 1,
+			});
+		});
+
+		it("should handle arrays with objects containing brackets in strings", () => {
+			const input =
+				'Data: [{"name": "test[1]"}, {"name": "test{2}"}] is the list.';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual([
+				{ name: "test[1]" },
+				{ name: "test{2}" },
+			]);
+		});
 	});
 
 	describe("syntax fixes", () => {

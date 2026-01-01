@@ -47,36 +47,93 @@ function extractFromMarkdown(content: string): string | null {
 
 /**
  * Attempts to extract JSON from mixed content (text before/after JSON)
+ * Uses proper bracket matching that respects string boundaries
  */
 function extractJsonFromMixedContent(content: string): string | null {
-	// Find the first { or [ and the last } or ]
-	const objectStart = content.indexOf("{");
-	const arrayStart = content.indexOf("[");
+	// Find all potential JSON start positions (all { and [)
+	const startPositions: number[] = [];
 
-	let start = -1;
-	let isObject = true;
-
-	if (objectStart === -1 && arrayStart === -1) {
-		return null;
-	} else if (objectStart === -1) {
-		start = arrayStart;
-		isObject = false;
-	} else if (arrayStart === -1) {
-		start = objectStart;
-		isObject = true;
-	} else {
-		start = Math.min(objectStart, arrayStart);
-		isObject = objectStart < arrayStart;
+	for (let i = 0; i < content.length; i++) {
+		if (content[i] === "{" || content[i] === "[") {
+			startPositions.push(i);
+		}
 	}
 
-	const endChar = isObject ? "}" : "]";
-	const end = content.lastIndexOf(endChar);
-
-	if (end === -1 || end <= start) {
+	if (startPositions.length === 0) {
 		return null;
 	}
 
-	return content.substring(start, end + 1);
+	// Try each potential start position
+	for (const start of startPositions) {
+		const extracted = extractBalancedJson(content, start);
+		if (extracted) {
+			try {
+				JSON.parse(extracted);
+				return extracted;
+			} catch {
+				// Try next start position
+				continue;
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Extracts a balanced JSON structure starting from the given position
+ * Respects string boundaries when counting brackets
+ */
+function extractBalancedJson(content: string, start: number): string | null {
+	const startChar = content[start];
+	if (startChar !== "{" && startChar !== "[") {
+		return null;
+	}
+
+	// Use a stack to track nested structures properly
+	const stack: string[] = [];
+	let inString = false;
+	let escapeNext = false;
+
+	for (let i = start; i < content.length; i++) {
+		const char = content[i];
+
+		if (escapeNext) {
+			escapeNext = false;
+			continue;
+		}
+
+		if (char === "\\") {
+			escapeNext = true;
+			continue;
+		}
+
+		if (char === '"') {
+			inString = !inString;
+			continue;
+		}
+
+		if (inString) {
+			continue;
+		}
+
+		if (char === "{") {
+			stack.push("}");
+		} else if (char === "[") {
+			stack.push("]");
+		} else if (char === "}" || char === "]") {
+			if (stack.length === 0 || stack[stack.length - 1] !== char) {
+				// Mismatched bracket - this is not valid JSON from this start position
+				return null;
+			}
+			stack.pop();
+			if (stack.length === 0) {
+				return content.substring(start, i + 1);
+			}
+		}
+	}
+
+	return null;
 }
 
 /**
