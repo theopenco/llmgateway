@@ -333,6 +333,12 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Duration</div>
 								<div>{formatDuration(log.duration ?? 0)}</div>
+								<div className="text-muted-foreground">Throughput</div>
+								<div>
+									{log.duration && log.totalTokens
+										? `${(Number(log.totalTokens) / (log.duration / 1000)).toFixed(1)}t/s`
+										: "-"}
+								</div>
 								{log.timeToFirstToken && (
 									<>
 										<div className="text-muted-foreground">
