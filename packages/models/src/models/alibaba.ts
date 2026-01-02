@@ -725,8 +725,8 @@ export const alibabaModels = [
 			"Alibaba's Qwen Image Plus model for text-to-image generation with excellent text rendering capabilities.",
 		family: "alibaba",
 		output: ["text", "image"],
-		releasedAt: new Date("2024-12-01"),
-		publishedAt: new Date("2024-12-01"),
+		releasedAt: new Date("2025-08-04"),
+		publishedAt: new Date("2026-01-02"),
 		providers: [
 			{
 				test: "skip",
@@ -752,8 +752,8 @@ export const alibabaModels = [
 			"Alibaba's flagship Qwen Image Max model for highest quality text-to-image generation.",
 		family: "alibaba",
 		output: ["text", "image"],
-		releasedAt: new Date("2024-12-01"),
-		publishedAt: new Date("2024-12-01"),
+		releasedAt: new Date("2025-08-04"),
+		publishedAt: new Date("2026-01-02"),
 		providers: [
 			{
 				test: "skip",
@@ -779,8 +779,8 @@ export const alibabaModels = [
 			"Alibaba's Qwen Image model for text-to-image generation with excellent text rendering capabilities.",
 		family: "alibaba",
 		output: ["text", "image"],
-		releasedAt: new Date("2024-12-01"),
-		publishedAt: new Date("2024-12-01"),
+		releasedAt: new Date("2025-08-04"),
+		publishedAt: new Date("2026-01-02"),
 		providers: [
 			{
 				test: "skip",
