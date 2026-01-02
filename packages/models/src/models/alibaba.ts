@@ -799,4 +799,31 @@ export const alibabaModels = [
 			},
 		],
 	},
+	{
+		id: "qwen-image-max-2025-12-30",
+		name: "Qwen Image Max 2025-12-30",
+		description:
+			"Alibaba's Qwen 2025-12-30 Image model for text-to-image generation with excellent text rendering capabilities.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2025-08-04"),
+		publishedAt: new Date("2026-01-02"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				modelName: "qwen-image-max-2025-12-30",
+				inputPrice: 0,
+				outputPrice: 0,
+				requestPrice: 0.075,
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
