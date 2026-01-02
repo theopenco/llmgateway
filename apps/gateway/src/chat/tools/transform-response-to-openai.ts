@@ -1,4 +1,4 @@
-import type { ImageObject } from "./types.js";
+import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 export interface CostData {
@@ -72,6 +72,7 @@ export function transformResponseToOpenai(
 	baseModelName: string,
 	costs: CostData | null = null,
 	showUpgradeMessage = false,
+	annotations: Annotation[] | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -94,6 +95,8 @@ export function transformResponseToOpenai(
 							}),
 							...(toolResults && { tool_calls: toolResults }),
 							...(images && images.length > 0 && { images }),
+							...(annotations &&
+								annotations.length > 0 && { annotations: annotations }),
 						},
 						finish_reason: (() => {
 							// Map Google finish reasons to OpenAI format for the response
@@ -154,6 +157,8 @@ export function transformResponseToOpenai(
 								reasoning: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
+							...(annotations &&
+								annotations.length > 0 && { annotations: annotations }),
 						},
 						finish_reason:
 							finishReason === "end_turn"
@@ -288,6 +293,8 @@ export function transformResponseToOpenai(
 								reasoning: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
+							...(annotations &&
+								annotations.length > 0 && { annotations: annotations }),
 						},
 						finish_reason: finishReason || "stop",
 					},
@@ -415,6 +422,8 @@ export function transformResponseToOpenai(
 									reasoning: reasoningContent,
 								}),
 								...(toolResults && { tool_calls: toolResults }),
+								...(annotations &&
+									annotations.length > 0 && { annotations: annotations }),
 							},
 							finish_reason: finishReason || "stop",
 						},
@@ -450,6 +459,10 @@ export function transformResponseToOpenai(
 							message.reasoning = reasoningContent;
 							// Remove the old reasoning_content field if it exists
 							delete message.reasoning_content;
+						}
+						// Add annotations if present
+						if (annotations && annotations.length > 0) {
+							message.annotations = annotations;
 						}
 					}
 					// Update finish_reason with the mapped value
@@ -580,6 +593,10 @@ export function transformResponseToOpenai(
 						message.reasoning = reasoningContent;
 						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
+					}
+					// Add annotations if present
+					if (annotations && annotations.length > 0) {
+						message.annotations = annotations;
 					}
 				}
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;

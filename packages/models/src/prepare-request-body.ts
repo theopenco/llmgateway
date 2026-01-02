@@ -15,6 +15,7 @@ import type {
 	OpenAIToolInput,
 	ProviderRequestBody,
 	ToolChoiceType,
+	WebSearchTool,
 } from "./types.js";
 
 /**
@@ -149,6 +150,7 @@ export async function prepareRequestBody(
 	},
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
+	webSearchTool?: WebSearchTool,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
@@ -314,6 +316,21 @@ export async function prepareRequestBody(
 						parameters: tool.function.parameters as FunctionParameter,
 					}));
 				}
+
+				// Add web search tool for Responses API
+				if (webSearchTool) {
+					if (!responsesBody.tools) {
+						responsesBody.tools = [];
+					}
+					const webSearch: any = { type: "web_search" };
+					if (webSearchTool.user_location) {
+						webSearch.user_location = webSearchTool.user_location;
+					}
+					if (webSearchTool.search_context_size) {
+						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					responsesBody.tools.push(webSearch);
+				}
 				if (tool_choice) {
 					responsesBody.tool_choice = tool_choice;
 				}
@@ -336,6 +353,45 @@ export async function prepareRequestBody(
 				}
 				if (response_format) {
 					requestBody.response_format = response_format;
+				}
+
+				// Add web search for OpenAI Chat Completions
+				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
+				// For other models that support web search, add web_search tool
+				if (webSearchTool) {
+					if (usedModel.includes("-search-")) {
+						// Search models use web_search_options parameter
+						const webSearchOptions: any = {};
+						if (webSearchTool.user_location) {
+							webSearchOptions.user_location = {
+								type: "approximate",
+								approximate: {
+									city: webSearchTool.user_location.city,
+									region: webSearchTool.user_location.region,
+									country: webSearchTool.user_location.country,
+								},
+							};
+						}
+						if (webSearchTool.search_context_size) {
+							webSearchOptions.search_context_size =
+								webSearchTool.search_context_size;
+						}
+						requestBody.web_search_options =
+							Object.keys(webSearchOptions).length > 0 ? webSearchOptions : {};
+					} else {
+						// Regular models with web search support use web_search tool
+						if (!requestBody.tools) {
+							requestBody.tools = [];
+						}
+						const webSearch: any = { type: "web_search" };
+						if (webSearchTool.user_location) {
+							webSearch.user_location = webSearchTool.user_location;
+						}
+						if (webSearchTool.search_context_size) {
+							webSearch.search_context_size = webSearchTool.search_context_size;
+						}
+						requestBody.tools.push(webSearch);
+					}
 				}
 
 				// Add optional parameters if they are provided
@@ -373,6 +429,21 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Add web search tool for ZAI
+			// ZAI uses a web_search tool with enable flag and search_engine config
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				requestBody.tools.push({
+					type: "web_search",
+					web_search: {
+						enable: true,
+						search_engine: "search-prime",
+					},
+				});
 			}
 
 			// Add optional parameters if they are provided
@@ -527,6 +598,22 @@ export async function prepareRequestBody(
 					description: tool.function.description,
 					input_schema: tool.function.parameters,
 				}));
+			}
+
+			// Add web search tool for Anthropic
+			// Anthropic uses the web_search_20250305 tool type
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				const webSearch: any = {
+					type: "web_search_20250305",
+					name: "web_search",
+				};
+				if (webSearchTool.max_uses) {
+					webSearch.max_uses = webSearchTool.max_uses;
+				}
+				requestBody.tools.push(webSearch);
 			}
 
 			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
@@ -820,6 +907,14 @@ export async function prepareRequestBody(
 						}),
 					},
 				];
+			}
+
+			// Add web search tool for Google (google_search grounding)
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				requestBody.tools.push({ google_search: {} });
 			}
 
 			requestBody.generationConfig = {};

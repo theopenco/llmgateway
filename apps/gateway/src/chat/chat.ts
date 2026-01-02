@@ -43,6 +43,7 @@ import {
 	type ProviderRequestBody,
 	providers,
 	type RoutingMetadata,
+	type WebSearchTool,
 } from "@llmgateway/models";
 
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -515,6 +516,27 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
+
+	// Extract web_search tool from tools array if present
+	// The web_search tool is a special tool that enables native web search for providers that support it
+	let webSearchTool: WebSearchTool | undefined;
+	if (tools && Array.isArray(tools)) {
+		const webSearchToolIndex = tools.findIndex(
+			(tool: any) => tool.type === "web_search",
+		);
+		if (webSearchToolIndex !== -1) {
+			// Cast to any to access properties since the schema allows both function and web_search tools
+			const foundTool = tools[webSearchToolIndex] as any;
+			webSearchTool = {
+				type: "web_search",
+				user_location: foundTool.user_location,
+				search_context_size: foundTool.search_context_size,
+				max_uses: foundTool.max_uses,
+			};
+			// Remove the web_search tool from the tools array so it's not sent as a regular tool
+			tools.splice(webSearchToolIndex, 1);
+		}
+	}
 
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
@@ -2265,6 +2287,7 @@ chat.openapi(completions, async (c) => {
 		image_config,
 		effort,
 		isImageGeneration,
+		webSearchTool,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2358,7 +2381,9 @@ chat.openapi(completions, async (c) => {
 
 			let res;
 			try {
-				const headers = getProviderHeaders(usedProvider, usedToken);
+				const headers = getProviderHeaders(usedProvider, usedToken, {
+					webSearchEnabled: !!webSearchTool,
+				});
 				headers["Content-Type"] = "application/json";
 
 				// Add effort beta header for Anthropic if effort parameter is specified
@@ -3871,7 +3896,9 @@ chat.openapi(completions, async (c) => {
 	let fetchError: Error | null = null;
 	let res;
 	try {
-		const headers = getProviderHeaders(usedProvider, usedToken);
+		const headers = getProviderHeaders(usedProvider, usedToken, {
+			webSearchEnabled: !!webSearchTool,
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Add effort beta header for Anthropic if effort parameter is specified
@@ -4239,6 +4266,8 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
+		annotations,
+		webSearchCount,
 	} = parseProviderResponse(usedProvider, json, messages);
 
 	// Enhanced logging for Google models to debug missing responses
@@ -4315,6 +4344,7 @@ chat.openapi(completions, async (c) => {
 		convertedImages?.length || 0,
 		image_config?.image_size,
 		inputImageCount,
+		webSearchCount,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
@@ -4350,6 +4380,7 @@ chat.openapi(completions, async (c) => {
 				}
 			: null,
 		showUpgradeMessage,
+		annotations,
 	);
 
 	const baseLogEntry = createLogEntry(
@@ -4450,6 +4481,7 @@ chat.openapi(completions, async (c) => {
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
+		webSearchCost: costs.webSearchCost,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,

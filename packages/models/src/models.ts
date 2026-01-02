@@ -137,6 +137,14 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutputSchema?: boolean;
 	/**
+	 * Whether this model supports web search/grounding capabilities
+	 */
+	webSearch?: boolean;
+	/**
+	 * Price per web search query in USD (charged when web search is used)
+	 */
+	webSearchPrice?: number;
+	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];
