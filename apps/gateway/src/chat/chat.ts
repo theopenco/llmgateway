@@ -240,14 +240,29 @@ const completionsRequestSchema = z.object({
 	stream: z.boolean().optional().default(false),
 	tools: z
 		.array(
-			z.object({
-				type: z.literal("function"),
-				function: z.object({
-					name: z.string(),
-					description: z.string().optional(),
-					parameters: z.record(z.any()).optional(),
+			z.union([
+				z.object({
+					type: z.literal("function"),
+					function: z.object({
+						name: z.string(),
+						description: z.string().optional(),
+						parameters: z.record(z.any()).optional(),
+					}),
 				}),
-			}),
+				z.object({
+					type: z.literal("web_search"),
+					user_location: z
+						.object({
+							city: z.string().optional(),
+							region: z.string().optional(),
+							country: z.string().optional(),
+							timezone: z.string().optional(),
+						})
+						.optional(),
+					search_context_size: z.enum(["low", "medium", "high"]).optional(),
+					max_uses: z.number().optional(),
+				}),
+			]),
 		)
 		.optional(),
 	tool_choice: z
@@ -830,7 +845,24 @@ chat.openapi(completions, async (c) => {
 			(provider) => (provider as ProviderModelMapping).tools === true,
 		);
 
-		if (!supportsTools) {
+		// Check if any provider supports web search
+		const supportsWebSearch = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).webSearch === true,
+		);
+
+		// Determine if we have function tools (web_search tools were already extracted earlier)
+		// After extraction, `tools` only contains function tools
+		const hasFunctionTools = tools && tools.length > 0;
+
+		// The request is web-search-only if:
+		// 1. A web search tool was extracted (webSearchTool is set)
+		// 2. No function tools remain in the tools array
+		const isWebSearchOnly = webSearchTool !== undefined && !hasFunctionTools;
+
+		// Allow the request if:
+		// 1. Model supports regular tools, OR
+		// 2. Model supports web search AND request only uses web search (no function tools)
+		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
 			});

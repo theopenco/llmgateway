@@ -111,8 +111,8 @@ export interface OpenAITool {
 	function: FunctionDefinition;
 }
 
-// Compatible type for API requests where parameters can be optional
-export interface OpenAIToolInput {
+// Function tool input type for API requests where parameters can be optional
+export interface OpenAIFunctionToolInput {
 	type: "function";
 	function: {
 		name: string;
@@ -120,6 +120,24 @@ export interface OpenAIToolInput {
 		parameters?: FunctionParameter | Record<string, any>;
 	};
 }
+
+// Web search tool input type
+export interface OpenAIWebSearchToolInput {
+	type: "web_search";
+	user_location?: {
+		city?: string;
+		region?: string;
+		country?: string;
+		timezone?: string;
+	};
+	search_context_size?: "low" | "medium" | "high";
+	max_uses?: number;
+}
+
+// Compatible type for API requests - accepts both function and web_search tools
+export type OpenAIToolInput =
+	| OpenAIFunctionToolInput
+	| OpenAIWebSearchToolInput;
 
 export interface AnthropicTool {
 	name: string;
