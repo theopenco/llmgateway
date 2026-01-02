@@ -91,7 +91,12 @@ export function getProviderEndpoint(
 				url = "https://api.moonshot.ai";
 				break;
 			case "alibaba":
-				url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
+				// Use different base URL for image generation vs chat completions
+				if (imageGenerations) {
+					url = "https://dashscope-intl.aliyuncs.com";
+				} else {
+					url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
+				}
 				break;
 			case "nebius":
 				url = "https://api.studio.nebius.com";
@@ -275,7 +280,7 @@ export function getProviderEndpoint(
 		}
 		case "alibaba":
 			if (imageGenerations) {
-				return `${url}/v1/images/generations`;
+				return `${url}/api/v1/services/aigc/multimodal-generation/generation`;
 			}
 			return `${url}/v1/chat/completions`;
 		case "inference.net":

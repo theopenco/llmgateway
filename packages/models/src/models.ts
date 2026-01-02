@@ -161,8 +161,8 @@ export interface ProviderModelMapping {
 	 */
 	deactivatedAt?: Date;
 	/**
-	 * Whether this model uses the images/generations API instead of chat completions.
-	 * When true, requests are routed to /v1/images/generations and transformed.
+	 * Whether this model uses a dedicated image generation API.
+	 * When true, requests are routed to a provider-specific image generation endpoint.
 	 */
 	imageGenerations?: boolean;
 }

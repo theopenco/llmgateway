@@ -245,23 +245,12 @@ export interface GoogleRequestBody {
 	};
 }
 
-// Image generation request body (OpenAI-compatible)
-export interface ImageGenerationRequestBody {
-	model: string;
-	prompt: string;
-	n?: number;
-	size?: string;
-	response_format?: "url" | "b64_json";
-	seed?: number;
-}
-
 // Generic request body type
 export type ProviderRequestBody =
 	| OpenAIRequestBody
 	| OpenAIResponsesRequestBody
 	| AnthropicRequestBody
-	| GoogleRequestBody
-	| ImageGenerationRequestBody;
+	| GoogleRequestBody;
 
 // Image processing result
 export interface ProcessedImage {

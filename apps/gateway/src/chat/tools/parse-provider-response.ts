@@ -337,24 +337,40 @@ export function parseProviderResponse(
 			break;
 		}
 		case "alibaba": {
-			// Check if this is an image generation response (has data array from /v1/images/generations)
-			if (json.data && Array.isArray(json.data)) {
-				images = json.data.map(
-					(item: any): ImageObject => ({
-						type: "image_url",
-						image_url: {
-							url: item.url || `data:image/png;base64,${item.b64_json}`,
-						},
-					}),
-				);
-				// Use revised_prompt if available, otherwise generic message
-				content = json.data[0]?.revised_prompt || "Generated image";
-				finishReason = "stop";
-				// Image generation doesn't provide token counts
-				promptTokens = 0;
-				completionTokens = 0;
-				totalTokens = 0;
-			} else {
+			// Check if this is a DashScope multimodal generation response (image generation)
+			// Format: { output: { choices: [{ message: { content: [{ image: "url" }] } }] }, usage: {...} }
+			const alibabaChoices = json.output?.choices;
+			if (alibabaChoices && Array.isArray(alibabaChoices)) {
+				const messageContent = alibabaChoices[0]?.message?.content;
+				if (Array.isArray(messageContent)) {
+					// Extract images from content array
+					const imageItems = messageContent.filter((item: any) => item.image);
+					if (imageItems.length > 0) {
+						images = imageItems.map(
+							(item: any): ImageObject => ({
+								type: "image_url",
+								image_url: {
+									url: item.image,
+								},
+							}),
+						);
+						content = "Generated image";
+						finishReason = alibabaChoices[0]?.finish_reason || "stop";
+						// DashScope image generation uses different usage format
+						promptTokens = 0;
+						completionTokens = 0;
+						totalTokens = 0;
+					} else {
+						// Text content in DashScope format
+						content =
+							messageContent
+								.filter((item: any) => item.text)
+								.map((item: any) => item.text)
+								.join("") || null;
+						finishReason = alibabaChoices[0]?.finish_reason || null;
+					}
+				}
+			} else if (json.choices) {
 				// Alibaba chat completions use OpenAI format
 				toolResults = json.choices?.[0]?.message?.tool_calls || null;
 				content = json.choices?.[0]?.message?.content || null;

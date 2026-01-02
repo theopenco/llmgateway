@@ -10,7 +10,6 @@ import type { ProviderId } from "./providers.js";
 import type {
 	BaseMessage,
 	FunctionParameter,
-	ImageGenerationRequestBody,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	OpenAIToolInput,
@@ -151,7 +150,7 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 ): Promise<ProviderRequestBody> {
-	// Handle image generation models (route to /v1/images/generations)
+	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
 		// Extract prompt from last user message
 		const lastUserMessage = [...messages]
@@ -169,16 +168,33 @@ export async function prepareRequestBody(
 			}
 		}
 
-		const imageRequest: ImageGenerationRequestBody = {
+		// Alibaba DashScope multimodal generation format
+		const alibabaImageRequest: any = {
 			model: usedModel,
-			prompt,
-			response_format: "b64_json",
-			n: image_config?.n ?? 1,
-			...(image_config?.image_size && { size: image_config.image_size }),
-			...(image_config?.seed !== undefined && { seed: image_config.seed }),
+			input: {
+				messages: [
+					{
+						role: "user",
+						content: [{ text: prompt }],
+					},
+				],
+			},
+			parameters: {
+				watermark: false,
+				...(image_config?.n && { n: image_config.n }),
+				...(image_config?.seed !== undefined && { seed: image_config.seed }),
+			},
 		};
 
-		return imageRequest;
+		// Map image_size to Alibaba format (uses * instead of x)
+		if (image_config?.image_size) {
+			alibabaImageRequest.parameters.size = image_config.image_size.replace(
+				"x",
+				"*",
+			);
+		}
+
+		return alibabaImageRequest;
 	}
 
 	// Check if the model supports system role
