@@ -126,6 +126,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							{!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
 								!log.hasError &&
+								!log.canceled &&
 								!retentionEnabled && (
 									<TooltipProvider>
 										<Tooltip>
