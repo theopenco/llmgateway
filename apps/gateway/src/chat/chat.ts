@@ -2123,14 +2123,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if streaming is requested and if the model/provider combination supports it
+	// For image generation models, we'll fake streaming by converting the response
+	const fakeStreamingForImageGen = stream && isImageGeneration;
+	const effectiveStream = fakeStreamingForImageGen ? false : stream;
+
 	if (stream) {
-		// Image generation models don't support streaming
-		if (isImageGeneration) {
-			throw new HTTPException(400, {
-				message: `Model ${usedModel} does not support streaming. Image generation is synchronous only.`,
-			});
-		}
-		if (getModelStreamingSupport(baseModelName, usedProvider) === false) {
+		if (
+			!isImageGeneration &&
+			getModelStreamingSupport(baseModelName, usedProvider) === false
+		) {
 			throw new HTTPException(400, {
 				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
 			});
@@ -2199,7 +2200,7 @@ chat.openapi(completions, async (c) => {
 		usedProvider,
 		usedModel,
 		messages as BaseMessage[],
-		stream,
+		effectiveStream,
 		temperature,
 		max_tokens,
 		top_p,
@@ -4413,6 +4414,64 @@ chat.openapi(completions, async (c) => {
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {
 		await setCache(cacheKey, transformedResponse, cacheDuration);
+	}
+
+	// For image generation models with streaming requested, convert to SSE format
+	if (fakeStreamingForImageGen) {
+		const streamChunks: string[] = [];
+
+		// Create a streaming chunk that mimics OpenAI SSE format
+		const deltaChunk = {
+			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			object: "chat.completion.chunk",
+			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			model: transformedResponse.model,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						content: transformedResponse.choices?.[0]?.message?.content || "",
+						...(transformedResponse.choices?.[0]?.message?.images && {
+							images: transformedResponse.choices[0].message.images,
+						}),
+					},
+					finish_reason: null,
+				},
+			],
+		};
+		streamChunks.push(`data: ${JSON.stringify(deltaChunk)}\n\n`);
+
+		// Send finish chunk
+		const finishChunk = {
+			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			object: "chat.completion.chunk",
+			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			model: transformedResponse.model,
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason:
+						transformedResponse.choices?.[0]?.finish_reason || "stop",
+				},
+			],
+			...(transformedResponse.usage && { usage: transformedResponse.usage }),
+			...(transformedResponse.metadata && {
+				metadata: transformedResponse.metadata,
+			}),
+		};
+		streamChunks.push(`data: ${JSON.stringify(finishChunk)}\n\n`);
+		streamChunks.push("data: [DONE]\n\n");
+
+		return new Response(streamChunks.join(""), {
+			headers: {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+				"X-Request-Id": requestId,
+			},
+		});
 	}
 
 	return c.json(transformedResponse);
