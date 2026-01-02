@@ -356,6 +356,38 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
+					{provider.requestPrice !== undefined && (
+						<div className="grid grid-cols-3 gap-3 mt-3">
+							<div className="col-span-3">
+								<div className="text-muted-foreground text-xs mb-1">
+									Per Request
+								</div>
+								<div className="font-mono">
+									<div className="space-y-1">
+										<div className="flex items-center gap-2">
+											{provider.discount ? (
+												<>
+													<span className="line-through text-muted-foreground text-xs">
+														${provider.requestPrice.toFixed(3)}
+													</span>
+													<span className="text-green-600 font-semibold">
+														$
+														{(
+															provider.requestPrice *
+															(1 - provider.discount)
+														).toFixed(3)}
+													</span>
+												</>
+											) : (
+												<>${provider.requestPrice.toFixed(3)}</>
+											)}
+										</div>
+										<span className="text-muted-foreground text-xs">/req</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					)}
 					{provider.discount && (
 						<div className="mt-2">
 							<Badge

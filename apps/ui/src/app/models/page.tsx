@@ -22,7 +22,7 @@ export const metadata = {
 export default function ModelsPage() {
 	return (
 		<AllModels>
-			<HeroRSC navbarOnly />
+			<HeroRSC navbarOnly sticky={false} />
 		</AllModels>
 	);
 }

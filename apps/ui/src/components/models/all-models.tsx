@@ -85,7 +85,8 @@ type SortField =
 	| "contextSize"
 	| "inputPrice"
 	| "outputPrice"
-	| "cachedInputPrice";
+	| "cachedInputPrice"
+	| "requestPrice";
 type SortDirection = "asc" | "desc";
 
 export function AllModels({ children }: { children: React.ReactNode }) {
@@ -416,6 +417,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 						bCachedInputPrices.length > 0
 							? Math.min(...bCachedInputPrices)
 							: Infinity;
+					break;
+				}
+				case "requestPrice": {
+					// Get the min request price among all providers for this model
+					const aRequestPrices = a.providerDetails
+						.map((p) => p.provider.requestPrice)
+						.filter((p) => p !== undefined);
+					const bRequestPrices = b.providerDetails
+						.map((p) => p.provider.requestPrice)
+						.filter((p) => p !== undefined);
+					aValue =
+						aRequestPrices.length > 0 ? Math.min(...aRequestPrices) : Infinity;
+					bValue =
+						bRequestPrices.length > 0 ? Math.min(...bRequestPrices) : Infinity;
 					break;
 				}
 				default:
@@ -893,20 +908,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	const renderTableView = () => (
 		<div className="rounded-md border">
 			<div className="relative w-full overflow-x-auto sm:overflow-x-scroll">
-				<Table className="min-w-[700px] sm:min-w-0">
+				<Table className="min-w-[700px] sm:min-w-0 border-collapse">
 					<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
 						<TableRow>
-							<TableHead className="w-[250px] bg-background/95 backdrop-blur-sm border-b">
+							<TableHead className="w-[250px] bg-background sticky left-0 z-20 border-b border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
 								<Button
 									variant="ghost"
 									onClick={() => handleSort("name")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
+									className="h-auto p-0 font-semibold hover:bg-transparent justify-start max-w-[250px] min-w-[250px]"
 								>
 									Model
 									{getSortIcon("name")}
 								</Button>
 							</TableHead>
-							<TableHead className="bg-background/95 backdrop-blur-sm border-b">
+							<TableHead className="w-[150px] bg-background sticky left-[250px] z-20 border-b border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
 								<Button
 									variant="ghost"
 									onClick={() => handleSort("providers")}
@@ -957,6 +972,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</Button>
 							</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("requestPrice")}
+									className="h-auto p-0 font-semibold hover:bg-transparent"
+								>
+									Request Price
+									{getSortIcon("requestPrice")}
+								</Button>
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
 								Capabilities
 							</TableHead>
 							<TableHead className="text-center">Stability</TableHead>
@@ -966,290 +991,327 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{modelsWithProviders.map((model) => (
-							<TableRow
-								key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
-								className="cursor-pointer hover:bg-muted/50 transition-colors"
-								onClick={() =>
-									router.push(`/models/${encodeURIComponent(model.id)}`)
-								}
-							>
-								<TableCell className="font-medium">
-									<div className="space-y-1">
-										<div className="font-semibold text-sm flex items-center gap-2">
-											<div className="truncate max-w-[150px]">
-												{model.name || model.id}
-											</div>
-											{shouldShowStabilityWarning(model.stability) && (
-												<AlertTriangle className="h-4 w-4 text-orange-500" />
-											)}
-											{model.free && (
-												<Badge
-													variant="secondary"
-													className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
-												>
-													<Gift className="h-3 w-3 mr-1" />
-													Free
-												</Badge>
-											)}
-										</div>
-										<div className="text-xs text-muted-foreground">
-											Family:{" "}
-											<Badge variant="outline" className="text-xs">
-												{model.family}
-											</Badge>
-										</div>
-										<div className="flex items-center gap-1">
-											<code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate max-w-[150px]">
-												{model.id}
-											</code>
-											<div className="flex items-center gap-1">
-												<Button
-													variant="ghost"
-													size="sm"
-													className="h-5 w-5 p-0"
-													onClick={(e) => {
-														e.stopPropagation();
-														copyToClipboard(model.id);
-													}}
-													title="Copy root model ID"
-												>
-													{copiedModel === model.id ? (
-														<Check className="h-3 w-3 text-green-600" />
-													) : (
-														<Copy className="h-3 w-3" />
-													)}
-												</Button>
-												<div
-													onClick={(e) => e.stopPropagation()}
-													onMouseDown={(e) => e.stopPropagation()}
-												>
-													<ModelCodeExampleDialog modelId={model.id} />
-												</div>
-											</div>
+						{modelsWithProviders.length === 0 ? (
+							<TableRow>
+								<TableCell colSpan={9} className="h-64 text-center">
+									<div className="flex flex-col items-center justify-center space-y-3">
+										<Search className="h-12 w-12 text-muted-foreground opacity-50" />
+										<div>
+											<p className="text-lg font-medium">No models found</p>
+											<p className="text-sm text-muted-foreground mt-1">
+												Try adjusting your filters to see more results
+											</p>
 										</div>
 									</div>
-								</TableCell>
-
-								<TableCell>
-									<div className="flex flex-col flex-wrap gap-2">
-										{model.providerDetails.map(({ provider, providerInfo }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="flex items-center gap-1"
-											>
-												<div className="w-5 h-5 flex items-center justify-center">
-													{(() => {
-														const ProviderIcon = getProviderIcon(
-															provider.providerId,
-														);
-														return ProviderIcon ? (
-															<ProviderIcon className="w-4 h-4" />
-														) : (
-															<div
-																className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
-																style={{
-																	backgroundColor:
-																		providerInfo?.color || "#6b7280",
-																}}
-															>
-																{(providerInfo?.name || provider.providerId)
-																	.charAt(0)
-																	.toUpperCase()}
-															</div>
-														);
-													})()}
-												</div>
-												<Badge
-													variant="secondary"
-													className="text-xs"
-													style={{ borderColor: providerInfo?.color }}
-												>
-													{providerInfo?.name || provider.providerId}
-												</Badge>
-												{hasProviderStabilityWarning(provider) && (
-													<AlertTriangle className="h-3 w-3 text-orange-500" />
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm"
-											>
-												{provider.contextSize
-													? formatContextSize(provider.contextSize)
-													: "—"}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{typeof formatPrice(
-													provider.inputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(provider.inputPrice, provider.discount) +
-													"/M"
-												) : (
-													<div className="flex gap-1 flex-row justify-center">
-														{formatPrice(
-															provider.inputPrice,
-															provider.discount,
-														)}
-														<span className="text-muted-foreground">/M</span>
-													</div>
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{typeof formatPrice(
-													provider.cachedInputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(
-														provider.cachedInputPrice,
-														provider.discount,
-													) + "/M"
-												) : (
-													<div className="flex gap-1 flex-row justify-center">
-														{formatPrice(
-															provider.cachedInputPrice,
-															provider.discount,
-														)}
-														<span className="text-muted-foreground">/M</span>
-													</div>
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{typeof formatPrice(
-													provider.outputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(provider.outputPrice, provider.discount) +
-													"/M"
-												) : (
-													<div className="flex gap-1 flex-row justify-center">
-														{formatPrice(
-															provider.outputPrice,
-															provider.discount,
-														)}
-														<span className="text-muted-foreground">/M</span>
-													</div>
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-2">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="flex justify-center gap-1"
-											>
-												{getCapabilityIcons(provider, model).map(
-													({ icon: Icon, label, color }) => (
-														<Tooltip key={`${label}-${model.id}`}>
-															<TooltipTrigger asChild>
-																<div
-																	className="cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-0.5 -m-0.5"
-																	tabIndex={0}
-																	role="button"
-																	aria-label={`Model capability: ${label}`}
-																>
-																	<Icon className={`h-4 w-4 ${color}`} />
-																</div>
-															</TooltipTrigger>
-															<TooltipContent
-																className="bg-popover text-popover-foreground border border-border shadow-md"
-																side="top"
-																align="center"
-																avoidCollisions={true}
-															>
-																<p>{label}</p>
-															</TooltipContent>
-														</Tooltip>
-													),
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									{(() => {
-										const stabilityProps = getStabilityBadgeProps(
-											model.stability,
-										);
-										return stabilityProps ? (
-											<Badge
-												variant={stabilityProps.variant}
-												className="text-xs px-2 py-1"
-											>
-												{stabilityProps.label}
-											</Badge>
-										) : (
-											<Badge variant="outline" className="text-xs px-2 py-1">
-												STABLE
-											</Badge>
-										);
-									})()}
-								</TableCell>
-
-								<TableCell className="text-center">
-									<Button
-										variant="outline"
-										size="sm"
-										className="h-8 gap-2"
-										title={`Try ${model.name || model.id} in playground`}
-										onClick={(e) => e.stopPropagation()}
-										asChild
-									>
-										<a
-											href={`${config.playgroundUrl}?model=${encodeURIComponent(`${model.providers[0]?.providerId}/${model.id}`)}`}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											<Play className="h-3 w-3" />
-											Try it
-										</a>
-									</Button>
 								</TableCell>
 							</TableRow>
-						))}
+						) : (
+							modelsWithProviders.map((model) => (
+								<TableRow
+									key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
+									className="cursor-pointer hover:bg-muted/50 transition-colors"
+									onClick={() =>
+										router.push(`/models/${encodeURIComponent(model.id)}`)
+									}
+								>
+									<TableCell className="font-medium bg-background group-hover:bg-muted/50 sticky left-0 z-10 border-r border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)] p-0!">
+										<div className="space-y-1 p-2 h-full w-full">
+											<div className="font-semibold text-sm flex items-center gap-2">
+												<div className="truncate max-w-[250px] min-w-[250px]">
+													{model.name || model.id}
+												</div>
+												{shouldShowStabilityWarning(model.stability) && (
+													<AlertTriangle className="h-4 w-4 text-orange-500" />
+												)}
+												{model.free && (
+													<Badge
+														variant="secondary"
+														className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
+													>
+														<Gift className="h-3 w-3 mr-1" />
+														Free
+													</Badge>
+												)}
+											</div>
+											<div className="text-xs text-muted-foreground">
+												Family:{" "}
+												<Badge variant="outline" className="text-xs">
+													{model.family}
+												</Badge>
+											</div>
+											<div className="flex items-center gap-1">
+												<code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate max-w-[250px]">
+													{model.id}
+												</code>
+												<div className="flex items-center gap-1">
+													<Button
+														variant="ghost"
+														size="sm"
+														className="h-5 w-5 p-0"
+														onClick={(e) => {
+															e.stopPropagation();
+															copyToClipboard(model.id);
+														}}
+														title="Copy root model ID"
+													>
+														{copiedModel === model.id ? (
+															<Check className="h-3 w-3 text-green-600" />
+														) : (
+															<Copy className="h-3 w-3" />
+														)}
+													</Button>
+													<div
+														onClick={(e) => e.stopPropagation()}
+														onMouseDown={(e) => e.stopPropagation()}
+													>
+														<ModelCodeExampleDialog modelId={model.id} />
+													</div>
+												</div>
+											</div>
+										</div>
+									</TableCell>
+
+									<TableCell className="bg-background group-hover:bg-muted/50 sticky left-[250px] z-10 border-r border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)] p-0!">
+										<div className="flex flex-col flex-wrap gap-2 p-2 h-full w-full">
+											{model.providerDetails.map(
+												({ provider, providerInfo }) => (
+													<div
+														key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+														className="flex items-center gap-1"
+													>
+														<div className="w-5 h-5 flex items-center justify-center">
+															{(() => {
+																const ProviderIcon = getProviderIcon(
+																	provider.providerId,
+																);
+																return ProviderIcon ? (
+																	<ProviderIcon className="w-4 h-4" />
+																) : (
+																	<div
+																		className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
+																		style={{
+																			backgroundColor:
+																				providerInfo?.color || "#6b7280",
+																		}}
+																	>
+																		{(providerInfo?.name || provider.providerId)
+																			.charAt(0)
+																			.toUpperCase()}
+																	</div>
+																);
+															})()}
+														</div>
+														<Badge
+															variant="secondary"
+															className="text-xs"
+															style={{ borderColor: providerInfo?.color }}
+														>
+															{providerInfo?.name || provider.providerId}
+														</Badge>
+														{hasProviderStabilityWarning(provider) && (
+															<AlertTriangle className="h-3 w-3 text-orange-500" />
+														)}
+													</div>
+												),
+											)}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										<div className="space-y-1">
+											{model.providerDetails.map(({ provider }) => (
+												<div
+													key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+													className="text-sm"
+												>
+													{provider.contextSize
+														? formatContextSize(provider.contextSize)
+														: "—"}
+												</div>
+											))}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										<div className="space-y-1">
+											{model.providerDetails.map(({ provider }) => (
+												<div
+													key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+													className="text-sm font-mono"
+												>
+													{typeof formatPrice(
+														provider.inputPrice,
+														provider.discount,
+													) === "string" ? (
+														formatPrice(
+															provider.inputPrice,
+															provider.discount,
+														) + "/M"
+													) : (
+														<div className="flex gap-1 flex-row justify-center">
+															{formatPrice(
+																provider.inputPrice,
+																provider.discount,
+															)}
+															<span className="text-muted-foreground">/M</span>
+														</div>
+													)}
+												</div>
+											))}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										<div className="space-y-1">
+											{model.providerDetails.map(({ provider }) => (
+												<div
+													key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+													className="text-sm font-mono"
+												>
+													{typeof formatPrice(
+														provider.cachedInputPrice,
+														provider.discount,
+													) === "string" ? (
+														formatPrice(
+															provider.cachedInputPrice,
+															provider.discount,
+														) + "/M"
+													) : (
+														<div className="flex gap-1 flex-row justify-center">
+															{formatPrice(
+																provider.cachedInputPrice,
+																provider.discount,
+															)}
+															<span className="text-muted-foreground">/M</span>
+														</div>
+													)}
+												</div>
+											))}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										<div className="space-y-1">
+											{model.providerDetails.map(({ provider }) => (
+												<div
+													key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+													className="text-sm font-mono"
+												>
+													{typeof formatPrice(
+														provider.outputPrice,
+														provider.discount,
+													) === "string" ? (
+														formatPrice(
+															provider.outputPrice,
+															provider.discount,
+														) + "/M"
+													) : (
+														<div className="flex gap-1 flex-row justify-center">
+															{formatPrice(
+																provider.outputPrice,
+																provider.discount,
+															)}
+															<span className="text-muted-foreground">/M</span>
+														</div>
+													)}
+												</div>
+											))}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										<div className="space-y-1">
+											{model.providerDetails.map(({ provider }) => (
+												<div
+													key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+													className="text-sm font-mono"
+												>
+													{provider.requestPrice !== undefined
+														? `$${provider.requestPrice.toFixed(3)}/req`
+														: "—"}
+												</div>
+											))}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										<div className="space-y-2">
+											{model.providerDetails.map(({ provider }) => (
+												<div
+													key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+													className="flex justify-center gap-1"
+												>
+													{getCapabilityIcons(provider, model).map(
+														({ icon: Icon, label, color }) => (
+															<Tooltip key={`${label}-${model.id}`}>
+																<TooltipTrigger asChild>
+																	<div
+																		className="cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-0.5 -m-0.5"
+																		tabIndex={0}
+																		role="button"
+																		aria-label={`Model capability: ${label}`}
+																	>
+																		<Icon className={`h-4 w-4 ${color}`} />
+																	</div>
+																</TooltipTrigger>
+																<TooltipContent
+																	className="bg-popover text-popover-foreground border border-border shadow-md"
+																	side="top"
+																	align="center"
+																	avoidCollisions={true}
+																>
+																	<p>{label}</p>
+																</TooltipContent>
+															</Tooltip>
+														),
+													)}
+												</div>
+											))}
+										</div>
+									</TableCell>
+
+									<TableCell className="text-center">
+										{(() => {
+											const stabilityProps = getStabilityBadgeProps(
+												model.stability,
+											);
+											return stabilityProps ? (
+												<Badge
+													variant={stabilityProps.variant}
+													className="text-xs px-2 py-1"
+												>
+													{stabilityProps.label}
+												</Badge>
+											) : (
+												<Badge variant="outline" className="text-xs px-2 py-1">
+													STABLE
+												</Badge>
+											);
+										})()}
+									</TableCell>
+
+									<TableCell className="text-center">
+										<Button
+											variant="outline"
+											size="sm"
+											className="h-8 gap-2"
+											title={`Try ${model.name || model.id} in playground`}
+											onClick={(e) => e.stopPropagation()}
+											asChild
+										>
+											<a
+												href={`${config.playgroundUrl}?model=${encodeURIComponent(`${model.providers[0]?.providerId}/${model.id}`)}`}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<Play className="h-3 w-3" />
+												Try it
+											</a>
+										</Button>
+									</TableCell>
+								</TableRow>
+							))
+						)}
 					</TableBody>
 				</Table>
 			</div>
@@ -1257,19 +1319,33 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	);
 
 	const renderGridView = () => (
-		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-			{modelsWithProviders.map((model) => (
-				<ModelCard
-					key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
-					shouldShowStabilityWarning={shouldShowStabilityWarning}
-					getCapabilityIcons={getCapabilityIcons}
-					model={model}
-					goToModel={() =>
-						router.push(`/models/${encodeURIComponent(model.id)}`)
-					}
-					formatPrice={formatPrice}
-				/>
-			))}
+		<div>
+			{modelsWithProviders.length === 0 ? (
+				<div className="flex flex-col items-center justify-center py-32">
+					<Search className="h-16 w-16 text-muted-foreground opacity-50 mb-4" />
+					<div className="text-center">
+						<p className="text-xl font-medium">No models found</p>
+						<p className="text-sm text-muted-foreground mt-2">
+							Try adjusting your filters to see more results
+						</p>
+					</div>
+				</div>
+			) : (
+				<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+					{modelsWithProviders.map((model) => (
+						<ModelCard
+							key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
+							shouldShowStabilityWarning={shouldShowStabilityWarning}
+							getCapabilityIcons={getCapabilityIcons}
+							model={model}
+							goToModel={() =>
+								router.push(`/models/${encodeURIComponent(model.id)}`)
+							}
+							formatPrice={formatPrice}
+						/>
+					))}
+				</div>
+			)}
 		</div>
 	);
 
@@ -1283,7 +1359,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					})}
 				>
 					<TooltipProvider delayDuration={300} skipDelayDuration={100}>
-						<div className="container mx-auto py-8 space-y-6">
+						<div className="container mx-auto py-0 space-y-6">
 							<div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4">
 								<div>
 									<h1 className="text-3xl font-bold">Models</h1>
@@ -1325,12 +1401,6 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									>
 										<Grid className="h-4 w-4 mr-1" />
 										Grid
-									</Button>
-									<Button size="sm" asChild>
-										<Link href="/models/compare">
-											<Scale className="h-4 w-4 mr-1" />
-											Compare
-										</Link>
 									</Button>
 								</div>
 							</div>
@@ -1395,6 +1465,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 											Clear
 										</Button>
 									)}
+									<Button size="sm" asChild>
+										<Link href="/models/compare">
+											<Scale className="h-4 w-4 mr-1" />
+											Compare
+										</Link>
+									</Button>
 								</div>
 
 								{renderFilters()}
@@ -1402,7 +1478,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 							<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{hasActiveFilters
 												? `${modelsWithProviders.length}/${totalModelCount}`
@@ -1412,7 +1488,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{hasActiveFilters
 												? `${filteredProviderCount}/${totalProviderCount}`
@@ -1424,7 +1500,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{
 												modelsWithProviders.filter((m) =>
@@ -1438,7 +1514,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{
 												modelsWithProviders.filter((m) =>
@@ -1452,7 +1528,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{modelsWithProviders.filter((m) => m.free).length}
 										</div>

@@ -33,7 +33,7 @@ interface ChatRequestBody {
 			| "5:4"
 			| "4:5"
 			| "21:9";
-		image_size?: "1K" | "2K" | "4K";
+		image_size?: "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 	githubToken?: string;

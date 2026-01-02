@@ -382,6 +382,19 @@ export function ModelCard({
 													</div>
 												</div>
 											)}
+											{provider.requestPrice !== undefined && (
+												<div className="space-y-1">
+													<div className="text-xs text-muted-foreground">
+														Per Request
+													</div>
+													<div className="font-semibold text-foreground text-sm">
+														${provider.requestPrice.toFixed(3)}
+														<span className="text-muted-foreground text-xs ml-1">
+															/req
+														</span>
+													</div>
+												</div>
+											)}
 										</div>
 									</div>
 
