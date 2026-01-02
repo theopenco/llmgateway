@@ -14,11 +14,34 @@ interface ProviderScore<T extends AvailableModelProvider> {
 }
 
 // Scoring weights (totaling 1.0)
-// Prioritize uptime heavily to avoid unreliable providers
 const PRICE_WEIGHT = 0.2;
 const UPTIME_WEIGHT = 0.5;
 const THROUGHPUT_WEIGHT = 0.2;
 const LATENCY_WEIGHT = 0.1;
+
+// Uptime threshold below which exponential penalty kicks in
+const UPTIME_PENALTY_THRESHOLD = 95;
+
+/**
+ * Calculate exponential penalty for low uptime.
+ * - 95-100% uptime: no penalty (returns 0)
+ * - Below 95%: exponential penalty that increases rapidly
+ *   - 90% -> ~0.07 penalty
+ *   - 80% -> ~0.62 penalty
+ *   - 70% -> ~1.73 penalty
+ *   - 60% -> ~3.39 penalty
+ *   - 50% -> ~5.61 penalty
+ */
+function calculateUptimePenalty(uptime: number): number {
+	if (uptime >= UPTIME_PENALTY_THRESHOLD) {
+		return 0;
+	}
+	// Calculate how far below threshold (0-95 range, normalized to 0-1)
+	const deficit =
+		(UPTIME_PENALTY_THRESHOLD - uptime) / UPTIME_PENALTY_THRESHOLD;
+	// Quadratic penalty: small dips = small penalty, large dips = large penalty
+	return Math.pow(deficit * 5, 2);
+}
 
 // Default values for providers with no metrics
 const DEFAULT_UPTIME = 100; // Assume 100% uptime if no data to avoid penalizing known-good providers
@@ -180,10 +203,14 @@ export function getCheapestFromAvailableProviders<
 			priceRange > 0 ? (providerScore.price - minPrice) / priceRange : 0;
 
 		// Normalize uptime (0 = best uptime, 1 = worst uptime)
+		// Uses relative comparison between providers
 		const uptime = providerScore.uptime ?? DEFAULT_UPTIME;
 		const uptimeRange = maxUptime - minUptime;
 		const uptimeScore =
 			uptimeRange > 0 ? (maxUptime - uptime) / uptimeRange : 0;
+
+		// Calculate exponential penalty for truly unstable providers
+		const uptimePenalty = calculateUptimePenalty(uptime);
 
 		// Normalize throughput (0 = fastest, 1 = slowest)
 		// Higher throughput is better, so we invert
@@ -221,7 +248,10 @@ export function getCheapestFromAvailableProviders<
 		);
 		const priority = providerDef?.priority ?? 1;
 		const priorityPenalty = 1 - priority;
-		providerScore.score = baseScore + priorityPenalty;
+
+		// Final score = base weighted score + priority penalty + exponential uptime penalty
+		// The uptime penalty heavily penalizes providers with <95% uptime
+		providerScore.score = baseScore + priorityPenalty + uptimePenalty;
 	}
 
 	// Select provider with lowest score

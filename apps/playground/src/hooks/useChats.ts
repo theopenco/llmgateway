@@ -100,9 +100,19 @@ export function useAddMessage() {
 	const api = useApi();
 
 	return api.useMutation("post", "/chats/{id}/messages", {
-		onSuccess: () => {
-			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+		onSuccess: (_data, variables) => {
+			// Invalidate the chats list
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			// Also invalidate the specific chat query to ensure fresh data when switching back
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));

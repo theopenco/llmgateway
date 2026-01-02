@@ -347,10 +347,19 @@ export function ModelSelector({
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by release date (newest first)
+		// Sort models by publishedAt date (when added to LLM Gateway), newest first
+		// Falls back to releasedAt if publishedAt is not available
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
-			const dateB = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+			const dateA = a.publishedAt
+				? new Date(a.publishedAt).getTime()
+				: a.releasedAt
+					? new Date(a.releasedAt).getTime()
+					: 0;
+			const dateB = b.publishedAt
+				? new Date(b.publishedAt).getTime()
+				: b.releasedAt
+					? new Date(b.releasedAt).getTime()
+					: 0;
 			return dateB - dateA;
 		});
 

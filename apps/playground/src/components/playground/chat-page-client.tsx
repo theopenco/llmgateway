@@ -59,9 +59,31 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	// Sort models by publishedAt (or releasedAt fallback) to match model selector ordering
+	const sortedModels = useMemo(() => {
+		return [...models].sort((a, b) => {
+			const dateA = a.publishedAt
+				? new Date(a.publishedAt).getTime()
+				: a.releasedAt
+					? new Date(a.releasedAt).getTime()
+					: 0;
+			const dateB = b.publishedAt
+				? new Date(b.publishedAt).getTime()
+				: b.releasedAt
+					? new Date(b.releasedAt).getTime()
+					: 0;
+			return dateB - dateA;
+		});
+	}, [models]);
+
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
-		return modelFromUrl || "gpt-5";
+		if (modelFromUrl) {
+			return modelFromUrl;
+		}
+		// Use the first model from sorted list as default
+		const firstModel = sortedModels[0];
+		return firstModel?.id || "auto";
 	};
 
 	const [selectedModel, setSelectedModel] = useState(getInitialModel());
@@ -83,10 +105,17 @@ export default function ChatPageClient({
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+
+	// Get chat ID from URL search params
+	const chatIdFromUrl = searchParams.get("chat");
+	const [currentChatId, setCurrentChatId] = useState<string | null>(
+		chatIdFromUrl,
+	);
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
+	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
+	const shouldClearMessagesRef = useRef(false);
 
 	const [githubToken, setGithubToken] = useState<string | null>(null);
 
@@ -130,8 +159,26 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
-				const chatId = chatIdRef.current;
+
+				// Wait for chatId to be available (handleUserMessage might still be running)
+				let chatId = chatIdRef.current;
 				if (!chatId) {
+					// Poll for chatId with timeout
+					for (let i = 0; i < 50; i++) {
+						await new Promise<void>((resolve) => {
+							setTimeout(resolve, 100);
+						});
+						chatId = chatIdRef.current;
+						if (chatId) {
+							break;
+						}
+					}
+				}
+
+				if (!chatId) {
+					console.error(
+						"No chatId available after waiting, cannot save AI response",
+					);
 					return;
 				}
 				// Extract assistant text, images, and reasoning from UIMessage parts
@@ -180,8 +227,21 @@ export default function ChatPageClient({
 						tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
 					} as any,
 				});
+				// Note: useAddMessage already invalidates /chats query on success
 			},
 		});
+
+	// Sync currentChatId with URL param changes
+	useEffect(() => {
+		if (chatIdFromUrl !== currentChatId) {
+			// Only clear messages if explicitly requested (by handleChatSelect or handleNewChat)
+			if (shouldClearMessagesRef.current) {
+				setMessages([]);
+				shouldClearMessagesRef.current = false;
+			}
+			setCurrentChatId(chatIdFromUrl);
+		}
+	}, [chatIdFromUrl, currentChatId, setMessages]);
 
 	useEffect(() => {
 		chatIdRef.current = currentChatId;
@@ -294,6 +354,7 @@ export default function ChatPageClient({
 		}
 
 		setMessages((prev) => {
+			// Load messages if empty (URL change clears messages first)
 			if (prev.length === 0) {
 				return currentChatData.messages.map((msg) => {
 					const parts: any[] = [];
@@ -422,6 +483,12 @@ export default function ChatPageClient({
 			const newChatId = chatData.chat.id;
 			setCurrentChatId(newChatId);
 			chatIdRef.current = newChatId; // Manually update the ref
+
+			// Update URL with new chat ID (without triggering navigation)
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("chat", newChatId);
+			router.replace(`${pathname}?${params.toString()}`);
+
 			return newChatId;
 		} catch (error) {
 			setError("Failed to create a new chat. Please try again.");
@@ -489,16 +556,31 @@ export default function ChatPageClient({
 	};
 
 	const clearMessages = () => {
-		setCurrentChatId(null);
 		setError(null);
+		shouldClearMessagesRef.current = true;
+		setMessages([]);
+		// Remove chat param from URL
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("chat");
+		const newUrl = params.toString()
+			? `${pathname}?${params.toString()}`
+			: pathname;
+		router.push(newUrl);
 	};
 
 	const handleNewChat = async () => {
 		setIsLoading(true);
 		setError(null);
 		try {
-			setCurrentChatId(null);
+			shouldClearMessagesRef.current = true;
 			setMessages([]);
+			// Remove chat param from URL
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("chat");
+			const newUrl = params.toString()
+				? `${pathname}?${params.toString()}`
+				: pathname;
+			router.push(newUrl);
 			// Clear comparison windows as well
 			setComparisonResetToken((token) => token + 1);
 			extraSubmitRefs.current = {};
@@ -511,8 +593,11 @@ export default function ChatPageClient({
 
 	const handleChatSelect = (chatId: string) => {
 		setError(null);
-		setMessages([]);
-		setCurrentChatId(chatId);
+		shouldClearMessagesRef.current = true; // Request message clear on URL change
+		// Update URL with chat ID - this will trigger the useEffect to update state
+		const params = new URLSearchParams(searchParams.toString());
+		params.set("chat", chatId);
+		router.push(`${pathname}?${params.toString()}`);
 	};
 
 	// keep URL in sync with selected model
@@ -695,7 +780,7 @@ export default function ChatPageClient({
 						<div
 							className={`grid h-full gap-4 px-4 pb-4 ${
 								!comparisonEnabled || extraPanelIds.length === 0
-									? "grid-cols-1 mx-auto md:max-w-4xl md:min-w-[720px]"
+									? "grid-cols-1 mx-auto w-full md:max-w-4xl"
 									: extraPanelIds.length === 1
 										? "grid-cols-1 md:grid-cols-2"
 										: "grid-cols-1 md:grid-cols-3"
@@ -743,7 +828,7 @@ export default function ChatPageClient({
 									</div>
 								</div>
 							) : (
-								<div className="flex flex-col min-h-0">
+								<div className="flex flex-col min-h-0 w-full">
 									<ChatUI
 										messages={messages}
 										supportsImages={supportsImages}
