@@ -407,9 +407,13 @@ export function transformResponseToOpenai(
 		default: {
 			// For any other provider, add metadata to existing response
 			if (transformedResponse && typeof transformedResponse === "object") {
-				// Ensure reasoning field is present if we have reasoning content
+				// Ensure content and reasoning fields are present with parsed/healed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
+					// Update content with parsed content (includes healed JSON for response healing)
+					if (content !== null) {
+						message.content = content;
+					}
 					if (reasoningContent !== null) {
 						message.reasoning = reasoningContent;
 						// Remove the old reasoning_content field if it exists
