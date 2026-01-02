@@ -286,15 +286,17 @@ export default function ChatPageClient({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
-			// Check if it's an Alibaba model
-			const isAlibabaModel =
+			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			const usesPixelDimensions =
 				selectedModel.toLowerCase().includes("alibaba") ||
-				selectedModel.toLowerCase().includes("qwen-image");
+				selectedModel.toLowerCase().includes("qwen-image") ||
+				selectedModel.toLowerCase().includes("zai") ||
+				selectedModel.toLowerCase().includes("cogview");
 
 			// Only send image_config if user has explicitly selected non-default values
 			const imageConfig = supportsImageGen
-				? isAlibabaModel
-					? // For Alibaba, don't send image_config with default size
+				? usesPixelDimensions
+					? // For Alibaba/ZAI, don't send image_config with default size
 						alibabaImageSize !== "1024x1024"
 						? {
 								image_size: alibabaImageSize,
@@ -1002,15 +1004,17 @@ function ExtraChatPanel({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
-			// Check if it's an Alibaba model
-			const isAlibabaModel =
+			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			const usesPixelDimensions =
 				selectedModel.toLowerCase().includes("alibaba") ||
-				selectedModel.toLowerCase().includes("qwen-image");
+				selectedModel.toLowerCase().includes("qwen-image") ||
+				selectedModel.toLowerCase().includes("zai") ||
+				selectedModel.toLowerCase().includes("cogview");
 
 			// Only send image_config if user has explicitly selected non-default values
 			const imageConfig = supportsImageGen
-				? isAlibabaModel
-					? // For Alibaba, don't send image_config with default size
+				? usesPixelDimensions
+					? // For Alibaba/ZAI, don't send image_config with default size
 						alibabaImageSize !== "1024x1024"
 						? {
 								image_size: alibabaImageSize,

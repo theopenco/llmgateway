@@ -150,6 +150,35 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 ): Promise<ProviderRequestBody> {
+	// Handle Z.AI image generation models
+	if (imageGenerations && usedProvider === "zai") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		// Z.AI CogView uses OpenAI-compatible image generation format
+		const zaiImageRequest: any = {
+			model: usedModel,
+			prompt,
+			...(image_config?.image_size && { size: image_config.image_size }),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		return zaiImageRequest;
+	}
+
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
 		// Extract prompt from last user message

@@ -222,6 +222,9 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "zai":
+			if (imageGenerations) {
+				return `${url}/api/paas/v4/images/generations`;
+			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
 			const prefix =

@@ -363,4 +363,31 @@ export const zaiModels = [
 			},
 		],
 	},
+	{
+		id: "cogview-4",
+		name: "CogView-4",
+		description:
+			"Z.AI's CogView-4 text-to-image generation model with bilingual support and excellent text rendering.",
+		family: "zai",
+		output: ["text", "image"],
+		releasedAt: new Date("2025-03-04"),
+		publishedAt: new Date("2026-01-02"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "zai",
+				modelName: "cogView-4-250304",
+				inputPrice: 0,
+				outputPrice: 0,
+				requestPrice: 0.01,
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

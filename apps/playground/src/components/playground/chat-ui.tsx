@@ -182,10 +182,12 @@ export const ChatUI = ({
 	isLoading = false,
 	error = null,
 }: ChatUIProps) => {
-	// Check if the model is an Alibaba model
-	const isAlibabaModel =
+	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+	const usesPixelDimensions =
 		selectedModel.toLowerCase().includes("alibaba") ||
-		selectedModel.toLowerCase().includes("qwen-image");
+		selectedModel.toLowerCase().includes("qwen-image") ||
+		selectedModel.toLowerCase().includes("zai") ||
+		selectedModel.toLowerCase().includes("cogview");
 
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
@@ -620,7 +622,7 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{supportsImageGen && !isAlibabaModel && (
+							{supportsImageGen && !usesPixelDimensions && (
 								<>
 									<Select
 										value={imageAspectRatio}
@@ -673,7 +675,7 @@ export const ChatUI = ({
 									</Select>
 								</>
 							)}
-							{supportsImageGen && isAlibabaModel && (
+							{supportsImageGen && usesPixelDimensions && (
 								<Select
 									value={alibabaImageSize}
 									onValueChange={setAlibabaImageSize}
@@ -687,6 +689,8 @@ export const ChatUI = ({
 										<SelectItem value="1280x720">1280x720</SelectItem>
 										<SelectItem value="1024x1536">1024x1536</SelectItem>
 										<SelectItem value="1536x1024">1536x1024</SelectItem>
+										<SelectItem value="2048x1024">2048x1024</SelectItem>
+										<SelectItem value="1024x2048">1024x2048</SelectItem>
 									</SelectContent>
 								</Select>
 							)}

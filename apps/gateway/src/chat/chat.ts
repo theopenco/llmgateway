@@ -4264,12 +4264,14 @@ chat.openapi(completions, async (c) => {
 	logger.debug("Gateway - Used provider", { usedProvider });
 	logger.debug("Gateway - Used model", { usedModel });
 
-	// Convert external image URLs to base64 data URLs for Alibaba
+	// Convert external image URLs to base64 data URLs
 	// This ensures consistent response format across all providers
+	// The conversion function checks if already in data: format and skips if so
 	let convertedImages = images;
-	if (usedProvider === "alibaba" && images && images.length > 0) {
+	if (images && images.length > 0) {
 		convertedImages = await convertImagesToBase64(images);
-		logger.debug("Gateway - Converted Alibaba images to base64", {
+		logger.debug("Gateway - Converted images to base64", {
+			provider: usedProvider,
 			originalCount: images.length,
 			convertedCount: convertedImages.length,
 		});

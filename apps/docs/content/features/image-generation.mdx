@@ -105,6 +105,42 @@ Available Alibaba models:
 	`"1536x1024"`.
 </Callout>
 
+### Z.AI Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "zai/cogview-4",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a futuristic city skyline"
+      }
+    ],
+    "image_config": {
+      "image_size": "1024x1024"
+    }
+  }'
+```
+
+| Parameter    | Type    | Description                                                                                      |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x1024"`, `"1024x2048"` |
+| `n`          | integer | Number of images to generate                                                                     |
+
+Available Z.AI models:
+
+| Model           | Price       | Description                                                   |
+| --------------- | ----------- | ------------------------------------------------------------- |
+| `zai/cogview-4` | $0.01/image | CogView-4 with bilingual support and excellent text rendering |
+
+<Callout type="info">
+	CogView-4 supports both Chinese and English prompts and excels at generating
+	images with embedded text.
+</Callout>
+
 ## Response Format
 
 Image generation models return responses in the standard chat completions format, with generated images included in the `images` array within the assistant message:
