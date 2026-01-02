@@ -19,6 +19,7 @@ const mono = Geist_Mono({
 	variable: "--font-mono",
 });
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {

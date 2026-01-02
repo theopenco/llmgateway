@@ -2,6 +2,7 @@ import { source } from "@/lib/source";
 
 import { getLLMText } from "./get-llm-text";
 
+export const runtime = "edge";
 export const revalidate = false;
 
 export async function GET() {

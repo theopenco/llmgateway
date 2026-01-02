@@ -7,6 +7,8 @@ import { source } from "@/lib/source";
 import type { DocsLayoutProps } from "fumadocs-ui/layouts/docs";
 import type { ReactNode } from "react";
 
+export const runtime = "edge";
+
 const docsOptions: DocsLayoutProps = {
 	...baseOptions,
 	tree: source.pageTree,

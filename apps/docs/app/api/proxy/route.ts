@@ -1,5 +1,7 @@
 import { openapi } from "@/lib/source";
 
+export const runtime = "edge";
+
 export const { GET, HEAD, PUT, POST, PATCH, DELETE } = openapi.createProxy({
 	allowedOrigins: [
 		"https://docs.llmgateway.io",
