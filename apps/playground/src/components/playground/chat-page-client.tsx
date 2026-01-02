@@ -218,15 +218,17 @@ export default function ChatPageClient({
 					(p: any) => p.type === "dynamic-tool",
 				);
 
+				const bodyToSave = {
+					role: "assistant",
+					content: textContent || undefined,
+					images: images.length > 0 ? JSON.stringify(images) : undefined,
+					reasoning: reasoningContent || undefined,
+					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+				};
+
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
-					body: {
-						role: "assistant",
-						content: textContent || undefined,
-						images: images.length > 0 ? JSON.stringify(images) : undefined,
-						reasoning: reasoningContent || undefined,
-						tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
-					} as any,
+					body: bodyToSave as any,
 				});
 				// Note: useAddMessage already invalidates /chats query on success
 			},
@@ -289,11 +291,15 @@ export default function ChatPageClient({
 				selectedModel.toLowerCase().includes("alibaba") ||
 				selectedModel.toLowerCase().includes("qwen-image");
 
+			// Only send image_config if user has explicitly selected non-default values
 			const imageConfig = supportsImageGen
 				? isAlibabaModel
-					? {
-							image_size: alibabaImageSize,
-						}
+					? // For Alibaba, don't send image_config with default size
+						alibabaImageSize !== "1024x1024"
+						? {
+								image_size: alibabaImageSize,
+							}
+						: undefined
 					: imageAspectRatio !== "auto" || imageSize !== "1K"
 						? {
 								...(imageAspectRatio !== "auto" && {
@@ -323,6 +329,7 @@ export default function ChatPageClient({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 				},
 			};
+
 			return sendMessage(message, mergedOptions);
 		},
 		[
@@ -1000,11 +1007,15 @@ function ExtraChatPanel({
 				selectedModel.toLowerCase().includes("alibaba") ||
 				selectedModel.toLowerCase().includes("qwen-image");
 
+			// Only send image_config if user has explicitly selected non-default values
 			const imageConfig = supportsImageGen
 				? isAlibabaModel
-					? {
-							image_size: alibabaImageSize,
-						}
+					? // For Alibaba, don't send image_config with default size
+						alibabaImageSize !== "1024x1024"
+						? {
+								image_size: alibabaImageSize,
+							}
+						: undefined
 					: imageAspectRatio !== "auto" || imageSize !== "1K"
 						? {
 								...(imageAspectRatio !== "auto" && {
@@ -1033,6 +1044,7 @@ function ExtraChatPanel({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 				},
 			};
+
 			return sendMessage(message, mergedOptions);
 		},
 		[

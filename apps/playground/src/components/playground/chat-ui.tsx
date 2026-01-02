@@ -186,6 +186,7 @@ export const ChatUI = ({
 	const isAlibabaModel =
 		selectedModel.toLowerCase().includes("alibaba") ||
 		selectedModel.toLowerCase().includes("qwen-image");
+
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
