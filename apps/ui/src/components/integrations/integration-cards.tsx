@@ -81,7 +81,7 @@ const integrations: Integration[] = [
 		name: "Claude Code",
 		description:
 			"Use LLM Gateway with Claude Code for AI-powered terminal assistance and coding.",
-		href: "https://docs.llmgateway.io/features/anthropic-endpoint",
+		href: "/guides/claude-code",
 		icon: AnthropicIcon,
 		comingSoon: false,
 	},
@@ -133,15 +133,16 @@ export function IntegrationCards() {
 		<div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
 			{integrations.map((integration) => {
 				const CardWrapper = integration.comingSoon ? "div" : Link;
+				const isExternal = integration.href.startsWith("http");
 				const cardProps = integration.comingSoon
 					? {}
-					: { href: integration.href, target: "_blank" as const };
+					: isExternal
+						? { href: integration.href, target: "_blank" as const }
+						: { href: integration.href };
 
 				return (
 					<CardWrapper
 						key={integration.name}
-						href={integration.href as any}
-						target="_blank"
 						{...cardProps}
 						className={integration.comingSoon ? "" : "group"}
 					>
