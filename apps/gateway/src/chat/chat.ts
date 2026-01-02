@@ -61,6 +61,7 @@ import { transformStreamingToOpenai } from "./tools/transform-streaming-to-opena
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
+import type { ImageObject } from "./tools/types.js";
 import type { ServerTypes } from "@/vars.js";
 
 /**
@@ -68,6 +69,52 @@ import type { ServerTypes } from "@/vars.js";
  */
 export function estimateTokensFromContent(content: string): number {
 	return Math.max(1, Math.round(content.length / 4));
+}
+
+/**
+ * Converts external image URLs to base64 data URLs
+ * Used for providers like Alibaba that return external URLs instead of base64
+ */
+async function convertImagesToBase64(
+	images: ImageObject[],
+): Promise<ImageObject[]> {
+	return await Promise.all(
+		images.map(async (image): Promise<ImageObject> => {
+			const url = image.image_url.url;
+			// Skip if already a data URL
+			if (url.startsWith("data:")) {
+				return image;
+			}
+
+			try {
+				const response = await fetch(url);
+				if (!response.ok) {
+					logger.warn("Failed to fetch image for base64 conversion", {
+						url,
+						status: response.status,
+					});
+					return image;
+				}
+
+				const contentType = response.headers.get("content-type") || "image/png";
+				const arrayBuffer = await response.arrayBuffer();
+				const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+				return {
+					type: "image_url",
+					image_url: {
+						url: `data:${contentType};base64,${base64}`,
+					},
+				};
+			} catch (error) {
+				logger.warn("Error converting image to base64", {
+					url,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return image;
+			}
+		}),
+	);
 }
 
 export const chat = new OpenAPIHono<ServerTypes>();
@@ -2246,7 +2293,8 @@ chat.openapi(completions, async (c) => {
 	const startTime = Date.now();
 
 	// Handle streaming response if requested
-	if (stream) {
+	// For image generation models, we skip real streaming and use fake streaming later
+	if (effectiveStream) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
 			let canceled = false;
@@ -4216,6 +4264,17 @@ chat.openapi(completions, async (c) => {
 	logger.debug("Gateway - Used provider", { usedProvider });
 	logger.debug("Gateway - Used model", { usedModel });
 
+	// Convert external image URLs to base64 data URLs for Alibaba
+	// This ensures consistent response format across all providers
+	let convertedImages = images;
+	if (usedProvider === "alibaba" && images && images.length > 0) {
+		convertedImages = await convertImagesToBase64(images);
+		logger.debug("Gateway - Converted Alibaba images to base64", {
+			originalCount: images.length,
+			convertedCount: convertedImages.length,
+		});
+	}
+
 	// Estimate tokens if not provided by the API
 	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
 		usedProvider,
@@ -4251,7 +4310,7 @@ chat.openapi(completions, async (c) => {
 			toolResults: toolResults,
 		},
 		reasoningTokens,
-		images?.length || 0,
+		convertedImages?.length || 0,
 		image_config?.image_size,
 		inputImageCount,
 	);
@@ -4275,7 +4334,7 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
-		images,
+		convertedImages,
 		modelInput,
 		requestedProvider || null,
 		baseModelName,
