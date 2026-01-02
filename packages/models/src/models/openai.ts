@@ -683,6 +683,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				webSearch: true, // Supports web_search tool via Responses API
+				webSearchPrice: 0.03, // $30 per 1000 searches
+				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -747,6 +749,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.025, // $25 per 1000 searches
+				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -810,6 +815,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.02, // $20 per 1000 searches
+				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -905,8 +913,11 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.03,
 				reasoning: true,
 				reasoningOutput: "omit",
+				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -968,6 +979,8 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.05,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				jsonOutput: true,
@@ -996,6 +1009,8 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.03,
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
@@ -1044,6 +1059,8 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.025,
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
@@ -1090,8 +1107,11 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.03,
 				reasoning: true,
 				reasoningOutput: "omit",
+				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -1152,6 +1172,8 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.05,
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
@@ -1200,6 +1222,8 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.03,
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
 				jsonOutput: false,

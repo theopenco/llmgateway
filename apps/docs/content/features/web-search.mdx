@@ -24,12 +24,13 @@ When you include the `web_search` tool in your request, the model can search the
 
 Web search is available on select models from these providers:
 
-| Provider  | Models                                                   | Pricing          |
-| --------- | -------------------------------------------------------- | ---------------- |
-| OpenAI    | `gpt-4o-search-preview`, `gpt-4o-mini-search-preview`    | $0.03 per search |
-| Anthropic | `claude-sonnet-4-20250514`                               | $0.01 per search |
-| Google    | `gemini-2.0-flash`, `gemini-2.5-pro`, `gemini-2.5-flash` | Free (grounding) |
-| Z.AI      | `zai-search`                                             | Varies           |
+| Provider  | Models                                                                   | Pricing              |
+| --------- | ------------------------------------------------------------------------ | -------------------- |
+| OpenAI    | `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.1`, `gpt-5.2`, `gpt-5.2-pro` | $0.02-0.05 / search  |
+| OpenAI    | `gpt-4o-search-preview`, `gpt-4o-mini-search-preview`                    | $0.025-0.03 / search |
+| Anthropic | `claude-sonnet-4-20250514`                                               | $0.01 per search     |
+| Google    | `gemini-2.0-flash`, `gemini-2.5-pro`, `gemini-2.5-flash`                 | Free (grounding)     |
+| Z.AI      | `zai-search`                                                             | Varies               |
 
 <Callout type="info">
 	You can find all web search enabled models on our [models page with web search
@@ -272,8 +273,8 @@ You can use web search alongside regular function tools:
 
 <Callout type="warning">
 	Some dedicated search models (like `gpt-4o-search-preview`) only support web
-	search and do not support additional function tools. Use models like
-	`claude-sonnet-4-20250514` if you need both capabilities.
+	search and do not support additional function tools. Use GPT-5 series models,
+	`claude-sonnet-4-20250514`, or Gemini models if you need both capabilities.
 </Callout>
 
 ## Use Cases
@@ -363,9 +364,11 @@ To avoid this error, only use the `web_search` tool with [web search enabled mod
 
 ### OpenAI
 
-- Uses dedicated search models (`gpt-4o-search-preview`, `gpt-4o-mini-search-preview`)
+- GPT-5 series models support web search via the Responses API
+- GPT-5 models can combine web search with function tools
+- Dedicated search models (`gpt-4o-search-preview`, `gpt-4o-mini-search-preview`) use web_search_options
+- Search models (`gpt-4o-*-search-preview`) don't support additional function tools
 - Supports `search_context_size` parameter
-- Search models don't support additional function tools
 
 ### Anthropic
 
