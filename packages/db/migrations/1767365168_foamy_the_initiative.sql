@@ -1,1 +1,0 @@
-ALTER TABLE "log" ADD COLUMN "web_search_cost" real;
