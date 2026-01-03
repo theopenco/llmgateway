@@ -57,7 +57,7 @@ export const openaiModels = [
 				outputPrice: 10.0 / 1e6,
 				requestPrice: 0,
 				webSearch: true,
-				webSearchPrice: 0.03, // $30 per 1000 searches
+				webSearchPrice: 0.025, // $25 per 1000 searches for non-reasoning models
 				contextSize: 128000,
 				maxOutput: 16384,
 				streaming: true,
@@ -83,7 +83,7 @@ export const openaiModels = [
 				outputPrice: 0.6 / 1e6,
 				requestPrice: 0,
 				webSearch: true,
-				webSearchPrice: 0.025, // $25 per 1000 searches
+				webSearchPrice: 0.025, // $25 per 1000 searches for non-reasoning models
 				contextSize: 128000,
 				maxOutput: 16384,
 				streaming: true,
