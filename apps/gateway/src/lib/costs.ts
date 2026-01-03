@@ -20,6 +20,16 @@ interface ChatMessage {
 const DEFAULT_TOKENIZER_MODEL = "gpt-4";
 
 /**
+ * Check if billing for cancelled requests is enabled via environment variable.
+ * Defaults to true if not set.
+ */
+export function shouldBillCancelledRequests(): boolean {
+	const envValue = process.env.BILL_CANCELLED_REQUESTS;
+	// Default to true if not set, only disable if explicitly set to "false"
+	return envValue !== "false";
+}
+
+/**
  * Get the appropriate pricing tier based on prompt token count
  */
 function getPricingForTokenCount(
