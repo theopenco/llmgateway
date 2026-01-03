@@ -533,6 +533,13 @@
       "when": 1767039901949,
       "tag": "1767039901_groovy_silver_sable",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "8",
+      "when": 1767471347760,
+      "tag": "1767471347_rainy_cable",
+      "breakpoints": true
     }
   ]
 }
