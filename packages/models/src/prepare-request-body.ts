@@ -239,7 +239,14 @@ export async function prepareRequestBody(
 	}
 
 	// Check if the model supports system role
-	const modelDef = models.find((m) => m.id === usedModel);
+	// Look up by model ID first, then fall back to provider modelName
+	const modelDef = models.find(
+		(m) =>
+			m.id === usedModel ||
+			m.providers.some(
+				(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			),
+	);
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
