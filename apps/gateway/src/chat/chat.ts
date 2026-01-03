@@ -1174,6 +1174,14 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Check web search capability if web search tool is requested
+				if (
+					webSearchTool &&
+					(provider as ProviderModelMapping).webSearch !== true
+				) {
+					return false;
+				}
+
 				return contextSizeMet;
 			});
 
@@ -1323,10 +1331,21 @@ chat.openapi(completions, async (c) => {
 								.map((p) => p.id);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
+				// If web search is requested, also filter to providers that support it
 				const availableModelProviders = modelInfo.providers.filter(
-					(provider) =>
-						availableProviders.includes(provider.providerId) &&
-						provider.providerId !== usedProvider,
+					(provider) => {
+						if (!availableProviders.includes(provider.providerId)) {
+							return false;
+						}
+						if (provider.providerId === usedProvider) {
+							return false;
+						}
+						// If web search tool is requested, only include providers that support it
+						if (webSearchTool) {
+							return (provider as ProviderModelMapping).webSearch === true;
+						}
+						return true;
+					},
 				);
 
 				if (availableModelProviders.length > 0) {
@@ -1433,9 +1452,17 @@ chat.openapi(completions, async (c) => {
 							.map((p) => p.id);
 
 			// Filter model providers to only those available
-			const availableModelProviders = modelInfo.providers.filter((provider) =>
-				availableProviders.includes(provider.providerId),
-			);
+			// If web search is requested, also filter to providers that support it
+			const availableModelProviders = modelInfo.providers.filter((provider) => {
+				if (!availableProviders.includes(provider.providerId)) {
+					return false;
+				}
+				// If web search tool is requested, only include providers that support it
+				if (webSearchTool) {
+					return (provider as ProviderModelMapping).webSearch === true;
+				}
+				return true;
+			});
 
 			if (availableModelProviders.length === 0) {
 				throw new HTTPException(400, {
