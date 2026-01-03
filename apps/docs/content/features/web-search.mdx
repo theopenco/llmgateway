@@ -1,12 +1,12 @@
 ---
-title: Web Search
+title: Native Web Search
 description: Enable real-time web search capabilities to get up-to-date information from the internet.
 icon: Globe
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Web Search
+# Native Web Search
 
 LLM Gateway supports native web search capabilities that allow models to access real-time information from the internet. This feature is useful for answering questions about current events, recent news, live data, and other time-sensitive information that may not be in the model's training data.
 
@@ -22,19 +22,11 @@ When you include the `web_search` tool in your request, the model can search the
 
 ## Supported Providers
 
-Web search is available on select models from these providers:
-
-| Provider  | Models                                                                   | Pricing              |
-| --------- | ------------------------------------------------------------------------ | -------------------- |
-| OpenAI    | `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.1`, `gpt-5.2`, `gpt-5.2-pro` | $0.02-0.05 / search  |
-| OpenAI    | `gpt-4o-search-preview`, `gpt-4o-mini-search-preview`                    | $0.025-0.03 / search |
-| Anthropic | `claude-sonnet-4-20250514`                                               | $0.01 per search     |
-| Google    | `gemini-2.0-flash`, `gemini-2.5-pro`, `gemini-2.5-flash`                 | Free (grounding)     |
-| Z.AI      | `zai-search`                                                             | Varies               |
+Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
 
 <Callout type="info">
-	You can find all web search enabled models on our [models page with web search
-	filter](https://llmgateway.io/models?filters=1&webSearch=true).
+	GPT-5.2 (`openai/gpt-5.2`) is the recommended model for native web search with
+	full support for combining web search with function tools.
 </Callout>
 
 ## Basic Usage
@@ -46,7 +38,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openai/gpt-4o-search-preview",
+    "model": "openai/gpt-5.2",
     "messages": [
       {
         "role": "user",
@@ -68,7 +60,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	"id": "chatcmpl-abc123",
 	"object": "chat.completion",
 	"created": 1234567890,
-	"model": "openai/gpt-4o-search-preview",
+	"model": "openai/gpt-5.2",
 	"choices": [
 		{
 			"index": 0,
@@ -156,7 +148,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="openai/gpt-4o-search-preview",
+    model="openai/gpt-5.2",
     messages=[
         {"role": "user", "content": "What are the latest news headlines today?"}
     ],
@@ -177,7 +169,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-	model: "openai/gpt-4o-search-preview",
+	model: "openai/gpt-5.2",
 	messages: [{ role: "user", content: "What are the latest tech news?" }],
 	tools: [{ type: "web_search" }],
 });
@@ -194,7 +186,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openai/gpt-4o-search-preview",
+    "model": "openai/gpt-5.2",
     "messages": [
       {"role": "user", "content": "What is the current stock price of Apple?"}
     ],
@@ -272,9 +264,9 @@ You can use web search alongside regular function tools:
 ```
 
 <Callout type="warning">
-	Some dedicated search models (like `gpt-4o-search-preview`) only support web
-	search and do not support additional function tools. Use GPT-5 series models,
-	`claude-sonnet-4-20250514`, or Gemini models if you need both capabilities.
+	Some dedicated search models only support web search and do not support
+	additional function tools. Use `gpt-5.2` or other GPT-5 series models if you
+	need both web search and function tools.
 </Callout>
 
 ## Use Cases
@@ -339,7 +331,7 @@ You can use web search alongside regular function tools:
 
 ## Best Practices
 
-1. **Use appropriate models**: Choose models specifically designed for web search (like `gpt-4o-search-preview`) for best results
+1. **Use GPT-5.2**: For the best web search experience with full tool support, use `openai/gpt-5.2`
 2. **Provide location context**: When queries are location-dependent, include `user_location` for more relevant results
 3. **Monitor costs**: Web search incurs per-query costs in addition to token costs
 4. **Check citations**: Always review the citations in responses to verify information sources
@@ -358,31 +350,4 @@ If you try to use web search with a model that doesn't support it:
 }
 ```
 
-To avoid this error, only use the `web_search` tool with [web search enabled models](https://llmgateway.io/models?filters=1&webSearch=true).
-
-## Provider-Specific Notes
-
-### OpenAI
-
-- GPT-5 series models support web search via the Responses API
-- GPT-5 models can combine web search with function tools
-- Dedicated search models (`gpt-4o-search-preview`, `gpt-4o-mini-search-preview`) use web_search_options
-- Search models (`gpt-4o-*-search-preview`) don't support additional function tools
-- Supports `search_context_size` parameter
-
-### Anthropic
-
-- Available on Claude Sonnet 4
-- Can combine with function tools
-- Uses `web_search_20250305` tool internally
-
-### Google
-
-- Uses Google Search grounding
-- Available on Gemini 2.0 and 2.5 models
-- Free to use (no per-search cost)
-
-### Z.AI
-
-- Dedicated search model (`zai-search`)
-- Optimized for search queries
+To avoid this error, only use the `web_search` tool with [native web search enabled models](https://llmgateway.io/models?filters=1&webSearch=true).
