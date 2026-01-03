@@ -1614,10 +1614,12 @@ chat.openapi(completions, async (c) => {
 	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
+	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
 	if (
 		requestedModel === "auto" &&
 		reasoning_effort === undefined &&
-		finalModelInfo
+		finalModelInfo &&
+		!webSearchTool
 	) {
 		// Check if the selected model supports reasoning
 		const selectedModelSupportsReasoning = finalModelInfo.providers.some(

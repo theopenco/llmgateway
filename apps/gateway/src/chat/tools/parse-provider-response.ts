@@ -549,8 +549,16 @@ export function parseProviderResponse(
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens || null;
 				totalTokens = json.usage?.total_tokens || null;
 
+				// Count web_search_call items for pricing (each call is billed, not each citation)
+				const webSearchCalls = json.output.filter(
+					(item: any) => item.type === "web_search_call",
+				);
+				if (webSearchCalls.length > 0) {
+					webSearchCount = webSearchCalls.length;
+				}
+
 				// Extract web search citations from OpenAI Responses API format
-				// Citations come as annotations in the message content
+				// Citations come as annotations in the message content (for display, not pricing)
 				if (messageOutput?.content) {
 					for (const contentItem of messageOutput.content) {
 						if (
@@ -559,7 +567,6 @@ export function parseProviderResponse(
 						) {
 							for (const annotation of contentItem.annotations) {
 								if (annotation.type === "url_citation") {
-									webSearchCount++;
 									annotations.push({
 										type: "url_citation",
 										url_citation: {
@@ -573,14 +580,6 @@ export function parseProviderResponse(
 							}
 						}
 					}
-				}
-
-				// Also check for web_search_call in output (indicates search was used)
-				const webSearchCalls = json.output.filter(
-					(item: any) => item.type === "web_search_call",
-				);
-				if (webSearchCalls.length > 0) {
-					webSearchCount = Math.max(webSearchCount, webSearchCalls.length);
 				}
 			} else {
 				// Standard OpenAI chat completions format
@@ -641,11 +640,13 @@ export function parseProviderResponse(
 
 				// Extract web search citations from OpenAI Chat Completions format
 				// For search models, citations come in message.annotations
+				// Count as 1 search per request if any citations are present (billed per request, not per citation)
 				const messageAnnotations =
 					json.choices?.[0]?.message?.annotations || [];
+				let hasSearchCitations = false;
 				for (const annotation of messageAnnotations) {
 					if (annotation.type === "url_citation") {
-						webSearchCount++;
+						hasSearchCitations = true;
 						annotations.push({
 							type: "url_citation",
 							url_citation: {
@@ -659,6 +660,9 @@ export function parseProviderResponse(
 							},
 						});
 					}
+				}
+				if (hasSearchCitations) {
+					webSearchCount = 1; // Search models bill per request, not per citation
 				}
 
 				// For ZAI, extract web search info if present
