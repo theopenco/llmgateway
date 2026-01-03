@@ -597,7 +597,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		if (provider.webSearch) {
 			capabilities.push({
 				icon: Globe,
-				label: "Web Search",
+				label: "Native Web Search",
 				color: "text-sky-500",
 			});
 		}
@@ -717,7 +717,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								},
 								{
 									key: "webSearch",
-									label: "Web Search",
+									label: "Native Web Search",
 									icon: Globe,
 									color: "text-sky-500",
 								},
@@ -981,7 +981,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</Button>
 							</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
-								Web Search
+								Native Web Search
 							</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
 								Capabilities

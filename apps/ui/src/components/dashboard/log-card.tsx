@@ -457,7 +457,9 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								</div>
 								{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
 									<>
-										<div className="text-muted-foreground">Web Search Cost</div>
+										<div className="text-muted-foreground">
+											Native Web Search Cost
+										</div>
 										<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
 									</>
 								)}
