@@ -12,6 +12,8 @@ import {
 	Info,
 	Package,
 	Link as LinkIcon,
+	Plug,
+	Sparkles,
 	Zap,
 } from "lucide-react";
 import prettyBytes from "pretty-bytes";
@@ -197,6 +199,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5" />
 								<span>{log.source}</span>
+							</div>
+						)}
+						{log.plugins && log.plugins.length > 0 && (
+							<div className="flex items-center gap-1">
+								<Plug className="h-3.5 w-3.5" />
+								<span>
+									{log.plugins.length} plugin{log.plugins.length > 1 ? "s" : ""}
+								</span>
 							</div>
 						)}
 						<span className="ml-auto">{formattedTime}</span>
@@ -655,6 +665,62 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							</TooltipProvider>
 						</div>
 					</div>
+					{log.plugins && log.plugins.length > 0 && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Plugins</h4>
+							<div className="rounded-md border p-3 text-sm space-y-3">
+								<div className="flex flex-wrap gap-2">
+									{log.plugins.map((plugin) => (
+										<Badge key={plugin} variant="secondary" className="gap-1">
+											<Plug className="h-3 w-3" />
+											{plugin}
+										</Badge>
+									))}
+								</div>
+								{log.pluginResults && (
+									<div className="space-y-2 pt-2 border-t">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Plugin Results
+										</h5>
+										{log.pluginResults.responseHealing && (
+											<div className="flex items-center gap-2 text-xs">
+												<Sparkles
+													className={`h-3.5 w-3.5 ${
+														log.pluginResults.responseHealing.healed
+															? "text-green-500"
+															: "text-muted-foreground"
+													}`}
+												/>
+												<span>
+													Response Healing:{" "}
+													{log.pluginResults.responseHealing.healed ? (
+														<span className="text-green-600 font-medium">
+															Applied
+															{log.pluginResults.responseHealing
+																.healingMethod && (
+																<span className="text-muted-foreground font-normal">
+																	{" "}
+																	(
+																	{log.pluginResults.responseHealing.healingMethod
+																		.replace(/_/g, " ")
+																		.replace(/\b\w/g, (l) => l.toUpperCase())}
+																	)
+																</span>
+															)}
+														</span>
+													) : (
+														<span className="text-muted-foreground">
+															Not needed (valid JSON)
+														</span>
+													)}
+												</span>
+											</div>
+										)}
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 					{log.params && Object.keys(log.params).length > 0 && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Additional Parameters</h4>

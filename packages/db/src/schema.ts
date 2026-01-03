@@ -471,6 +471,13 @@ export const log = pgTable(
 			};
 		}>(),
 		userAgent: text(),
+		plugins: json().$type<string[]>(),
+		pluginResults: json().$type<{
+			responseHealing?: {
+				healed: boolean;
+				healingMethod?: string;
+			};
+		}>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
