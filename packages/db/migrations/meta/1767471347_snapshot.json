@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9c5489d2-9635-4a47-973e-9cb14733b997",
+  "id": "72d4ed74-6114-472a-8062-959468862e5e",
   "prevId": "dc5b66cb-ab4f-4e68-92c8-4f459045215c",
   "ddl": [
     {
@@ -1382,19 +1382,6 @@
       "table": "log"
     },
     {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "web_search_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": false,
@@ -1681,6 +1668,32 @@
       "generated": null,
       "identity": null,
       "name": "user_agent",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "plugins",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "plugin_results",
       "entityType": "columns",
       "schema": "public",
       "table": "log"

@@ -55,6 +55,7 @@ import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
+import { healJsonResponse } from "./tools/heal-json-response.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
@@ -322,6 +323,22 @@ const completionsRequestSchema = z.object({
 			seed: z.number().optional(),
 		})
 		.optional(),
+	// Plugins configuration
+	plugins: z
+		.array(
+			z.object({
+				id: z.enum(["response-healing"]).openapi({
+					description: "Plugin identifier",
+					example: "response-healing",
+				}),
+			}),
+		)
+		.optional()
+		.openapi({
+			description:
+				"Plugins to enable for this request. Currently supported: response-healing (automatically repairs malformed JSON responses when using response_format)",
+			example: [{ id: "response-healing" }],
+		}),
 });
 
 const completions = createRoute({
@@ -494,6 +511,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		plugins,
 	} = validationResult.data;
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
@@ -2030,6 +2048,9 @@ chat.openapi(completions, async (c) => {
 				}
 
 				// Log the cached streaming request with reconstructed content
+				// Extract plugin IDs for logging (cached streaming)
+				const cachedStreamingPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -2061,6 +2082,8 @@ chat.openapi(completions, async (c) => {
 					rawCachedResponseData, // Raw SSE data from cached response
 					null, // No upstream request for cached response
 					rawCachedResponseData, // Raw SSE data from cached response (same for both)
+					cachedStreamingPluginIds,
+					undefined, // No plugin results for cached response
 				);
 
 				// Calculate costs for cached response
@@ -2148,6 +2171,9 @@ chat.openapi(completions, async (c) => {
 			if (cachedResponse) {
 				// Log the cached request
 				const duration = 0; // No processing time needed
+				// Extract plugin IDs for logging (cached non-streaming)
+				const cachedPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -2179,6 +2205,8 @@ chat.openapi(completions, async (c) => {
 					cachedResponse,
 					null, // No upstream request for cached response
 					cachedResponse, // upstream response is same as cached response
+					cachedPluginIds,
+					undefined, // No plugin results for cached response
 				);
 
 				// Calculate costs for cached response
@@ -2474,6 +2502,9 @@ chat.openapi(completions, async (c) => {
 
 				if (error instanceof Error && error.name === "AbortError") {
 					// Log the canceled request
+					// Extract plugin IDs for logging (canceled request)
+					const canceledPluginIds = plugins?.map((p) => p.id) || [];
+
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -2505,6 +2536,8 @@ chat.openapi(completions, async (c) => {
 						null, // No response for canceled request
 						requestBody, // The request that was sent before cancellation
 						null, // No upstream response for canceled request
+						canceledPluginIds,
+						undefined, // No plugin results for canceled request
 					);
 
 					await insertLog({
@@ -2559,6 +2592,9 @@ chat.openapi(completions, async (c) => {
 					});
 
 					// Log the error in the database
+					// Extract plugin IDs for logging (fetch error)
+					const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -2590,6 +2626,8 @@ chat.openapi(completions, async (c) => {
 						null, // No response for fetch error
 						requestBody, // The request that resulted in error
 						null, // No upstream response for fetch error
+						fetchErrorPluginIds,
+						undefined, // No plugin results for error case
 					);
 
 					await insertLog({
@@ -2711,6 +2749,9 @@ chat.openapi(completions, async (c) => {
 				});
 
 				// Log the error in the database
+				// Extract plugin IDs for logging (streaming error)
+				const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -2742,6 +2783,8 @@ chat.openapi(completions, async (c) => {
 					null, // No response for error case
 					requestBody, // The request that was sent and resulted in error
 					null, // No upstream response for error case
+					streamingErrorPluginIds,
+					undefined, // No plugin results for error case
 				);
 
 				await insertLog({
@@ -3789,6 +3832,9 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 				);
 
+				// Extract plugin IDs for logging (streaming - no healing applied)
+				const streamingPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -3824,6 +3870,8 @@ chat.openapi(completions, async (c) => {
 					streamingError
 						? streamingError // Pass structured error as upstream response too
 						: rawUpstreamData, // Raw streaming data received from upstream provider
+					streamingPluginIds,
+					undefined, // No plugin results for streaming
 				);
 
 				if (!finishReason && !streamingError && usedProvider === "routeway") {
@@ -4011,6 +4059,9 @@ chat.openapi(completions, async (c) => {
 		});
 
 		// Log the error in the database
+		// Extract plugin IDs for logging (non-streaming fetch error)
+		const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -4042,6 +4093,8 @@ chat.openapi(completions, async (c) => {
 			null, // No response for fetch error
 			requestBody, // The request that resulted in error
 			null, // No upstream response for fetch error
+			nonStreamingFetchErrorPluginIds,
+			undefined, // No plugin results for error case
 		);
 
 		await insertLog({
@@ -4101,6 +4154,9 @@ chat.openapi(completions, async (c) => {
 	// If the request was canceled, log it and return a response
 	if (canceled) {
 		// Log the canceled request
+		// Extract plugin IDs for logging (canceled non-streaming)
+		const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -4132,6 +4188,8 @@ chat.openapi(completions, async (c) => {
 			null, // No response for canceled request
 			requestBody, // The request that was prepared before cancellation
 			null, // No upstream response for canceled request
+			canceledNonStreamingPluginIds,
+			undefined, // No plugin results for canceled request
 		);
 
 		await insertLog({
@@ -4196,6 +4254,9 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Log the error in the database
+		// Extract plugin IDs for logging (provider error)
+		const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -4227,6 +4288,8 @@ chat.openapi(completions, async (c) => {
 			errorResponseText, // Our formatted error response
 			requestBody, // The request that resulted in error
 			errorResponseText, // Raw upstream error response
+			providerErrorPluginIds,
+			undefined, // No plugin results for error case
 		);
 
 		await insertLog({
@@ -4323,7 +4386,7 @@ chat.openapi(completions, async (c) => {
 	const responseText = JSON.stringify(json);
 
 	// Extract content and token usage based on provider
-	const {
+	let {
 		content,
 		reasoningContent,
 		finishReason,
@@ -4337,6 +4400,38 @@ chat.openapi(completions, async (c) => {
 		annotations,
 		webSearchCount,
 	} = parseProviderResponse(usedProvider, json, messages);
+
+	// Apply response healing if enabled and response_format is json_object or json_schema
+	const responseHealingEnabled = plugins?.some(
+		(p) => p.id === "response-healing",
+	);
+	const isJsonResponseFormat =
+		response_format?.type === "json_object" ||
+		response_format?.type === "json_schema";
+
+	// Track plugin results for logging
+	let pluginResults: {
+		responseHealing?: {
+			healed: boolean;
+			healingMethod?: string;
+		};
+	} = {};
+
+	if (responseHealingEnabled && isJsonResponseFormat && content) {
+		const healingResult = healJsonResponse(content);
+		pluginResults.responseHealing = {
+			healed: healingResult.healed,
+			healingMethod: healingResult.healingMethod,
+		};
+		if (healingResult.healed) {
+			logger.debug("Response healing applied", {
+				method: healingResult.healingMethod,
+				originalLength: healingResult.originalContent.length,
+				healedLength: healingResult.content.length,
+			});
+			content = healingResult.content;
+		}
+	}
 
 	// Enhanced logging for Google models to debug missing responses
 	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
@@ -4451,6 +4546,9 @@ chat.openapi(completions, async (c) => {
 		annotations,
 	);
 
+	// Extract plugin IDs for logging
+	const pluginIds = plugins?.map((p) => p.id) || [];
+
 	const baseLogEntry = createLogEntry(
 		requestId,
 		project,
@@ -4482,6 +4580,8 @@ chat.openapi(completions, async (c) => {
 		transformedResponse, // Our formatted response that we return to user
 		requestBody, // The request sent to the provider
 		json, // Raw upstream response from provider
+		pluginIds,
+		Object.keys(pluginResults).length > 0 ? pluginResults : undefined,
 	);
 
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
