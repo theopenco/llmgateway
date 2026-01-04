@@ -224,7 +224,7 @@ export function PricingPlans() {
 			},
 			features: [
 				"Use your own API keys without surcharges",
-				"NO fees on credit purchases",
+				"80% less fees on credit purchases (1% vs 5%)",
 				"100,000 included requests/month",
 				"$0.0001 per additional request",
 				"3 Team Members (more at $10/user/month)",
@@ -274,7 +274,7 @@ export function PricingPlans() {
 						Pricing
 					</Badge>
 					<h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl mb-4">
-						Start for free, Scale with no fees
+						Start for free, Scale with low fees
 					</h2>
 					<p className="text-xl text-muted-foreground max-w-3xl mx-auto">
 						Choose the plan that works best for your needs, with no hidden fees
