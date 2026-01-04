@@ -98,11 +98,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				<div className="container mx-auto px-4 py-8">
 					<div className="mb-6">
 						<Link
-							href="/models"
+							href={`/models/${encodeURIComponent(decodedName)}`}
 							className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
 						>
 							<ArrowLeft className="mr-2 h-4 w-4" />
-							Back to all models
+							Back to {modelDef.name}
 						</Link>
 					</div>
 					<div className="mb-8">
