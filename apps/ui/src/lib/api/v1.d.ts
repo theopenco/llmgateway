@@ -3055,6 +3055,7 @@ export interface paths {
                                 model: string;
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -3079,6 +3080,8 @@ export interface paths {
                     "application/json": {
                         title: string;
                         model: string;
+                        /** @default false */
+                        webSearch?: boolean;
                     };
                 };
             };
@@ -3096,6 +3099,7 @@ export interface paths {
                                 model: string;
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -3155,6 +3159,7 @@ export interface paths {
                                 model: string;
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -3249,6 +3254,7 @@ export interface paths {
                                 model: string;
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
