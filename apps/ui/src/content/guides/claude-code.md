@@ -8,6 +8,12 @@ date: 2026-01-02
 
 LLM Gateway provides a native Anthropic-compatible endpoint at `/v1/messages` that allows you to use any model in our catalog while maintaining the familiar Anthropic API format. This is especially useful for Claude Code users who want to access models beyond Claude.
 
+## Video Tutorial
+
+Watch this quick video guide on setting up Claude Code with LLM Gateway:
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/FrNDDSER768" title="Claude Code with LLM Gateway" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+
 ## Quick Start
 
 Configure Claude Code to use LLM Gateway with these environment variables:
@@ -68,13 +74,6 @@ Specifies the main model to use for primary requests.
 - **Default**: `claude-sonnet-4-20250514`
 - **Example**: `export ANTHROPIC_MODEL=gpt-5`
 
-### ANTHROPIC_SMALL_FAST_MODEL
-
-Specifies a smaller, faster model used for background functionality and internal operations.
-
-- **Default**: `claude-3-5-haiku-20241022`
-- **Example**: `export ANTHROPIC_SMALL_FAST_MODEL=gpt-5-nano`
-
 ### Complete Configuration Example
 
 ```bash
@@ -133,7 +132,7 @@ The endpoint returns responses in Anthropic's message format:
 - **Unified Billing**: One account for all providers instead of managing multiple API keys
 - **Caching**: Reduce costs with response caching for repeated requests
 - **Analytics**: Monitor usage patterns and costs in the dashboard
-- **50% Discount**: Enjoy a 50% discount on our Anthropic models for a limited time
+- **Discounts**: Visit [Models page](/models?discounted=true)
 
 ## Get Started
 
