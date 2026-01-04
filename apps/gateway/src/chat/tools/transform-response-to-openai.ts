@@ -6,6 +6,7 @@ export interface CostData {
 	outputCost: number | null;
 	cachedInputCost: number | null;
 	requestCost: number | null;
+	webSearchCost: number | null;
 	totalCost: number | null;
 }
 
@@ -43,6 +44,7 @@ function buildUsageObject(
 			cost_usd_output: costs.outputCost,
 			cost_usd_cached_input: costs.cachedInputCost,
 			cost_usd_request: costs.requestCost,
+			cost_usd_web_search: costs.webSearchCost,
 		}),
 		...(showUpgradeMessage && {
 			info: "upgrade to pro to include usd cost breakdown",
@@ -95,8 +97,7 @@ export function transformResponseToOpenai(
 							}),
 							...(toolResults && { tool_calls: toolResults }),
 							...(images && images.length > 0 && { images }),
-							...(annotations &&
-								annotations.length > 0 && { annotations: annotations }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
 						finish_reason: (() => {
 							// Map Google finish reasons to OpenAI format for the response
@@ -157,8 +158,7 @@ export function transformResponseToOpenai(
 								reasoning: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
-							...(annotations &&
-								annotations.length > 0 && { annotations: annotations }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
 						finish_reason:
 							finishReason === "end_turn"
@@ -293,8 +293,7 @@ export function transformResponseToOpenai(
 								reasoning: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
-							...(annotations &&
-								annotations.length > 0 && { annotations: annotations }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
 						finish_reason: finishReason || "stop",
 					},
@@ -422,8 +421,7 @@ export function transformResponseToOpenai(
 									reasoning: reasoningContent,
 								}),
 								...(toolResults && { tool_calls: toolResults }),
-								...(annotations &&
-									annotations.length > 0 && { annotations: annotations }),
+								...(annotations && annotations.length > 0 && { annotations }),
 							},
 							finish_reason: finishReason || "stop",
 						},

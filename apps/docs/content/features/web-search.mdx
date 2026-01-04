@@ -223,15 +223,15 @@ Web search costs are tracked separately from token costs in the usage object:
 		"prompt_tokens": 15,
 		"completion_tokens": 150,
 		"total_tokens": 165,
-		"cost_usd_total": 0.0315,
+		"cost_usd_total": 0.0125,
 		"cost_usd_input": 0.0015,
-		"cost_usd_output": 0.015,
-		"web_search_cost": 0.03
+		"cost_usd_output": 0.01,
+		"cost_usd_web_search": 0.01
 	}
 }
 ```
 
-The `web_search_cost` field shows the cost incurred specifically for web search queries.
+The `cost_usd_web_search` field shows the cost incurred specifically for web search queries. Web search is billed at $0.01 per search call for reasoning models (GPT-5, o-series) and $0.025 per call for non-reasoning models.
 
 ## Combining with Function Tools
 
@@ -339,7 +339,7 @@ If you try to use web search with a model that doesn't support it:
 ```json
 {
 	"error": {
-		"message": "Model gpt-4o does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.",
+		"message": "Model gpt-4o does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.",
 		"type": "invalid_request_error"
 	}
 }
