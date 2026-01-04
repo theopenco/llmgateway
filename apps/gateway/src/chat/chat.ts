@@ -2863,6 +2863,7 @@ chat.openapi(completions, async (c) => {
 			let streamingToolCalls = null;
 			let imageByteSize = 0; // Track total image data size for token estimation
 			let outputImageCount = 0; // Track number of output images for cost calculation
+			let webSearchCount = 0; // Track web search calls for cost calculation
 			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -3131,6 +3132,7 @@ chat.openapi(completions, async (c) => {
 									outputImageCount,
 									image_config?.image_size,
 									inputImageCount,
+									webSearchCount,
 								);
 
 								// Only include costs in response if not hosted or if org is pro
@@ -3394,6 +3396,46 @@ chat.openapi(completions, async (c) => {
 										);
 										outputImageCount++;
 									}
+								}
+							}
+
+							// Track web search calls for cost calculation
+							// Check for web search results based on provider-specific data
+							if (usedProvider === "anthropic") {
+								// For Anthropic, count web_search_tool_result blocks
+								if (
+									data.type === "content_block_start" &&
+									data.content_block?.type === "web_search_tool_result"
+								) {
+									webSearchCount++;
+								}
+							} else if (
+								usedProvider === "google-ai-studio" ||
+								usedProvider === "google-vertex"
+							) {
+								// For Google, count when grounding metadata is present
+								if (data.candidates?.[0]?.groundingMetadata) {
+									const groundingMetadata =
+										data.candidates[0].groundingMetadata;
+									if (
+										groundingMetadata.webSearchQueries &&
+										groundingMetadata.webSearchQueries.length > 0 &&
+										webSearchCount === 0
+									) {
+										// Only count once for the entire response
+										webSearchCount = groundingMetadata.webSearchQueries.length;
+									} else if (
+										groundingMetadata.groundingChunks &&
+										webSearchCount === 0
+									) {
+										// Fallback: count once if we have grounding chunks
+										webSearchCount = 1;
+									}
+								}
+							} else if (usedProvider === "openai") {
+								// For OpenAI Responses API, count web_search_call.completed events
+								if (data.type === "response.web_search_call.completed") {
+									webSearchCount++;
 								}
 							}
 
@@ -3835,6 +3877,7 @@ chat.openapi(completions, async (c) => {
 					outputImageCount,
 					image_config?.image_size,
 					inputImageCount,
+					webSearchCount,
 				);
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
