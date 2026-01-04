@@ -274,7 +274,7 @@ export function PricingPlans() {
 						Pricing
 					</Badge>
 					<h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl mb-4">
-						Start for free, Scale with no fees
+						Start for free, Scale with low fees
 					</h2>
 					<p className="text-xl text-muted-foreground max-w-3xl mx-auto">
 						Choose the plan that works best for your needs, with no hidden fees

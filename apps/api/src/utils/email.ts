@@ -172,7 +172,7 @@ export function generateTrialStartedEmailHtml(
 									<tr>
 										<td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
 											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span style="font-size: 16px; color: #333333;">No fees on credit top-ups</span>
+											<span style="font-size: 16px; color: #333333;">80% lower fees on credit top-ups (1% vs 5%)</span>
 										</td>
 									</tr>
 									<tr>

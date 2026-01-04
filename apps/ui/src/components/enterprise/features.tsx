@@ -21,9 +21,9 @@ const features = [
 	},
 	{
 		icon: Wallet,
-		title: "No Fees on Credits",
+		title: "Lowest Fees on Credits",
 		description:
-			"Purchase credits without any platform fees. Keep 100% of your budget for actual usage.",
+			"Only 1% platform fee on credit purchases. Keep more of your budget for actual usage.",
 	},
 	{
 		icon: BarChart3,
