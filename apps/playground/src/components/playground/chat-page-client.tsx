@@ -63,31 +63,13 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// Sort models by publishedAt (or releasedAt fallback) to match model selector ordering
-	const sortedModels = useMemo(() => {
-		return [...models].sort((a, b) => {
-			const dateA = a.publishedAt
-				? new Date(a.publishedAt).getTime()
-				: a.releasedAt
-					? new Date(a.releasedAt).getTime()
-					: 0;
-			const dateB = b.publishedAt
-				? new Date(b.publishedAt).getTime()
-				: b.releasedAt
-					? new Date(b.releasedAt).getTime()
-					: 0;
-			return dateB - dateA;
-		});
-	}, [models]);
-
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		// Use the first model from sorted list as default
-		const firstModel = sortedModels[0];
-		return firstModel?.id || "auto";
+		// Default to "auto" model which auto-selects the best provider
+		return "auto";
 	};
 
 	const [selectedModel, setSelectedModel] = useState(getInitialModel());
