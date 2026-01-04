@@ -9,6 +9,7 @@ export interface Chat {
 	title: string;
 	model: string;
 	status: "active" | "archived" | "deleted";
+	webSearch: boolean;
 	createdAt: string;
 	updatedAt: string;
 	messageCount: number;

@@ -13,6 +13,8 @@ import { useMemo, useState } from "react";
 // import { Logo } from "@/components/logo";
 import { cn } from "@/lib/cn";
 
+import { Logo } from "../logo";
+
 const cache = new Map<string, string>();
 
 export function LLMCopyButton({
@@ -137,18 +139,18 @@ export function ViewOptions({
 					</svg>
 				),
 			},
-			// {
-			// 	title: "Open in LLM Gateway",
-			// 	href:
-			// 		process.env.NODE_ENV === "development"
-			// 			? `http://localhost:3003?${new URLSearchParams({
-			// 					q,
-			// 				})}`
-			// 			: `https://llmgateway.io/chat?${new URLSearchParams({
-			// 					q,
-			// 				})}`,
-			// 	icon: <Logo />,
-			// },
+			{
+				title: "Open in LLM Gateway",
+				href:
+					process.env.NODE_ENV === "development"
+						? `http://localhost:3003?${new URLSearchParams({
+								q,
+							})}&hints=search&model=google-ai-studio/gemini-3-flash-preview`
+						: `https://llmgateway.io/chat?${new URLSearchParams({
+								q,
+							})}&hints=search&model=google-ai-studio/gemini-3-flash-preview`,
+				icon: <Logo />,
+			},
 		];
 	}, [githubUrl, markdownUrl]);
 

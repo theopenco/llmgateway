@@ -323,6 +323,12 @@ const completionsRequestSchema = z.object({
 			seed: z.number().optional(),
 		})
 		.optional(),
+	// Web search enablement
+	web_search: z.boolean().optional().default(false).openapi({
+		description:
+			"Enable native web search for models that support it. When enabled, the model can search the web for real-time information.",
+		example: true,
+	}),
 	// Plugins configuration
 	plugins: z
 		.array(
@@ -494,7 +500,7 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	const {
+	let {
 		model: modelInput,
 		messages,
 		temperature,
@@ -511,8 +517,20 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		web_search,
 		plugins,
 	} = validationResult.data;
+
+	// If web_search parameter is true, automatically add the web_search tool
+	if (
+		web_search &&
+		(!tools || !tools.some((t: any) => t.type === "web_search"))
+	) {
+		tools = tools || [];
+		tools.push({
+			type: "web_search" as const,
+		});
+	}
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
 	let inputImageCount = 0;
