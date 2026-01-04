@@ -15,6 +15,7 @@ const chatSchema = z.object({
 	title: z.string(),
 	model: z.string(),
 	status: z.enum(["active", "archived", "deleted"]),
+	webSearch: z.boolean(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 	messageCount: z.number(),
@@ -34,6 +35,7 @@ const messageSchema = z.object({
 const createChatSchema = z.object({
 	title: z.string().min(1).max(200),
 	model: z.string().min(1),
+	webSearch: z.boolean().optional().default(false),
 });
 
 const updateChatSchema = z.object({
@@ -84,6 +86,7 @@ chats.openapi(listChats, async (c) => {
 			title: tables.chat.title,
 			model: tables.chat.model,
 			status: tables.chat.status,
+			webSearch: tables.chat.webSearch,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
 			messageCount: count(tables.message.id),
@@ -98,6 +101,7 @@ chats.openapi(listChats, async (c) => {
 			tables.chat.title,
 			tables.chat.model,
 			tables.chat.status,
+			tables.chat.webSearch,
 			tables.chat.createdAt,
 			tables.chat.updatedAt,
 		)
@@ -108,6 +112,7 @@ chats.openapi(listChats, async (c) => {
 		title: chat.title,
 		model: chat.model,
 		status: chat.status as "active" | "archived" | "deleted",
+		webSearch: chat.webSearch ?? false,
 		createdAt: chat.createdAt.toISOString(),
 		updatedAt: chat.updatedAt.toISOString(),
 		messageCount: chat.messageCount,
@@ -186,6 +191,7 @@ chats.openapi(createChat, async (c) => {
 			title: body.title,
 			model: body.model,
 			userId: user.id,
+			webSearch: body.webSearch ?? false,
 		})
 		.returning();
 
@@ -196,6 +202,7 @@ chats.openapi(createChat, async (c) => {
 				title: newChat.title,
 				model: newChat.model,
 				status: newChat.status as "active" | "archived" | "deleted",
+				webSearch: newChat.webSearch ?? false,
 				createdAt: newChat.createdAt.toISOString(),
 				updatedAt: newChat.updatedAt.toISOString(),
 				messageCount: 0,
@@ -277,6 +284,7 @@ chats.openapi(getChat, async (c) => {
 				title: chat.title,
 				model: chat.model,
 				status: chat.status as "active" | "archived" | "deleted",
+				webSearch: chat.webSearch ?? false,
 				createdAt: chat.createdAt.toISOString(),
 				updatedAt: chat.updatedAt.toISOString(),
 				messageCount: messages.length,
@@ -366,6 +374,7 @@ chats.openapi(updateChat, async (c) => {
 			title: updatedChat.title,
 			model: updatedChat.model,
 			status: updatedChat.status as "active" | "archived" | "deleted",
+			webSearch: updatedChat.webSearch ?? false,
 			createdAt: updatedChat.createdAt.toISOString(),
 			updatedAt: updatedChat.updatedAt.toISOString(),
 			messageCount: messageCount[0].count,

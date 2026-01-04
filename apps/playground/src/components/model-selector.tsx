@@ -9,6 +9,7 @@ import {
 	ExternalLink,
 	Filter,
 	Gift,
+	Globe,
 	ImagePlus,
 	Info,
 	MessageSquare,
@@ -98,6 +99,9 @@ function getMappingCapabilities(
 		if (mapping.reasoning) {
 			labels.push("Reasoning");
 		}
+		if (mapping.webSearch) {
+			labels.push("Web Search");
+		}
 	}
 
 	// Image Generation capability if model outputs include images
@@ -126,6 +130,8 @@ function getCapabilityIconConfig(capability: string): {
 			return { Icon: Braces, color: "text-cyan-500" };
 		case "Image Generation":
 			return { Icon: ImagePlus, color: "text-pink-500" };
+		case "Web Search":
+			return { Icon: Globe, color: "text-teal-500" };
 		default:
 			return { Icon: null, color: "" };
 	}

@@ -1,5 +1,12 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy, Plug, Brain } from "lucide-react";
+import {
+	AlertCircle,
+	RefreshCcw,
+	Copy,
+	Plug,
+	Brain,
+	GlobeIcon,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -42,6 +49,12 @@ import {
 	ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
+import {
+	Source,
+	Sources,
+	SourcesContent,
+	SourcesTrigger,
+} from "@/components/ai-elements/sources";
 import {
 	Tool,
 	ToolContent,
@@ -111,6 +124,9 @@ interface ChatUIProps {
 	setImageSize: (value: "1K" | "2K" | "4K") => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
+	supportsWebSearch: boolean;
+	webSearchEnabled: boolean;
+	setWebSearchEnabled: (value: boolean) => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -178,6 +194,9 @@ export const ChatUI = ({
 	setImageSize,
 	alibabaImageSize,
 	setAlibabaImageSize,
+	supportsWebSearch,
+	webSearchEnabled,
+	setWebSearchEnabled,
 	onUserMessage,
 	isLoading = false,
 	error = null,
@@ -336,6 +355,9 @@ export const ChatUI = ({
 										.filter((p) => p.type === "reasoning")
 										.map((p) => p.text)
 										.join("");
+									const sourceParts = m.parts.filter(
+										(p) => p.type === "source-url",
+									);
 
 									return (
 										<div key={m.id}>
@@ -448,6 +470,18 @@ export const ChatUI = ({
 												<div className="mt-3">
 													<Loader />
 												</div>
+											) : null}
+
+											{/* Sources at the bottom */}
+											{sourceParts.length > 0 ? (
+												<Sources>
+													<SourcesTrigger count={sourceParts.length} />
+													{sourceParts.map((part, i) => (
+														<SourcesContent key={`${m.id}-${i}`}>
+															<Source href={part.url} title={part.url} />
+														</SourcesContent>
+													))}
+												</Sources>
 											) : null}
 
 											{isLastMessage && (
@@ -570,26 +604,19 @@ export const ChatUI = ({
 								onTranscriptionChange={setText}
 								textareaRef={textareaRef}
 							/>
-							{/* <Tooltip delayDuration={400}>
-								<TooltipTrigger asChild>
-									<span className="inline-flex pointer-events-auto">
-										<PromptInputButton
-											variant="ghost"
-											disabled
-											className="pointer-events-none"
-										>
-											<GlobeIcon size={16} />
-											<span>Search</span>
-										</PromptInputButton>
-									</span>
-								</TooltipTrigger>
-								<TooltipContent>coming soon</TooltipContent>
-							</Tooltip> */}
+							{supportsWebSearch && (
+								<PromptInputButton
+									variant={webSearchEnabled ? "default" : "ghost"}
+									onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+								>
+									<GlobeIcon size={16} />
+								</PromptInputButton>
+							)}
 							<ConnectorsDialog
 								trigger={
 									<PromptInputButton variant="ghost">
 										<Plug size={16} />
-										<span>Connectors</span>
+										<span>MCPs</span>
 									</PromptInputButton>
 								}
 							/>

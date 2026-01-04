@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
@@ -20,9 +20,37 @@ export const dynamic = "force-dynamic";
 export default async function ChatPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ orgId: string; projectId: string }>;
+	searchParams: Promise<{
+		orgId: string;
+		projectId: string;
+		q?: string;
+		hints?: string;
+		model?: string;
+	}>;
 }) {
-	const { orgId, projectId } = await searchParams;
+	const params = await searchParams;
+	let { orgId, projectId, q, hints, model } = params;
+
+	// Auto-select a web search capable model when hints=search
+	if (hints === "search" && !model) {
+		model = "google-ai-studio/gemini-3-flash-preview";
+		// Redirect to add the model parameter to the URL
+		const newParams = new URLSearchParams();
+		if (orgId) {
+			newParams.set("orgId", orgId);
+		}
+		if (projectId) {
+			newParams.set("projectId", projectId);
+		}
+		if (q) {
+			newParams.set("q", q);
+		}
+		if (hints) {
+			newParams.set("hints", hints);
+		}
+		newParams.set("model", model);
+		redirect(`/?${newParams.toString()}`);
+	}
 
 	// Fetch organizations server-side
 	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
@@ -134,6 +162,8 @@ export default async function ChatPage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
+				initialPrompt={q}
+				enableWebSearch={hints === "search"}
 			/>
 		</>
 	);
