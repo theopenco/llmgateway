@@ -17,6 +17,7 @@ export function getProviderEndpoint(
 	hasExistingToolCalls?: boolean,
 	providerKeyOptions?: ProviderKeyOptions,
 	configIndex?: number,
+	imageGenerations?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -90,7 +91,12 @@ export function getProviderEndpoint(
 				url = "https://api.moonshot.ai";
 				break;
 			case "alibaba":
-				url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
+				// Use different base URL for image generation vs chat completions
+				if (imageGenerations) {
+					url = "https://dashscope-intl.aliyuncs.com";
+				} else {
+					url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
+				}
 				break;
 			case "nebius":
 				url = "https://api.studio.nebius.com";
@@ -216,6 +222,9 @@ export function getProviderEndpoint(
 		case "novita":
 			return `${url}/chat/completions`;
 		case "zai":
+			if (imageGenerations) {
+				return `${url}/api/paas/v4/images/generations`;
+			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
 			const prefix =
@@ -258,7 +267,14 @@ export function getProviderEndpoint(
 		case "openai": {
 			// Use responses endpoint for models that support responses API
 			if (model) {
-				const modelDef = models.find((m) => m.id === model);
+				// Look up by model ID first, then fall back to provider modelName
+				const modelDef = models.find(
+					(m) =>
+						m.id === model ||
+						m.providers.some(
+							(p) => p.modelName === model && p.providerId === "openai",
+						),
+				);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
 				);
@@ -272,6 +288,11 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
+		case "alibaba":
+			if (imageGenerations) {
+				return `${url}/api/v1/services/aigc/multimodal-generation/generation`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":
@@ -280,7 +301,6 @@ export function getProviderEndpoint(
 		case "cerebras":
 		case "deepseek":
 		case "moonshot":
-		case "alibaba":
 		case "nebius":
 		case "routeway":
 		case "nanogpt":

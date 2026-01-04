@@ -1,0 +1,261 @@
+---
+title: Response Healing
+description: Automatically repair malformed JSON responses from AI models.
+icon: Bandage
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Response Healing
+
+Response Healing is a plugin that automatically validates and repairs malformed JSON responses from AI models. When enabled, LLM Gateway ensures that API responses conform to your specified schemas even when the model's formatting is imperfect.
+
+## Why Response Healing?
+
+Large language models occasionally produce invalid JSON, especially in complex scenarios:
+
+- **Markdown wrapping**: Models often wrap JSON in code blocks like \`\`\`json...\`\`\`
+- **Mixed content**: JSON may be preceded or followed by explanatory text
+- **Syntax errors**: Trailing commas, unquoted keys, or single quotes instead of double quotes
+- **Truncated output**: Token limits may cut off responses mid-JSON
+
+Response Healing automatically detects and fixes these issues, saving you from implementing error handling for every possible malformed response.
+
+## Enabling Response Healing
+
+To enable Response Healing, add `response-healing` to the `plugins` array in your request:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Return a JSON object with name and age"}],
+    "response_format": {"type": "json_object"},
+    "plugins": [{"id": "response-healing"}]
+  }'
+```
+
+<Callout type="info">
+	Response Healing only activates when `response_format` is set to `json_object`
+	or `json_schema`. For regular text responses, the plugin has no effect.
+</Callout>
+
+## How It Works
+
+When Response Healing is enabled, LLM Gateway applies a series of repair strategies to malformed JSON responses:
+
+### 1. Markdown Extraction
+
+Extracts JSON from markdown code blocks:
+
+```text
+Here's the data:
+\`\`\`json
+{"name": "Alice", "age": 30}
+\`\`\`
+```
+
+Becomes:
+
+```json
+{ "name": "Alice", "age": 30 }
+```
+
+### 2. Mixed Content Extraction
+
+Separates JSON from surrounding text:
+
+```text
+Sure! Here is the JSON you requested: {"name": "Alice", "age": 30} Let me know if you need anything else.
+```
+
+Becomes:
+
+```json
+{ "name": "Alice", "age": 30 }
+```
+
+### 3. Syntax Fixes
+
+Repairs common JSON syntax violations:
+
+| Issue           | Before              | After               |
+| --------------- | ------------------- | ------------------- |
+| Trailing commas | `{"a": 1,}`         | `{"a": 1}`          |
+| Unquoted keys   | `{name: "Alice"}`   | `{"name": "Alice"}` |
+| Single quotes   | `{'name': 'Alice'}` | `{"name": "Alice"}` |
+
+### 4. Truncation Completion
+
+Adds missing closing brackets for truncated responses:
+
+```text
+{"name": "Alice", "data": {"nested": true
+```
+
+Becomes:
+
+```json
+{ "name": "Alice", "data": { "nested": true } }
+```
+
+## Usage Examples
+
+### With JSON Object Format
+
+Request a structured response with automatic healing:
+
+```typescript
+const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "gpt-4o",
+		messages: [
+			{
+				role: "user",
+				content:
+					"Return a JSON object with fields: name (string) and age (number)",
+			},
+		],
+		response_format: { type: "json_object" },
+		plugins: [{ id: "response-healing" }],
+	}),
+});
+
+const result = await response.json();
+// Response is guaranteed to be valid JSON
+const data = JSON.parse(result.choices[0].message.content);
+```
+
+### With JSON Schema
+
+For stricter validation, combine with `json_schema`:
+
+```typescript
+const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "gpt-4o",
+		messages: [
+			{
+				role: "user",
+				content: "Generate a user profile",
+			},
+		],
+		response_format: {
+			type: "json_schema",
+			json_schema: {
+				name: "user_profile",
+				schema: {
+					type: "object",
+					required: ["name", "email"],
+					properties: {
+						name: { type: "string" },
+						email: { type: "string" },
+						age: { type: "number" },
+					},
+				},
+			},
+		},
+		plugins: [{ id: "response-healing" }],
+	}),
+});
+
+const result = await response.json();
+```
+
+## Healing Metadata
+
+When a response is healed, the healing method is logged for debugging. The following healing methods may be applied:
+
+| Method                     | Description                                 |
+| -------------------------- | ------------------------------------------- |
+| `markdown_extraction`      | JSON extracted from markdown code blocks    |
+| `mixed_content_extraction` | JSON extracted from surrounding text        |
+| `syntax_fix`               | Trailing commas, quotes, or keys were fixed |
+| `truncation_completion`    | Missing closing brackets were added         |
+| `combined_strategies`      | Multiple strategies were applied            |
+
+## Limitations
+
+<Callout type="warning">
+	Response Healing is only available for non-streaming requests. Streaming
+	responses are returned as-is without healing.
+</Callout>
+
+Response Healing works best for:
+
+- Simple to moderately complex JSON structures
+- Common formatting issues from LLMs
+
+It may not be able to repair:
+
+- Severely corrupted or nonsensical output
+- Complex nested structures with multiple issues
+- Responses that don't contain any recognizable JSON
+
+## Best Practices
+
+### Use with Structured Prompts
+
+Combine Response Healing with clear instructions for best results:
+
+```typescript
+const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "gpt-4o",
+		messages: [
+			{
+				role: "system",
+				content: "Always respond with valid JSON. No explanations.",
+			},
+			{
+				role: "user",
+				content: "List three colors as a JSON array",
+			},
+		],
+		response_format: { type: "json_object" },
+		plugins: [{ id: "response-healing" }],
+	}),
+});
+
+const result = await response.json();
+```
+
+### Validate Critical Data
+
+For critical applications, validate the healed JSON in your code:
+
+```typescript
+const result = await response.json();
+const content = result.choices[0].message.content;
+const data = JSON.parse(content);
+
+// Add your own validation
+if (!data.name || typeof data.name !== "string") {
+	throw new Error("Invalid response: missing name");
+}
+```
+
+### Monitor Healing Rates
+
+If you notice frequent healing in your logs, consider:
+
+- Improving your prompts to request cleaner JSON
+- Using models with better JSON output (e.g., GPT-4o, Claude 3.5)
+- Adding explicit JSON examples in your prompts

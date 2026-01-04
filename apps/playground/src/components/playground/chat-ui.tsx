@@ -109,6 +109,8 @@ interface ChatUIProps {
 	) => void;
 	imageSize: "1K" | "2K" | "4K";
 	setImageSize: (value: "1K" | "2K" | "4K") => void;
+	alibabaImageSize: string;
+	setAlibabaImageSize: (value: string) => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -174,10 +176,19 @@ export const ChatUI = ({
 	setImageAspectRatio,
 	imageSize,
 	setImageSize,
+	alibabaImageSize,
+	setAlibabaImageSize,
 	onUserMessage,
 	isLoading = false,
 	error = null,
 }: ChatUIProps) => {
+	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+	const usesPixelDimensions =
+		selectedModel.toLowerCase().includes("alibaba") ||
+		selectedModel.toLowerCase().includes("qwen-image") ||
+		selectedModel.toLowerCase().includes("zai") ||
+		selectedModel.toLowerCase().includes("cogview");
+
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -611,7 +622,7 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{supportsImageGen && (
+							{supportsImageGen && !usesPixelDimensions && (
 								<>
 									<Select
 										value={imageAspectRatio}
@@ -663,6 +674,25 @@ export const ChatUI = ({
 										</SelectContent>
 									</Select>
 								</>
+							)}
+							{supportsImageGen && usesPixelDimensions && (
+								<Select
+									value={alibabaImageSize}
+									onValueChange={setAlibabaImageSize}
+								>
+									<SelectTrigger size="sm" className="min-w-[130px]">
+										<SelectValue placeholder="Image Size" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="1024x1024">1024x1024</SelectItem>
+										<SelectItem value="720x1280">720x1280</SelectItem>
+										<SelectItem value="1280x720">1280x720</SelectItem>
+										<SelectItem value="1024x1536">1024x1536</SelectItem>
+										<SelectItem value="1536x1024">1536x1024</SelectItem>
+										<SelectItem value="2048x1024">2048x1024</SelectItem>
+										<SelectItem value="1024x2048">1024x2048</SelectItem>
+									</SelectContent>
+								</Select>
 							)}
 							{status === "streaming" ? (
 								<PromptInputButton onClick={() => stop()} variant="ghost">

@@ -1,4 +1,4 @@
-import type { ImageObject } from "./types.js";
+import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 export interface CostData {
@@ -6,6 +6,7 @@ export interface CostData {
 	outputCost: number | null;
 	cachedInputCost: number | null;
 	requestCost: number | null;
+	webSearchCost: number | null;
 	totalCost: number | null;
 }
 
@@ -43,6 +44,7 @@ function buildUsageObject(
 			cost_usd_output: costs.outputCost,
 			cost_usd_cached_input: costs.cachedInputCost,
 			cost_usd_request: costs.requestCost,
+			cost_usd_web_search: costs.webSearchCost,
 		}),
 		...(showUpgradeMessage && {
 			info: "upgrade to pro to include usd cost breakdown",
@@ -72,6 +74,7 @@ export function transformResponseToOpenai(
 	baseModelName: string,
 	costs: CostData | null = null,
 	showUpgradeMessage = false,
+	annotations: Annotation[] | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -94,6 +97,7 @@ export function transformResponseToOpenai(
 							}),
 							...(toolResults && { tool_calls: toolResults }),
 							...(images && images.length > 0 && { images }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
 						finish_reason: (() => {
 							// Map Google finish reasons to OpenAI format for the response
@@ -154,6 +158,7 @@ export function transformResponseToOpenai(
 								reasoning: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
 						finish_reason:
 							finishReason === "end_turn"
@@ -288,6 +293,7 @@ export function transformResponseToOpenai(
 								reasoning: reasoningContent,
 							}),
 							...(toolResults && { tool_calls: toolResults }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
 						finish_reason: finishReason || "stop",
 					},
@@ -311,6 +317,89 @@ export function transformResponseToOpenai(
 			};
 			break;
 		}
+		case "alibaba": {
+			// Check if this is a DashScope multimodal generation response (image generation)
+			// These have output.choices format instead of direct choices
+			if (json.output?.choices) {
+				transformedResponse = {
+					id: json.request_id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: Math.floor(Date.now() / 1000),
+					model: `${usedProvider}/${baseModelName}`,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(images && images.length > 0 && { images }),
+							},
+							finish_reason: finishReason || "stop",
+						},
+					],
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+					),
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
+				};
+			} else {
+				// Standard Alibaba chat completions format (OpenAI-compatible)
+				if (transformedResponse && typeof transformedResponse === "object") {
+					if (transformedResponse.choices?.[0]?.message) {
+						const message = transformedResponse.choices[0].message;
+						if (content !== null) {
+							message.content = content;
+						}
+						if (reasoningContent !== null) {
+							message.reasoning = reasoningContent;
+							delete message.reasoning_content;
+						}
+					}
+					if (transformedResponse.choices?.[0] && finishReason !== null) {
+						transformedResponse.choices[0].finish_reason = finishReason;
+					}
+					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.metadata = {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					};
+					if (transformedResponse.usage) {
+						if (costs !== null) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								cost_usd_total: costs.totalCost,
+								cost_usd_input: costs.inputCost,
+								cost_usd_output: costs.outputCost,
+								cost_usd_cached_input: costs.cachedInputCost,
+								cost_usd_request: costs.requestCost,
+							};
+						}
+						if (showUpgradeMessage) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								info: "upgrade to pro to include usd cost breakdown",
+							};
+						}
+					}
+				}
+			}
+			break;
+		}
 		case "mistral":
 		case "novita":
 		case "openai": {
@@ -332,6 +421,7 @@ export function transformResponseToOpenai(
 									reasoning: reasoningContent,
 								}),
 								...(toolResults && { tool_calls: toolResults }),
+								...(annotations && annotations.length > 0 && { annotations }),
 							},
 							finish_reason: finishReason || "stop",
 						},
@@ -367,6 +457,10 @@ export function transformResponseToOpenai(
 							message.reasoning = reasoningContent;
 							// Remove the old reasoning_content field if it exists
 							delete message.reasoning_content;
+						}
+						// Add annotations if present
+						if (annotations && annotations.length > 0) {
+							message.annotations = annotations;
 						}
 					}
 					// Update finish_reason with the mapped value
@@ -404,16 +498,107 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+		case "zai": {
+			// Check if this is a CogView image generation response
+			// Format: { created: number, data: [{ url: "..." }] }
+			if (json.data && Array.isArray(json.data)) {
+				transformedResponse = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: json.created || Math.floor(Date.now() / 1000),
+					model: `${usedProvider}/${baseModelName}`,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(images && images.length > 0 && { images }),
+							},
+							finish_reason: finishReason || "stop",
+						},
+					],
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+					),
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
+				};
+			} else {
+				// Standard ZAI chat completions format (OpenAI-compatible)
+				if (transformedResponse && typeof transformedResponse === "object") {
+					if (transformedResponse.choices?.[0]?.message) {
+						const message = transformedResponse.choices[0].message;
+						if (content !== null) {
+							message.content = content;
+						}
+						if (reasoningContent !== null) {
+							message.reasoning = reasoningContent;
+							delete message.reasoning_content;
+						}
+					}
+					if (transformedResponse.choices?.[0] && finishReason !== null) {
+						transformedResponse.choices[0].finish_reason = finishReason;
+					}
+					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.metadata = {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					};
+					if (transformedResponse.usage) {
+						if (costs !== null) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								cost_usd_total: costs.totalCost,
+								cost_usd_input: costs.inputCost,
+								cost_usd_output: costs.outputCost,
+								cost_usd_cached_input: costs.cachedInputCost,
+								cost_usd_request: costs.requestCost,
+							};
+						}
+						if (showUpgradeMessage) {
+							transformedResponse.usage = {
+								...transformedResponse.usage,
+								info: "upgrade to pro to include usd cost breakdown",
+							};
+						}
+					}
+				}
+			}
+			break;
+		}
 		default: {
 			// For any other provider, add metadata to existing response
 			if (transformedResponse && typeof transformedResponse === "object") {
-				// Ensure reasoning field is present if we have reasoning content
+				// Ensure content and reasoning fields are present with parsed/healed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
+					// Update content with parsed content (includes healed JSON for response healing)
+					if (content !== null) {
+						message.content = content;
+					}
 					if (reasoningContent !== null) {
 						message.reasoning = reasoningContent;
 						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
+					}
+					// Add annotations if present
+					if (annotations && annotations.length > 0) {
+						message.annotations = annotations;
 					}
 				}
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;

@@ -3,7 +3,7 @@ import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
 
-import type { ImageObject } from "./types.js";
+import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 /**
@@ -24,6 +24,8 @@ export function parseProviderResponse(
 	let cachedTokens = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
+	let annotations: Annotation[] = [];
+	let webSearchCount = 0;
 
 	switch (usedProvider) {
 		case "aws-bedrock": {
@@ -97,6 +99,48 @@ export function parseProviderResponse(
 				thinkingBlocks.map((block: any) => block.thinking).join("") || null;
 
 			finishReason = json.stop_reason || null;
+
+			// Extract web search citations from Anthropic response
+			// Anthropic returns web_search_tool_result blocks with content that includes source info
+			const webSearchBlocks = contentBlocks.filter(
+				(block: any) => block.type === "web_search_tool_result",
+			);
+			if (webSearchBlocks.length > 0) {
+				webSearchCount = webSearchBlocks.length;
+				// Extract citations from each web search result
+				for (const block of webSearchBlocks) {
+					if (block.content && Array.isArray(block.content)) {
+						for (const item of block.content) {
+							if (item.type === "web_search_result") {
+								annotations.push({
+									type: "url_citation",
+									url_citation: {
+										url: item.url || "",
+										title: item.title,
+									},
+								});
+							}
+						}
+					}
+				}
+			}
+
+			// Also check for citations in text blocks (inline citations)
+			for (const block of textBlocks) {
+				if (block.citations && Array.isArray(block.citations)) {
+					for (const citation of block.citations) {
+						annotations.push({
+							type: "url_citation",
+							url_citation: {
+								url: citation.url || "",
+								title: citation.title,
+								start_index: citation.start_char_index,
+								end_index: citation.end_char_index,
+							},
+						});
+					}
+				}
+			}
 
 			// For Anthropic: input_tokens are the non-cached tokens
 			// We need to add cache_creation_input_tokens to get total input tokens
@@ -262,6 +306,37 @@ export function parseProviderResponse(
 					},
 				);
 			}
+
+			// Extract web search citations from Google grounding metadata
+			const groundingMetadata = json.candidates?.[0]?.groundingMetadata;
+			if (groundingMetadata) {
+				webSearchCount = 1; // Google doesn't report individual search counts
+				// Extract from groundingChunks (sources)
+				if (
+					groundingMetadata.groundingChunks &&
+					Array.isArray(groundingMetadata.groundingChunks)
+				) {
+					for (const chunk of groundingMetadata.groundingChunks) {
+						if (chunk.web) {
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: chunk.web.uri || "",
+									title: chunk.web.title,
+								},
+							});
+						}
+					}
+				}
+				// Also extract from webSearchQueries if available for reference
+				if (
+					groundingMetadata.webSearchQueries &&
+					groundingMetadata.webSearchQueries.length > 0
+				) {
+					webSearchCount = groundingMetadata.webSearchQueries.length;
+				}
+			}
+
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
@@ -336,7 +411,87 @@ export function parseProviderResponse(
 			toolResults = json.choices?.[0]?.message?.tool_calls || null;
 			break;
 		}
+		case "alibaba": {
+			// Check if this is a DashScope multimodal generation response (image generation)
+			// Format: { output: { choices: [{ message: { content: [{ image: "url" }] } }] }, usage: {...} }
+			const alibabaChoices = json.output?.choices;
+			if (alibabaChoices && Array.isArray(alibabaChoices)) {
+				const messageContent = alibabaChoices[0]?.message?.content;
+				if (Array.isArray(messageContent)) {
+					// Extract images from content array
+					const imageItems = messageContent.filter((item: any) => item.image);
+					if (imageItems.length > 0) {
+						images = imageItems.map(
+							(item: any): ImageObject => ({
+								type: "image_url",
+								image_url: {
+									url: item.image,
+								},
+							}),
+						);
+						content = "Generated image";
+						finishReason = alibabaChoices[0]?.finish_reason || "stop";
+						// DashScope image generation uses different usage format
+						promptTokens = 0;
+						completionTokens = 0;
+						totalTokens = 0;
+					} else {
+						// Text content in DashScope format
+						content =
+							messageContent
+								.filter((item: any) => item.text)
+								.map((item: any) => item.text)
+								.join("") || null;
+						finishReason = alibabaChoices[0]?.finish_reason || null;
+					}
+				}
+			} else if (json.choices) {
+				// Alibaba chat completions use OpenAI format
+				toolResults = json.choices?.[0]?.message?.tool_calls || null;
+				content = json.choices?.[0]?.message?.content || null;
+				reasoningContent =
+					json.choices?.[0]?.message?.reasoning ||
+					json.choices?.[0]?.message?.reasoning_content ||
+					null;
+				finishReason = json.choices?.[0]?.finish_reason || null;
+				promptTokens = json.usage?.prompt_tokens || null;
+				completionTokens = json.usage?.completion_tokens || null;
+				reasoningTokens = json.usage?.reasoning_tokens || null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
+				totalTokens =
+					json.usage?.total_tokens ||
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens || 0)
+						: null);
+				if (json.choices?.[0]?.message?.images) {
+					images = json.choices[0].message.images;
+				}
+			}
+			break;
+		}
 		default: // OpenAI format
+			// Check if this is a Z.AI CogView image generation response
+			// Format: { created: number, data: [{ url: "..." }] }
+			if (usedProvider === "zai" && json.data && Array.isArray(json.data)) {
+				const imageData = json.data;
+				if (imageData.length > 0) {
+					images = imageData.map(
+						(item: any): ImageObject => ({
+							type: "image_url",
+							image_url: {
+								url: item.url,
+							},
+						}),
+					);
+					content = "Generated image";
+					finishReason = "stop";
+					// CogView image generation doesn't return token usage
+					promptTokens = 0;
+					completionTokens = 0;
+					totalTokens = 0;
+				}
+				break;
+			}
 			// Check if this is an OpenAI responses format (has output array instead of choices)
 			if (json.output && Array.isArray(json.output)) {
 				// OpenAI responses endpoint format
@@ -393,6 +548,39 @@ export function parseProviderResponse(
 					json.usage?.output_tokens_details?.reasoning_tokens || null;
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens || null;
 				totalTokens = json.usage?.total_tokens || null;
+
+				// Count web_search_call items for pricing (each call is billed, not each citation)
+				const webSearchCalls = json.output.filter(
+					(item: any) => item.type === "web_search_call",
+				);
+				if (webSearchCalls.length > 0) {
+					webSearchCount = webSearchCalls.length;
+				}
+
+				// Extract web search citations from OpenAI Responses API format
+				// Citations come as annotations in the message content (for display, not pricing)
+				if (messageOutput?.content) {
+					for (const contentItem of messageOutput.content) {
+						if (
+							contentItem.annotations &&
+							Array.isArray(contentItem.annotations)
+						) {
+							for (const annotation of contentItem.annotations) {
+								if (annotation.type === "url_citation") {
+									annotations.push({
+										type: "url_citation",
+										url_citation: {
+											url: annotation.url || "",
+											title: annotation.title,
+											start_index: annotation.start_index,
+											end_index: annotation.end_index,
+										},
+									});
+								}
+							}
+						}
+					}
+				}
 			} else {
 				// Standard OpenAI chat completions format
 				toolResults = json.choices?.[0]?.message?.tool_calls || null;
@@ -449,6 +637,52 @@ export function parseProviderResponse(
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
 				}
+
+				// Extract web search citations from OpenAI Chat Completions format
+				// For search models, citations come in message.annotations
+				// Count as 1 search per request if any citations are present (billed per request, not per citation)
+				const messageAnnotations =
+					json.choices?.[0]?.message?.annotations || [];
+				let hasSearchCitations = false;
+				for (const annotation of messageAnnotations) {
+					if (annotation.type === "url_citation") {
+						hasSearchCitations = true;
+						annotations.push({
+							type: "url_citation",
+							url_citation: {
+								url: annotation.url_citation?.url || annotation.url || "",
+								title: annotation.url_citation?.title || annotation.title,
+								start_index:
+									annotation.url_citation?.start_index ??
+									annotation.start_index,
+								end_index:
+									annotation.url_citation?.end_index ?? annotation.end_index,
+							},
+						});
+					}
+				}
+				if (hasSearchCitations) {
+					webSearchCount = 1; // Search models bill per request, not per citation
+				}
+
+				// For ZAI, extract web search info if present
+				// ZAI includes web_search content in the response
+				if (usedProvider === "zai") {
+					const webSearchResults =
+						json.choices?.[0]?.message?.web_search || null;
+					if (webSearchResults && Array.isArray(webSearchResults)) {
+						webSearchCount = webSearchResults.length;
+						for (const result of webSearchResults) {
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: result.link || result.url || "",
+									title: result.title,
+								},
+							});
+						}
+					}
+				}
 			}
 			break;
 	}
@@ -464,5 +698,7 @@ export function parseProviderResponse(
 		cachedTokens,
 		toolResults,
 		images,
+		annotations: annotations.length > 0 ? annotations : null,
+		webSearchCount: webSearchCount > 0 ? webSearchCount : null,
 	};
 }

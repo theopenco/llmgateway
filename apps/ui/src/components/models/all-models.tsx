@@ -5,6 +5,7 @@ import {
 	Copy,
 	Eye,
 	Gift,
+	Globe,
 	MessageSquare,
 	Wrench,
 	Zap,
@@ -131,6 +132,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			jsonOutput: searchParams.get("jsonOutput") === "true",
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
+			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
 		},
@@ -260,6 +262,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			if (
 				filters.capabilities.imageGeneration &&
 				!model.output?.includes("image")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.webSearch &&
+				!model.providerDetails.some((p) => p.provider.webSearch)
 			) {
 				return false;
 			}
@@ -586,6 +594,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				color: "text-pink-500",
 			});
 		}
+		if (provider.webSearch) {
+			capabilities.push({
+				icon: Globe,
+				label: "Native Web Search",
+				color: "text-sky-500",
+			});
+		}
 		return capabilities;
 	};
 
@@ -600,6 +615,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				imageGeneration: false,
+				webSearch: false,
 				free: false,
 				discounted: false,
 			},
@@ -619,6 +635,8 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			reasoning: undefined,
 			jsonOutput: undefined,
 			jsonOutputSchema: undefined,
+			imageGeneration: undefined,
+			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
 			provider: undefined,
@@ -696,6 +714,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									label: "Image Generation",
 									icon: ImagePlus,
 									color: "text-pink-500",
+								},
+								{
+									key: "webSearch",
+									label: "Native Web Search",
+									icon: Globe,
+									color: "text-sky-500",
 								},
 								{
 									key: "free",
@@ -957,6 +981,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</Button>
 							</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								Native Web Search
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
 								Capabilities
 							</TableHead>
 							<TableHead className="text-center">Stability</TableHead>
@@ -1168,6 +1195,23 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 														<span className="text-muted-foreground">/M</span>
 													</div>
 												)}
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									<div className="space-y-1">
+										{model.providerDetails.map(({ provider }) => (
+											<div
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+												className="text-sm font-mono"
+											>
+												{provider.webSearch && provider.webSearchPrice
+													? `$${(provider.webSearchPrice * 1000).toFixed(2)}/1K`
+													: provider.webSearch
+														? "Free"
+														: "—"}
 											</div>
 										))}
 									</div>

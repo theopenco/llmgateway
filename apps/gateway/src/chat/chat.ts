@@ -43,6 +43,7 @@ import {
 	type ProviderRequestBody,
 	providers,
 	type RoutingMetadata,
+	type WebSearchTool,
 } from "@llmgateway/models";
 
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -54,6 +55,7 @@ import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
+import { healJsonResponse } from "./tools/heal-json-response.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
@@ -61,6 +63,7 @@ import { transformStreamingToOpenai } from "./tools/transform-streaming-to-opena
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
+import type { ImageObject } from "./tools/types.js";
 import type { ServerTypes } from "@/vars.js";
 
 /**
@@ -68,6 +71,52 @@ import type { ServerTypes } from "@/vars.js";
  */
 export function estimateTokensFromContent(content: string): number {
 	return Math.max(1, Math.round(content.length / 4));
+}
+
+/**
+ * Converts external image URLs to base64 data URLs
+ * Used for providers like Alibaba that return external URLs instead of base64
+ */
+async function convertImagesToBase64(
+	images: ImageObject[],
+): Promise<ImageObject[]> {
+	return await Promise.all(
+		images.map(async (image): Promise<ImageObject> => {
+			const url = image.image_url.url;
+			// Skip if already a data URL
+			if (url.startsWith("data:")) {
+				return image;
+			}
+
+			try {
+				const response = await fetch(url);
+				if (!response.ok) {
+					logger.warn("Failed to fetch image for base64 conversion", {
+						url,
+						status: response.status,
+					});
+					return image;
+				}
+
+				const contentType = response.headers.get("content-type") || "image/png";
+				const arrayBuffer = await response.arrayBuffer();
+				const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+				return {
+					type: "image_url",
+					image_url: {
+						url: `data:${contentType};base64,${base64}`,
+					},
+				};
+			} catch (error) {
+				logger.warn("Error converting image to base64", {
+					url,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return image;
+			}
+		}),
+	);
 }
 
 export const chat = new OpenAPIHono<ServerTypes>();
@@ -192,14 +241,29 @@ const completionsRequestSchema = z.object({
 	stream: z.boolean().optional().default(false),
 	tools: z
 		.array(
-			z.object({
-				type: z.literal("function"),
-				function: z.object({
-					name: z.string(),
-					description: z.string().optional(),
-					parameters: z.record(z.any()).optional(),
+			z.union([
+				z.object({
+					type: z.literal("function"),
+					function: z.object({
+						name: z.string(),
+						description: z.string().optional(),
+						parameters: z.record(z.any()).optional(),
+					}),
 				}),
-			}),
+				z.object({
+					type: z.literal("web_search"),
+					user_location: z
+						.object({
+							city: z.string().optional(),
+							region: z.string().optional(),
+							country: z.string().optional(),
+							timezone: z.string().optional(),
+						})
+						.optional(),
+					search_context_size: z.enum(["low", "medium", "high"]).optional(),
+					max_uses: z.number().optional(),
+				}),
+			]),
 		)
 		.optional(),
 	tool_choice: z
@@ -250,13 +314,31 @@ const completionsRequestSchema = z.object({
 			status: z.enum(["DISABLE", "ENABLE"]),
 		})
 		.optional(),
-	// Google image generation config
+	// Image generation config (Google and Alibaba)
 	image_config: z
 		.object({
 			aspect_ratio: z.string().optional(),
 			image_size: z.string().optional(),
+			n: z.number().optional(),
+			seed: z.number().optional(),
 		})
 		.optional(),
+	// Plugins configuration
+	plugins: z
+		.array(
+			z.object({
+				id: z.enum(["response-healing"]).openapi({
+					description: "Plugin identifier",
+					example: "response-healing",
+				}),
+			}),
+		)
+		.optional()
+		.openapi({
+			description:
+				"Plugins to enable for this request. Currently supported: response-healing (automatically repairs malformed JSON responses when using response_format)",
+			example: [{ id: "response-healing" }],
+		}),
 });
 
 const completions = createRoute({
@@ -429,6 +511,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		plugins,
 	} = validationResult.data;
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
@@ -466,6 +549,27 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
+
+	// Extract web_search tool from tools array if present
+	// The web_search tool is a special tool that enables native web search for providers that support it
+	let webSearchTool: WebSearchTool | undefined;
+	if (tools && Array.isArray(tools)) {
+		const webSearchToolIndex = tools.findIndex(
+			(tool: any) => tool.type === "web_search",
+		);
+		if (webSearchToolIndex !== -1) {
+			// Cast to any to access properties since the schema allows both function and web_search tools
+			const foundTool = tools[webSearchToolIndex] as any;
+			webSearchTool = {
+				type: "web_search",
+				user_location: foundTool.user_location,
+				search_context_size: foundTool.search_context_size,
+				max_uses: foundTool.max_uses,
+			};
+			// Remove the web_search tool from the tools array so it's not sent as a regular tool
+			tools.splice(webSearchToolIndex, 1);
+		}
+	}
 
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
@@ -759,9 +863,33 @@ chat.openapi(completions, async (c) => {
 			(provider) => (provider as ProviderModelMapping).tools === true,
 		);
 
-		if (!supportsTools) {
+		// Check if any provider supports web search
+		const supportsWebSearch = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).webSearch === true,
+		);
+
+		// Determine if we have function tools (web_search tools were already extracted earlier)
+		// After extraction, `tools` only contains function tools
+		const hasFunctionTools = tools && tools.length > 0;
+
+		// The request is web-search-only if:
+		// 1. A web search tool was extracted (webSearchTool is set)
+		// 2. No function tools remain in the tools array
+		const isWebSearchOnly = webSearchTool !== undefined && !hasFunctionTools;
+
+		// Allow the request if:
+		// 1. Model supports regular tools, OR
+		// 2. Model supports web search AND request only uses web search (no function tools)
+		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
+			});
+		}
+
+		// If web_search tool is specifically requested, ensure the model supports it
+		if (webSearchTool && !supportsWebSearch) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.`,
 			});
 		}
 	}
@@ -1071,6 +1199,14 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Check web search capability if web search tool is requested
+				if (
+					webSearchTool &&
+					(provider as ProviderModelMapping).webSearch !== true
+				) {
+					return false;
+				}
+
 				return contextSizeMet;
 			});
 
@@ -1220,10 +1356,21 @@ chat.openapi(completions, async (c) => {
 								.map((p) => p.id);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
+				// If web search is requested, also filter to providers that support it
 				const availableModelProviders = modelInfo.providers.filter(
-					(provider) =>
-						availableProviders.includes(provider.providerId) &&
-						provider.providerId !== usedProvider,
+					(provider) => {
+						if (!availableProviders.includes(provider.providerId)) {
+							return false;
+						}
+						if (provider.providerId === usedProvider) {
+							return false;
+						}
+						// If web search tool is requested, only include providers that support it
+						if (webSearchTool) {
+							return (provider as ProviderModelMapping).webSearch === true;
+						}
+						return true;
+					},
 				);
 
 				if (availableModelProviders.length > 0) {
@@ -1330,9 +1477,17 @@ chat.openapi(completions, async (c) => {
 							.map((p) => p.id);
 
 			// Filter model providers to only those available
-			const availableModelProviders = modelInfo.providers.filter((provider) =>
-				availableProviders.includes(provider.providerId),
-			);
+			// If web search is requested, also filter to providers that support it
+			const availableModelProviders = modelInfo.providers.filter((provider) => {
+				if (!availableProviders.includes(provider.providerId)) {
+					return false;
+				}
+				// If web search tool is requested, only include providers that support it
+				if (webSearchTool) {
+					return (provider as ProviderModelMapping).webSearch === true;
+				}
+				return true;
+			});
 
 			if (availableModelProviders.length === 0) {
 				throw new HTTPException(400, {
@@ -1471,15 +1626,25 @@ chat.openapi(completions, async (c) => {
 
 	const baseModelName = finalModelInfo?.id || usedModel;
 
+	// Check if this is an image generation model
+	const imageGenProviderMapping = finalModelInfo?.providers.find(
+		(p) => p.providerId === usedProvider && p.modelName === usedModel,
+	);
+	const isImageGeneration =
+		(imageGenProviderMapping as ProviderModelMapping)?.imageGenerations ===
+		true;
+
 	// Create the model mapping values according to new schema
 	const usedModelMapping = usedModel; // Store the original provider model name
 	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
+	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
 	if (
 		requestedModel === "auto" &&
 		reasoning_effort === undefined &&
-		finalModelInfo
+		finalModelInfo &&
+		!webSearchTool
 	) {
 		// Check if the selected model supports reasoning
 		const selectedModelSupportsReasoning = finalModelInfo.providers.some(
@@ -1775,6 +1940,7 @@ chat.openapi(completions, async (c) => {
 			hasExistingToolCalls,
 			providerKey?.options || undefined,
 			configIndex,
+			isImageGeneration,
 		);
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
@@ -1882,6 +2048,9 @@ chat.openapi(completions, async (c) => {
 				}
 
 				// Log the cached streaming request with reconstructed content
+				// Extract plugin IDs for logging (cached streaming)
+				const cachedStreamingPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -1913,6 +2082,8 @@ chat.openapi(completions, async (c) => {
 					rawCachedResponseData, // Raw SSE data from cached response
 					null, // No upstream request for cached response
 					rawCachedResponseData, // Raw SSE data from cached response (same for both)
+					cachedStreamingPluginIds,
+					undefined, // No plugin results for cached response
 				);
 
 				// Calculate costs for cached response
@@ -1951,6 +2122,7 @@ chat.openapi(completions, async (c) => {
 					outputCost: costs.outputCost ?? 0,
 					cachedInputCost: costs.cachedInputCost ?? 0,
 					requestCost: costs.requestCost ?? 0,
+					webSearchCost: costs.webSearchCost ?? 0,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
@@ -2000,6 +2172,9 @@ chat.openapi(completions, async (c) => {
 			if (cachedResponse) {
 				// Log the cached request
 				const duration = 0; // No processing time needed
+				// Extract plugin IDs for logging (cached non-streaming)
+				const cachedPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -2031,6 +2206,8 @@ chat.openapi(completions, async (c) => {
 					cachedResponse,
 					null, // No upstream request for cached response
 					cachedResponse, // upstream response is same as cached response
+					cachedPluginIds,
+					undefined, // No plugin results for cached response
 				);
 
 				// Calculate costs for cached response
@@ -2071,6 +2248,7 @@ chat.openapi(completions, async (c) => {
 					outputCost: cachedCosts.outputCost ?? 0,
 					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
 					requestCost: cachedCosts.requestCost ?? 0,
+					webSearchCost: cachedCosts.webSearchCost ?? 0,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
@@ -2112,8 +2290,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if streaming is requested and if the model/provider combination supports it
+	// For image generation models, we'll fake streaming by converting the response
+	const fakeStreamingForImageGen = stream && isImageGeneration;
+	const effectiveStream = fakeStreamingForImageGen ? false : stream;
+
 	if (stream) {
-		if (getModelStreamingSupport(baseModelName, usedProvider) === false) {
+		if (
+			!isImageGeneration &&
+			getModelStreamingSupport(baseModelName, usedProvider) === false
+		) {
 			throw new HTTPException(400, {
 				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
 			});
@@ -2182,7 +2367,7 @@ chat.openapi(completions, async (c) => {
 		usedProvider,
 		usedModel,
 		messages as BaseMessage[],
-		stream,
+		effectiveStream,
 		temperature,
 		max_tokens,
 		top_p,
@@ -2199,6 +2384,8 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		isImageGeneration,
+		webSearchTool,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2227,7 +2414,8 @@ chat.openapi(completions, async (c) => {
 	const startTime = Date.now();
 
 	// Handle streaming response if requested
-	if (stream) {
+	// For image generation models, we skip real streaming and use fake streaming later
+	if (effectiveStream) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
 			let canceled = false;
@@ -2291,7 +2479,9 @@ chat.openapi(completions, async (c) => {
 
 			let res;
 			try {
-				const headers = getProviderHeaders(usedProvider, usedToken);
+				const headers = getProviderHeaders(usedProvider, usedToken, {
+					webSearchEnabled: !!webSearchTool,
+				});
 				headers["Content-Type"] = "application/json";
 
 				// Add effort beta header for Anthropic if effort parameter is specified
@@ -2314,6 +2504,9 @@ chat.openapi(completions, async (c) => {
 
 				if (error instanceof Error && error.name === "AbortError") {
 					// Log the canceled request
+					// Extract plugin IDs for logging (canceled request)
+					const canceledPluginIds = plugins?.map((p) => p.id) || [];
+
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -2345,6 +2538,8 @@ chat.openapi(completions, async (c) => {
 						null, // No response for canceled request
 						requestBody, // The request that was sent before cancellation
 						null, // No upstream response for canceled request
+						canceledPluginIds,
+						undefined, // No plugin results for canceled request
 					);
 
 					await insertLog({
@@ -2367,6 +2562,7 @@ chat.openapi(completions, async (c) => {
 						errorDetails: null,
 						cachedInputCost: null,
 						requestCost: null,
+						webSearchCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2399,6 +2595,9 @@ chat.openapi(completions, async (c) => {
 					});
 
 					// Log the error in the database
+					// Extract plugin IDs for logging (fetch error)
+					const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -2430,6 +2629,8 @@ chat.openapi(completions, async (c) => {
 						null, // No response for fetch error
 						requestBody, // The request that resulted in error
 						null, // No upstream response for fetch error
+						fetchErrorPluginIds,
+						undefined, // No plugin results for error case
 					);
 
 					await insertLog({
@@ -2456,6 +2657,7 @@ chat.openapi(completions, async (c) => {
 						},
 						cachedInputCost: null,
 						requestCost: null,
+						webSearchCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2551,6 +2753,9 @@ chat.openapi(completions, async (c) => {
 				});
 
 				// Log the error in the database
+				// Extract plugin IDs for logging (streaming error)
+				const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -2582,6 +2787,8 @@ chat.openapi(completions, async (c) => {
 					null, // No response for error case
 					requestBody, // The request that was sent and resulted in error
 					null, // No upstream response for error case
+					streamingErrorPluginIds,
+					undefined, // No plugin results for error case
 				);
 
 				await insertLog({
@@ -2608,6 +2815,7 @@ chat.openapi(completions, async (c) => {
 					},
 					cachedInputCost: null,
 					requestCost: null,
+					webSearchCost: null,
 					discount: null,
 					dataStorageCost: "0",
 					cached: false,
@@ -3629,6 +3837,9 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 				);
 
+				// Extract plugin IDs for logging (streaming - no healing applied)
+				const streamingPluginIds = plugins?.map((p) => p.id) || [];
+
 				const baseLogEntry = createLogEntry(
 					requestId,
 					project,
@@ -3664,6 +3875,8 @@ chat.openapi(completions, async (c) => {
 					streamingError
 						? streamingError // Pass structured error as upstream response too
 						: rawUpstreamData, // Raw streaming data received from upstream provider
+					streamingPluginIds,
+					undefined, // No plugin results for streaming
 				);
 
 				if (!finishReason && !streamingError && usedProvider === "routeway") {
@@ -3725,6 +3938,7 @@ chat.openapi(completions, async (c) => {
 					outputCost: costs.outputCost,
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
+					webSearchCost: costs.webSearchCost,
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount,
@@ -3804,7 +4018,9 @@ chat.openapi(completions, async (c) => {
 	let fetchError: Error | null = null;
 	let res;
 	try {
-		const headers = getProviderHeaders(usedProvider, usedToken);
+		const headers = getProviderHeaders(usedProvider, usedToken, {
+			webSearchEnabled: !!webSearchTool,
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Add effort beta header for Anthropic if effort parameter is specified
@@ -3849,6 +4065,9 @@ chat.openapi(completions, async (c) => {
 		});
 
 		// Log the error in the database
+		// Extract plugin IDs for logging (non-streaming fetch error)
+		const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -3880,6 +4099,8 @@ chat.openapi(completions, async (c) => {
 			null, // No response for fetch error
 			requestBody, // The request that resulted in error
 			null, // No upstream response for fetch error
+			nonStreamingFetchErrorPluginIds,
+			undefined, // No plugin results for error case
 		);
 
 		await insertLog({
@@ -3906,6 +4127,7 @@ chat.openapi(completions, async (c) => {
 			},
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -3939,6 +4161,9 @@ chat.openapi(completions, async (c) => {
 	// If the request was canceled, log it and return a response
 	if (canceled) {
 		// Log the canceled request
+		// Extract plugin IDs for logging (canceled non-streaming)
+		const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -3970,6 +4195,8 @@ chat.openapi(completions, async (c) => {
 			null, // No response for canceled request
 			requestBody, // The request that was prepared before cancellation
 			null, // No upstream response for canceled request
+			canceledNonStreamingPluginIds,
+			undefined, // No plugin results for canceled request
 		);
 
 		await insertLog({
@@ -3992,6 +4219,7 @@ chat.openapi(completions, async (c) => {
 			errorDetails: null,
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4034,6 +4262,9 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Log the error in the database
+		// Extract plugin IDs for logging (provider error)
+		const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -4065,6 +4296,8 @@ chat.openapi(completions, async (c) => {
 			errorResponseText, // Our formatted error response
 			requestBody, // The request that resulted in error
 			errorResponseText, // Raw upstream error response
+			providerErrorPluginIds,
+			undefined, // No plugin results for error case
 		);
 
 		await insertLog({
@@ -4107,6 +4340,7 @@ chat.openapi(completions, async (c) => {
 			})(),
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4161,7 +4395,7 @@ chat.openapi(completions, async (c) => {
 	const responseText = JSON.stringify(json);
 
 	// Extract content and token usage based on provider
-	const {
+	let {
 		content,
 		reasoningContent,
 		finishReason,
@@ -4172,7 +4406,41 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
+		annotations,
+		webSearchCount,
 	} = parseProviderResponse(usedProvider, json, messages);
+
+	// Apply response healing if enabled and response_format is json_object or json_schema
+	const responseHealingEnabled = plugins?.some(
+		(p) => p.id === "response-healing",
+	);
+	const isJsonResponseFormat =
+		response_format?.type === "json_object" ||
+		response_format?.type === "json_schema";
+
+	// Track plugin results for logging
+	let pluginResults: {
+		responseHealing?: {
+			healed: boolean;
+			healingMethod?: string;
+		};
+	} = {};
+
+	if (responseHealingEnabled && isJsonResponseFormat && content) {
+		const healingResult = healJsonResponse(content);
+		pluginResults.responseHealing = {
+			healed: healingResult.healed,
+			healingMethod: healingResult.healingMethod,
+		};
+		if (healingResult.healed) {
+			logger.debug("Response healing applied", {
+				method: healingResult.healingMethod,
+				originalLength: healingResult.originalContent.length,
+				healedLength: healingResult.content.length,
+			});
+			content = healingResult.content;
+		}
+	}
 
 	// Enhanced logging for Google models to debug missing responses
 	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
@@ -4196,6 +4464,19 @@ chat.openapi(completions, async (c) => {
 	logger.debug("Gateway - parseProviderResponse extracted images", { images });
 	logger.debug("Gateway - Used provider", { usedProvider });
 	logger.debug("Gateway - Used model", { usedModel });
+
+	// Convert external image URLs to base64 data URLs
+	// This ensures consistent response format across all providers
+	// The conversion function checks if already in data: format and skips if so
+	let convertedImages = images;
+	if (images && images.length > 0) {
+		convertedImages = await convertImagesToBase64(images);
+		logger.debug("Gateway - Converted images to base64", {
+			provider: usedProvider,
+			originalCount: images.length,
+			convertedCount: convertedImages.length,
+		});
+	}
 
 	// Estimate tokens if not provided by the API
 	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
@@ -4232,9 +4513,10 @@ chat.openapi(completions, async (c) => {
 			toolResults: toolResults,
 		},
 		reasoningTokens,
-		images?.length || 0,
+		convertedImages?.length || 0,
 		image_config?.image_size,
 		inputImageCount,
+		webSearchCount,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
@@ -4256,7 +4538,7 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
-		images,
+		convertedImages,
 		modelInput,
 		requestedProvider || null,
 		baseModelName,
@@ -4266,11 +4548,16 @@ chat.openapi(completions, async (c) => {
 					outputCost: costs.outputCost,
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
+					webSearchCost: costs.webSearchCost,
 					totalCost: costs.totalCost,
 				}
 			: null,
 		showUpgradeMessage,
+		annotations,
 	);
+
+	// Extract plugin IDs for logging
+	const pluginIds = plugins?.map((p) => p.id) || [];
 
 	const baseLogEntry = createLogEntry(
 		requestId,
@@ -4303,6 +4590,8 @@ chat.openapi(completions, async (c) => {
 		transformedResponse, // Our formatted response that we return to user
 		requestBody, // The request sent to the provider
 		json, // Raw upstream response from provider
+		pluginIds,
+		Object.keys(pluginResults).length > 0 ? pluginResults : undefined,
 	);
 
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
@@ -4370,6 +4659,7 @@ chat.openapi(completions, async (c) => {
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
+		webSearchCost: costs.webSearchCost,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
@@ -4395,6 +4685,64 @@ chat.openapi(completions, async (c) => {
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {
 		await setCache(cacheKey, transformedResponse, cacheDuration);
+	}
+
+	// For image generation models with streaming requested, convert to SSE format
+	if (fakeStreamingForImageGen) {
+		const streamChunks: string[] = [];
+
+		// Create a streaming chunk that mimics OpenAI SSE format
+		const deltaChunk = {
+			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			object: "chat.completion.chunk",
+			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			model: transformedResponse.model,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						content: transformedResponse.choices?.[0]?.message?.content || "",
+						...(transformedResponse.choices?.[0]?.message?.images && {
+							images: transformedResponse.choices[0].message.images,
+						}),
+					},
+					finish_reason: null,
+				},
+			],
+		};
+		streamChunks.push(`data: ${JSON.stringify(deltaChunk)}\n\n`);
+
+		// Send finish chunk
+		const finishChunk = {
+			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			object: "chat.completion.chunk",
+			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			model: transformedResponse.model,
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason:
+						transformedResponse.choices?.[0]?.finish_reason || "stop",
+				},
+			],
+			...(transformedResponse.usage && { usage: transformedResponse.usage }),
+			...(transformedResponse.metadata && {
+				metadata: transformedResponse.metadata,
+			}),
+		};
+		streamChunks.push(`data: ${JSON.stringify(finishChunk)}\n\n`);
+		streamChunks.push("data: [DONE]\n\n");
+
+		return new Response(streamChunks.join(""), {
+			headers: {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+				"X-Request-Id": requestId,
+			},
+		});
 	}
 
 	return c.json(transformedResponse);

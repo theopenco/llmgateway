@@ -67,7 +67,13 @@ function ListItem({
 	);
 }
 
-export const Navbar = ({ children }: { children?: React.ReactNode }) => {
+export const Navbar = ({
+	children,
+	sticky = true,
+}: {
+	children?: React.ReactNode;
+	sticky?: boolean;
+}) => {
 	const config = useAppConfig();
 
 	const menuItems: Array<{ name: string; href: string; external?: boolean }> = [
@@ -157,7 +163,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 		<header>
 			<nav
 				data-state={menuState && "active"}
-				className="fixed z-20 w-full px-2 group"
+				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
 				<div
 					className={cn(

@@ -111,8 +111,8 @@ export interface OpenAITool {
 	function: FunctionDefinition;
 }
 
-// Compatible type for API requests where parameters can be optional
-export interface OpenAIToolInput {
+// Function tool input type for API requests where parameters can be optional
+export interface OpenAIFunctionToolInput {
 	type: "function";
 	function: {
 		name: string;
@@ -120,6 +120,24 @@ export interface OpenAIToolInput {
 		parameters?: FunctionParameter | Record<string, any>;
 	};
 }
+
+// Web search tool input type
+export interface OpenAIWebSearchToolInput {
+	type: "web_search";
+	user_location?: {
+		city?: string;
+		region?: string;
+		country?: string;
+		timezone?: string;
+	};
+	search_context_size?: "low" | "medium" | "high";
+	max_uses?: number;
+}
+
+// Compatible type for API requests - accepts both function and web_search tools
+export type OpenAIToolInput =
+	| OpenAIFunctionToolInput
+	| OpenAIWebSearchToolInput;
 
 export interface AnthropicTool {
 	name: string;
@@ -363,4 +381,74 @@ export function hasMaxTokens(
 	requestBody: ProviderRequestBody,
 ): requestBody is OpenAIRequestBody | AnthropicRequestBody {
 	return "max_tokens" in requestBody;
+}
+
+// Web search types
+
+/**
+ * Web search tool configuration (unified format accepted by the API)
+ */
+export interface WebSearchTool {
+	type: "web_search";
+	/**
+	 * User location for localized search results (OpenAI)
+	 */
+	user_location?: {
+		type: "approximate";
+		city?: string;
+		region?: string;
+		country?: string;
+	};
+	/**
+	 * Controls how much context is retrieved from the web (OpenAI)
+	 * - low: Faster, cheaper, less accurate
+	 * - medium: Balanced (default)
+	 * - high: Slower, more expensive, more accurate
+	 */
+	search_context_size?: "low" | "medium" | "high";
+	/**
+	 * Maximum number of web searches to perform (Anthropic)
+	 */
+	max_uses?: number;
+}
+
+/**
+ * Web search citation returned in responses (unified format)
+ */
+export interface WebSearchCitation {
+	/**
+	 * URL of the source
+	 */
+	url: string;
+	/**
+	 * Title of the source page
+	 */
+	title?: string;
+	/**
+	 * Snippet or excerpt from the source
+	 */
+	snippet?: string;
+	/**
+	 * Start index in the response content where this citation applies
+	 */
+	start_index?: number;
+	/**
+	 * End index in the response content where this citation applies
+	 */
+	end_index?: number;
+}
+
+/**
+ * OpenAI web search options for Chat Completions API (search models only)
+ */
+export interface OpenAIWebSearchOptions {
+	user_location?: {
+		type: "approximate";
+		approximate?: {
+			city?: string;
+			region?: string;
+			country?: string;
+		};
+	};
+	search_context_size?: "low" | "medium" | "high";
 }

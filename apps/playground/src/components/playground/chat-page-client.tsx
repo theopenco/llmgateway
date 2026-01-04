@@ -103,6 +103,7 @@ export default function ChatPageClient({
 		| "21:9"
 	>("auto");
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -217,15 +218,17 @@ export default function ChatPageClient({
 					(p: any) => p.type === "dynamic-tool",
 				);
 
+				const bodyToSave = {
+					role: "assistant",
+					content: textContent || undefined,
+					images: images.length > 0 ? JSON.stringify(images) : undefined,
+					reasoning: reasoningContent || undefined,
+					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+				};
+
 				await addMessage.mutateAsync({
 					params: { path: { id: chatId } },
-					body: {
-						role: "assistant",
-						content: textContent || undefined,
-						images: images.length > 0 ? JSON.stringify(images) : undefined,
-						reasoning: reasoningContent || undefined,
-						tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
-					} as any,
+					body: bodyToSave as any,
 				});
 				// Note: useAddMessage already invalidates /chats query on success
 			},
@@ -283,15 +286,31 @@ export default function ChatPageClient({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
-			const imageConfig =
-				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
-					? {
-							...(imageAspectRatio !== "auto" && {
-								aspect_ratio: imageAspectRatio,
-							}),
-							...(imageSize !== "1K" && { image_size: imageSize }),
-						}
-					: undefined;
+			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			const usesPixelDimensions =
+				selectedModel.toLowerCase().includes("alibaba") ||
+				selectedModel.toLowerCase().includes("qwen-image") ||
+				selectedModel.toLowerCase().includes("zai") ||
+				selectedModel.toLowerCase().includes("cogview");
+
+			// Only send image_config if user has explicitly selected non-default values
+			const imageConfig = supportsImageGen
+				? usesPixelDimensions
+					? // For Alibaba/ZAI, don't send image_config with default size
+						alibabaImageSize !== "1024x1024"
+						? {
+								image_size: alibabaImageSize,
+							}
+						: undefined
+					: imageAspectRatio !== "auto" || imageSize !== "1K"
+						? {
+								...(imageAspectRatio !== "auto" && {
+									aspect_ratio: imageAspectRatio,
+								}),
+								...(imageSize !== "1K" && { image_size: imageSize }),
+							}
+						: undefined
+				: undefined;
 
 			// Hidden feature: check localStorage for no-fallback setting
 			const noFallback =
@@ -312,6 +331,7 @@ export default function ChatPageClient({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 				},
 			};
+
 			return sendMessage(message, mergedOptions);
 		},
 		[
@@ -321,6 +341,8 @@ export default function ChatPageClient({
 			supportsImageGen,
 			imageAspectRatio,
 			imageSize,
+			alibabaImageSize,
+			selectedModel,
 		],
 	);
 
@@ -821,6 +843,8 @@ export default function ChatPageClient({
 											setImageAspectRatio={setImageAspectRatio}
 											imageSize={imageSize}
 											setImageSize={setImageSize}
+											alibabaImageSize={alibabaImageSize}
+											setAlibabaImageSize={setAlibabaImageSize}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
@@ -847,6 +871,8 @@ export default function ChatPageClient({
 										setImageAspectRatio={setImageAspectRatio}
 										imageSize={imageSize}
 										setImageSize={setImageSize}
+										alibabaImageSize={alibabaImageSize}
+										setAlibabaImageSize={setAlibabaImageSize}
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
@@ -932,6 +958,7 @@ function ExtraChatPanel({
 		| "21:9"
 	>("auto");
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
 	const [text, setText] = useState("");
 
 	const { messages, sendMessage, status, stop, regenerate } = useChat({
@@ -977,15 +1004,31 @@ function ExtraChatPanel({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
-			const imageConfig =
-				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
-					? {
-							...(imageAspectRatio !== "auto" && {
-								aspect_ratio: imageAspectRatio,
-							}),
-							...(imageSize !== "1K" && { image_size: imageSize }),
-						}
-					: undefined;
+			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			const usesPixelDimensions =
+				selectedModel.toLowerCase().includes("alibaba") ||
+				selectedModel.toLowerCase().includes("qwen-image") ||
+				selectedModel.toLowerCase().includes("zai") ||
+				selectedModel.toLowerCase().includes("cogview");
+
+			// Only send image_config if user has explicitly selected non-default values
+			const imageConfig = supportsImageGen
+				? usesPixelDimensions
+					? // For Alibaba/ZAI, don't send image_config with default size
+						alibabaImageSize !== "1024x1024"
+						? {
+								image_size: alibabaImageSize,
+							}
+						: undefined
+					: imageAspectRatio !== "auto" || imageSize !== "1K"
+						? {
+								...(imageAspectRatio !== "auto" && {
+									aspect_ratio: imageAspectRatio,
+								}),
+								...(imageSize !== "1K" && { image_size: imageSize }),
+							}
+						: undefined
+				: undefined;
 
 			const noFallback =
 				typeof window !== "undefined" &&
@@ -1005,6 +1048,7 @@ function ExtraChatPanel({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 				},
 			};
+
 			return sendMessage(message, mergedOptions);
 		},
 		[
@@ -1014,6 +1058,8 @@ function ExtraChatPanel({
 			supportsImageGen,
 			imageAspectRatio,
 			imageSize,
+			alibabaImageSize,
+			selectedModel,
 		],
 	);
 
@@ -1102,6 +1148,8 @@ function ExtraChatPanel({
 					setImageAspectRatio={setImageAspectRatio}
 					imageSize={imageSize}
 					setImageSize={setImageSize}
+					alibabaImageSize={alibabaImageSize}
+					setAlibabaImageSize={setAlibabaImageSize}
 					isLoading={false}
 					error={null}
 				/>

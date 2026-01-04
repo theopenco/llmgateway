@@ -9,9 +9,12 @@ import {
 	ChevronUp,
 	Clock,
 	Coins,
+	Globe,
 	Info,
 	Package,
 	Link as LinkIcon,
+	Plug,
+	Sparkles,
 	Zap,
 } from "lucide-react";
 import prettyBytes from "pretty-bytes";
@@ -126,6 +129,7 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							{!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
 								!log.hasError &&
+								!log.canceled &&
 								!retentionEnabled && (
 									<TooltipProvider>
 										<Tooltip>
@@ -197,6 +201,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5" />
 								<span>{log.source}</span>
+							</div>
+						)}
+						{log.plugins && log.plugins.length > 0 && (
+							<div className="flex items-center gap-1">
+								<Plug className="h-3.5 w-3.5" />
+								<span>
+									{log.plugins.length} plugin{log.plugins.length > 1 ? "s" : ""}
+								</span>
 							</div>
 						)}
 						<span className="ml-auto">{formattedTime}</span>
@@ -455,6 +467,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>
 									{log.requestCost ? `$${log.requestCost.toFixed(8)}` : "$0"}
 								</div>
+								{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Native Web Search Cost
+										</div>
+										<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Inference Total</div>
 								<div className="font-medium">
 									{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
@@ -661,6 +681,62 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							</TooltipProvider>
 						</div>
 					</div>
+					{log.plugins && log.plugins.length > 0 && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Plugins</h4>
+							<div className="rounded-md border p-3 text-sm space-y-3">
+								<div className="flex flex-wrap gap-2">
+									{log.plugins.map((plugin) => (
+										<Badge key={plugin} variant="secondary" className="gap-1">
+											<Plug className="h-3 w-3" />
+											{plugin}
+										</Badge>
+									))}
+								</div>
+								{log.pluginResults && (
+									<div className="space-y-2 pt-2 border-t">
+										<h5 className="text-xs font-medium text-muted-foreground">
+											Plugin Results
+										</h5>
+										{log.pluginResults.responseHealing && (
+											<div className="flex items-center gap-2 text-xs">
+												<Sparkles
+													className={`h-3.5 w-3.5 ${
+														log.pluginResults.responseHealing.healed
+															? "text-green-500"
+															: "text-muted-foreground"
+													}`}
+												/>
+												<span>
+													Response Healing:{" "}
+													{log.pluginResults.responseHealing.healed ? (
+														<span className="text-green-600 font-medium">
+															Applied
+															{log.pluginResults.responseHealing
+																.healingMethod && (
+																<span className="text-muted-foreground font-normal">
+																	{" "}
+																	(
+																	{log.pluginResults.responseHealing.healingMethod
+																		.replace(/_/g, " ")
+																		.replace(/\b\w/g, (l) => l.toUpperCase())}
+																	)
+																</span>
+															)}
+														</span>
+													) : (
+														<span className="text-muted-foreground">
+															Not needed (valid JSON)
+														</span>
+													)}
+												</span>
+											</div>
+										)}
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 					{log.params && Object.keys(log.params).length > 0 && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Additional Parameters</h4>
@@ -749,6 +825,27 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										</div>
 									</div>
 								)}
+							</div>
+						</div>
+					)}
+					{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Builtin Tools</h4>
+							<div className="grid gap-4 md:grid-cols-1">
+								<div className="space-y-2">
+									<h5 className="text-xs font-medium text-muted-foreground">
+										Native Web Search
+									</h5>
+									<div className="rounded-md border p-3">
+										<div className="flex items-center gap-2 text-sm">
+											<Globe className="h-4 w-4 text-sky-500" />
+											<span>Web search was used in this request</span>
+											<span className="ml-auto text-muted-foreground">
+												Cost: ${Number(log.webSearchCost).toFixed(4)}
+											</span>
+										</div>
+									</div>
+								</div>
 							</div>
 						</div>
 					)}

@@ -35,7 +35,9 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ## Image Configuration
 
-You can customize the generated image using the optional `image_config` parameter:
+You can customize the generated image using the optional `image_config` parameter. The supported parameters vary by provider.
+
+### Google Models
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -56,16 +58,87 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-### Parameters
-
 | Parameter      | Type   | Description                                                                                                |
 | -------------- | ------ | ---------------------------------------------------------------------------------------------------------- |
 | `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                     |
 | `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096) |
 
+### Alibaba Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "alibaba/qwen-image-plus",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "image_size": "1024x1536",
+      "n": 1,
+      "seed": 42
+    }
+  }'
+```
+
+| Parameter    | Type    | Description                                                                                      |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"1024x1536"`, `"1536x1024"` |
+| `n`          | integer | Number of images to generate (1-4)                                                               |
+| `seed`       | integer | Random seed for reproducible generation                                                          |
+
+Available Alibaba models:
+
+| Model                     | Price        | Description                       |
+| ------------------------- | ------------ | --------------------------------- |
+| `alibaba/qwen-image`      | $0.035/image | Standard quality image generation |
+| `alibaba/qwen-image-plus` | $0.03/image  | Good balance of quality and cost  |
+| `alibaba/qwen-image-max`  | $0.075/image | Highest quality image generation  |
+
 <Callout type="info">
-	The `image_config` parameter is currently supported for Google's image
-	generation models (e.g., `gemini-3-pro-image-preview`).
+	Alibaba models use explicit pixel dimensions (e.g., `"1024x1536"`) instead of
+	aspect ratios. For portrait orientation use `"1024x1536"`, for landscape use
+	`"1536x1024"`.
+</Callout>
+
+### Z.AI Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "zai/cogview-4",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a futuristic city skyline"
+      }
+    ],
+    "image_config": {
+      "image_size": "1024x1024"
+    }
+  }'
+```
+
+| Parameter    | Type    | Description                                                                                      |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x1024"`, `"1024x2048"` |
+| `n`          | integer | Number of images to generate                                                                     |
+
+Available Z.AI models:
+
+| Model           | Price       | Description                                                   |
+| --------------- | ----------- | ------------------------------------------------------------- |
+| `zai/cogview-4` | $0.01/image | CogView-4 with bilingual support and excellent text rendering |
+
+<Callout type="info">
+	CogView-4 supports both Chinese and English prompts and excels at generating
+	images with embedded text.
 </Callout>
 
 ## Response Format

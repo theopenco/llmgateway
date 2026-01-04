@@ -12,6 +12,7 @@ import {
 	Play,
 	Share2,
 	Linkedin,
+	Globe,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -356,6 +357,38 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
+					{provider.requestPrice !== undefined && (
+						<div className="grid grid-cols-3 gap-3 mt-3">
+							<div className="col-span-3">
+								<div className="text-muted-foreground text-xs mb-1">
+									Per Request
+								</div>
+								<div className="font-mono">
+									<div className="space-y-1">
+										<div className="flex items-center gap-2">
+											{provider.discount ? (
+												<>
+													<span className="line-through text-muted-foreground text-xs">
+														${provider.requestPrice.toFixed(3)}
+													</span>
+													<span className="text-green-600 font-semibold">
+														$
+														{(
+															provider.requestPrice *
+															(1 - provider.discount)
+														).toFixed(3)}
+													</span>
+												</>
+											) : (
+												<>${provider.requestPrice.toFixed(3)}</>
+											)}
+										</div>
+										<span className="text-muted-foreground text-xs">/req</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					)}
 					{provider.discount && (
 						<div className="mt-2">
 							<Badge
@@ -478,6 +511,24 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.webSearch && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 text-xs">
+											<Globe className="h-3.5 w-3.5" />
+											<span>Native Web Search</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Supports native web search
+											{provider.webSearchPrice
+												? ` ($${provider.webSearchPrice.toFixed(3)}/search)`
+												: ""}
+										</p>
 									</TooltipContent>
 								</Tooltip>
 							)}

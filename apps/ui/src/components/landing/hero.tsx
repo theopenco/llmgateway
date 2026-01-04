@@ -89,9 +89,11 @@ console.log(response.choices[0].message.content);`,
 
 export function Hero({
 	navbarOnly,
+	sticky = true,
 	children,
 }: {
 	navbarOnly?: boolean;
+	sticky?: boolean;
 	children: React.ReactNode;
 }) {
 	const config = useAppConfig();
@@ -124,7 +126,7 @@ export function Hero({
 
 	return (
 		<>
-			<Navbar>{children}</Navbar>
+			<Navbar sticky={sticky}>{children}</Navbar>
 			{!navbarOnly && (
 				<main className="overflow-hidden">
 					<div

@@ -25,6 +25,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -68,6 +70,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 		],
 	},
@@ -95,6 +99,8 @@ export const anthropicModels = [
 				vision: false,
 				reasoning: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 		],
 	},
@@ -120,6 +126,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 				deactivatedAt: new Date("2025-10-22T00:00:00Z"),
 			},
 			{
@@ -486,6 +494,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 		],
 	},
@@ -510,6 +520,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				providerId: "aws-bedrock",

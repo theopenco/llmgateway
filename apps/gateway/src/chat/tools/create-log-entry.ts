@@ -3,6 +3,13 @@ import { trace } from "@opentelemetry/api";
 import type { ApiKey, Project } from "@llmgateway/db";
 import type { OpenAIToolInput, RoutingMetadata } from "@llmgateway/models";
 
+export interface PluginResults {
+	responseHealing?: {
+		healed: boolean;
+		healingMethod?: string;
+	};
+}
+
 /**
  * Creates a partial log entry with common fields to reduce duplication
  */
@@ -42,6 +49,8 @@ export function createLogEntry(
 	rawResponse?: unknown,
 	upstreamRequest?: unknown,
 	upstreamResponse?: unknown,
+	plugins?: string[],
+	pluginResults?: PluginResults,
 ) {
 	const activeSpan = trace.getActiveSpan();
 	const traceId = activeSpan?.spanContext().traceId || null;
@@ -83,5 +92,7 @@ export function createLogEntry(
 		rawResponse: debugMode ? rawResponse || null : null,
 		upstreamRequest: debugMode ? upstreamRequest || null : null,
 		upstreamResponse: debugMode ? upstreamResponse || null : null,
+		plugins: plugins && plugins.length > 0 ? plugins : null,
+		pluginResults: pluginResults || null,
 	} as const;
 }

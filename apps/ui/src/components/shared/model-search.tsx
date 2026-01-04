@@ -183,7 +183,6 @@ export function ModelSearch() {
 													</span>
 													<span className="text-xs text-muted-foreground">
 														{entry.id}
-														{entry.free ? " · Free tier" : null}
 													</span>
 												</div>
 											</div>

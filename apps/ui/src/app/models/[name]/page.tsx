@@ -1,5 +1,6 @@
 import {
 	AlertTriangle,
+	ArrowLeft,
 	Play,
 	Zap,
 	Eye,
@@ -8,6 +9,7 @@ import {
 	ImagePlus,
 	Braces,
 } from "lucide-react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
@@ -89,6 +91,15 @@ export default async function ModelPage({ params }: PageProps) {
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
+					<div className="mb-6">
+						<Link
+							href="/models"
+							className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+						>
+							<ArrowLeft className="mr-2 h-4 w-4" />
+							Back to all models
+						</Link>
+					</div>
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2 flex-wrap">
 							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
