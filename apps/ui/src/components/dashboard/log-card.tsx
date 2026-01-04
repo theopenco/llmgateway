@@ -9,6 +9,7 @@ import {
 	ChevronUp,
 	Clock,
 	Coins,
+	Globe,
 	Info,
 	Package,
 	Link as LinkIcon,
@@ -466,6 +467,14 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 								<div>
 									{log.requestCost ? `$${log.requestCost.toFixed(8)}` : "$0"}
 								</div>
+								{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Native Web Search Cost
+										</div>
+										<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Inference Total</div>
 								<div className="font-medium">
 									{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
@@ -816,6 +825,27 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										</div>
 									</div>
 								)}
+							</div>
+						</div>
+					)}
+					{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
+						<div className="space-y-2">
+							<h4 className="text-sm font-medium">Builtin Tools</h4>
+							<div className="grid gap-4 md:grid-cols-1">
+								<div className="space-y-2">
+									<h5 className="text-xs font-medium text-muted-foreground">
+										Native Web Search
+									</h5>
+									<div className="rounded-md border p-3">
+										<div className="flex items-center gap-2 text-sm">
+											<Globe className="h-4 w-4 text-sky-500" />
+											<span>Web search was used in this request</span>
+											<span className="ml-auto text-muted-foreground">
+												Cost: ${Number(log.webSearchCost).toFixed(4)}
+											</span>
+										</div>
+									</div>
+								</div>
 							</div>
 						</div>
 					)}

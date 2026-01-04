@@ -43,6 +43,7 @@ import {
 	type ProviderRequestBody,
 	providers,
 	type RoutingMetadata,
+	type WebSearchTool,
 } from "@llmgateway/models";
 
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -240,14 +241,29 @@ const completionsRequestSchema = z.object({
 	stream: z.boolean().optional().default(false),
 	tools: z
 		.array(
-			z.object({
-				type: z.literal("function"),
-				function: z.object({
-					name: z.string(),
-					description: z.string().optional(),
-					parameters: z.record(z.any()).optional(),
+			z.union([
+				z.object({
+					type: z.literal("function"),
+					function: z.object({
+						name: z.string(),
+						description: z.string().optional(),
+						parameters: z.record(z.any()).optional(),
+					}),
 				}),
-			}),
+				z.object({
+					type: z.literal("web_search"),
+					user_location: z
+						.object({
+							city: z.string().optional(),
+							region: z.string().optional(),
+							country: z.string().optional(),
+							timezone: z.string().optional(),
+						})
+						.optional(),
+					search_context_size: z.enum(["low", "medium", "high"]).optional(),
+					max_uses: z.number().optional(),
+				}),
+			]),
 		)
 		.optional(),
 	tool_choice: z
@@ -533,6 +549,27 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
+
+	// Extract web_search tool from tools array if present
+	// The web_search tool is a special tool that enables native web search for providers that support it
+	let webSearchTool: WebSearchTool | undefined;
+	if (tools && Array.isArray(tools)) {
+		const webSearchToolIndex = tools.findIndex(
+			(tool: any) => tool.type === "web_search",
+		);
+		if (webSearchToolIndex !== -1) {
+			// Cast to any to access properties since the schema allows both function and web_search tools
+			const foundTool = tools[webSearchToolIndex] as any;
+			webSearchTool = {
+				type: "web_search",
+				user_location: foundTool.user_location,
+				search_context_size: foundTool.search_context_size,
+				max_uses: foundTool.max_uses,
+			};
+			// Remove the web_search tool from the tools array so it's not sent as a regular tool
+			tools.splice(webSearchToolIndex, 1);
+		}
+	}
 
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
@@ -826,9 +863,33 @@ chat.openapi(completions, async (c) => {
 			(provider) => (provider as ProviderModelMapping).tools === true,
 		);
 
-		if (!supportsTools) {
+		// Check if any provider supports web search
+		const supportsWebSearch = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).webSearch === true,
+		);
+
+		// Determine if we have function tools (web_search tools were already extracted earlier)
+		// After extraction, `tools` only contains function tools
+		const hasFunctionTools = tools && tools.length > 0;
+
+		// The request is web-search-only if:
+		// 1. A web search tool was extracted (webSearchTool is set)
+		// 2. No function tools remain in the tools array
+		const isWebSearchOnly = webSearchTool !== undefined && !hasFunctionTools;
+
+		// Allow the request if:
+		// 1. Model supports regular tools, OR
+		// 2. Model supports web search AND request only uses web search (no function tools)
+		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
+			});
+		}
+
+		// If web_search tool is specifically requested, ensure the model supports it
+		if (webSearchTool && !supportsWebSearch) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.`,
 			});
 		}
 	}
@@ -1138,6 +1199,14 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Check web search capability if web search tool is requested
+				if (
+					webSearchTool &&
+					(provider as ProviderModelMapping).webSearch !== true
+				) {
+					return false;
+				}
+
 				return contextSizeMet;
 			});
 
@@ -1287,10 +1356,21 @@ chat.openapi(completions, async (c) => {
 								.map((p) => p.id);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
+				// If web search is requested, also filter to providers that support it
 				const availableModelProviders = modelInfo.providers.filter(
-					(provider) =>
-						availableProviders.includes(provider.providerId) &&
-						provider.providerId !== usedProvider,
+					(provider) => {
+						if (!availableProviders.includes(provider.providerId)) {
+							return false;
+						}
+						if (provider.providerId === usedProvider) {
+							return false;
+						}
+						// If web search tool is requested, only include providers that support it
+						if (webSearchTool) {
+							return (provider as ProviderModelMapping).webSearch === true;
+						}
+						return true;
+					},
 				);
 
 				if (availableModelProviders.length > 0) {
@@ -1397,9 +1477,17 @@ chat.openapi(completions, async (c) => {
 							.map((p) => p.id);
 
 			// Filter model providers to only those available
-			const availableModelProviders = modelInfo.providers.filter((provider) =>
-				availableProviders.includes(provider.providerId),
-			);
+			// If web search is requested, also filter to providers that support it
+			const availableModelProviders = modelInfo.providers.filter((provider) => {
+				if (!availableProviders.includes(provider.providerId)) {
+					return false;
+				}
+				// If web search tool is requested, only include providers that support it
+				if (webSearchTool) {
+					return (provider as ProviderModelMapping).webSearch === true;
+				}
+				return true;
+			});
 
 			if (availableModelProviders.length === 0) {
 				throw new HTTPException(400, {
@@ -1551,10 +1639,12 @@ chat.openapi(completions, async (c) => {
 	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
+	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
 	if (
 		requestedModel === "auto" &&
 		reasoning_effort === undefined &&
-		finalModelInfo
+		finalModelInfo &&
+		!webSearchTool
 	) {
 		// Check if the selected model supports reasoning
 		const selectedModelSupportsReasoning = finalModelInfo.providers.some(
@@ -2032,6 +2122,7 @@ chat.openapi(completions, async (c) => {
 					outputCost: costs.outputCost ?? 0,
 					cachedInputCost: costs.cachedInputCost ?? 0,
 					requestCost: costs.requestCost ?? 0,
+					webSearchCost: costs.webSearchCost ?? 0,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
@@ -2157,6 +2248,7 @@ chat.openapi(completions, async (c) => {
 					outputCost: cachedCosts.outputCost ?? 0,
 					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
 					requestCost: cachedCosts.requestCost ?? 0,
+					webSearchCost: cachedCosts.webSearchCost ?? 0,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
@@ -2293,6 +2385,7 @@ chat.openapi(completions, async (c) => {
 		image_config,
 		effort,
 		isImageGeneration,
+		webSearchTool,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2386,7 +2479,9 @@ chat.openapi(completions, async (c) => {
 
 			let res;
 			try {
-				const headers = getProviderHeaders(usedProvider, usedToken);
+				const headers = getProviderHeaders(usedProvider, usedToken, {
+					webSearchEnabled: !!webSearchTool,
+				});
 				headers["Content-Type"] = "application/json";
 
 				// Add effort beta header for Anthropic if effort parameter is specified
@@ -2429,6 +2524,7 @@ chat.openapi(completions, async (c) => {
 						estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
 
 						// Calculate costs based on prompt tokens only (no completion yet)
+						// If web search tool was enabled, count it as 1 search for billing
 						cancelledCosts = calculateCosts(
 							usedModel,
 							usedProvider,
@@ -2443,6 +2539,7 @@ chat.openapi(completions, async (c) => {
 							0, // No output images
 							undefined,
 							inputImageCount,
+							webSearchTool ? 1 : null, // Bill for web search if it was enabled
 						);
 					}
 
@@ -2507,6 +2604,7 @@ chat.openapi(completions, async (c) => {
 						outputCost: cancelledCosts?.outputCost ?? null,
 						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
 						requestCost: cancelledCosts?.requestCost ?? null,
+						webSearchCost: cancelledCosts?.webSearchCost ?? null,
 						cost: cancelledCosts?.totalCost ?? null,
 						estimatedCost: cancelledCosts?.estimatedCost ?? false,
 						discount: cancelledCosts?.discount ?? null,
@@ -2611,6 +2709,7 @@ chat.openapi(completions, async (c) => {
 						},
 						cachedInputCost: null,
 						requestCost: null,
+						webSearchCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2768,6 +2867,7 @@ chat.openapi(completions, async (c) => {
 					},
 					cachedInputCost: null,
 					requestCost: null,
+					webSearchCost: null,
 					discount: null,
 					dataStorageCost: "0",
 					cached: false,
@@ -3776,6 +3876,7 @@ chat.openapi(completions, async (c) => {
 				const billCancelledRequests = shouldBillCancelledRequests();
 
 				// Calculate costs - for cancelled requests, only bill if env var is enabled
+				// For cancelled streaming requests, bill for web search if it was enabled
 				const costs =
 					canceled && !billCancelledRequests
 						? {
@@ -3783,6 +3884,7 @@ chat.openapi(completions, async (c) => {
 								outputCost: null,
 								cachedInputCost: null,
 								requestCost: null,
+								webSearchCost: null,
 								totalCost: null,
 								promptTokens: null,
 								completionTokens: null,
@@ -3806,6 +3908,7 @@ chat.openapi(completions, async (c) => {
 								outputImageCount,
 								image_config?.image_size,
 								inputImageCount,
+								canceled && webSearchTool ? 1 : null, // Bill for web search if cancelled with search enabled
 							);
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
@@ -3923,6 +4026,7 @@ chat.openapi(completions, async (c) => {
 					outputCost: costs.outputCost,
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
+					webSearchCost: costs.webSearchCost,
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount,
@@ -4004,7 +4108,9 @@ chat.openapi(completions, async (c) => {
 	let fetchError: Error | null = null;
 	let res;
 	try {
-		const headers = getProviderHeaders(usedProvider, usedToken);
+		const headers = getProviderHeaders(usedProvider, usedToken, {
+			webSearchEnabled: !!webSearchTool,
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Add effort beta header for Anthropic if effort parameter is specified
@@ -4111,6 +4217,7 @@ chat.openapi(completions, async (c) => {
 			},
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4164,6 +4271,7 @@ chat.openapi(completions, async (c) => {
 			estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
 
 			// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
+			// If web search tool was enabled, count it as 1 search for billing
 			cancelledCosts = calculateCosts(
 				usedModel,
 				usedProvider,
@@ -4178,6 +4286,7 @@ chat.openapi(completions, async (c) => {
 				0, // No output images
 				undefined,
 				inputImageCount,
+				webSearchTool ? 1 : null, // Bill for web search if it was enabled
 			);
 		}
 
@@ -4238,6 +4347,7 @@ chat.openapi(completions, async (c) => {
 			outputCost: cancelledCosts?.outputCost ?? null,
 			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
 			requestCost: cancelledCosts?.requestCost ?? null,
+			webSearchCost: cancelledCosts?.webSearchCost ?? null,
 			cost: cancelledCosts?.totalCost ?? null,
 			estimatedCost: cancelledCosts?.estimatedCost ?? false,
 			discount: cancelledCosts?.discount ?? null,
@@ -4367,6 +4477,7 @@ chat.openapi(completions, async (c) => {
 			})(),
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4432,6 +4543,8 @@ chat.openapi(completions, async (c) => {
 		cachedTokens,
 		toolResults,
 		images,
+		annotations,
+		webSearchCount,
 	} = parseProviderResponse(usedProvider, json, messages);
 
 	// Apply response healing if enabled and response_format is json_object or json_schema
@@ -4540,6 +4653,7 @@ chat.openapi(completions, async (c) => {
 		convertedImages?.length || 0,
 		image_config?.image_size,
 		inputImageCount,
+		webSearchCount,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
@@ -4571,10 +4685,12 @@ chat.openapi(completions, async (c) => {
 					outputCost: costs.outputCost,
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
+					webSearchCost: costs.webSearchCost,
 					totalCost: costs.totalCost,
 				}
 			: null,
 		showUpgradeMessage,
+		annotations,
 	);
 
 	// Extract plugin IDs for logging
@@ -4680,6 +4796,7 @@ chat.openapi(completions, async (c) => {
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
+		webSearchCost: costs.webSearchCost,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,

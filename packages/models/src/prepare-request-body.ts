@@ -10,12 +10,23 @@ import type { ProviderId } from "./providers.js";
 import type {
 	BaseMessage,
 	FunctionParameter,
+	OpenAIFunctionToolInput,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	OpenAIToolInput,
 	ProviderRequestBody,
 	ToolChoiceType,
+	WebSearchTool,
 } from "./types.js";
+
+/**
+ * Type guard to check if a tool is a function tool
+ */
+function isFunctionTool(
+	tool: OpenAIToolInput,
+): tool is OpenAIFunctionToolInput {
+	return tool.type === "function";
+}
 
 /**
  * Converts OpenAI JSON schema format to Google's schema format
@@ -149,6 +160,7 @@ export async function prepareRequestBody(
 	},
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
+	webSearchTool?: WebSearchTool,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
@@ -227,7 +239,14 @@ export async function prepareRequestBody(
 	}
 
 	// Check if the model supports system role
-	const modelDef = models.find((m) => m.id === usedModel);
+	// Look up by model ID first, then fall back to provider modelName
+	const modelDef = models.find(
+		(m) =>
+			m.id === usedModel ||
+			m.providers.some(
+				(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			),
+	);
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
@@ -243,8 +262,13 @@ export async function prepareRequestBody(
 		messages: processedMessages,
 		stream: stream,
 	};
+	// Filter to only function tools for the base request body
+	// (web_search tools are extracted and handled separately via webSearchTool parameter)
 	if (tools && tools.length > 0) {
-		requestBody.tools = tools;
+		const functionTools = tools.filter(isFunctionTool);
+		if (functionTools.length > 0) {
+			requestBody.tools = functionTools;
+		}
 	}
 
 	if (tool_choice) {
@@ -306,13 +330,32 @@ export async function prepareRequestBody(
 
 				// Add tools support for responses API (transform format if needed)
 				if (tools && tools.length > 0) {
-					// Transform tools from chat completions format to responses API format
-					responsesBody.tools = tools.map((tool) => ({
-						type: "function" as const,
-						name: tool.function.name,
-						description: tool.function.description,
-						parameters: tool.function.parameters as FunctionParameter,
-					}));
+					// Filter to only function tools (web_search is handled separately)
+					const functionTools = tools.filter(isFunctionTool);
+					if (functionTools.length > 0) {
+						// Transform tools from chat completions format to responses API format
+						responsesBody.tools = functionTools.map((tool) => ({
+							type: "function" as const,
+							name: tool.function.name,
+							description: tool.function.description,
+							parameters: tool.function.parameters as FunctionParameter,
+						}));
+					}
+				}
+
+				// Add web search tool for Responses API
+				if (webSearchTool) {
+					if (!responsesBody.tools) {
+						responsesBody.tools = [];
+					}
+					const webSearch: any = { type: "web_search" };
+					if (webSearchTool.user_location) {
+						webSearch.user_location = webSearchTool.user_location;
+					}
+					if (webSearchTool.search_context_size) {
+						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					responsesBody.tools.push(webSearch);
 				}
 				if (tool_choice) {
 					responsesBody.tool_choice = tool_choice;
@@ -336,6 +379,45 @@ export async function prepareRequestBody(
 				}
 				if (response_format) {
 					requestBody.response_format = response_format;
+				}
+
+				// Add web search for OpenAI Chat Completions
+				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
+				// For other models that support web search, add web_search tool
+				if (webSearchTool) {
+					if (usedModel.includes("-search-")) {
+						// Search models use web_search_options parameter
+						const webSearchOptions: any = {};
+						if (webSearchTool.user_location) {
+							webSearchOptions.user_location = {
+								type: "approximate",
+								approximate: {
+									city: webSearchTool.user_location.city,
+									region: webSearchTool.user_location.region,
+									country: webSearchTool.user_location.country,
+								},
+							};
+						}
+						if (webSearchTool.search_context_size) {
+							webSearchOptions.search_context_size =
+								webSearchTool.search_context_size;
+						}
+						requestBody.web_search_options =
+							Object.keys(webSearchOptions).length > 0 ? webSearchOptions : {};
+					} else {
+						// Regular models with web search support use web_search tool
+						if (!requestBody.tools) {
+							requestBody.tools = [];
+						}
+						const webSearch: any = { type: "web_search" };
+						if (webSearchTool.user_location) {
+							webSearch.user_location = webSearchTool.user_location;
+						}
+						if (webSearchTool.search_context_size) {
+							webSearch.search_context_size = webSearchTool.search_context_size;
+						}
+						requestBody.tools.push(webSearch);
+					}
 				}
 
 				// Add optional parameters if they are provided
@@ -373,6 +455,21 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Add web search tool for ZAI
+			// ZAI uses a web_search tool with enable flag and search_engine config
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				requestBody.tools.push({
+					type: "web_search",
+					web_search: {
+						enable: true,
+						search_engine: "search-prime",
+					},
+				});
 			}
 
 			// Add optional parameters if they are provided
@@ -522,11 +619,31 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
-				requestBody.tools = tools.map((tool) => ({
-					name: tool.function.name,
-					description: tool.function.description,
-					input_schema: tool.function.parameters,
-				}));
+				// Filter to only function tools (web_search is handled separately)
+				const functionTools = tools.filter(isFunctionTool);
+				if (functionTools.length > 0) {
+					requestBody.tools = functionTools.map((tool) => ({
+						name: tool.function.name,
+						description: tool.function.description,
+						input_schema: tool.function.parameters,
+					}));
+				}
+			}
+
+			// Add web search tool for Anthropic
+			// Anthropic uses the web_search_20250305 tool type
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				const webSearch: any = {
+					type: "web_search_20250305",
+					name: "web_search",
+				};
+				if (webSearchTool.max_uses) {
+					webSearch.max_uses = webSearchTool.max_uses;
+				}
+				requestBody.tools.push(webSearch);
 			}
 
 			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
@@ -758,17 +875,21 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Bedrock format
 			if (tools && tools.length > 0) {
-				requestBody.toolConfig = {
-					tools: tools.map((tool: any) => ({
-						toolSpec: {
-							name: tool.function.name,
-							description: tool.function.description,
-							inputSchema: {
-								json: tool.function.parameters,
+				// Filter to only function tools (web_search is handled separately)
+				const functionTools = tools.filter(isFunctionTool);
+				if (functionTools.length > 0) {
+					requestBody.toolConfig = {
+						tools: functionTools.map((tool) => ({
+							toolSpec: {
+								name: tool.function.name,
+								description: tool.function.description,
+								inputSchema: {
+									json: tool.function.parameters,
+								},
 							},
-						},
-					})),
-				};
+						})),
+					};
+				}
 			}
 
 			// Add inferenceConfig for optional parameters
@@ -805,21 +926,33 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Google format
 			if (tools && tools.length > 0) {
-				requestBody.tools = [
-					{
-						functionDeclarations: tools.map((tool: any) => {
-							// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
-							const cleanParameters = stripUnsupportedSchemaProperties(
-								tool.function.parameters || {},
-							);
-							return {
-								name: tool.function.name,
-								description: tool.function.description,
-								parameters: cleanParameters,
-							};
-						}),
-					},
-				];
+				// Filter to only function tools (web_search is handled separately)
+				const functionTools = tools.filter(isFunctionTool);
+				if (functionTools.length > 0) {
+					requestBody.tools = [
+						{
+							functionDeclarations: functionTools.map((tool) => {
+								// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
+								const cleanParameters = stripUnsupportedSchemaProperties(
+									tool.function.parameters || {},
+								);
+								return {
+									name: tool.function.name,
+									description: tool.function.description,
+									parameters: cleanParameters,
+								};
+							}),
+						},
+					];
+				}
+			}
+
+			// Add web search tool for Google (google_search grounding)
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				requestBody.tools.push({ google_search: {} });
 			}
 
 			requestBody.generationConfig = {};

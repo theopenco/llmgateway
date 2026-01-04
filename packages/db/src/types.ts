@@ -15,10 +15,26 @@ export const toolFunction = z.object({
 	parameters: z.record(z.any()).optional(),
 });
 
-export const tool = z.object({
+export const functionTool = z.object({
 	type: z.literal("function"),
 	function: toolFunction,
 });
+
+export const webSearchTool = z.object({
+	type: z.literal("web_search"),
+	user_location: z
+		.object({
+			city: z.string().optional(),
+			region: z.string().optional(),
+			country: z.string().optional(),
+			timezone: z.string().optional(),
+		})
+		.optional(),
+	search_context_size: z.enum(["low", "medium", "high"]).optional(),
+	max_uses: z.number().optional(),
+});
+
+export const tool = z.union([functionTool, webSearchTool]);
 
 export const toolChoice = z.union([
 	z.literal("none"),

@@ -267,7 +267,14 @@ export function getProviderEndpoint(
 		case "openai": {
 			// Use responses endpoint for models that support responses API
 			if (model) {
-				const modelDef = models.find((m) => m.id === model);
+				// Look up by model ID first, then fall back to provider modelName
+				const modelDef = models.find(
+					(m) =>
+						m.id === model ||
+						m.providers.some(
+							(p) => p.modelName === model && p.providerId === "openai",
+						),
+				);
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
 				);

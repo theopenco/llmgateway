@@ -4,7 +4,7 @@ import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js"
 import { extractImages } from "./extract-images.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
-import type { StreamingDelta } from "./types.js";
+import type { Annotation, StreamingDelta } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 export function transformStreamingToOpenai(
@@ -110,6 +110,41 @@ export function transformStreamingToOpenai(
 									},
 								],
 								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: data.usage || null,
+				};
+			} else if (
+				data.type === "content_block_start" &&
+				data.content_block?.type === "web_search_tool_result"
+			) {
+				// Handle web search tool result start - extract citations
+				const webSearchResults = data.content_block?.content || [];
+				const annotations: Annotation[] = [];
+				for (const result of webSearchResults) {
+					if (result.type === "web_search_result") {
+						annotations.push({
+							type: "url_citation",
+							url_citation: {
+								url: result.url || "",
+								title: result.title,
+							},
+						});
+					}
+				}
+				transformedData = {
+					id: data.id || `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created || Math.floor(Date.now() / 1000),
+					model: data.model || usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								...(annotations.length > 0 && { annotations }),
 							},
 							finish_reason: null,
 						},
@@ -416,6 +451,26 @@ export function transformStreamingToOpenai(
 							thought_signatures: thoughtSignatures,
 						},
 					};
+				}
+
+				// Extract grounding metadata citations for web search
+				const groundingMetadata = candidate.groundingMetadata;
+				if (groundingMetadata?.groundingChunks) {
+					const annotationsList: Annotation[] = [];
+					for (const chunk of groundingMetadata.groundingChunks) {
+						if (chunk.web) {
+							annotationsList.push({
+								type: "url_citation",
+								url_citation: {
+									url: chunk.web.uri || "",
+									title: chunk.web.title,
+								},
+							});
+						}
+					}
+					if (annotationsList.length > 0) {
+						delta.annotations = annotationsList;
+					}
 				}
 
 				return {

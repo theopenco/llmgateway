@@ -23,6 +23,8 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $0.01 per search
 				jsonOutput: true,
 			},
 		],
@@ -181,6 +183,8 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $0.01 per search
 				jsonOutput: true,
 			},
 			{
@@ -222,6 +226,8 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $0.01 per search
 				jsonOutput: true,
 			},
 			{

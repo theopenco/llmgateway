@@ -12,6 +12,7 @@ import {
 	Play,
 	Share2,
 	Linkedin,
+	Globe,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -510,6 +511,24 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.webSearch && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 text-xs">
+											<Globe className="h-3.5 w-3.5" />
+											<span>Native Web Search</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Supports native web search
+											{provider.webSearchPrice
+												? ` ($${provider.webSearchPrice.toFixed(3)}/search)`
+												: ""}
+										</p>
 									</TooltipContent>
 								</Tooltip>
 							)}

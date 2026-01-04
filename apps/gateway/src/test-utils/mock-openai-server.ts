@@ -39,6 +39,54 @@ const sampleErrorResponse = {
 	},
 };
 
+// Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
+mockOpenAIServer.post("/v1/responses", async (c) => {
+	const body = await c.req.json();
+
+	// Check if this request should trigger an error response
+	const shouldError = body.input?.some?.(
+		(msg: any) =>
+			msg.role === "user" && msg.content?.includes?.("TRIGGER_ERROR"),
+	);
+
+	if (shouldError) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Get the user's message to include in the response
+	const userMessage =
+		body.input?.find?.((msg: any) => msg.role === "user")?.content || "";
+
+	// Create a Responses API format response
+	const response = {
+		id: "resp-123",
+		object: "response",
+		created_at: Math.floor(Date.now() / 1000),
+		model: body.model || "gpt-5-nano",
+		output: [
+			{
+				type: "message",
+				role: "assistant",
+				content: [
+					{
+						type: "output_text",
+						text: `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`,
+					},
+				],
+			},
+		],
+		usage: {
+			input_tokens: 10,
+			output_tokens: 20,
+			total_tokens: 30,
+		},
+		status: "completed",
+	};
+
+	return c.json(response);
+});
+
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const body = await c.req.json();

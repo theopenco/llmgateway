@@ -96,6 +96,7 @@ export function calculateCosts(
 	outputImageCount = 0,
 	imageSize?: string,
 	inputImageCount = 0,
+	webSearchCount: number | null = null,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -112,6 +113,7 @@ export function calculateCosts(
 			outputCost: null,
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			totalCost: null,
 			promptTokens,
 			completionTokens,
@@ -196,6 +198,7 @@ export function calculateCosts(
 			outputCost: null,
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			totalCost: null,
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
@@ -222,6 +225,7 @@ export function calculateCosts(
 			outputCost: null,
 			cachedInputCost: null,
 			requestCost: null,
+			webSearchCost: null,
 			totalCost: null,
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
@@ -304,16 +308,26 @@ export function calculateCosts(
 				.times(discountMultiplier)
 		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
+
+	// Calculate web search cost
+	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice || 0);
+	const webSearchCost =
+		webSearchCount && webSearchCount > 0
+			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
+			: new Decimal(0);
+
 	const totalCost = inputCost
 		.plus(outputCost)
 		.plus(cachedInputCost)
-		.plus(requestCost);
+		.plus(requestCost)
+		.plus(webSearchCost);
 
 	return {
 		inputCost: inputCost.toNumber(),
 		outputCost: outputCost.toNumber(),
 		cachedInputCost: cachedInputCost.toNumber(),
 		requestCost: requestCost.toNumber(),
+		webSearchCost: webSearchCost.toNumber(),
 		totalCost: totalCost.toNumber(),
 		promptTokens: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
