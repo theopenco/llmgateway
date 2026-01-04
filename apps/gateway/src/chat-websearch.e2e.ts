@@ -30,7 +30,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 
 	test.each(webSearchModels)(
 		"web search non-streaming $model",
-		{ timeout: 120000 }, // Increase timeout for web search
+		{ timeout: 300000 }, // Increase timeout for web search
 		async ({ model }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
@@ -117,7 +117,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 
 	test.each(streamingWebSearchModels)(
 		"web search streaming $model",
-		{ timeout: 120000 }, // Increase timeout for web search
+		{ timeout: 180000 }, // Increase timeout for web search
 		async ({ model }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {

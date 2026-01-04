@@ -3432,6 +3432,11 @@ chat.openapi(completions, async (c) => {
 										webSearchCount = 1;
 									}
 								}
+							} else if (usedProvider === "openai") {
+								// For OpenAI Responses API, count web_search_call.completed events
+								if (data.type === "response.web_search_call.completed") {
+									webSearchCount++;
+								}
 							}
 
 							// Extract reasoning content for logging using helper function
