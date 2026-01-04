@@ -224,7 +224,7 @@ export function PricingPlans() {
 			},
 			features: [
 				"Use your own API keys without surcharges",
-				"Only 1% fee on credit purchases",
+				"80% less fees on credit purchases (1% vs 5%)",
 				"100,000 included requests/month",
 				"$0.0001 per additional request",
 				"3 Team Members (more at $10/user/month)",
