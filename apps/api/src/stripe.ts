@@ -8,6 +8,7 @@ import { logger } from "@llmgateway/logger";
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
 import {
+	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
 	generateTrialStartedEmailHtml,
 	sendTransactionalEmail,
@@ -600,7 +601,7 @@ async function handlePaymentIntentFailed(
 		return;
 	}
 
-	const { organizationId } = result;
+	const { organizationId, organization } = result;
 
 	// Convert amount from cents to dollars
 	const totalAmountInDollars = amount / 100;
@@ -610,6 +611,12 @@ async function handlePaymentIntentFailed(
 		? parseFloat(metadata.baseAmount)
 		: null;
 
+	// Extract error details from Stripe
+	const lastPaymentError = paymentIntent.last_payment_error;
+	const errorMessage = lastPaymentError?.message || "Unknown error";
+	const errorCode = lastPaymentError?.code;
+	const declineCode = lastPaymentError?.decline_code;
+
 	// Check if this is an auto top-up with an existing pending transaction
 	const transactionId = metadata?.transactionId;
 	if (transactionId) {
@@ -618,7 +625,7 @@ async function handlePaymentIntentFailed(
 			.update(tables.transaction)
 			.set({
 				status: "failed",
-				description: `Auto top-up failed via Stripe webhook: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+				description: `Auto top-up failed via Stripe webhook: ${errorMessage}`,
 			})
 			.where(eq(tables.transaction.id, transactionId))
 			.returning()
@@ -641,7 +648,7 @@ async function handlePaymentIntentFailed(
 				currency: paymentIntent.currency.toUpperCase(),
 				status: "failed",
 				stripePaymentIntentId: paymentIntent.id,
-				description: `Credit top-up failed via Stripe (fallback): ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+				description: `Credit top-up failed via Stripe (fallback): ${errorMessage}`,
 			});
 		}
 	} else {
@@ -654,12 +661,33 @@ async function handlePaymentIntentFailed(
 			currency: paymentIntent.currency.toUpperCase(),
 			status: "failed",
 			stripePaymentIntentId: paymentIntent.id,
-			description: `Credit top-up failed via Stripe: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+			description: `Credit top-up failed via Stripe: ${errorMessage}`,
 		});
 	}
 
+	// Send payment failure email to organization billing email
+	try {
+		await sendTransactionalEmail({
+			to: organization.billingEmail,
+			subject: "Payment Failed - Action Required",
+			html: generatePaymentFailureEmailHtml(organization.name, {
+				errorMessage,
+				errorCode: errorCode ?? undefined,
+				declineCode: declineCode ?? undefined,
+				amount: totalAmountInDollars,
+				currency: paymentIntent.currency.toUpperCase(),
+			}),
+		});
+
+		logger.info(
+			`Sent payment failure email to ${organization.billingEmail} for organization ${organizationId}`,
+		);
+	} catch (emailError) {
+		logger.error("Failed to send payment failure email", emailError as Error);
+	}
+
 	logger.info(
-		`Payment intent failed for organization ${organizationId}: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+		`Payment intent failed for organization ${organizationId}: ${errorMessage}`,
 	);
 }
 
