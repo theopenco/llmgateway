@@ -455,10 +455,13 @@ async function handlePaymentIntentSucceeded(
 	}
 
 	// Update organization credits with credit amount (plus bonus if applicable)
+	// Also reset payment failure tracking since payment succeeded
 	await db
 		.update(tables.organization)
 		.set({
 			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+			paymentFailureCount: 0,
+			lastPaymentFailureAt: null,
 		})
 		.where(eq(tables.organization.id, organizationId));
 
@@ -665,29 +668,71 @@ async function handlePaymentIntentFailed(
 		});
 	}
 
-	// Send payment failure email to organization billing email
-	try {
-		await sendTransactionalEmail({
-			to: organization.billingEmail,
-			subject: "Payment Failed - Action Required",
-			html: generatePaymentFailureEmailHtml(organization.name, {
-				errorMessage,
-				errorCode: errorCode ?? undefined,
-				declineCode: declineCode ?? undefined,
-				amount: totalAmountInDollars,
-				currency: paymentIntent.currency.toUpperCase(),
-			}),
-		});
+	// Update payment failure tracking with exponential backoff
+	// Calculate new failure count and check if we should send an email
+	const previousFailureCount = organization.paymentFailureCount ?? 0;
+	const previousFailureAt = organization.lastPaymentFailureAt;
+	const newFailureCount = previousFailureCount + 1;
 
-		logger.info(
-			`Sent payment failure email to ${organization.billingEmail} for organization ${organizationId}`,
+	// Update organization with new failure count and timestamp
+	await db
+		.update(tables.organization)
+		.set({
+			paymentFailureCount: newFailureCount,
+			lastPaymentFailureAt: new Date(),
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	// Determine if we should send an email based on exponential backoff
+	// Email intervals: 1st failure immediately, then 1h, 2h, 4h, 8h, 16h, 24h (capped)
+	let shouldSendEmail = false;
+	if (previousFailureCount === 0) {
+		// First failure - always send email
+		shouldSendEmail = true;
+	} else if (previousFailureAt) {
+		// Calculate backoff period based on previous failure count
+		const baseBackoffHours = 1;
+		const maxBackoffHours = 24;
+		const backoffHours = Math.min(
+			baseBackoffHours * Math.pow(2, previousFailureCount - 1),
+			maxBackoffHours,
 		);
-	} catch (emailError) {
-		logger.error("Failed to send payment failure email", emailError as Error);
+		const backoffMs = backoffHours * 60 * 60 * 1000;
+		const nextEmailTime = new Date(previousFailureAt.getTime() + backoffMs);
+
+		// Send email if we're past the backoff period
+		shouldSendEmail = new Date() >= nextEmailTime;
+	}
+
+	// Send payment failure email if not in backoff period
+	if (shouldSendEmail) {
+		try {
+			await sendTransactionalEmail({
+				to: organization.billingEmail,
+				subject: "Payment Failed - Action Required",
+				html: generatePaymentFailureEmailHtml(organization.name, {
+					errorMessage,
+					errorCode: errorCode ?? undefined,
+					declineCode: declineCode ?? undefined,
+					amount: totalAmountInDollars,
+					currency: paymentIntent.currency.toUpperCase(),
+				}),
+			});
+
+			logger.info(
+				`Sent payment failure email to ${organization.billingEmail} for organization ${organizationId} (failure #${newFailureCount})`,
+			);
+		} catch (emailError) {
+			logger.error("Failed to send payment failure email", emailError as Error);
+		}
+	} else {
+		logger.info(
+			`Skipping payment failure email for organization ${organizationId}: in backoff period (failure #${newFailureCount})`,
+		);
 	}
 
 	logger.info(
-		`Payment intent failed for organization ${organizationId}: ${errorMessage}`,
+		`Payment intent failed for organization ${organizationId}: ${errorMessage} (failure #${newFailureCount})`,
 	);
 }
 
