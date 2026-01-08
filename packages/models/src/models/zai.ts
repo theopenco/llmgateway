@@ -202,6 +202,22 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				// Cerebras: FP16/FP8 (weights only)
+				providerId: "cerebras",
+				test: "skip",
+				modelName: "zai-glm-4.7",
+				inputPrice: 2.25 / 1e6,
+				outputPrice: 2.75 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
