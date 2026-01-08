@@ -223,7 +223,7 @@ export const providers = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 0.3,
+		priority: 0.9,
 		streaming: true,
 		cancellation: true,
 		color: "#FF9900",

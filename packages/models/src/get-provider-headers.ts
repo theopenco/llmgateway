@@ -1,19 +1,32 @@
 import type { ProviderId } from "./providers.js";
 
+export interface ProviderHeaderOptions {
+	/**
+	 * Enable web search beta header for Anthropic
+	 */
+	webSearchEnabled?: boolean;
+}
+
 /**
  * Get the appropriate headers for a given provider API call
  */
 export function getProviderHeaders(
 	provider: ProviderId,
 	token: string,
+	options?: ProviderHeaderOptions,
 ): Record<string, string> {
 	switch (provider) {
-		case "anthropic":
+		case "anthropic": {
+			const betaFeatures = ["tools-2024-04-04", "prompt-caching-2024-07-31"];
+			if (options?.webSearchEnabled) {
+				betaFeatures.push("web-search-2025-03-05");
+			}
 			return {
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
-				"anthropic-beta": "tools-2024-04-04,prompt-caching-2024-07-31",
+				"anthropic-beta": betaFeatures.join(","),
 			};
+		}
 		case "google-ai-studio":
 		case "google-vertex":
 			return {};

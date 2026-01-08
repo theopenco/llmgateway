@@ -42,7 +42,7 @@ export const ChatHeader = ({
 				) : null}
 			</div>
 			<div className="flex items-center gap-3 ml-3">
-				<div className="flex items-center gap-2">
+				<div className="hidden md:flex items-center gap-2">
 					<Label
 						htmlFor="comparison-mode"
 						className="text-xs text-muted-foreground"

@@ -10,6 +10,9 @@ import {
 	MessageSquare,
 	Braces,
 	Play,
+	Share2,
+	Linkedin,
+	Globe,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -18,12 +21,19 @@ import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
 import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/lib/components/dropdown-menu";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
+import { XIcon } from "@/lib/icons/XIcon";
 import { formatContextSize } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -51,9 +61,13 @@ export function ModelProviderCard({
 }: ModelProviderCardProps) {
 	const config = useAppConfig();
 	const [copied, setCopied] = useState(false);
+	const [urlCopied, setUrlCopied] = useState(false);
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
 	const providerStability = provider.stability || modelStability;
+
+	const shareUrl = `${config.appUrl}/models/${encodeURIComponent(modelName)}/${encodeURIComponent(provider.providerId)}`;
+	const shareTitle = `${provider.providerInfo?.name || provider.providerId} - ${modelName} on LLM Gateway`;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -103,7 +117,7 @@ export function ModelProviderCard({
 
 	return (
 		<Card>
-			<CardContent className="p-6">
+			<CardContent>
 				<div className="flex items-center justify-between mb-4">
 					<div className="flex items-center gap-3">
 						<div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
@@ -153,11 +167,57 @@ export function ModelProviderCard({
 											<Copy className="h-3 w-3" />
 										)}
 									</Button>
-									<ModelCodeExampleDialog modelId={providerModelName} />
+									<div className="hidden sm:block">
+										<ModelCodeExampleDialog modelId={providerModelName} />
+									</div>
 								</div>
 							</div>
 						</div>
 					</div>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+								<Share2 className="h-4 w-4" />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							<DropdownMenuItem
+								onClick={async () => {
+									await navigator.clipboard.writeText(shareUrl);
+									setUrlCopied(true);
+									setTimeout(() => setUrlCopied(false), 2000);
+								}}
+								className="cursor-pointer"
+							>
+								{urlCopied ? (
+									<Check className="h-4 w-4 mr-2 text-green-500" />
+								) : (
+									<Copy className="h-4 w-4 mr-2" />
+								)}
+								{urlCopied ? "Copied!" : "Copy URL"}
+							</DropdownMenuItem>
+							<DropdownMenuItem asChild className="cursor-pointer">
+								<a
+									href={`https://x.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<XIcon className="h-4 w-4 mr-2" />
+									Share on X
+								</a>
+							</DropdownMenuItem>
+							<DropdownMenuItem asChild className="cursor-pointer">
+								<a
+									href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<Linkedin className="h-4 w-4 mr-2" />
+									Share on LinkedIn
+								</a>
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
 				</div>
 
 				<div className="grid grid-cols-2 gap-4 text-sm mb-4">
@@ -297,6 +357,38 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
+					{provider.requestPrice !== undefined && (
+						<div className="grid grid-cols-3 gap-3 mt-3">
+							<div className="col-span-3">
+								<div className="text-muted-foreground text-xs mb-1">
+									Per Request
+								</div>
+								<div className="font-mono">
+									<div className="space-y-1">
+										<div className="flex items-center gap-2">
+											{provider.discount ? (
+												<>
+													<span className="line-through text-muted-foreground text-xs">
+														${provider.requestPrice.toFixed(3)}
+													</span>
+													<span className="text-green-600 font-semibold">
+														$
+														{(
+															provider.requestPrice *
+															(1 - provider.discount)
+														).toFixed(3)}
+													</span>
+												</>
+											) : (
+												<>${provider.requestPrice.toFixed(3)}</>
+											)}
+										</div>
+										<span className="text-muted-foreground text-xs">/req</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					)}
 					{provider.discount && (
 						<div className="mt-2">
 							<Badge
@@ -419,6 +511,24 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{provider.webSearch && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 text-xs">
+											<Globe className="h-3.5 w-3.5" />
+											<span>Native Web Search</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Supports native web search
+											{provider.webSearchPrice
+												? ` ($${provider.webSearchPrice.toFixed(3)}/search)`
+												: ""}
+										</p>
 									</TooltipContent>
 								</Tooltip>
 							)}

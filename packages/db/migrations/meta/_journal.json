@@ -526,6 +526,34 @@
       "when": 1766053662548,
       "tag": "1766053662_sparkling_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "8",
+      "when": 1767039901949,
+      "tag": "1767039901_groovy_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "8",
+      "when": 1767471347760,
+      "tag": "1767471347_rainy_cable",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "8",
+      "when": 1767485667395,
+      "tag": "1767485667_faithful_bedlam",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "8",
+      "when": 1767536657166,
+      "tag": "1767536657_odd_molly_hayes",
+      "breakpoints": true
     }
   ]
 }

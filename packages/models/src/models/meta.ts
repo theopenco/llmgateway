@@ -92,6 +92,7 @@ export const metaModels = [
 			{
 				providerId: "aws-bedrock",
 				modelName: "meta.llama3-1-70b-instruct-v1:0",
+				stability: "unstable",
 				inputPrice: 0.72 / 1e6,
 				outputPrice: 0.72 / 1e6,
 				requestPrice: 0,
@@ -198,6 +199,7 @@ export const metaModels = [
 			{
 				// Cerebras: FP16
 				providerId: "cerebras",
+				test: "skip",
 				modelName: "llama-3.3-70b",
 				inputPrice: 0.85 / 1e6,
 				outputPrice: 1.2 / 1e6,

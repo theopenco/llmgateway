@@ -405,6 +405,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						rawResponse: null,
 						upstreamRequest: null,
 						upstreamResponse: null,
+						userAgent: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));
@@ -477,6 +478,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						rawResponse: null,
 						upstreamRequest: null,
 						upstreamResponse: null,
+						userAgent: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));
@@ -653,7 +655,7 @@ export async function batchProcessLogs(): Promise<void> {
 						})
 						.where(eq(organization.id, orgId));
 
-					logger.info(
+					logger.debug(
 						`Deducted ${costNumber} credits from organization ${orgId}`,
 					);
 
@@ -706,7 +708,7 @@ export async function batchProcessLogs(): Promise<void> {
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					logger.info(`Added ${costNumber} usage to API key ${apiKeyId}`);
+					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -718,7 +720,7 @@ export async function batchProcessLogs(): Promise<void> {
 				})
 				.where(inArray(log.id, logIds));
 
-			logger.info(`Marked ${logIds.length} logs as processed`);
+			logger.debug(`Marked ${logIds.length} logs as processed`);
 		});
 	} catch (error) {
 		logger.error(
@@ -759,6 +761,10 @@ export async function processLogQueue(): Promise<void> {
 					const {
 						messages: _messages,
 						content: _content,
+						reasoningContent: _reasoningContent,
+						tools: _tools,
+						toolChoice: _toolChoice,
+						toolResults: _toolResults,
 						...metadataOnly
 					} = data;
 					return metadataOnly;

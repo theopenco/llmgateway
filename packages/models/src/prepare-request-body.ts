@@ -10,12 +10,23 @@ import type { ProviderId } from "./providers.js";
 import type {
 	BaseMessage,
 	FunctionParameter,
+	OpenAIFunctionToolInput,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
 	OpenAIToolInput,
 	ProviderRequestBody,
 	ToolChoiceType,
+	WebSearchTool,
 } from "./types.js";
+
+/**
+ * Type guard to check if a tool is a function tool
+ */
+function isFunctionTool(
+	tool: OpenAIToolInput,
+): tool is OpenAIFunctionToolInput {
+	return tool.type === "function";
+}
 
 /**
  * Converts OpenAI JSON schema format to Google's schema format
@@ -141,11 +152,101 @@ export async function prepareRequestBody(
 	maxImageSizeMB = 20,
 	userPlan: "free" | "pro" | null = null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
-	image_config?: { aspect_ratio?: string; image_size?: string },
+	image_config?: {
+		aspect_ratio?: string;
+		image_size?: string;
+		n?: number;
+		seed?: number;
+	},
 	effort?: "low" | "medium" | "high",
+	imageGenerations?: boolean,
+	webSearchTool?: WebSearchTool,
 ): Promise<ProviderRequestBody> {
+	// Handle Z.AI image generation models
+	if (imageGenerations && usedProvider === "zai") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		// Z.AI CogView uses OpenAI-compatible image generation format
+		const zaiImageRequest: any = {
+			model: usedModel,
+			prompt,
+			...(image_config?.image_size && { size: image_config.image_size }),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		return zaiImageRequest;
+	}
+
+	// Handle Alibaba image generation models
+	if (imageGenerations && usedProvider === "alibaba") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		// Alibaba DashScope multimodal generation format
+		const alibabaImageRequest: any = {
+			model: usedModel,
+			input: {
+				messages: [
+					{
+						role: "user",
+						content: [{ text: prompt }],
+					},
+				],
+			},
+			parameters: {
+				watermark: false,
+				...(image_config?.n && { n: image_config.n }),
+				...(image_config?.seed !== undefined && { seed: image_config.seed }),
+			},
+		};
+
+		// Map image_size to Alibaba format (uses * instead of x)
+		if (image_config?.image_size) {
+			alibabaImageRequest.parameters.size = image_config.image_size.replace(
+				"x",
+				"*",
+			);
+		}
+
+		return alibabaImageRequest;
+	}
+
 	// Check if the model supports system role
-	const modelDef = models.find((m) => m.id === usedModel);
+	// Look up by model ID first, then fall back to provider modelName
+	const modelDef = models.find(
+		(m) =>
+			m.id === usedModel ||
+			m.providers.some(
+				(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			),
+	);
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
@@ -161,8 +262,13 @@ export async function prepareRequestBody(
 		messages: processedMessages,
 		stream: stream,
 	};
+	// Filter to only function tools for the base request body
+	// (web_search tools are extracted and handled separately via webSearchTool parameter)
 	if (tools && tools.length > 0) {
-		requestBody.tools = tools;
+		const functionTools = tools.filter(isFunctionTool);
+		if (functionTools.length > 0) {
+			requestBody.tools = functionTools;
+		}
 	}
 
 	if (tool_choice) {
@@ -224,13 +330,32 @@ export async function prepareRequestBody(
 
 				// Add tools support for responses API (transform format if needed)
 				if (tools && tools.length > 0) {
-					// Transform tools from chat completions format to responses API format
-					responsesBody.tools = tools.map((tool) => ({
-						type: "function" as const,
-						name: tool.function.name,
-						description: tool.function.description,
-						parameters: tool.function.parameters as FunctionParameter,
-					}));
+					// Filter to only function tools (web_search is handled separately)
+					const functionTools = tools.filter(isFunctionTool);
+					if (functionTools.length > 0) {
+						// Transform tools from chat completions format to responses API format
+						responsesBody.tools = functionTools.map((tool) => ({
+							type: "function" as const,
+							name: tool.function.name,
+							description: tool.function.description,
+							parameters: tool.function.parameters as FunctionParameter,
+						}));
+					}
+				}
+
+				// Add web search tool for Responses API
+				if (webSearchTool) {
+					if (!responsesBody.tools) {
+						responsesBody.tools = [];
+					}
+					const webSearch: any = { type: "web_search" };
+					if (webSearchTool.user_location) {
+						webSearch.user_location = webSearchTool.user_location;
+					}
+					if (webSearchTool.search_context_size) {
+						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					responsesBody.tools.push(webSearch);
 				}
 				if (tool_choice) {
 					responsesBody.tool_choice = tool_choice;
@@ -254,6 +379,45 @@ export async function prepareRequestBody(
 				}
 				if (response_format) {
 					requestBody.response_format = response_format;
+				}
+
+				// Add web search for OpenAI Chat Completions
+				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
+				// For other models that support web search, add web_search tool
+				if (webSearchTool) {
+					if (usedModel.includes("-search-")) {
+						// Search models use web_search_options parameter
+						const webSearchOptions: any = {};
+						if (webSearchTool.user_location) {
+							webSearchOptions.user_location = {
+								type: "approximate",
+								approximate: {
+									city: webSearchTool.user_location.city,
+									region: webSearchTool.user_location.region,
+									country: webSearchTool.user_location.country,
+								},
+							};
+						}
+						if (webSearchTool.search_context_size) {
+							webSearchOptions.search_context_size =
+								webSearchTool.search_context_size;
+						}
+						requestBody.web_search_options =
+							Object.keys(webSearchOptions).length > 0 ? webSearchOptions : {};
+					} else {
+						// Regular models with web search support use web_search tool
+						if (!requestBody.tools) {
+							requestBody.tools = [];
+						}
+						const webSearch: any = { type: "web_search" };
+						if (webSearchTool.user_location) {
+							webSearch.user_location = webSearchTool.user_location;
+						}
+						if (webSearchTool.search_context_size) {
+							webSearch.search_context_size = webSearchTool.search_context_size;
+						}
+						requestBody.tools.push(webSearch);
+					}
 				}
 
 				// Add optional parameters if they are provided
@@ -291,6 +455,21 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Add web search tool for ZAI
+			// ZAI uses a web_search tool with enable flag and search_engine config
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				requestBody.tools.push({
+					type: "web_search",
+					web_search: {
+						enable: true,
+						search_engine: "search-prime",
+					},
+				});
 			}
 
 			// Add optional parameters if they are provided
@@ -345,17 +524,87 @@ export async function prepareRequestBody(
 			const thinkingBudget = getThinkingBudget(reasoning_effort);
 			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 			requestBody.max_tokens = max_tokens ?? minMaxTokens;
+
+			// Extract system messages for Anthropic's system field (required for prompt caching)
+			const systemMessages = processedMessages.filter(
+				(m) => m.role === "system",
+			);
+			const nonSystemMessages = processedMessages.filter(
+				(m) => m.role !== "system",
+			);
+
+			// Build the system field with cache_control for long prompts
+			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
+			let systemCacheControlCount = 0;
+			const maxCacheControlBlocks = 4;
+
+			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
+			const providerMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const minCacheableTokens = providerMapping?.minCacheableTokens ?? 1024;
+			// Approximate 4 characters per token
+			const minCacheableChars = minCacheableTokens * 4;
+
+			if (systemMessages.length > 0) {
+				const systemContent: Array<{
+					type: "text";
+					text: string;
+					cache_control?: { type: "ephemeral" };
+				}> = [];
+
+				for (const sysMsg of systemMessages) {
+					let text: string;
+					if (typeof sysMsg.content === "string") {
+						text = sysMsg.content;
+					} else if (Array.isArray(sysMsg.content)) {
+						// Concatenate text from array content
+						text = sysMsg.content
+							.filter((c) => c.type === "text" && "text" in c)
+							.map((c) => (c as { type: "text"; text: string }).text)
+							.join("");
+					} else {
+						continue;
+					}
+
+					if (!text || text.trim() === "") {
+						continue;
+					}
+
+					// Add cache_control for text blocks exceeding the model's minimum cacheable threshold
+					const shouldCache =
+						text.length >= minCacheableChars &&
+						systemCacheControlCount < maxCacheControlBlocks;
+
+					if (shouldCache) {
+						systemCacheControlCount++;
+						systemContent.push({
+							type: "text",
+							text,
+							cache_control: { type: "ephemeral" },
+						});
+					} else {
+						systemContent.push({
+							type: "text",
+							text,
+						});
+					}
+				}
+
+				if (systemContent.length > 0) {
+					requestBody.system = systemContent;
+				}
+			}
+
 			requestBody.messages = await transformAnthropicMessages(
-				processedMessages.map((m) => ({
+				nonSystemMessages.map((m) => ({
 					...m, // Preserve original properties for transformation
 					role:
 						m.role === "assistant"
 							? "assistant"
-							: m.role === "system"
-								? "user"
-								: m.role === "tool"
-									? "user" // Tool results become user messages in Anthropic
-									: "user",
+							: m.role === "tool"
+								? "user" // Tool results become user messages in Anthropic
+								: "user",
 					content: m.content,
 					tool_calls: m.tool_calls, // Include tool_calls for transformation
 				})),
@@ -364,15 +613,37 @@ export async function prepareRequestBody(
 				usedModel,
 				maxImageSizeMB,
 				userPlan,
+				systemCacheControlCount, // Pass count to respect the 4 block limit
+				minCacheableChars, // Model-specific minimum cacheable characters
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
-				requestBody.tools = tools.map((tool) => ({
-					name: tool.function.name,
-					description: tool.function.description,
-					input_schema: tool.function.parameters,
-				}));
+				// Filter to only function tools (web_search is handled separately)
+				const functionTools = tools.filter(isFunctionTool);
+				if (functionTools.length > 0) {
+					requestBody.tools = functionTools.map((tool) => ({
+						name: tool.function.name,
+						description: tool.function.description,
+						input_schema: tool.function.parameters,
+					}));
+				}
+			}
+
+			// Add web search tool for Anthropic
+			// Anthropic uses the web_search_20250305 tool type
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				const webSearch: any = {
+					type: "web_search_20250305",
+					name: "web_search",
+				};
+				if (webSearchTool.max_uses) {
+					webSearch.max_uses = webSearchTool.max_uses;
+				}
+				requestBody.tools.push(webSearch);
 			}
 
 			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
@@ -435,13 +706,75 @@ export async function prepareRequestBody(
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
-			// Transform messages to Bedrock format
-			requestBody.messages = processedMessages.map((msg: any) => {
+			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
+			let bedrockCacheControlCount = 0;
+			const bedrockMaxCacheControlBlocks = 4;
+
+			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
+			const bedrockProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const bedrockMinCacheableTokens =
+				bedrockProviderMapping?.minCacheableTokens ?? 1024;
+			// Approximate 4 characters per token
+			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
+
+			// Extract system messages for Bedrock's system field (required for prompt caching)
+			const bedrockSystemMessages = processedMessages.filter(
+				(m) => m.role === "system",
+			);
+			const bedrockNonSystemMessages = processedMessages.filter(
+				(m) => m.role !== "system",
+			);
+
+			// Build the system field with cachePoint for long prompts
+			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
+			if (bedrockSystemMessages.length > 0) {
+				const systemContent: Array<
+					{ text: string } | { cachePoint: { type: "default" } }
+				> = [];
+
+				for (const sysMsg of bedrockSystemMessages) {
+					let text: string;
+					if (typeof sysMsg.content === "string") {
+						text = sysMsg.content;
+					} else if (Array.isArray(sysMsg.content)) {
+						text = sysMsg.content
+							.filter((c: any) => c.type === "text" && "text" in c)
+							.map((c: any) => c.text)
+							.join("");
+					} else {
+						continue;
+					}
+
+					if (!text || text.trim() === "") {
+						continue;
+					}
+
+					// Add text block first
+					systemContent.push({ text });
+
+					// Add cachePoint as separate block for long text (model-specific threshold)
+					const shouldCache =
+						text.length >= bedrockMinCacheableChars &&
+						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+					if (shouldCache) {
+						bedrockCacheControlCount++;
+						systemContent.push({ cachePoint: { type: "default" } });
+					}
+				}
+
+				if (systemContent.length > 0) {
+					requestBody.system = systemContent;
+				}
+			}
+
+			// Transform non-system messages to Bedrock format
+			requestBody.messages = bedrockNonSystemMessages.map((msg: any) => {
 				// Map OpenAI roles to Bedrock roles
 				const role =
-					msg.role === "system" || msg.role === "user" || msg.role === "tool"
-						? "user"
-						: "assistant";
+					msg.role === "user" || msg.role === "tool" ? "user" : "assistant";
 
 				const bedrockMessage: any = {
 					role: role,
@@ -487,20 +820,47 @@ export async function prepareRequestBody(
 				}
 
 				// Handle regular content (user/assistant messages)
+				// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
 				if (typeof msg.content === "string") {
 					if (msg.content.trim()) {
+						// Add text block first
 						bedrockMessage.content.push({
 							text: msg.content,
 						});
+
+						// Add cachePoint as separate block for long user messages (model-specific threshold)
+						const shouldCache =
+							msg.content.length >= bedrockMinCacheableChars &&
+							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+						if (shouldCache) {
+							bedrockCacheControlCount++;
+							bedrockMessage.content.push({
+								cachePoint: { type: "default" },
+							});
+						}
 					}
 				} else if (Array.isArray(msg.content)) {
 					// Handle multi-part content (text + images)
 					msg.content.forEach((part: any) => {
 						if (part.type === "text") {
 							if (part.text && part.text.trim()) {
+								// Add text block first
 								bedrockMessage.content.push({
 									text: part.text,
 								});
+
+								// Add cachePoint as separate block for long text parts (model-specific threshold)
+								const shouldCache =
+									part.text.length >= bedrockMinCacheableChars &&
+									bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+
+								if (shouldCache) {
+									bedrockCacheControlCount++;
+									bedrockMessage.content.push({
+										cachePoint: { type: "default" },
+									});
+								}
 							}
 						} else if (part.type === "image_url") {
 							// Bedrock uses a different image format
@@ -515,17 +875,21 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Bedrock format
 			if (tools && tools.length > 0) {
-				requestBody.toolConfig = {
-					tools: tools.map((tool: any) => ({
-						toolSpec: {
-							name: tool.function.name,
-							description: tool.function.description,
-							inputSchema: {
-								json: tool.function.parameters,
+				// Filter to only function tools (web_search is handled separately)
+				const functionTools = tools.filter(isFunctionTool);
+				if (functionTools.length > 0) {
+					requestBody.toolConfig = {
+						tools: functionTools.map((tool) => ({
+							toolSpec: {
+								name: tool.function.name,
+								description: tool.function.description,
+								inputSchema: {
+									json: tool.function.parameters,
+								},
 							},
-						},
-					})),
-				};
+						})),
+					};
+				}
 			}
 
 			// Add inferenceConfig for optional parameters
@@ -562,21 +926,33 @@ export async function prepareRequestBody(
 
 			// Transform tools from OpenAI format to Google format
 			if (tools && tools.length > 0) {
-				requestBody.tools = [
-					{
-						functionDeclarations: tools.map((tool: any) => {
-							// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
-							const cleanParameters = stripUnsupportedSchemaProperties(
-								tool.function.parameters || {},
-							);
-							return {
-								name: tool.function.name,
-								description: tool.function.description,
-								parameters: cleanParameters,
-							};
-						}),
-					},
-				];
+				// Filter to only function tools (web_search is handled separately)
+				const functionTools = tools.filter(isFunctionTool);
+				if (functionTools.length > 0) {
+					requestBody.tools = [
+						{
+							functionDeclarations: functionTools.map((tool) => {
+								// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
+								const cleanParameters = stripUnsupportedSchemaProperties(
+									tool.function.parameters || {},
+								);
+								return {
+									name: tool.function.name,
+									description: tool.function.description,
+									parameters: cleanParameters,
+								};
+							}),
+						},
+					];
+				}
+			}
+
+			// Add web search tool for Google (google_search grounding)
+			if (webSearchTool) {
+				if (!requestBody.tools) {
+					requestBody.tools = [];
+				}
+				requestBody.tools.push({ google_search: {} });
 			}
 
 			requestBody.generationConfig = {};

@@ -3,6 +3,13 @@ import { trace } from "@opentelemetry/api";
 import type { ApiKey, Project } from "@llmgateway/db";
 import type { OpenAIToolInput, RoutingMetadata } from "@llmgateway/models";
 
+export interface PluginResults {
+	responseHealing?: {
+		healed: boolean;
+		healingMethod?: string;
+	};
+}
+
 /**
  * Creates a partial log entry with common fields to reduce duplication
  */
@@ -30,6 +37,7 @@ export function createLogEntry(
 	source: string | undefined,
 	customHeaders: Record<string, string>,
 	debugMode: boolean,
+	userAgent: string | undefined,
 	imageConfig?:
 		| {
 				aspect_ratio?: string;
@@ -41,6 +49,8 @@ export function createLogEntry(
 	rawResponse?: unknown,
 	upstreamRequest?: unknown,
 	upstreamResponse?: unknown,
+	plugins?: string[],
+	pluginResults?: PluginResults,
 ) {
 	const activeSpan = trace.getActiveSpan();
 	const traceId = activeSpan?.spanContext().traceId || null;
@@ -76,10 +86,13 @@ export function createLogEntry(
 				: null,
 		routingMetadata: routingMetadata || null,
 		traceId,
+		userAgent: userAgent || null,
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: debugMode ? rawRequest || null : null,
 		rawResponse: debugMode ? rawResponse || null : null,
 		upstreamRequest: debugMode ? upstreamRequest || null : null,
 		upstreamResponse: debugMode ? upstreamResponse || null : null,
+		plugins: plugins && plugins.length > 0 ? plugins : null,
+		pluginResults: pluginResults || null,
 	} as const;
 }

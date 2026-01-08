@@ -81,7 +81,7 @@ const integrations: Integration[] = [
 		name: "Claude Code",
 		description:
 			"Use LLM Gateway with Claude Code for AI-powered terminal assistance and coding.",
-		href: "https://docs.llmgateway.io/features/anthropic-endpoint",
+		href: "/guides/claude-code",
 		icon: AnthropicIcon,
 		comingSoon: false,
 	},
@@ -132,58 +132,74 @@ export function IntegrationCards() {
 	return (
 		<div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
 			{integrations.map((integration) => {
-				const CardWrapper = integration.comingSoon ? "div" : Link;
-				const cardProps = integration.comingSoon
-					? {}
-					: { href: integration.href, target: "_blank" as const };
+				const isExternal = integration.href.startsWith("http");
+				const cardContent = (
+					<Card
+						className={`relative h-full p-6 transition-all duration-300 ${
+							integration.comingSoon
+								? "opacity-60 cursor-not-allowed"
+								: "hover:border-primary/50 hover:shadow-lg"
+						}`}
+					>
+						{integration.comingSoon && (
+							<Badge
+								variant="secondary"
+								className="absolute top-4 right-4 gap-1"
+							>
+								<Clock className="h-3 w-3" />
+								Coming Soon
+							</Badge>
+						)}
+						{integration.badge && !integration.comingSoon && (
+							<Badge variant="outline" className="absolute top-4 right-4">
+								{integration.badge}
+							</Badge>
+						)}
+						<div className="flex items-start gap-4">
+							<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
+								<integration.icon className="h-6 w-6" />
+							</div>
+							<div className="flex-1 space-y-2">
+								<div className="flex items-center gap-2">
+									<h3 className="font-semibold">{integration.name}</h3>
+									{!integration.comingSoon && (
+										<ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 -translate-x-2 transition-all group-hover:opacity-100 group-hover:translate-x-0" />
+									)}
+								</div>
+								<p className="text-sm text-muted-foreground leading-relaxed">
+									{integration.description}
+								</p>
+							</div>
+						</div>
+					</Card>
+				);
+
+				if (integration.comingSoon) {
+					return <div key={integration.name}>{cardContent}</div>;
+				}
+
+				if (isExternal) {
+					return (
+						<a
+							key={integration.name}
+							href={integration.href}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="group"
+						>
+							{cardContent}
+						</a>
+					);
+				}
 
 				return (
-					<CardWrapper
+					<Link
 						key={integration.name}
 						href={integration.href as any}
-						target="_blank"
-						{...cardProps}
-						className={integration.comingSoon ? "" : "group"}
+						className="group"
 					>
-						<Card
-							className={`relative h-full p-6 transition-all duration-300 ${
-								integration.comingSoon
-									? "opacity-60 cursor-not-allowed"
-									: "hover:border-primary/50 hover:shadow-lg"
-							}`}
-						>
-							{integration.comingSoon && (
-								<Badge
-									variant="secondary"
-									className="absolute top-4 right-4 gap-1"
-								>
-									<Clock className="h-3 w-3" />
-									Coming Soon
-								</Badge>
-							)}
-							{integration.badge && !integration.comingSoon && (
-								<Badge variant="outline" className="absolute top-4 right-4">
-									{integration.badge}
-								</Badge>
-							)}
-							<div className="flex items-start gap-4">
-								<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
-									<integration.icon className="h-6 w-6" />
-								</div>
-								<div className="flex-1 space-y-2">
-									<div className="flex items-center gap-2">
-										<h3 className="font-semibold">{integration.name}</h3>
-										{!integration.comingSoon && (
-											<ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 -translate-x-2 transition-all group-hover:opacity-100 group-hover:translate-x-0" />
-										)}
-									</div>
-									<p className="text-sm text-muted-foreground leading-relaxed">
-										{integration.description}
-									</p>
-								</div>
-							</div>
-						</Card>
-					</CardWrapper>
+						{cardContent}
+					</Link>
 				);
 			})}
 		</div>

@@ -2,6 +2,166 @@ import { describe, expect, test } from "vitest";
 
 import { prepareRequestBody } from "./prepare-request-body.js";
 
+import type { AnthropicRequestBody } from "./types.js";
+
+describe("prepareRequestBody - Anthropic", () => {
+	test("should extract system messages to system field for caching", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: "You are a helpful assistant." },
+				{ role: "user", content: "Hello!" },
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.system).toBeDefined();
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		expect(requestBody.system).toHaveLength(1);
+		expect((requestBody.system as any)[0].type).toBe("text");
+		expect((requestBody.system as any)[0].text).toBe(
+			"You are a helpful assistant.",
+		);
+		// Short system messages should not have cache_control
+		expect((requestBody.system as any)[0].cache_control).toBeUndefined();
+
+		// Messages should only contain user message
+		expect(requestBody.messages).toHaveLength(1);
+		expect(requestBody.messages[0].role).toBe("user");
+	});
+
+	test("should add cache_control for long system prompts", async () => {
+		// Create a long system prompt (>4096 characters)
+		const longSystemPrompt = "A".repeat(5000);
+
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longSystemPrompt },
+				{ role: "user", content: "Hello!" },
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.system).toBeDefined();
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		expect((requestBody.system as any)[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+	});
+
+	test("should handle array content in system messages", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "Part 1. " },
+						{ type: "text", text: "Part 2." },
+					],
+				},
+				{ role: "user", content: "Hello!" },
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.system).toBeDefined();
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		expect((requestBody.system as any)[0].text).toBe("Part 1. Part 2.");
+	});
+
+	test("should limit cache_control blocks to 4 total across system and user messages", async () => {
+		// Create 5 long prompts that would each trigger cache_control
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent }, // Would be cache block 1
+				{ role: "system", content: longContent }, // Would be cache block 2
+				{ role: "user", content: longContent }, // Would be cache block 3
+				{ role: "user", content: longContent }, // Would be cache block 4
+				{ role: "user", content: longContent }, // Should NOT get cache_control (limit reached)
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as AnthropicRequestBody;
+
+		// Count total cache_control blocks
+		let totalCacheControlBlocks = 0;
+
+		// Count in system messages
+		if (requestBody.system && Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				if ((block as any).cache_control) {
+					totalCacheControlBlocks++;
+				}
+			}
+		}
+
+		// Count in user messages
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					if ((block as any).cache_control) {
+						totalCacheControlBlocks++;
+					}
+				}
+			}
+		}
+
+		// Should be exactly 4 (the limit)
+		expect(totalCacheControlBlocks).toBe(4);
+	});
+});
+
 describe("prepareRequestBody - Google AI Studio", () => {
 	test("should set thinkingBudget when reasoning_effort is provided", async () => {
 		const requestBody = (await prepareRequestBody(

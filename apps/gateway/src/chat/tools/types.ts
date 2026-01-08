@@ -26,6 +26,19 @@ export interface ToolCall {
 	};
 }
 
+// Define URL citation annotation type (for web search results)
+export interface UrlCitationAnnotation {
+	type: "url_citation";
+	url_citation: {
+		url: string;
+		title?: string;
+		start_index?: number;
+		end_index?: number;
+	};
+}
+
+export type Annotation = UrlCitationAnnotation;
+
 // Define streaming delta object type
 export interface StreamingDelta {
 	role?: "assistant";
@@ -33,4 +46,5 @@ export interface StreamingDelta {
 	reasoning?: string;
 	images?: ImageObject[];
 	tool_calls?: ToolCall[];
+	annotations?: Annotation[];
 }

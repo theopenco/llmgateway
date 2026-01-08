@@ -38,6 +38,8 @@ interface ChatPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialPrompt?: string;
+	enableWebSearch?: boolean;
 }
 
 export default function ChatPageClient({
@@ -47,6 +49,8 @@ export default function ChatPageClient({
 	selectedOrganization,
 	projects,
 	selectedProject,
+	initialPrompt,
+	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const router = useRouter();
@@ -61,7 +65,11 @@ export default function ChatPageClient({
 
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
-		return modelFromUrl || "gpt-5";
+		if (modelFromUrl) {
+			return modelFromUrl;
+		}
+		// Default to "auto" model which auto-selects the best provider
+		return "auto";
 	};
 
 	const [selectedModel, setSelectedModel] = useState(getInitialModel());
@@ -81,12 +89,21 @@ export default function ChatPageClient({
 		| "21:9"
 	>("auto");
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+
+	// Get chat ID from URL search params
+	const chatIdFromUrl = searchParams.get("chat");
+	const [currentChatId, setCurrentChatId] = useState<string | null>(
+		chatIdFromUrl,
+	);
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
+	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
+	const shouldClearMessagesRef = useRef(false);
 
 	const [githubToken, setGithubToken] = useState<string | null>(null);
 
@@ -130,8 +147,25 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
-				const chatId = chatIdRef.current;
+
+				// Wait for chatId to be available (handleUserMessage might still be running)
+				let chatId = chatIdRef.current;
+
 				if (!chatId) {
+					// Poll for chatId with timeout
+					for (let i = 0; i < 50; i++) {
+						await new Promise<void>((resolve) => {
+							setTimeout(resolve, 100);
+						});
+						chatId = chatIdRef.current;
+						if (chatId) {
+							break;
+						}
+					}
+				}
+
+				if (!chatId) {
+					toast.error("Failed to save AI response: No chat ID found");
 					return;
 				}
 				// Extract assistant text, images, and reasoning from UIMessage parts
@@ -170,18 +204,50 @@ export default function ChatPageClient({
 					(p: any) => p.type === "dynamic-tool",
 				);
 
-				await addMessage.mutateAsync({
-					params: { path: { id: chatId } },
-					body: {
-						role: "assistant",
-						content: textContent || undefined,
-						images: images.length > 0 ? JSON.stringify(images) : undefined,
-						reasoning: reasoningContent || undefined,
-						tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
-					} as any,
-				});
+				const bodyToSave = {
+					role: "assistant",
+					content: textContent || undefined,
+					images: images.length > 0 ? JSON.stringify(images) : undefined,
+					reasoning: reasoningContent || undefined,
+					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+				};
+
+				try {
+					await addMessage.mutateAsync({
+						params: { path: { id: chatId } },
+						body: bodyToSave as any,
+					});
+				} catch (error: any) {
+					// If chat not found, clear the stale chat ID
+					if (
+						error?.status === 404 &&
+						error?.message?.includes("Chat not found")
+					) {
+						chatIdRef.current = null;
+						setCurrentChatId(null);
+						setMessages([]);
+						toast.error("Chat was deleted. Please start a new conversation.");
+					} else {
+						toast.error(
+							`Failed to save AI response: ${error?.message || "Unknown error"}`,
+						);
+					}
+				}
+				// Note: useAddMessage already invalidates /chats query on success
 			},
 		});
+
+	// Sync currentChatId with URL param changes
+	useEffect(() => {
+		if (chatIdFromUrl !== currentChatId) {
+			// Only clear messages if explicitly requested (by handleChatSelect or handleNewChat)
+			if (shouldClearMessagesRef.current) {
+				setMessages([]);
+				shouldClearMessagesRef.current = false;
+			}
+			setCurrentChatId(chatIdFromUrl);
+		}
+	}, [chatIdFromUrl, currentChatId, setMessages]);
 
 	useEffect(() => {
 		chatIdRef.current = currentChatId;
@@ -221,17 +287,51 @@ export default function ChatPageClient({
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
+	const supportsWebSearch = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const [providerId, modelId] = selectedModel.includes("/")
+			? (selectedModel.split("/") as [string, string])
+			: ["", selectedModel];
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.providers.some((p) => p.webSearch);
+		}
+		const mapping = def.providers.find((p) => p.providerId === providerId);
+		return !!mapping?.webSearch;
+	}, [models, selectedModel]);
+
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
-			const imageConfig =
-				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
-					? {
-							...(imageAspectRatio !== "auto" && {
-								aspect_ratio: imageAspectRatio,
-							}),
-							...(imageSize !== "1K" && { image_size: imageSize }),
-						}
-					: undefined;
+			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			const usesPixelDimensions =
+				selectedModel.toLowerCase().includes("alibaba") ||
+				selectedModel.toLowerCase().includes("qwen-image") ||
+				selectedModel.toLowerCase().includes("zai") ||
+				selectedModel.toLowerCase().includes("cogview");
+
+			// Only send image_config if user has explicitly selected non-default values
+			const imageConfig = supportsImageGen
+				? usesPixelDimensions
+					? // For Alibaba/ZAI, don't send image_config with default size
+						alibabaImageSize !== "1024x1024"
+						? {
+								image_size: alibabaImageSize,
+							}
+						: undefined
+					: imageAspectRatio !== "auto" || imageSize !== "1K"
+						? {
+								...(imageAspectRatio !== "auto" && {
+									aspect_ratio: imageAspectRatio,
+								}),
+								...(imageSize !== "1K" && { image_size: imageSize }),
+							}
+						: undefined
+				: undefined;
 
 			// Hidden feature: check localStorage for no-fallback setting
 			const noFallback =
@@ -250,8 +350,12 @@ export default function ChatPageClient({
 					...(githubToken ? { githubToken } : {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(webSearchEnabled && supportsWebSearch
+						? { web_search: true }
+						: {}),
 				},
 			};
+
 			return sendMessage(message, mergedOptions);
 		},
 		[
@@ -261,6 +365,10 @@ export default function ChatPageClient({
 			supportsImageGen,
 			imageAspectRatio,
 			imageSize,
+			alibabaImageSize,
+			selectedModel,
+			webSearchEnabled,
+			supportsWebSearch,
 		],
 	);
 
@@ -268,7 +376,7 @@ export default function ChatPageClient({
 	const [comparisonEnabled, setComparisonEnabled] = useState(false);
 	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
 	const [syncInput, setSyncInput] = useState(true);
-	const [syncedText, setSyncedText] = useState("");
+	const [syncedText, setSyncedText] = useState(initialPrompt || "");
 	const extraSubmitRefs = useRef<
 		Record<number, (content: string) => Promise<void> | void>
 	>({});
@@ -293,7 +401,13 @@ export default function ChatPageClient({
 			setSelectedModel(currentChatData.chat.model);
 		}
 
+		// Update the web search state when loading a chat
+		if (currentChatData.chat?.webSearch !== undefined) {
+			setWebSearchEnabled(currentChatData.chat.webSearch);
+		}
+
 		setMessages((prev) => {
+			// Load messages if empty (URL change clears messages first)
 			if (prev.length === 0) {
 				return currentChatData.messages.map((msg) => {
 					const parts: any[] = [];
@@ -405,7 +519,27 @@ export default function ChatPageClient({
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
-			return chatIdRef.current;
+			// Verify the chat still exists by trying to fetch it
+			try {
+				const response = await fetch(`/api/chats/${chatIdRef.current}`, {
+					method: "GET",
+					headers: { "Content-Type": "application/json" },
+				});
+
+				if (response.ok) {
+					return chatIdRef.current;
+				} else {
+					// Clear the stale chat ID
+					chatIdRef.current = null;
+					setCurrentChatId(null);
+					// Fall through to create new chat
+				}
+			} catch {
+				// Clear the stale chat ID
+				chatIdRef.current = null;
+				setCurrentChatId(null);
+				// Fall through to create new chat
+			}
 		}
 
 		try {
@@ -417,11 +551,19 @@ export default function ChatPageClient({
 				body: {
 					title,
 					model: selectedModel,
+					webSearch: webSearchEnabled,
 				},
 			});
 			const newChatId = chatData.chat.id;
+
 			setCurrentChatId(newChatId);
 			chatIdRef.current = newChatId; // Manually update the ref
+
+			// Update URL with new chat ID (without triggering navigation)
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("chat", newChatId);
+			router.replace(`${pathname}?${params.toString()}`);
+
 			return newChatId;
 		} catch (error) {
 			setError("Failed to create a new chat. Please try again.");
@@ -445,7 +587,31 @@ export default function ChatPageClient({
 				params: { path: { id: chatId } },
 				body: { role: "user", content },
 			});
-		} catch (error) {
+		} catch (error: any) {
+			// If chat not found, it means the chat was deleted or is stale
+			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
+				chatIdRef.current = null;
+				setCurrentChatId(null);
+				setMessages([]);
+
+				// Try again with a new chat
+				try {
+					const newChatId = await ensureCurrentChat(content);
+					await addMessage.mutateAsync({
+						params: { path: { id: newChatId } },
+						body: { role: "user", content },
+					});
+					setIsLoading(false);
+					return; // Exit early, don't show error
+				} catch (retryError) {
+					const retryErrorMessage = getErrorMessage(retryError);
+					setError(retryErrorMessage);
+					toast.error(retryErrorMessage);
+					setIsLoading(false);
+					return;
+				}
+			}
+
 			const errorMessage = getErrorMessage(error);
 			setError(errorMessage);
 			toast.error(errorMessage);
@@ -489,16 +655,31 @@ export default function ChatPageClient({
 	};
 
 	const clearMessages = () => {
-		setCurrentChatId(null);
 		setError(null);
+		shouldClearMessagesRef.current = true;
+		setMessages([]);
+		// Remove chat param from URL
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("chat");
+		const newUrl = params.toString()
+			? `${pathname}?${params.toString()}`
+			: pathname;
+		router.push(newUrl);
 	};
 
 	const handleNewChat = async () => {
 		setIsLoading(true);
 		setError(null);
 		try {
-			setCurrentChatId(null);
+			shouldClearMessagesRef.current = true;
 			setMessages([]);
+			// Remove chat param from URL
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("chat");
+			const newUrl = params.toString()
+				? `${pathname}?${params.toString()}`
+				: pathname;
+			router.push(newUrl);
 			// Clear comparison windows as well
 			setComparisonResetToken((token) => token + 1);
 			extraSubmitRefs.current = {};
@@ -511,8 +692,11 @@ export default function ChatPageClient({
 
 	const handleChatSelect = (chatId: string) => {
 		setError(null);
-		setMessages([]);
-		setCurrentChatId(chatId);
+		shouldClearMessagesRef.current = true; // Request message clear on URL change
+		// Update URL with chat ID - this will trigger the useEffect to update state
+		const params = new URLSearchParams(searchParams.toString());
+		params.set("chat", chatId);
+		router.push(`${pathname}?${params.toString()}`);
 	};
 
 	// keep URL in sync with selected model
@@ -528,7 +712,7 @@ export default function ChatPageClient({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
-	const [text, setText] = useState("");
+	const [text, setText] = useState(initialPrompt || "");
 	const primaryText = syncInput ? syncedText : text;
 	const setPrimaryText = (value: string) => {
 		if (syncInput) {
@@ -695,7 +879,7 @@ export default function ChatPageClient({
 						<div
 							className={`grid h-full gap-4 px-4 pb-4 ${
 								!comparisonEnabled || extraPanelIds.length === 0
-									? "grid-cols-1 mx-auto md:max-w-4xl md:min-w-[720px]"
+									? "grid-cols-1 mx-auto w-full md:max-w-4xl"
 									: extraPanelIds.length === 1
 										? "grid-cols-1 md:grid-cols-2"
 										: "grid-cols-1 md:grid-cols-3"
@@ -736,14 +920,19 @@ export default function ChatPageClient({
 											setImageAspectRatio={setImageAspectRatio}
 											imageSize={imageSize}
 											setImageSize={setImageSize}
+											alibabaImageSize={alibabaImageSize}
+											setAlibabaImageSize={setAlibabaImageSize}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
+											setWebSearchEnabled={setWebSearchEnabled}
+											supportsWebSearch={supportsWebSearch}
+											webSearchEnabled={webSearchEnabled}
 										/>
 									</div>
 								</div>
 							) : (
-								<div className="flex flex-col min-h-0">
+								<div className="flex flex-col min-h-0 w-full">
 									<ChatUI
 										messages={messages}
 										supportsImages={supportsImages}
@@ -762,6 +951,11 @@ export default function ChatPageClient({
 										setImageAspectRatio={setImageAspectRatio}
 										imageSize={imageSize}
 										setImageSize={setImageSize}
+										alibabaImageSize={alibabaImageSize}
+										setAlibabaImageSize={setAlibabaImageSize}
+										supportsWebSearch={supportsWebSearch}
+										webSearchEnabled={webSearchEnabled}
+										setWebSearchEnabled={setWebSearchEnabled}
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
@@ -847,6 +1041,8 @@ function ExtraChatPanel({
 		| "21:9"
 	>("auto");
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
 
 	const { messages, sendMessage, status, stop, regenerate } = useChat({
@@ -890,17 +1086,51 @@ function ExtraChatPanel({
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
+	const supportsWebSearch = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const [providerId, modelId] = selectedModel.includes("/")
+			? (selectedModel.split("/") as [string, string])
+			: ["", selectedModel];
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.providers.some((p) => p.webSearch);
+		}
+		const mapping = def.providers.find((p) => p.providerId === providerId);
+		return !!mapping?.webSearch;
+	}, [models, selectedModel]);
+
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
-			const imageConfig =
-				supportsImageGen && (imageAspectRatio !== "auto" || imageSize !== "1K")
-					? {
-							...(imageAspectRatio !== "auto" && {
-								aspect_ratio: imageAspectRatio,
-							}),
-							...(imageSize !== "1K" && { image_size: imageSize }),
-						}
-					: undefined;
+			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			const usesPixelDimensions =
+				selectedModel.toLowerCase().includes("alibaba") ||
+				selectedModel.toLowerCase().includes("qwen-image") ||
+				selectedModel.toLowerCase().includes("zai") ||
+				selectedModel.toLowerCase().includes("cogview");
+
+			// Only send image_config if user has explicitly selected non-default values
+			const imageConfig = supportsImageGen
+				? usesPixelDimensions
+					? // For Alibaba/ZAI, don't send image_config with default size
+						alibabaImageSize !== "1024x1024"
+						? {
+								image_size: alibabaImageSize,
+							}
+						: undefined
+					: imageAspectRatio !== "auto" || imageSize !== "1K"
+						? {
+								...(imageAspectRatio !== "auto" && {
+									aspect_ratio: imageAspectRatio,
+								}),
+								...(imageSize !== "1K" && { image_size: imageSize }),
+							}
+						: undefined
+				: undefined;
 
 			const noFallback =
 				typeof window !== "undefined" &&
@@ -918,8 +1148,12 @@ function ExtraChatPanel({
 					...(githubToken ? { githubToken } : {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(webSearchEnabled && supportsWebSearch
+						? { web_search: true }
+						: {}),
 				},
 			};
+
 			return sendMessage(message, mergedOptions);
 		},
 		[
@@ -929,6 +1163,10 @@ function ExtraChatPanel({
 			supportsImageGen,
 			imageAspectRatio,
 			imageSize,
+			alibabaImageSize,
+			selectedModel,
+			webSearchEnabled,
+			supportsWebSearch,
 		],
 	);
 
@@ -1017,6 +1255,11 @@ function ExtraChatPanel({
 					setImageAspectRatio={setImageAspectRatio}
 					imageSize={imageSize}
 					setImageSize={setImageSize}
+					alibabaImageSize={alibabaImageSize}
+					setAlibabaImageSize={setAlibabaImageSize}
+					supportsWebSearch={supportsWebSearch}
+					webSearchEnabled={webSearchEnabled}
+					setWebSearchEnabled={setWebSearchEnabled}
 					isLoading={false}
 					error={null}
 				/>

@@ -22,6 +22,12 @@ export function transformOpenaiStreaming(data: any, usedModel: string): any {
 			};
 		}
 
+		// Preserve annotations (web search citations) if present
+		// OpenAI sends these in delta.annotations for web search results
+		if (delta.annotations && Array.isArray(delta.annotations)) {
+			newDelta.annotations = delta.annotations;
+		}
+
 		return newDelta;
 	};
 

@@ -1,10 +1,11 @@
 "use client";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
-import { GithubIcon, TwitterIcon } from "lucide-react";
+import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
+import { XIcon } from "@/lib/icons/XIcon";
 
 import { providers as providerDefinitions } from "@llmgateway/models";
 
@@ -43,9 +44,9 @@ export default function Footer() {
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
-								aria-label="Twitter"
+								aria-label="X"
 							>
-								<TwitterIcon className="h-5 w-5" />
+								<XIcon className="h-5 w-5" />
 							</a>
 							<a
 								href={config.discordUrl}

@@ -67,7 +67,13 @@ function ListItem({
 	);
 }
 
-export const Navbar = ({ children }: { children?: React.ReactNode }) => {
+export const Navbar = ({
+	children,
+	sticky = true,
+}: {
+	children?: React.ReactNode;
+	sticky?: boolean;
+}) => {
 	const config = useAppConfig();
 
 	const menuItems: Array<{ name: string; href: string; external?: boolean }> = [
@@ -91,6 +97,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 		{ name: "Changelog", href: "/changelog" },
 		{ name: "Referral Program", href: "/referrals" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
+		{ name: "Guides", href: "/guides" },
 		{ name: "Model Timeline", href: "/timeline" },
 		{ name: "Compare", href: "/models/compare" },
 		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
@@ -115,6 +122,11 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 			external: true,
 		},
 		{
+			title: "Guides",
+			href: "/guides",
+			description: "Step-by-step tutorials and best practices.",
+		},
+		{
 			title: "Compare",
 			href: "/models/compare",
 			description: "Compare models side by side",
@@ -122,7 +134,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 		{
 			title: "Changelog",
 			href: "/changelog",
-			description: "What’s new in LLM Gateway across releases.",
+			description: "What's new in LLM Gateway across releases.",
 		},
 		{
 			title: "Referral Program",
@@ -157,7 +169,7 @@ export const Navbar = ({ children }: { children?: React.ReactNode }) => {
 		<header>
 			<nav
 				data-state={menuState && "active"}
-				className="fixed z-20 w-full px-2 group"
+				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
 				<div
 					className={cn(

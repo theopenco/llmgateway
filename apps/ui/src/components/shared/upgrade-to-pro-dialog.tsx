@@ -156,7 +156,7 @@ function UpgradeDialogContent({
 						</li>
 						<li className="flex items-center gap-2">
 							<div className="w-2 h-2 rounded-full bg-green-500" />
-							No surcharges or fees for API keys or credits usage
+							No surcharges for API keys, 80% less fees on credits (1% vs 5%)
 						</li>
 						<li className="flex items-center gap-2">
 							<div className="w-2 h-2 rounded-full bg-green-500" />

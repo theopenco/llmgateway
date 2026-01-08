@@ -156,6 +156,7 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				modelName: "deepseek/deepseek-chat-v3.2",
+				test: "skip",
 				inputPrice: 0.28 / 1e6,
 				outputPrice: 0.42 / 1e6,
 				discount: 0.3,

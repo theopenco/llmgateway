@@ -57,6 +57,27 @@ const legal = defineCollection({
 	}),
 });
 
+const guides = defineCollection({
+	name: "guides",
+	directory: "src/content/guides",
+	include: "**/*.md",
+	schema: z.object({
+		id: z.string(),
+		slug: z.string(),
+		title: z.string(),
+		description: z.string(),
+		date: z.string(),
+		image: z
+			.object({
+				src: z.string(),
+				alt: z.string(),
+				width: z.number(),
+				height: z.number(),
+			})
+			.optional(),
+	}),
+});
+
 export default defineConfig({
-	collections: [changelog, blog, legal],
+	collections: [changelog, blog, legal, guides],
 });

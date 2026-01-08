@@ -1,0 +1,348 @@
+---
+title: Native Web Search
+description: Enable real-time web search capabilities to get up-to-date information from the internet.
+icon: Globe
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Native Web Search
+
+LLM Gateway supports native web search capabilities that allow models to access real-time information from the internet. This feature is useful for answering questions about current events, recent news, live data, and other time-sensitive information that may not be in the model's training data.
+
+## How It Works
+
+When you include the `web_search` tool in your request, the model can search the web to gather relevant information before generating a response:
+
+1. You send a request with the `web_search` tool enabled
+2. The model determines if web search is needed based on the query
+3. If needed, the model performs web searches to gather current information
+4. The model synthesizes the search results and generates a response
+5. Citations are included in the response to show information sources
+
+## Supported Providers
+
+Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
+
+## Basic Usage
+
+To enable web search, add the `web_search` tool to your request:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the current weather in San Francisco?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "web_search"
+      }
+    ]
+  }'
+```
+
+### Example Response
+
+```json
+{
+	"id": "chatcmpl-abc123",
+	"object": "chat.completion",
+	"created": 1234567890,
+	"model": "openai/gpt-5.2",
+	"choices": [
+		{
+			"index": 0,
+			"message": {
+				"role": "assistant",
+				"content": "The current weather in San Francisco is 57°F (14°C) with mostly cloudy skies...",
+				"annotations": [
+					{
+						"type": "url_citation",
+						"url": "https://weather.com/...",
+						"title": "San Francisco Weather"
+					}
+				]
+			},
+			"finish_reason": "stop"
+		}
+	],
+	"usage": {
+		"prompt_tokens": 15,
+		"completion_tokens": 150,
+		"total_tokens": 165,
+		"cost_usd_total": 0.0315
+	}
+}
+```
+
+## Web Search Options
+
+The `web_search` tool accepts optional configuration parameters:
+
+### User Location
+
+Provide location context to get more relevant local search results:
+
+```json
+{
+	"type": "web_search",
+	"user_location": {
+		"city": "San Francisco",
+		"region": "California",
+		"country": "US",
+		"timezone": "America/Los_Angeles"
+	}
+}
+```
+
+### Search Context Size
+
+Control the amount of web content retrieved (OpenAI only):
+
+```json
+{
+	"type": "web_search",
+	"search_context_size": "medium"
+}
+```
+
+Available values:
+
+- `low` - Minimal search context, faster responses
+- `medium` - Balanced context (default)
+- `high` - Maximum search context, more comprehensive
+
+### Max Uses
+
+Limit the number of searches per request (provider-dependent):
+
+```json
+{
+	"type": "web_search",
+	"max_uses": 3
+}
+```
+
+## Using with SDKs
+
+### OpenAI SDK (Python)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.llmgateway.io/v1",
+    api_key="your-api-key"
+)
+
+response = client.chat.completions.create(
+    model="openai/gpt-5.2",
+    messages=[
+        {"role": "user", "content": "What are the latest news headlines today?"}
+    ],
+    tools=[{"type": "web_search"}]
+)
+
+print(response.choices[0].message.content)
+```
+
+### OpenAI SDK (TypeScript)
+
+```typescript
+import OpenAI from "openai";
+
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: "your-api-key",
+});
+
+const response = await client.chat.completions.create({
+	model: "openai/gpt-5.2",
+	messages: [{ role: "user", content: "What are the latest tech news?" }],
+	tools: [{ type: "web_search" }],
+});
+
+console.log(response.choices[0].message.content);
+```
+
+## Streaming
+
+Web search works with streaming responses. Citations are included in the final chunks:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-5.2",
+    "messages": [
+      {"role": "user", "content": "What is the current stock price of Apple?"}
+    ],
+    "tools": [{"type": "web_search"}],
+    "stream": true
+  }'
+```
+
+## Citations and Sources
+
+Web search responses include citations to show where information was sourced from. These appear in the `annotations` field of the message:
+
+```json
+{
+	"annotations": [
+		{
+			"type": "url_citation",
+			"url": "https://example.com/article",
+			"title": "Article Title",
+			"start_index": 0,
+			"end_index": 50
+		}
+	]
+}
+```
+
+<Callout type="info">
+	Citation format may vary slightly between providers, but LLM Gateway
+	normalizes them into a consistent structure.
+</Callout>
+
+## Cost Tracking
+
+Web search costs are tracked separately from token costs in the usage object:
+
+```json
+{
+	"usage": {
+		"prompt_tokens": 15,
+		"completion_tokens": 150,
+		"total_tokens": 165,
+		"cost_usd_total": 0.0125,
+		"cost_usd_input": 0.0015,
+		"cost_usd_output": 0.01,
+		"cost_usd_web_search": 0.01
+	}
+}
+```
+
+The `cost_usd_web_search` field shows the cost incurred specifically for web search queries. Web search is billed at $0.01 per search call for reasoning models (GPT-5, o-series) and $0.025 per call for non-reasoning models.
+
+## Combining with Function Tools
+
+You can use web search alongside regular function tools:
+
+```json
+{
+	"tools": [
+		{ "type": "web_search" },
+		{
+			"type": "function",
+			"function": {
+				"name": "get_weather",
+				"description": "Get weather for a location",
+				"parameters": {
+					"type": "object",
+					"properties": {
+						"location": { "type": "string" }
+					}
+				}
+			}
+		}
+	]
+}
+```
+
+<Callout type="warning">
+	Some dedicated search models only support web search and do not support
+	additional function tools. Use `gpt-5.2` or other GPT-5 series models if you
+	need both web search and function tools.
+</Callout>
+
+## Use Cases
+
+### Current Events and News
+
+```json
+{
+	"messages": [
+		{ "role": "user", "content": "What are the major news stories today?" }
+	],
+	"tools": [{ "type": "web_search" }]
+}
+```
+
+### Real-Time Data
+
+```json
+{
+	"messages": [
+		{ "role": "user", "content": "What is the current price of Bitcoin?" }
+	],
+	"tools": [{ "type": "web_search" }]
+}
+```
+
+### Research and Fact-Checking
+
+```json
+{
+	"messages": [
+		{
+			"role": "user",
+			"content": "What are the latest findings on climate change?"
+		}
+	],
+	"tools": [{ "type": "web_search" }]
+}
+```
+
+### Local Information
+
+```json
+{
+	"messages": [
+		{
+			"role": "user",
+			"content": "What restaurants are open near me right now?"
+		}
+	],
+	"tools": [
+		{
+			"type": "web_search",
+			"user_location": {
+				"city": "New York",
+				"country": "US"
+			}
+		}
+	]
+}
+```
+
+## Best Practices
+
+1. **Use GPT-5.2**: For the best web search experience with full tool support, use `openai/gpt-5.2`
+2. **Provide location context**: When queries are location-dependent, include `user_location` for more relevant results
+3. **Monitor costs**: Web search incurs per-query costs in addition to token costs
+4. **Check citations**: Always review the citations in responses to verify information sources
+5. **Use streaming**: For user-facing applications, enable streaming to show responses as they're generated
+
+## Error Handling
+
+If you try to use web search with a model that doesn't support it:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.",
+		"type": "invalid_request_error"
+	}
+}
+```
+
+To avoid this error, only use the `web_search` tool with [native web search enabled models](https://llmgateway.io/models?filters=1&webSearch=true).

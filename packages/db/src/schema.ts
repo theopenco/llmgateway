@@ -428,6 +428,7 @@ export const log = pgTable(
 		outputCost: real(),
 		cachedInputCost: real(),
 		requestCost: real(),
+		webSearchCost: real(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
@@ -468,6 +469,14 @@ export const log = pgTable(
 			image_config?: {
 				aspect_ratio?: string;
 				image_size?: string;
+			};
+		}>(),
+		userAgent: text(),
+		plugins: json().$type<string[]>(),
+		pluginResults: json().$type<{
+			responseHealing?: {
+				healed: boolean;
+				healingMethod?: string;
 			};
 		}>(),
 	},
@@ -580,6 +589,7 @@ export const chat = pgTable(
 		status: text({
 			enum: ["active", "archived", "deleted"],
 		}).default("active"),
+		webSearch: boolean().default(false),
 	},
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );
