@@ -615,7 +615,7 @@ export function ApiKeysList({
 										<DropdownMenuContent align="end">
 											<DropdownMenuLabel>Actions</DropdownMenuLabel>
 											<DropdownMenuItem asChild>
-												<Link href={getStatisticsUrl(key.id)}>
+												<Link href={getStatisticsUrl(key.id)} prefetch={true}>
 													<BarChart3Icon className="mr-2 h-4 w-4" />
 													View Statistics
 												</Link>
@@ -705,7 +705,7 @@ export function ApiKeysList({
 								<DropdownMenuContent align="end">
 									<DropdownMenuLabel>Actions</DropdownMenuLabel>
 									<DropdownMenuItem asChild>
-										<Link href={getStatisticsUrl(key.id)}>
+										<Link href={getStatisticsUrl(key.id)} prefetch={true}>
 											<BarChart3Icon className="mr-2 h-4 w-4" />
 											View Statistics
 										</Link>
