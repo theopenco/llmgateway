@@ -20,6 +20,7 @@ import type { TooltipProps } from "recharts";
 interface UsageChartProps {
 	initialData?: ActivitT;
 	projectId: string | undefined;
+	apiKeyId?: string;
 }
 
 const CustomTooltip = ({
@@ -45,7 +46,11 @@ const CustomTooltip = ({
 	return null;
 };
 
-export function UsageChart({ initialData, projectId }: UsageChartProps) {
+export function UsageChart({
+	initialData,
+	projectId,
+	apiKeyId,
+}: UsageChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardState();
 
@@ -62,6 +67,7 @@ export function UsageChart({ initialData, projectId }: UsageChartProps) {
 				query: {
 					days: String(days),
 					...(projectId ? { projectId: projectId } : {}),
+					...(apiKeyId ? { apiKeyId } : {}),
 				},
 			},
 		},

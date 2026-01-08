@@ -221,6 +221,17 @@ export interface OpenAIResponsesRequestBody {
 	stream?: boolean;
 	temperature?: number;
 	max_output_tokens?: number;
+	text?: {
+		format:
+			| { type: "text" }
+			| { type: "json_object" }
+			| {
+					type: "json_schema";
+					name: string;
+					schema: Record<string, unknown>;
+					strict?: boolean;
+			  };
+	};
 }
 
 export interface AnthropicSystemContent {

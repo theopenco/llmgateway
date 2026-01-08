@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { db, sql, tables, inArray, and, gte, lte } from "@llmgateway/db";
+import { db, sql, tables, inArray, and, gte, lte, eq } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -50,6 +50,7 @@ const getActivity = createRoute({
 				.transform((val) => parseInt(val, 10))
 				.pipe(z.number().int().positive()),
 			projectId: z.string().optional(),
+			apiKeyId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -76,7 +77,7 @@ activity.openapi(getActivity, async (c) => {
 	}
 
 	// Get the days parameter from the query
-	const { days, projectId } = c.req.valid("query");
+	const { days, projectId, apiKeyId } = c.req.valid("query");
 
 	// Calculate the date range
 	const endDate = new Date();
@@ -185,6 +186,7 @@ activity.openapi(getActivity, async (c) => {
 				inArray(tables.log.projectId, projectIds),
 				gte(tables.log.createdAt, startDate),
 				lte(tables.log.createdAt, endDate),
+				...(apiKeyId ? [eq(tables.log.apiKeyId, apiKeyId)] : []),
 			),
 		)
 		.groupBy(sql`DATE(${tables.log.createdAt})`)
@@ -217,6 +219,7 @@ activity.openapi(getActivity, async (c) => {
 				inArray(tables.log.projectId, projectIds),
 				gte(tables.log.createdAt, startDate),
 				lte(tables.log.createdAt, endDate),
+				...(apiKeyId ? [eq(tables.log.apiKeyId, apiKeyId)] : []),
 			),
 		)
 		.groupBy(

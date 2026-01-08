@@ -20,6 +20,7 @@ import type { TooltipProps } from "recharts";
 interface ErrorRateChartProps {
 	initialData?: ActivitT;
 	projectId: string | undefined;
+	apiKeyId?: string;
 }
 
 const CustomTooltip = ({
@@ -51,6 +52,7 @@ const CustomTooltip = ({
 export function ErrorRateChart({
 	initialData,
 	projectId,
+	apiKeyId,
 }: ErrorRateChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardState();
@@ -68,6 +70,7 @@ export function ErrorRateChart({
 				query: {
 					days: String(days),
 					...(projectId ? { projectId: projectId } : {}),
+					...(apiKeyId ? { apiKeyId } : {}),
 				},
 			},
 		},

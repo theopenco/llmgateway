@@ -751,6 +751,7 @@ export interface paths {
                 query: {
                     days: string;
                     projectId?: string;
+                    apiKeyId?: string;
                 };
                 header?: never;
                 path?: never;
