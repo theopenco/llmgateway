@@ -369,6 +369,30 @@ export async function prepareRequestBody(
 					responsesBody.max_output_tokens = max_tokens;
 				}
 
+				// Handle response_format for Responses API - transform to text.format
+				if (response_format) {
+					if (
+						response_format.type === "json_schema" &&
+						response_format.json_schema
+					) {
+						responsesBody.text = {
+							format: {
+								type: "json_schema",
+								name: response_format.json_schema.name,
+								schema: response_format.json_schema.schema as Record<
+									string,
+									unknown
+								>,
+								strict: response_format.json_schema.strict,
+							},
+						};
+					} else if (response_format.type === "json_object") {
+						responsesBody.text = {
+							format: { type: "json_object" },
+						};
+					}
+				}
+
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
