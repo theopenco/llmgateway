@@ -6,7 +6,7 @@ export interface EmailValidationResult {
 	message?: string;
 }
 
-const BLACKLISTED_DOMAINS = ["duck.com", "duckduckgo.com"];
+const BLACKLISTED_DOMAINS = ["duck.com", "duckduckgo.com", "keemail.me"];
 
 export function validateEmail(email: string): EmailValidationResult {
 	const emailLower = email.toLowerCase();
