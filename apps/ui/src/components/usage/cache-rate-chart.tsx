@@ -20,6 +20,7 @@ import type { TooltipProps } from "recharts";
 interface CacheRateChartProps {
 	initialData?: ActivitT;
 	projectId: string | undefined;
+	apiKeyId?: string;
 }
 
 const CustomTooltip = ({
@@ -51,6 +52,7 @@ const CustomTooltip = ({
 export function CacheRateChart({
 	initialData,
 	projectId,
+	apiKeyId,
 }: CacheRateChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardState();
@@ -68,6 +70,7 @@ export function CacheRateChart({
 				query: {
 					days: String(days),
 					...(projectId ? { projectId: projectId } : {}),
+					...(apiKeyId ? { apiKeyId } : {}),
 				},
 			},
 		},
