@@ -18,8 +18,8 @@ const AnthropicIcon = () => (
 		fillRule="evenodd"
 		clipRule="evenodd"
 		viewBox="0 0 512 509.64"
-		width={120}
-		height={120}
+		width={100}
+		height={100}
 	>
 		<path
 			fill="#D77655"
@@ -39,8 +39,8 @@ const OpenCodeIcon = () => (
 		fill="none"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 240 300"
-		width={120}
-		height={120}
+		width={100}
+		height={100}
 	>
 		<path d="M180 240H60V120h120z" fill="#888888" />
 		<path d="M180 60H60v180h120zm60 240H0V0h240z" fill="#ffffff" />
@@ -52,8 +52,8 @@ const CursorIcon = () => (
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 466.73 532.09"
-		width={120}
-		height={120}
+		width={100}
+		height={100}
 	>
 		<path
 			d="M457.43 125.94 244.42 2.96c-6.84-3.95-15.28-3.95-22.12 0L9.3 125.94C3.55 129.26 0 135.4 0 142.05v247.99c0 6.65 3.55 12.79 9.3 16.11l213.01 122.98c6.84 3.95 15.28 3.95 22.12 0l213.01-122.98c5.75-3.32 9.3-9.46 9.3-16.11V142.05c0-6.65-3.55-12.79-9.3-16.11zm-13.38 26.05L238.42 508.15c-1.39 2.4-5.06 1.42-5.06-1.36V273.58c0-4.66-2.49-8.97-6.53-11.31L24.87 145.67c-2.4-1.39-1.42-5.06 1.36-5.06h411.26c5.84 0 9.49 6.33 6.57 11.39h-.01Z"
@@ -67,8 +67,8 @@ const ClineIcon = () => (
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 466.73 487.04"
-		width={120}
-		height={120}
+		width={100}
+		height={100}
 	>
 		<path
 			d="m463.6 275.08-29.26-58.75V182.5c0-56.08-45.01-101.5-100.53-101.5H283.8c3.62-7.43 5.61-15.79 5.61-24.61C289.41 25.22 264.33 0 233.34 0s-56.07 25.22-56.07 56.39c0 8.82 1.99 17.17 5.61 24.61h-50.01C77.36 81 32.35 126.42 32.35 182.5v33.83L2.48 274.92c-3.01 5.9-3.01 12.92 0 18.81l29.87 57.93v33.83c0 56.08 45.01 101.5 100.52 101.5h200.95c55.51 0 100.53-45.42 100.53-101.5v-33.83l29.21-58.13c2.9-5.79 2.9-12.61.05-18.46Zm-260.85 47.88c0 25.48-20.54 46.14-45.88 46.14s-45.88-20.66-45.88-46.14v-82.02c0-25.48 20.54-46.14 45.88-46.14s45.88 20.66 45.88 46.14zm147.83 0c0 25.48-20.54 46.14-45.88 46.14s-45.88-20.66-45.88-46.14v-82.02c0-25.48 20.54-46.14 45.88-46.14s45.88 20.66 45.88 46.14z"
@@ -82,8 +82,8 @@ const N8nIcon = () => (
 	<svg
 		viewBox="0 0 24 24"
 		xmlns="http://www.w3.org/2000/svg"
-		width={120}
-		height={120}
+		width={100}
+		height={100}
 	>
 		<path
 			clipRule="evenodd"
@@ -99,8 +99,8 @@ const VSCodeIcon = () => (
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
-		width={120}
-		height={120}
+		width={100}
+		height={100}
 	>
 		<path
 			d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"
@@ -220,21 +220,21 @@ export default async function GuideOgImage({
 						alignItems: "center",
 						justifyContent: "center",
 						flex: 1,
-						gap: 40,
+						gap: 48,
 					}}
 				>
 					{/* Integration icon */}
 					<div
 						style={{
-							width: 140,
-							height: 140,
-							borderRadius: 24,
+							width: 120,
+							height: 120,
+							borderRadius: 20,
 							backgroundColor: "#1a1a1a",
 							border: "2px solid rgba(255,255,255,0.1)",
 							display: "flex",
 							alignItems: "center",
 							justifyContent: "center",
-							padding: 20,
+							padding: 16,
 						}}
 					>
 						<Icon />
@@ -246,29 +246,29 @@ export default async function GuideOgImage({
 							display: "flex",
 							flexDirection: "column",
 							alignItems: "center",
-							gap: 20,
-							maxWidth: 900,
+							gap: 24,
+							maxWidth: 1000,
 						}}
 					>
 						<h1
 							style={{
-								fontSize: 56,
+								fontSize: 80,
 								fontWeight: 700,
 								margin: 0,
-								letterSpacing: "-0.02em",
+								letterSpacing: "-0.03em",
 								textAlign: "center",
-								lineHeight: 1.2,
+								lineHeight: 1.1,
 							}}
 						>
 							{guide.title}
 						</h1>
 						<p
 							style={{
-								fontSize: 26,
+								fontSize: 36,
 								color: "#9CA3AF",
 								margin: 0,
 								textAlign: "center",
-								lineHeight: 1.4,
+								lineHeight: 1.3,
 							}}
 						>
 							{guide.description}
