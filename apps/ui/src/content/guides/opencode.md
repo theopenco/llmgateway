@@ -83,7 +83,9 @@ opencode
 2. Open Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
 3. Type "OpenCode" and select "Open opencode"
 
-Once OpenCode launches, run the `/connect` command to connect to LLM Gateway.
+Once OpenCode launches, run the `/connect` command to connect to LLM Gateway:
+
+![OpenCode Connect Command](/images/guides/opencode/connect-command.png)
 
 ### Step 3: Select LLM Gateway Provider
 
