@@ -69,9 +69,9 @@ Create a file named `config.json` in the OpenCode configuration directory:
 - `models`: The models you want to use (you can add more from our [models page](https://llmgateway.io/models))
 - `model`: Your default model selection
 
-### Step 2: Launch OpenCode
+### Step 2: Launch OpenCode and Connect Provider
 
-Start OpenCode from your terminal or open it in your IDE:
+Start OpenCode from your terminal:
 
 ```bash
 opencode
@@ -83,13 +83,19 @@ opencode
 2. Open Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
 3. Type "OpenCode" and select "Open opencode"
 
-### Step 3: Connect Your API Key
+Once OpenCode launches, run the `/connect` command to connect to LLM Gateway.
 
-Once OpenCode launches, it will detect your LLM Gateway provider configuration and prompt you for an API key:
+### Step 3: Select LLM Gateway Provider
 
-1. OpenCode will show "API key" prompt
-2. Enter your LLM Gateway API key (starts with `llmgtwy_`)
-3. Press Enter
+In the provider list, scroll down to find "LLM Gateway" under the "Other" section and select it:
+
+![Select LLM Gateway Provider](/images/guides/opencode/select-provider.png)
+
+### Step 4: Enter Your API Key
+
+OpenCode will prompt you for your API key. Enter your LLM Gateway API key and press Enter:
+
+![Enter API Key](/images/guides/opencode/enter-api-key.png)
 
 OpenCode will automatically save your credentials securely.
 
@@ -97,13 +103,15 @@ OpenCode will automatically save your credentials securely.
 
 [Sign up for LLM Gateway](/signup) and create an API key from your dashboard.
 
-### Step 4: Verify Setup
+### Step 5: Start Using OpenCode
 
-To confirm everything is working:
+You're all set! OpenCode is now connected to LLM Gateway. You can start asking questions and building with AI:
 
-1. In OpenCode, you should see "LLM Gateway" as an available provider
-2. Your configured models (GPT-5, GPT-5 Mini, etc.) should appear in the model list
-3. Try sending a test message to verify the connection
+![OpenCode Ready](/images/guides/opencode/ready-to-use.png)
+
+Try asking OpenCode about your project or request help with coding tasks:
+
+![OpenCode in Action](/images/guides/opencode/opencode-usage.png)
 
 ## Why Use LLM Gateway with OpenCode?
 
