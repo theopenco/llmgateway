@@ -3343,6 +3343,54 @@ chat.openapi(completions, async (c) => {
 								}
 							}
 
+							// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
+							// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
+							if (usedProvider === "anthropic") {
+								const toolCalls =
+									transformedData.choices?.[0]?.delta?.tool_calls;
+								if (toolCalls && toolCalls.length > 0) {
+									// First, extract tool calls to update our tracking
+									const rawToolCalls = extractToolCalls(data, usedProvider);
+									if (rawToolCalls && rawToolCalls.length > 0) {
+										if (!streamingToolCalls) {
+											streamingToolCalls = [];
+										}
+										for (const newCall of rawToolCalls) {
+											// For content_block_start events (have id), add to tracking
+											if (newCall.id) {
+												const contentBlockIndex: number =
+													typeof data.index === "number"
+														? data.index
+														: streamingToolCalls.length;
+												// Store at the content block index position
+												streamingToolCalls[contentBlockIndex] = {
+													...newCall,
+													_contentBlockIndex: contentBlockIndex,
+												};
+											}
+											// For content_block_delta events, enrich with stored id/type/name
+											else if (newCall._contentBlockIndex !== undefined) {
+												const existingCall =
+													streamingToolCalls[newCall._contentBlockIndex];
+												if (existingCall) {
+													// Enrich the transformed data with id, type, and function.name
+													for (const tc of toolCalls) {
+														if (tc.index === newCall._contentBlockIndex) {
+															tc.id = existingCall.id;
+															tc.type = "function";
+															if (!tc.function) {
+																tc.function = {};
+															}
+															tc.function.name = existingCall.function.name;
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+
 							await writeSSEAndCache({
 								data: JSON.stringify(transformedData),
 								id: String(eventId++),
@@ -3497,8 +3545,9 @@ chat.openapi(completions, async (c) => {
 											streamingToolCalls[newCall._contentBlockIndex];
 									} else {
 										// For other providers and Anthropic content_block_start, match by ID
+										// Note: Array may have sparse entries due to index-based assignment, so check for null/undefined
 										existingCall = streamingToolCalls.find(
-											(call) => call.id === newCall.id,
+											(call) => call && call.id === newCall.id,
 										);
 									}
 
