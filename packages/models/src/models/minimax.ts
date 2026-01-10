@@ -12,6 +12,7 @@ export const minimaxModels = [
 			{
 				providerId: "canopywave",
 				modelName: "minimax/minimax-m2",
+				deactivatedAt: new Date("2026-01-01"),
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 1.0 / 1e6,
 				discount: 0.25,

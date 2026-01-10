@@ -264,6 +264,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "canopywave",
+				deactivatedAt: new Date("2026-01-01"),
 				modelName: "zai/glm-4.6",
 				inputPrice: 0.45 / 1e6,
 				outputPrice: 1.5 / 1e6,
