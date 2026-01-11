@@ -55,7 +55,7 @@ export const Context = ({
 			usage,
 			modelId,
 		}),
-		[usedTokens, maxTokens, usage, modelId],
+		[usedTokens, maxOutputTokens, usage, modelId],
 	);
 
 	return (
