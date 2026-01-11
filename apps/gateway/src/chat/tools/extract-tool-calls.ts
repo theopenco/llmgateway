@@ -87,6 +87,40 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 					}) || null
 			);
 		}
+		case "aws-bedrock": {
+			const eventType = data.__aws_event_type;
+			// contentBlockStart has the tool id and name
+			if (eventType === "contentBlockStart" && data.start?.toolUse) {
+				return [
+					{
+						id: data.start.toolUse.toolUseId,
+						type: "function",
+						function: {
+							name: data.start.toolUse.name,
+							arguments: "",
+						},
+					},
+				];
+			}
+			// contentBlockDelta has the partial JSON arguments
+			if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
+				const args =
+					typeof data.delta.toolUse.input === "string"
+						? data.delta.toolUse.input
+						: JSON.stringify(data.delta.toolUse.input || {});
+				return [
+					{
+						_contentBlockIndex: data.contentBlockIndex ?? 0,
+						type: "function",
+						function: {
+							name: "",
+							arguments: args,
+						},
+					},
+				];
+			}
+			return null;
+		}
 		default: // OpenAI format
 			return data.choices?.[0]?.delta?.tool_calls || null;
 	}
