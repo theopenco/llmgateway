@@ -123,7 +123,7 @@ export async function POST(req: Request) {
 
 			const result = streamText({
 				model: llmgateway.chat(selectedModel),
-				messages: convertToModelMessages(messages),
+				messages: await convertToModelMessages(messages),
 				tools,
 				stopWhen: stepCountIs(10),
 				onFinish: async () => {
@@ -142,7 +142,7 @@ export async function POST(req: Request) {
 		// Default streaming chat path (no tools)
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
-			messages: convertToModelMessages(messages),
+			messages: await convertToModelMessages(messages),
 		});
 
 		return result.toUIMessageStreamResponse({
