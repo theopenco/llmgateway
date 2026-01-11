@@ -552,27 +552,7 @@ export default function ChatPageClient({
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
-			// Verify the chat still exists by trying to fetch it
-			try {
-				const response = await fetch(`/api/chats/${chatIdRef.current}`, {
-					method: "GET",
-					headers: { "Content-Type": "application/json" },
-				});
-
-				if (response.ok) {
-					return chatIdRef.current;
-				} else {
-					// Clear the stale chat ID
-					chatIdRef.current = null;
-					setCurrentChatId(null);
-					// Fall through to create new chat
-				}
-			} catch {
-				// Clear the stale chat ID
-				chatIdRef.current = null;
-				setCurrentChatId(null);
-				// Fall through to create new chat
-			}
+			return chatIdRef.current;
 		}
 
 		try {
