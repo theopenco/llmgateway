@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { useModels } from "@/hooks/useModels";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -17,8 +18,6 @@ import {
 } from "@/lib/components/card";
 import { cn } from "@/lib/utils";
 
-import { models } from "@llmgateway/models";
-
 const GATEWAY_LAUNCH = new Date("2025-05-01T00:00:00Z");
 
 interface TimelineItem {
@@ -26,7 +25,7 @@ interface TimelineItem {
 	name: string;
 	family: string;
 	releasedAt?: Date;
-	publishedAt?: Date;
+	createdAt?: Date;
 }
 
 function formatDate(date: Date | null | undefined) {
@@ -66,39 +65,36 @@ function isSignificant(item: TimelineItem) {
 }
 
 export default function TimelinePage() {
+	const { data: models = [], isLoading } = useModels();
 	const [query, setQuery] = useState("");
 	const [showSignificantOnly, setShowSignificantOnly] = useState(false);
 	const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
 
 	const baseItems = useMemo<TimelineItem[]>(() => {
-		const list = (models as any[]).map((model) => {
-			const releasedAt =
-				model.releasedAt instanceof Date
-					? (model.releasedAt as Date)
-					: undefined;
+		const list = models.map((model) => {
+			const releasedAt = model.releasedAt
+				? new Date(model.releasedAt)
+				: undefined;
 
-			let publishedAt =
-				model.publishedAt instanceof Date
-					? (model.publishedAt as Date)
-					: undefined;
+			let createdAt = model.createdAt ? new Date(model.createdAt) : undefined;
 
-			// Clamp publishedAt to gateway launch date so we never show support
+			// Clamp createdAt to gateway launch date so we never show support
 			// before LLM Gateway existed.
-			if (publishedAt && publishedAt.getTime() < GATEWAY_LAUNCH.getTime()) {
-				publishedAt = GATEWAY_LAUNCH;
+			if (createdAt && createdAt.getTime() < GATEWAY_LAUNCH.getTime()) {
+				createdAt = GATEWAY_LAUNCH;
 			}
 
 			return {
 				id: String(model.id),
-				name: (model.name as string | undefined) ?? String(model.id),
+				name: model.name ?? String(model.id),
 				family: String(model.family),
 				releasedAt,
-				publishedAt,
+				createdAt,
 			};
 		});
 
 		return list;
-	}, []);
+	}, [models]);
 
 	const timelineItems = useMemo(() => {
 		const items = [...baseItems];
@@ -127,6 +123,18 @@ export default function TimelinePage() {
 	const [activeYear, setActiveYear] = useState<string>(years[0] ?? "");
 
 	const normalizedQuery = query.trim().toLowerCase();
+
+	if (isLoading) {
+		return (
+			<>
+				<Navbar />
+				<div className="min-h-screen bg-background pt-20 md:pt-24 pb-16 flex items-center justify-center">
+					<p className="text-muted-foreground">Loading models...</p>
+				</div>
+				<Footer />
+			</>
+		);
+	}
 
 	return (
 		<>
@@ -310,7 +318,7 @@ export default function TimelinePage() {
 																					Added to LLM Gateway
 																				</p>
 																				<p className="font-medium">
-																					{formatDate(item.publishedAt)}
+																					{formatDate(item.createdAt)}
 																				</p>
 																			</div>
 																			<div className="space-y-1 md:col-span-2">

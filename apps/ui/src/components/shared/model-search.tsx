@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { useModelsAndProviders } from "@/hooks/useModels";
 import {
 	Command,
 	CommandEmpty,
@@ -18,15 +19,16 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 
-import { getProviderDefinition, models } from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared/components";
+
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 
 interface ModelSearchEntry {
 	id: string;
 	name: string;
 	providerId: string;
 	providerName: string;
-	publishedAt?: Date;
+	createdAt?: Date;
 	free?: boolean;
 }
 
@@ -40,9 +42,23 @@ function formatMonthLabel(date?: Date) {
 	});
 }
 
-export function ModelSearch() {
+interface ModelSearchProps {
+	models?: ApiModel[];
+	providers?: ApiProvider[];
+}
+
+export function ModelSearch({
+	models: propModels,
+	providers: propProviders,
+}: ModelSearchProps = {}) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
+
+	// Use props if provided, otherwise fetch via React Query
+	const { models: fetchedModels, providers: fetchedProviders } =
+		useModelsAndProviders();
+	const models = propModels ?? fetchedModels;
+	const providers = propProviders ?? fetchedProviders;
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -74,11 +90,14 @@ export function ModelSearch() {
 				continue;
 			}
 
-			const publishedAt =
-				(model.publishedAt instanceof Date ? model.publishedAt : undefined) ??
-				(model.releasedAt instanceof Date ? model.releasedAt : undefined);
+			// Use createdAt from API (when added to LLM Gateway), fallback to releasedAt
+			const createdAt = model.createdAt
+				? new Date(model.createdAt)
+				: model.releasedAt
+					? new Date(model.releasedAt)
+					: undefined;
 
-			for (const mapping of model.providers as any[]) {
+			for (const mapping of model.mappings) {
 				const isDeactivated =
 					mapping.deactivatedAt &&
 					new Date(mapping.deactivatedAt).getTime() <= now.getTime();
@@ -86,17 +105,20 @@ export function ModelSearch() {
 					continue;
 				}
 
-				const provider = getProviderDefinition(mapping.providerId);
+				const provider = providers.find((p) => p.id === mapping.providerId);
 
 				const key = `${String(mapping.providerId)}-${String(model.id)}`;
 				if (!map.has(key)) {
 					map.set(key, {
 						id: String(model.id),
-						name: (model.name as string | undefined) ?? String(model.id),
+						name: model.name ?? String(model.id),
 						providerId: String(mapping.providerId),
 						providerName: provider?.name ?? String(mapping.providerId),
-						publishedAt,
-						free: (model as any).free || mapping.inputPrice === 0,
+						createdAt,
+						free:
+							model.free ||
+							(mapping.inputPrice !== null &&
+								parseFloat(mapping.inputPrice) === 0),
 					});
 				}
 			}
@@ -105,8 +127,8 @@ export function ModelSearch() {
 		const list = Array.from(map.values());
 
 		list.sort((a, b) => {
-			const aTime = a.publishedAt?.getTime() ?? 0;
-			const bTime = b.publishedAt?.getTime() ?? 0;
+			const aTime = a.createdAt?.getTime() ?? 0;
+			const bTime = b.createdAt?.getTime() ?? 0;
 			if (bTime !== aTime) {
 				return bTime - aTime;
 			}
@@ -114,12 +136,12 @@ export function ModelSearch() {
 		});
 
 		return list;
-	}, []);
+	}, [models, providers]);
 
 	const groups: [string, ModelSearchEntry[]][] = useMemo(() => {
 		const byMonth = new Map<string, ModelSearchEntry[]>();
 		for (const entry of entries as ModelSearchEntry[]) {
-			const label = formatMonthLabel(entry.publishedAt);
+			const label = formatMonthLabel(entry.createdAt);
 			if (!byMonth.has(label)) {
 				byMonth.set(label, []);
 			}

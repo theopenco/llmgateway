@@ -7,7 +7,6 @@ export const metaModels = [
 		description: "Compact Llama 3.1 for efficient text generation.",
 		family: "meta",
 		releasedAt: new Date("2024-07-23"),
-		publishedAt: new Date("2024-07-23"),
 		providers: [
 			{
 				providerId: "aws-bedrock",
@@ -87,7 +86,6 @@ export const metaModels = [
 		description: "Mid-size Llama 3.1 with balanced performance.",
 		family: "meta",
 		releasedAt: new Date("2024-07-23"),
-		publishedAt: new Date("2024-07-23"),
 		providers: [
 			{
 				providerId: "aws-bedrock",
@@ -111,7 +109,6 @@ export const metaModels = [
 		description: "Llama 3.2 with improved instruction following.",
 		family: "meta",
 		releasedAt: new Date("2024-09-25"),
-		publishedAt: new Date("2024-09-25"),
 		providers: [
 			{
 				providerId: "inference.net",
@@ -135,7 +132,6 @@ export const metaModels = [
 		description: "NVIDIA-tuned Llama 3.1 253B for maximum capability.",
 		family: "meta",
 		releasedAt: new Date("2024-07-23"),
-		publishedAt: new Date("2024-07-23"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -158,7 +154,6 @@ export const metaModels = [
 		description: "Safety-focused model for content moderation.",
 		family: "meta",
 		releasedAt: new Date("2025-04-05"),
-		publishedAt: new Date("2025-04-05"),
 		providers: [
 			{
 				providerId: "groq",
@@ -181,7 +176,6 @@ export const metaModels = [
 		description: "Latest Llama 3.3 70B with enhanced capabilities.",
 		family: "meta",
 		releasedAt: new Date("2024-12-06"),
-		publishedAt: new Date("2024-12-06"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -219,7 +213,6 @@ export const metaModels = [
 		description: "Largest Llama 3.1 model with 405B parameters.",
 		family: "meta",
 		releasedAt: new Date("2024-07-23"),
-		publishedAt: new Date("2024-07-23"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -266,7 +259,6 @@ export const metaModels = [
 		description: "Llama 4 Scout for efficient multi-turn conversations.",
 		family: "meta",
 		releasedAt: new Date("2025-04-05"),
-		publishedAt: new Date("2025-04-05"),
 		providers: [
 			{
 				providerId: "together.ai",
@@ -290,7 +282,6 @@ export const metaModels = [
 		description: "Compact Llama 4 Scout with vision support.",
 		family: "meta",
 		releasedAt: new Date("2025-04-05"),
-		publishedAt: new Date("2025-04-05"),
 		providers: [
 			{
 				stability: "unstable",
@@ -315,7 +306,6 @@ export const metaModels = [
 		description: "Llama 4 Maverick variant with vision capabilities.",
 		family: "meta",
 		releasedAt: new Date("2025-04-05"),
-		publishedAt: new Date("2025-04-05"),
 		providers: [
 			{
 				stability: "unstable",

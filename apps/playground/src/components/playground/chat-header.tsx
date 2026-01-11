@@ -4,11 +4,11 @@ import { Label } from "@/components/ui/label";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
 
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 
 interface ChatHeaderProps {
-	models: ModelDefinition[];
-	providers: ProviderDefinition[];
+	models: ApiModel[];
+	providers: ApiProvider[];
 	selectedModel: string;
 	setSelectedModel: (model: string) => void;
 	comparisonEnabled: boolean;

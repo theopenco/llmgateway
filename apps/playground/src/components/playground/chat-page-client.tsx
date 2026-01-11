@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
 import { getStoredGithubMcpToken } from "@/components/connectors/github-connector";
+import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
@@ -26,14 +27,16 @@ import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { getErrorMessage } from "@/lib/utils";
 
-import { ModelSelector } from "@llmgateway/shared/components";
-
+import type {
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 interface ChatPageClientProps {
-	models: ModelDefinition[];
-	providers: ProviderDefinition[];
+	models: ApiModel[];
+	providers: ApiProvider[];
 	organizations: Organization[];
 	selectedOrganization: Organization | null;
 	projects: Project[];
@@ -281,9 +284,11 @@ export default function ChatPageClient({
 			return false;
 		}
 		if (!providerId) {
-			return def.providers.some((p) => p.reasoning);
+			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = def.providers.find((p) => p.providerId === providerId);
+		const mapping = def.mappings.find(
+			(p: ApiModelProviderMapping) => p.providerId === providerId,
+		);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -299,9 +304,11 @@ export default function ChatPageClient({
 			return false;
 		}
 		if (!providerId) {
-			return def.providers.some((p) => p.webSearch);
+			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = def.providers.find((p) => p.providerId === providerId);
+		const mapping = def.mappings.find(
+			(p: ApiModelProviderMapping) => p.providerId === providerId,
+		);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -997,8 +1004,8 @@ export default function ChatPageClient({
 
 interface ExtraChatPanelProps {
 	panelIndex: number;
-	models: ModelDefinition[];
-	providers: ProviderDefinition[];
+	models: ApiModel[];
+	providers: ApiProvider[];
 	availableModels: ComboboxModel[];
 	initialModel: string;
 	githubToken: string | null;
@@ -1080,9 +1087,11 @@ function ExtraChatPanel({
 			return false;
 		}
 		if (!providerId) {
-			return def.providers.some((p) => p.reasoning);
+			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = def.providers.find((p) => p.providerId === providerId);
+		const mapping = def.mappings.find(
+			(p: ApiModelProviderMapping) => p.providerId === providerId,
+		);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -1098,9 +1107,11 @@ function ExtraChatPanel({
 			return false;
 		}
 		if (!providerId) {
-			return def.providers.some((p) => p.webSearch);
+			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = def.providers.find((p) => p.providerId === providerId);
+		const mapping = def.mappings.find(
+			(p: ApiModelProviderMapping) => p.providerId === providerId,
+		);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 

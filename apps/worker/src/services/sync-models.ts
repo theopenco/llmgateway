@@ -55,18 +55,32 @@ export async function syncProvidersAndModels() {
 				.values({
 					id: modelDef.id,
 					name: modelDef.name || null,
+					aliases: "aliases" in modelDef ? modelDef.aliases || null : null,
+					description:
+						"description" in modelDef ? modelDef.description || null : null,
 					family: modelDef.family,
 					free: "free" in modelDef ? modelDef.free || null : null,
 					output: "output" in modelDef ? modelDef.output || null : null,
+					stability:
+						"stability" in modelDef ? modelDef.stability || null : null,
+					releasedAt:
+						"releasedAt" in modelDef ? modelDef.releasedAt || null : null,
 					status: "active",
 				})
 				.onConflictDoUpdate({
 					target: model.id,
 					set: {
 						name: modelDef.name || null,
+						aliases: "aliases" in modelDef ? modelDef.aliases || null : null,
+						description:
+							"description" in modelDef ? modelDef.description || null : null,
 						family: modelDef.family,
 						free: "free" in modelDef ? modelDef.free || null : null,
 						output: "output" in modelDef ? modelDef.output || null : null,
+						stability:
+							"stability" in modelDef ? modelDef.stability || null : null,
+						releasedAt:
+							"releasedAt" in modelDef ? modelDef.releasedAt || null : null,
 						updatedAt: new Date(),
 					},
 				});
@@ -126,6 +140,20 @@ export async function syncProvidersAndModels() {
 										? (mapping.reasoningOutput as string | null) || null
 										: null,
 								tools: "tools" in mapping ? mapping.tools || null : null,
+								jsonOutput:
+									"jsonOutput" in mapping ? mapping.jsonOutput || null : null,
+								jsonOutputSchema:
+									"jsonOutputSchema" in mapping
+										? mapping.jsonOutputSchema || null
+										: null,
+								webSearch:
+									"webSearch" in mapping ? mapping.webSearch || null : null,
+								discount:
+									"discount" in mapping && mapping.discount !== undefined
+										? mapping.discount.toString()
+										: null,
+								stability:
+									"stability" in mapping ? mapping.stability || null : null,
 								supportedParameters:
 									"supportedParameters" in mapping
 										? (mapping.supportedParameters as string[] | null) || null
@@ -186,6 +214,20 @@ export async function syncProvidersAndModels() {
 									? (mapping.reasoningOutput as string | null) || null
 									: null,
 							tools: "tools" in mapping ? mapping.tools || null : null,
+							jsonOutput:
+								"jsonOutput" in mapping ? mapping.jsonOutput || null : null,
+							jsonOutputSchema:
+								"jsonOutputSchema" in mapping
+									? mapping.jsonOutputSchema || null
+									: null,
+							webSearch:
+								"webSearch" in mapping ? mapping.webSearch || null : null,
+							discount:
+								"discount" in mapping && mapping.discount !== undefined
+									? mapping.discount.toString()
+									: null,
+							stability:
+								"stability" in mapping ? mapping.stability || null : null,
 							supportedParameters:
 								"supportedParameters" in mapping
 									? (mapping.supportedParameters as string[] | null) || null

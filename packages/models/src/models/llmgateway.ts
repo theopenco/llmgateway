@@ -7,7 +7,6 @@ export const llmgatewayModels = [
 		description: "Custom model endpoint with user-provided base URL.",
 		family: "llmgateway",
 		releasedAt: new Date("2024-01-01"),
-		publishedAt: new Date("2024-01-01"),
 		providers: [
 			{
 				providerId: "llmgateway",
@@ -36,7 +35,6 @@ export const llmgatewayModels = [
 		description: "Automatic model routing based on request characteristics.",
 		family: "llmgateway",
 		releasedAt: new Date("2024-01-01"),
-		publishedAt: new Date("2024-01-01"),
 		providers: [
 			{
 				providerId: "llmgateway",
