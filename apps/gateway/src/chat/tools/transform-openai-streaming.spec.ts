@@ -110,4 +110,128 @@ describe("transformOpenaiStreaming", () => {
 		expect(delta).toHaveProperty("content", "Answer");
 		expect(delta).not.toHaveProperty("reasoning_content");
 	});
+
+	test("should normalize GLM-4.7/Cerebras usage with completion_tokens_details", () => {
+		// This is the actual format from GLM-4.7 via Cerebras that was causing validation errors
+		const input = {
+			id: "chatcmpl-c4cbf1cd-2d3e-4336-9182-29782e84f005",
+			choices: [
+				{
+					delta: {
+						role: "assistant",
+					},
+					finish_reason: "stop",
+					index: 0,
+				},
+			],
+			created: 1768093652,
+			model: "zai-glm-4.7",
+			system_fingerprint: "fp_782f8373e9908260a8dc",
+			object: "chat.completion.chunk",
+			usage: {
+				total_tokens: 5078,
+				completion_tokens: 5063,
+				completion_tokens_details: {
+					accepted_prediction_tokens: 0,
+					rejected_prediction_tokens: 0,
+				},
+				prompt_tokens: 15,
+				prompt_tokens_details: {
+					cached_tokens: 0,
+				},
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "zai-glm-4.7");
+
+		// Verify usage is normalized
+		expect(result.usage).toHaveProperty("prompt_tokens", 15);
+		expect(result.usage).toHaveProperty("completion_tokens", 5063);
+		expect(result.usage).toHaveProperty("total_tokens", 5078);
+		expect(result.usage).toHaveProperty("prompt_tokens_details");
+		expect(result.usage.prompt_tokens_details).toEqual({ cached_tokens: 0 });
+
+		// Verify completion_tokens_details is NOT passed through
+		// (it contains non-standard fields that cause AI SDK validation errors)
+		expect(result.usage).not.toHaveProperty("completion_tokens_details");
+	});
+
+	test("should extract reasoning_tokens from completion_tokens_details", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "test-model",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 100,
+				total_tokens: 110,
+				completion_tokens_details: {
+					reasoning_tokens: 50,
+					accepted_prediction_tokens: 0,
+					rejected_prediction_tokens: 0,
+				},
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "test-model");
+
+		// Verify reasoning_tokens is extracted to top level
+		expect(result.usage).toHaveProperty("reasoning_tokens", 50);
+		// Verify completion_tokens_details is not passed through
+		expect(result.usage).not.toHaveProperty("completion_tokens_details");
+	});
+
+	test("should preserve top-level reasoning_tokens if already present", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "test-model",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 100,
+				total_tokens: 110,
+				reasoning_tokens: 25,
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "test-model");
+
+		expect(result.usage).toHaveProperty("reasoning_tokens", 25);
+	});
+
+	test("should handle null usage", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "test-model",
+			choices: [
+				{
+					index: 0,
+					delta: { content: "Hello" },
+				},
+			],
+			usage: null,
+		};
+
+		const result = transformOpenaiStreaming(input, "test-model");
+
+		expect(result.usage).toBeNull();
+	});
 });
