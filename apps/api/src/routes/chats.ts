@@ -51,9 +51,12 @@ const createMessageSchema = z
 		reasoning: z.string().optional(), // Reasoning content
 		tools: z.string().optional(), // Tool parts JSON
 	})
-	.refine((data) => data.content || data.images, {
-		message: "Either content or images must be provided",
-	});
+	.refine(
+		(data) => data.content || data.images || data.reasoning || data.tools,
+		{
+			message: "Either content or images must be provided",
+		},
+	);
 
 // List user's chats
 const listChats = createRoute({

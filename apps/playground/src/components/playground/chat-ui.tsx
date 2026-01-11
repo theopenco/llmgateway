@@ -232,6 +232,15 @@ export const ChatUI = ({
 			setText(""); // Clear input immediately
 
 			const parts: any[] = [];
+			const imagesToSave =
+				supportsImages && files?.length
+					? files
+							.filter((f) => f.mediaType?.startsWith("image/") && f.url)
+							.map((f) => ({
+								type: "image_url" as const,
+								image_url: { url: f.url! },
+							}))
+					: undefined;
 
 			if (content.trim()) {
 				parts.push({ type: "text", text: content });
@@ -256,6 +265,12 @@ export const ChatUI = ({
 				return;
 			}
 
+			// Ensure the chat exists + user message is persisted BEFORE streaming starts.
+			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
+			if (onUserMessage && (content.trim() || imagesToSave?.length)) {
+				await onUserMessage(content, imagesToSave);
+			}
+
 			// Call sendMessage which will handle adding the user message and API request
 			await sendMessage(
 				{
@@ -269,15 +284,10 @@ export const ChatUI = ({
 					},
 				},
 			);
-
-			// Then save to database in the background
-			if (onUserMessage && content.trim()) {
-				onUserMessage(content).catch((error) => {
-					toast.error(`Failed to save message to database: ${error}`);
-				});
-			}
-		} catch {
-			toast.error("Could not send message.");
+		} catch (e) {
+			toast.error(
+				`Could not send message. ${e instanceof Error ? e.message : ""}`.trim(),
+			);
 		}
 	};
 	return (
@@ -577,8 +587,9 @@ export const ChatUI = ({
 					multiple
 					globalDrop
 					aria-disabled={isLoading || status === "streaming"}
-					onSubmit={async (message) => {
-						await handlePromptSubmit(message.text ?? "", message.files);
+					onSubmit={(message) => {
+						// Fire-and-forget so PromptInput can clear attachments immediately.
+						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
 				>
 					<PromptInputBody>
