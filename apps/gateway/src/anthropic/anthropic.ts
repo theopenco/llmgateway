@@ -450,6 +450,7 @@ anthropic.openapi(messages, async (c) => {
 		headers: {
 			"Content-Type": "application/json",
 			Authorization: c.req.header("Authorization") || "",
+			"x-api-key": c.req.header("x-api-key") || "",
 			"User-Agent": userAgent,
 			"x-request-id": c.req.header("x-request-id") || "",
 			"x-source": c.req.header("x-source") || "",

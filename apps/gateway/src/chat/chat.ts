@@ -917,24 +917,25 @@ chat.openapi(completions, async (c) => {
 	let routingMetadata: RoutingMetadata | undefined;
 
 	const auth = c.req.header("Authorization");
-	if (!auth) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: No Authorization header provided. Expected 'Bearer your-api-token'",
-		});
+	const xApiKey = c.req.header("x-api-key");
+
+	let token: string | undefined;
+
+	if (auth) {
+		const split = auth.split("Bearer ");
+		if (split.length === 2 && split[1]) {
+			token = split[1];
+		}
 	}
 
-	const split = auth.split("Bearer ");
-	if (split.length !== 2) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid Authorization header format. Expected 'Bearer your-api-token'",
-		});
+	if (!token && xApiKey) {
+		token = xApiKey;
 	}
-	const token = split[1];
+
 	if (!token) {
 		throw new HTTPException(401, {
-			message: "Unauthorized: No token provided",
+			message:
+				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
 		});
 	}
 
