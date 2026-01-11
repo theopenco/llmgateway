@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+
 import {
 	and,
 	asc,
@@ -250,17 +252,10 @@ logs.openapi(get, async (c) => {
 	// Set default limit if not provided or enforce max limit
 	const limit = queryLimit ? Math.min(queryLimit, 100) : 50;
 
-	// Find all organizations the user belongs to
-	const userOrganizations = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	// Get all active organizations the user is a member of
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
-	if (!userOrganizations.length) {
+	if (!organizationIds.length) {
 		return c.json({
 			logs: [],
 			message: "No organizations found",
@@ -271,11 +266,6 @@ logs.openapi(get, async (c) => {
 			},
 		});
 	}
-
-	// Get all organizations the user is a member of
-	const organizationIds = userOrganizations
-		.filter((uo) => uo.organization?.status !== "deleted")
-		.map((uo) => uo.organizationId);
 
 	// If org filter is provided, check if user has access to it
 	if (orgId && !organizationIds.includes(orgId)) {
@@ -572,26 +562,14 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	const query = c.req.valid("query");
 	const { projectId, orgId } = query;
 
-	// Find all organizations the user belongs to
-	const userOrganizations = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	// Get all active organizations the user is a member of
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
-	if (!userOrganizations.length) {
+	if (!organizationIds.length) {
 		return c.json({
 			models: [],
 		});
 	}
-
-	// Get all organizations the user is a member of
-	const organizationIds = userOrganizations
-		.filter((uo) => uo.organization?.status !== "deleted")
-		.map((uo) => uo.organizationId);
 
 	// If org filter is provided, check if user has access to it
 	if (orgId && !organizationIds.includes(orgId)) {

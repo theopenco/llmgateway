@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { getUserOrganizationIds } from "@/utils/authorization.js";
+
 import { db, sql, tables, inArray, and, gte, lte, eq } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -84,24 +86,14 @@ activity.openapi(getActivity, async (c) => {
 	const startDate = new Date();
 	startDate.setDate(startDate.getDate() - days);
 
-	// Find all organizations the user belongs to
-	const userOrganizations = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	// Get all organizations the user is a member of
+	const organizationIds = await getUserOrganizationIds(user.id);
 
-	if (!userOrganizations.length) {
+	if (!organizationIds.length) {
 		return c.json({
 			activity: [],
 		});
 	}
-
-	// Get all organizations the user is a member of
-	const organizationIds = userOrganizations.map((uo) => uo.organizationId);
 
 	// Get all projects associated with the user's organizations
 	const projects = await db.query.project.findMany({
