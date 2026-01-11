@@ -780,8 +780,9 @@ export function transformStreamingToOpenai(
 						},
 					],
 				};
-			} else if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
-				const toolUse = data.delta.toolUse;
+			} else if (eventType === "contentBlockStart" && data.start?.toolUse) {
+				// Tool use start event contains the tool id and name
+				const toolUse = data.start.toolUse;
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -798,7 +799,39 @@ export function transformStreamingToOpenai(
 										type: "function",
 										function: {
 											name: toolUse.name,
-											arguments: JSON.stringify(toolUse.input || {}),
+											arguments: "",
+										},
+									},
+								],
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				};
+			} else if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
+				// Tool use delta event contains partial JSON arguments
+				// Per OpenAI spec, subsequent chunks omit id/type/name - only index and arguments
+				const toolUse = data.delta.toolUse;
+				// toolUse.input is a string (partial JSON), not an object
+				const args =
+					typeof toolUse.input === "string"
+						? toolUse.input
+						: JSON.stringify(toolUse.input || {});
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								tool_calls: [
+									{
+										index: data.contentBlockIndex || 0,
+										function: {
+											arguments: args,
 										},
 									},
 								],
