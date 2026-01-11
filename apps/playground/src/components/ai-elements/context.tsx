@@ -22,7 +22,7 @@ const ICON_STROKE_WIDTH = 2;
 
 interface ContextSchema {
 	usedTokens: number;
-	maxTokens: number;
+	maxOutputTokens: number;
 	usage?: LanguageModelUsage;
 	modelId?: ModelId;
 }
@@ -43,7 +43,7 @@ export type ContextProps = ComponentProps<typeof HoverCard> & ContextSchema;
 
 export const Context = ({
 	usedTokens,
-	maxTokens,
+	maxOutputTokens,
 	usage,
 	modelId,
 	...props
@@ -51,7 +51,7 @@ export const Context = ({
 	const contextValue = useMemo(
 		() => ({
 			usedTokens,
-			maxTokens,
+			maxOutputTokens,
 			usage,
 			modelId,
 		}),
@@ -66,9 +66,9 @@ export const Context = ({
 };
 
 const ContextIcon = () => {
-	const { usedTokens, maxTokens } = useContextValue();
+	const { usedTokens, maxOutputTokens } = useContextValue();
 	const circumference = 2 * Math.PI * ICON_RADIUS;
-	const usedPercent = usedTokens / maxTokens;
+	const usedPercent = usedTokens / maxOutputTokens;
 	const dashOffset = circumference * (1 - usedPercent);
 
 	return (
@@ -109,8 +109,8 @@ const ContextIcon = () => {
 export type ContextTriggerProps = ComponentProps<typeof Button>;
 
 export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
-	const { usedTokens, maxTokens } = useContextValue();
-	const usedPercent = usedTokens / maxTokens;
+	const { usedTokens, maxOutputTokens } = useContextValue();
+	const usedPercent = usedTokens / maxOutputTokens;
 	const renderedPercent = new Intl.NumberFormat("en-US", {
 		style: "percent",
 		maximumFractionDigits: 1,
@@ -149,8 +149,8 @@ export const ContextContentHeader = ({
 	className,
 	...props
 }: ContextContentHeader) => {
-	const { usedTokens, maxTokens } = useContextValue();
-	const usedPercent = usedTokens / maxTokens;
+	const { usedTokens, maxOutputTokens } = useContextValue();
+	const usedPercent = usedTokens / maxOutputTokens;
 	const displayPct = new Intl.NumberFormat("en-US", {
 		style: "percent",
 		maximumFractionDigits: 1,
@@ -160,7 +160,7 @@ export const ContextContentHeader = ({
 	}).format(usedTokens);
 	const total = new Intl.NumberFormat("en-US", {
 		notation: "compact",
-	}).format(maxTokens);
+	}).format(maxOutputTokens);
 
 	return (
 		<div className={cn("w-full space-y-2 p-3", className)} {...props}>
