@@ -28,14 +28,13 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 			// Tool arguments come as content_block_delta - these don't have a direct ID,
 			// so we return null and let the streaming logic handle the accumulation
 			// by finding the matching tool call by content block index
+			// Per OpenAI spec, subsequent chunks omit id/type/name - only index and arguments
 			if (data.type === "content_block_delta" && data.delta?.partial_json) {
 				// Return a partial tool call with the index to help with matching
 				return [
 					{
 						_contentBlockIndex: data.index, // Use this for matching
-						type: "function",
 						function: {
-							name: "",
 							arguments: data.delta.partial_json,
 						},
 					},
@@ -103,6 +102,7 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 				];
 			}
 			// contentBlockDelta has the partial JSON arguments
+			// Per OpenAI spec, subsequent chunks omit id/type/name - only index and arguments
 			if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
 				const args =
 					typeof data.delta.toolUse.input === "string"
@@ -111,9 +111,7 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 				return [
 					{
 						_contentBlockIndex: data.contentBlockIndex ?? 0,
-						type: "function",
 						function: {
-							name: "",
 							arguments: args,
 						},
 					},
