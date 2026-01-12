@@ -8,6 +8,7 @@
 	],
 	"scripts": {
 		"build": "TURBO_TOKEN=turbotokenoss turbo run build 2>&1",
+		"build:ci": "TURBO_TOKEN=turbotokenoss turbo run build --concurrency=1 2>&1",
 		"build:core": "turbo run build --filter=!ui --filter=!docs --filter=!playground --filter=!admin",
 		"clean": "find . -path \"./node_modules\" -prune -o \\( -type d -name \"dist\" -o -name \".turbo\" -o -name \".source\" -o -name \".vercel\" -o -name \".out\" -o -name \".next-dev\" -o -name \".next\" \\) -exec rm -rf {} +",
 		"clean:node_modules": "find . -type d -name \"node_modules\" -exec rm -rf {} +",
