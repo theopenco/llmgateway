@@ -32,7 +32,7 @@
 	},
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
-		"@abinnovision/eslint-config-react": "2.2.0",
+		"@abinnovision/eslint-config-react": "3.0.2",
 		"@steebchen/commitlint-config": "^1.5.2",
 		"@steebchen/eslint-config": "^1.10.1",
 		"@steebchen/lint-base": "1.0.6",
