@@ -23,25 +23,37 @@ We've added four variants to suit different needs:
 
 **Qwen Image**
 
-- **Model ID**: `alibaba/qwen-image`
+```bash
+alibaba/qwen-image
+```
+
 - **Pricing**: $0.035/req
 - **Best for**: Testing and experimentation
 
 **Qwen Image Plus**
 
-- **Model ID**: `alibaba/qwen-image-plus`
+```bash
+alibaba/qwen-image-plus
+```
+
 - **Pricing**: $0.030/req
 - **Best for**: Enhanced quality at no cost
 
 **Qwen Image Max**
 
-- **Model ID**: `alibaba/qwen-image-max`
+```bash
+alibaba/qwen-image-max
+```
+
 - **Pricing**: $0.075 per request
 - **Best for**: Production use with consistent quality
 
 **Qwen Image Max 2025-12-30**
 
-- **Model ID**: `alibaba/qwen-image-max-2025-12-30`
+```bash
+alibaba/qwen-image-max-2025-12-30
+```
+
 - **Pricing**: $0.075 per request
 - **Best for**: Latest version with the most recent improvements
 

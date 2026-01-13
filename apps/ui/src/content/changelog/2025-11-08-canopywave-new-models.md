@@ -17,7 +17,9 @@ We're excited to announce three new models from **CanopyWave** with an exclusive
 
 ### **GLM-4.6** - Advanced Model with Reasoning
 
-**Model ID**: `canopywave/glm-4.6`
+```bash
+canopywave/glm-4.6
+```
 
 **Context Window**: 202,752 tokens
 
@@ -27,7 +29,9 @@ Enhanced reasoning and tool calling capabilities
 
 ### **Qwen3 Coder** - Specialized Coding Model
 
-**Model ID**: `canopywave/qwen3-coder`
+```bash
+canopywave/qwen3-coder
+```
 
 **Context Window**: 262,000 tokens
 
@@ -37,7 +41,9 @@ Advanced coding capabilities with massive context window
 
 ### **MiniMax M2** - High-Performance Chat
 
-**Model ID**: `canopywave/minimax-m2`
+```bash
+canopywave/minimax-m2
+```
 
 **Context Window**: 196,608 tokens
 
