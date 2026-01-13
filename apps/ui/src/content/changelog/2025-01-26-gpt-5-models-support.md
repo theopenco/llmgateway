@@ -17,28 +17,40 @@ OpenAI's **GPT-5 model family** is now available on LLM Gateway! Access all four
 
 ### **GPT-5** - The Flagship Model
 
-- **Model ID**: `openai/gpt-5`
+```bash
+openai/gpt-5
+```
+
 - **Context Window**: 400,000 tokens
 - **Pricing**: $1.25 per 1M input tokens / $10.00 per 1M output tokens
 - Perfect for complex reasoning, creative tasks, and advanced problem-solving
 
 ### **GPT-5 Mini** - Optimized Performance
 
-- **Model ID**: `openai/gpt-5-mini`
+```bash
+openai/gpt-5-mini
+```
+
 - **Context Window**: 400,000 tokens
 - **Pricing**: $0.25 per 1M input tokens / $2.00 per 1M output tokens
 - Ideal for most production applications with excellent cost-efficiency
 
 ### **GPT-5 Nano** - Ultra-Fast & Affordable
 
-- **Model ID**: `openai/gpt-5-nano`
+```bash
+openai/gpt-5-nano
+```
+
 - **Context Window**: 400,000 tokens
 - **Pricing**: $0.05 per 1M input tokens / $0.40 per 1M output tokens
 - Lightning-fast responses for high-volume applications
 
 ### **GPT-5 Chat Latest** - Conversational Excellence
 
-- **Model ID**: `openai/gpt-5-chat-latest`
+```bash
+openai/gpt-5-chat-latest
+```
+
 - **Context Window**: 400,000 tokens
 - **Pricing**: $1.25 per 1M input tokens / $10.00 per 1M output tokens
 - Optimized for chat interfaces and conversational AI

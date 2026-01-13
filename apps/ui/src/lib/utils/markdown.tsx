@@ -52,12 +52,12 @@ export function getMarkdownOptions() {
 			},
 			ul: {
 				props: {
-					className: "list-disc list-outside ml-6 space-y-2 mb-4",
+					className: "list-disc list-outside space-y-2 mb-4",
 				},
 			},
 			ol: {
 				props: {
-					className: "list-decimal list-outside ml-6 space-y-2 mb-4",
+					className: "list-decimal list-outside space-y-2 mb-4",
 				},
 			},
 			li: {

@@ -28,8 +28,17 @@ Create a file named `config.json` in the OpenCode configuration directory:
 
 **Location:**
 
-- **Windows**: `C:\Users\YourUsername\.config\opencode\config.json`
-- **macOS/Linux**: `~/.config/opencode/config.json`
+Windows:
+
+```
+C:\Users\YourUsername\.config\opencode\config.json
+```
+
+macOS/Linux:
+
+```
+~/.config/opencode/config.json
+```
 
 **File contents:**
 
@@ -64,10 +73,10 @@ Create a file named `config.json` in the OpenCode configuration directory:
 
 **Configuration explained:**
 
-- `npm`: The adapter package OpenCode uses to communicate with OpenAI-compatible APIs
-- `baseURL`: LLM Gateway's API endpoint
-- `models`: The models you want to use (you can add more from our [models page](https://llmgateway.io/models))
-- `model`: Your default model selection
+- **npm**: The adapter package OpenCode uses to communicate with OpenAI-compatible APIs
+- **baseURL**: LLM Gateway's API endpoint
+- **models**: The models you want to use (you can add more from our [models page](https://llmgateway.io/models))
+- **model**: Your default model selection
 
 ### Step 2: Launch OpenCode and Connect Provider
 
