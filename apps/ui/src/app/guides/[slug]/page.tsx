@@ -106,16 +106,6 @@ export async function generateMetadata({
 			title: `${guide.title} - Guides - LLM Gateway`,
 			description: guide.description || "LLM Gateway integration guide",
 			type: "article",
-			images: guide.image
-				? [
-						{
-							url: guide.image.src,
-							width: guide.image.width || 800,
-							height: guide.image.height || 400,
-							alt: guide.image.alt || guide.title,
-						},
-					]
-				: ["/opengraph.png"],
 		},
 		twitter: {
 			card: "summary_large_image",

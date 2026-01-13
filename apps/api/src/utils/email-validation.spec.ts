@@ -42,6 +42,12 @@ describe("validateEmail", () => {
 			expect(result.valid).toBe(false);
 			expect(result.reason).toBe("blacklisted_domain");
 		});
+
+		it("should reject emails from keemail.me", () => {
+			const result = validateEmail("user@keemail.me");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toBe("blacklisted_domain");
+		});
 	});
 
 	describe("disposable email validation", () => {

@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	BarChart3Icon,
 	EditIcon,
 	KeyIcon,
 	MoreHorizontal,
@@ -91,6 +92,9 @@ export function ApiKeysList({
 
 	const getIamRulesUrl = (keyId: string) =>
 		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
+
+	const getStatisticsUrl = (keyId: string) =>
+		`/dashboard/${orgId}/${projectId}/usage?apiKeyId=${keyId}` as Route;
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -611,6 +615,12 @@ export function ApiKeysList({
 										<DropdownMenuContent align="end">
 											<DropdownMenuLabel>Actions</DropdownMenuLabel>
 											<DropdownMenuItem asChild>
+												<Link href={getStatisticsUrl(key.id)} prefetch={true}>
+													<BarChart3Icon className="mr-2 h-4 w-4" />
+													View Statistics
+												</Link>
+											</DropdownMenuItem>
+											<DropdownMenuItem asChild>
 												<Link href={getIamRulesUrl(key.id)}>
 													<Shield className="mr-2 h-4 w-4" />
 													Manage IAM Rules
@@ -694,6 +704,12 @@ export function ApiKeysList({
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
 									<DropdownMenuLabel>Actions</DropdownMenuLabel>
+									<DropdownMenuItem asChild>
+										<Link href={getStatisticsUrl(key.id)} prefetch={true}>
+											<BarChart3Icon className="mr-2 h-4 w-4" />
+											View Statistics
+										</Link>
+									</DropdownMenuItem>
 									<DropdownMenuItem asChild>
 										<Link href={getIamRulesUrl(key.id)}>
 											<Shield className="mr-2 h-4 w-4" />

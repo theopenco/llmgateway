@@ -114,9 +114,9 @@ const integrations: Integration[] = [
 		name: "OpenCode",
 		description:
 			"Use LLM Gateway with OpenCode for AI-powered development workflows.",
-		href: "#",
+		href: "/guides/opencode",
 		icon: OpenCodeIcon,
-		comingSoon: true,
+		comingSoon: false,
 	},
 	{
 		name: "VS Code",

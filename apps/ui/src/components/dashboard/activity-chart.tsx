@@ -177,9 +177,10 @@ const CustomTooltip = ({
 
 interface ActivityChartProps {
 	initialData?: ActivitT;
+	apiKeyId?: string;
 }
 
-export function ActivityChart({ initialData }: ActivityChartProps) {
+export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 	const searchParams = useSearchParams();
 	const [breakdownField, setBreakdownField] = useState<
 		"requests" | "cost" | "tokens"
@@ -200,6 +201,7 @@ export function ActivityChart({ initialData }: ActivityChartProps) {
 				query: {
 					days: String(days),
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(apiKeyId ? { apiKeyId } : {}),
 				},
 			},
 		},

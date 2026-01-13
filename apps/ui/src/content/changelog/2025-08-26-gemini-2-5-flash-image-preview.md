@@ -27,7 +27,10 @@ We're thrilled to announce the addition of **Gemini 2.5 Flash Image Preview** - 
 
 **Gemini 2.5 Flash Image Preview**
 
-- **Model ID**: `google/gemini-2.5-flash-image-preview`
+```bash
+google/gemini-2.5-flash-image-preview
+```
+
 - **Provider**: Google AI Studio
 - **Family**: Google
 - **Context Window**: 32,800 tokens

@@ -85,7 +85,10 @@ export function parseImagePartToDataUrl(part: any): {
 
 		// Handle file parts (AI SDK format)
 		if (part.type === "file") {
-			const { dataUrl, mediaType } = parseImageFile(part);
+			// We support both shapes:
+			// - { type: "file", file: { url, mediaType } } (AI SDK format)
+			// - { type: "file", url, mediaType } (Playground internal format)
+			const { dataUrl, mediaType } = parseImageFile(part.file ?? part);
 			return {
 				dataUrl,
 				base64Only: extractBase64FromDataUrl(dataUrl),

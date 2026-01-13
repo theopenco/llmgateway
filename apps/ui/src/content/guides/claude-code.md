@@ -71,8 +71,9 @@ When configuring Claude Code, you can use these environment variables:
 
 Specifies the main model to use for primary requests.
 
-- **Default**: `claude-sonnet-4-20250514`
-- **Example**: `export ANTHROPIC_MODEL=gpt-5`
+```bash
+export ANTHROPIC_MODEL=gpt-5
+```
 
 ### Complete Configuration Example
 

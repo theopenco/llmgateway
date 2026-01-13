@@ -165,7 +165,9 @@ export default function ChatPageClient({
 				}
 
 				if (!chatId) {
-					toast.error("Failed to save AI response: No chat ID found");
+					toast.error(
+						"Failed to save AI response: No chat ID found (chat may not have finished saving before the stream ended).",
+					);
 					return;
 				}
 				// Extract assistant text, images, and reasoning from UIMessage parts
@@ -186,13 +188,44 @@ export default function ChatPageClient({
 						image_url: { url: p.image_url.url },
 					}));
 
-				// Handle file parts (AI SDK format for images)
+				// Handle file parts for images (supports multiple shapes from providers)
 				const fileParts = (message.parts as any[])
-					.filter((p) => p.type === "file" && p.mediaType?.startsWith("image/"))
+					.filter((p) => {
+						if (p.type !== "file") {
+							return false;
+						}
+						const mediaType =
+							p.mediaType ||
+							p.mimeType ||
+							p.mime_type ||
+							p.file?.mediaType ||
+							p.file?.mimeType ||
+							p.file?.mime_type;
+						return (
+							typeof mediaType === "string" && mediaType.startsWith("image/")
+						);
+					})
 					.map((p) => {
-						const { dataUrl } = parseImageFile(p);
+						const mediaType =
+							p.mediaType ||
+							p.mimeType ||
+							p.mime_type ||
+							p.file?.mediaType ||
+							p.file?.mimeType ||
+							p.file?.mime_type;
+						const url =
+							p.url ||
+							p.data ||
+							p.base64 ||
+							p.file?.url ||
+							p.file?.data ||
+							p.file?.base64;
+						const { dataUrl } = parseImageFile({
+							url,
+							mediaType,
+						});
 						return {
-							type: "image_url",
+							type: "image_url" as const,
 							image_url: { url: dataUrl },
 						};
 					});
@@ -205,7 +238,7 @@ export default function ChatPageClient({
 				);
 
 				const bodyToSave = {
-					role: "assistant",
+					role: "assistant" as const,
 					content: textContent || undefined,
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
@@ -215,7 +248,7 @@ export default function ChatPageClient({
 				try {
 					await addMessage.mutateAsync({
 						params: { path: { id: chatId } },
-						body: bodyToSave as any,
+						body: bodyToSave,
 					});
 				} catch (error: any) {
 					// If chat not found, clear the stale chat ID
@@ -229,7 +262,7 @@ export default function ChatPageClient({
 						toast.error("Chat was deleted. Please start a new conversation.");
 					} else {
 						toast.error(
-							`Failed to save AI response: ${error?.message || "Unknown error"}`,
+							`Failed to save AI response: ${getErrorMessage(error)}`,
 						);
 					}
 				}
@@ -418,8 +451,8 @@ export default function ChatPageClient({
 					}
 
 					// Add reasoning if present
-					if (msg.reasoning) {
-						parts.push({ type: "reasoning", text: msg.reasoning });
+					if ((msg as any).reasoning) {
+						parts.push({ type: "reasoning", text: (msg as any).reasoning });
 					}
 
 					// Add images if present
@@ -519,27 +552,7 @@ export default function ChatPageClient({
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
-			// Verify the chat still exists by trying to fetch it
-			try {
-				const response = await fetch(`/api/chats/${chatIdRef.current}`, {
-					method: "GET",
-					headers: { "Content-Type": "application/json" },
-				});
-
-				if (response.ok) {
-					return chatIdRef.current;
-				} else {
-					// Clear the stale chat ID
-					chatIdRef.current = null;
-					setCurrentChatId(null);
-					// Fall through to create new chat
-				}
-			} catch {
-				// Clear the stale chat ID
-				chatIdRef.current = null;
-				setCurrentChatId(null);
-				// Fall through to create new chat
-			}
+			return chatIdRef.current;
 		}
 
 		try {
@@ -571,7 +584,13 @@ export default function ChatPageClient({
 		}
 	};
 
-	const handleUserMessage = async (content: string) => {
+	const handleUserMessage = async (
+		content: string,
+		images?: Array<{
+			type: "image_url";
+			image_url: { url: string };
+		}>,
+	) => {
 		setError(null);
 		setIsLoading(true);
 
@@ -585,7 +604,11 @@ export default function ChatPageClient({
 
 			await addMessage.mutateAsync({
 				params: { path: { id: chatId } },
-				body: { role: "user", content },
+				body: {
+					role: "user",
+					...(content.trim() ? { content } : {}),
+					...(images?.length ? { images: JSON.stringify(images) } : {}),
+				},
 			});
 		} catch (error: any) {
 			// If chat not found, it means the chat was deleted or is stale
@@ -599,7 +622,11 @@ export default function ChatPageClient({
 					const newChatId = await ensureCurrentChat(content);
 					await addMessage.mutateAsync({
 						params: { path: { id: newChatId } },
-						body: { role: "user", content },
+						body: {
+							role: "user",
+							...(content.trim() ? { content } : {}),
+							...(images?.length ? { images: JSON.stringify(images) } : {}),
+						},
 					});
 					setIsLoading(false);
 					return; // Exit early, don't show error
@@ -610,6 +637,17 @@ export default function ChatPageClient({
 					setIsLoading(false);
 					return;
 				}
+			}
+
+			// If free limit or message limit is hit, keep the existing UI state and show a
+			// helpful toast instead of treating it like a hard failure/crash.
+			if (
+				error?.status === 400 &&
+				(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
+					error?.message?.includes("FREE_LIMIT_REACHED"))
+			) {
+				toast.error(error.message);
+				return;
 			}
 
 			const errorMessage = getErrorMessage(error);

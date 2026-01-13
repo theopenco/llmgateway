@@ -43,35 +43,50 @@ All models are available with generous usage limits and zero per-token costs:
 
 ### DeepSeek R1T2 Chimera (Free)
 
-- **Model ID**: `deepseek-r1t2-chimera-free`
+```bash
+deepseek-r1t2-chimera-free
+```
+
 - **Cost**: $0.00 input/output tokens
 - **Context Window**: 128,000 tokens
 - **Capabilities**: Streaming, JSON output
 
 ### GLM-4.5 Air (Free)
 
-- **Model ID**: `glm-4.5-air-free`
+```bash
+glm-4.5-air-free
+```
+
 - **Cost**: $0.00 input/output tokens
 - **Context Window**: 128,000 tokens
 - **Capabilities**: Streaming, JSON output
 
 ### Kimi K2 (Free)
 
-- **Model ID**: `kimi-k2-free`
+```bash
+kimi-k2-free
+```
+
 - **Cost**: $0.00 input/output tokens
 - **Context Window**: 128,000 tokens
 - **Capabilities**: Streaming, JSON output
 
 ### GPT-OSS 20B (Free)
 
-- **Model ID**: `gpt-oss-20b-free`
+```bash
+gpt-oss-20b-free
+```
+
 - **Cost**: $0.00 input/output tokens
 - **Context Window**: 128,000 tokens
 - **Capabilities**: Streaming, JSON output
 
 ### GPT-4.1 (Free)
 
-- **Model ID**: `gpt-4.1-free`
+```bash
+gpt-4.1-free
+```
+
 - **Cost**: $0.00 input/output tokens
 - **Context Window**: 128,000 tokens
 - **Capabilities**: Streaming, JSON output

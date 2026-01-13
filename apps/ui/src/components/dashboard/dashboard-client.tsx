@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
+import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
@@ -96,6 +97,24 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
 	);
+
+	// Get API keys data to check plan limits
+	const { data: apiKeysData } = api.useQuery(
+		"get",
+		"/keys/api",
+		{
+			params: {
+				query: { projectId: selectedProject?.id || "" },
+			},
+		},
+		{
+			enabled: !!selectedProject?.id,
+			staleTime: 5 * 60 * 1000, // 5 minutes
+			refetchOnWindowFocus: false,
+		},
+	);
+
+	const planLimits = apiKeysData?.planLimits;
 
 	// Function to update URL with new days parameter
 	const updateDaysInUrl = (newDays: 7 | 30) => {
@@ -229,7 +248,39 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 						)}
 					</div>
 					<div className="flex items-center space-x-2">
-						{selectedOrganization && <TopUpCreditsButton />}
+						{selectedOrganization && selectedProject && (
+							<>
+								<CreateApiKeyDialog
+									selectedProject={selectedProject}
+									disabled={
+										planLimits
+											? planLimits.currentCount >= planLimits.maxKeys
+											: false
+									}
+									disabledMessage={
+										planLimits
+											? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+											: undefined
+									}
+								>
+									<Button
+										variant="outline"
+										disabled={
+											!selectedProject ||
+											(planLimits
+												? planLimits.currentCount >= planLimits.maxKeys
+												: false)
+										}
+										className="flex items-center"
+									>
+										<Key className="mr-2 h-4 w-4" />
+										Create API Key
+									</Button>
+								</CreateApiKeyDialog>
+								<TopUpCreditsButton />
+							</>
+						)}
+						{selectedOrganization && !selectedProject && <TopUpCreditsButton />}
 					</div>
 				</div>
 
@@ -259,8 +310,35 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 									Pro.
 								</p>
 								<div className="flex justify-center gap-2">
-									{selectedOrganization && (
+									{selectedOrganization && selectedProject && (
 										<>
+											<CreateApiKeyDialog
+												selectedProject={selectedProject}
+												disabled={
+													planLimits
+														? planLimits.currentCount >= planLimits.maxKeys
+														: false
+												}
+												disabledMessage={
+													planLimits
+														? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+														: undefined
+												}
+											>
+												<Button
+													variant="outline"
+													disabled={
+														!selectedProject ||
+														(planLimits
+															? planLimits.currentCount >= planLimits.maxKeys
+															: false)
+													}
+													className="flex items-center"
+												>
+													<Key className="mr-2 h-4 w-4" />
+													Create API Key
+												</Button>
+											</CreateApiKeyDialog>
 											<TopUpCreditsButton />
 											<UpgradeToProDialog>
 												<Button variant="outline">

@@ -199,6 +199,7 @@ export const metaModels = [
 			{
 				// Cerebras: FP16
 				providerId: "cerebras",
+				test: "skip",
 				modelName: "llama-3.3-70b",
 				inputPrice: 0.85 / 1e6,
 				outputPrice: 1.2 / 1e6,

@@ -23,7 +23,9 @@ We're excited to introduce two new **stealth models** from **Sherlock** - comple
 
 ### **Sherlock Dash Alpha** - Fast Reasoning Model
 
-**Model ID**: `sherlock/sherlock-dash-alpha`
+```bash
+sherlock/sherlock-dash-alpha
+```
 
 **Context Window**: 1,800,000 tokens (1.8M)
 
@@ -35,7 +37,9 @@ Lightning-fast responses with reasoning, vision, and tool calling capabilities
 
 ### **Sherlock Think Alpha** - Deep Reasoning Model
 
-**Model ID**: `sherlock/sherlock-think-alpha`
+```bash
+sherlock/sherlock-think-alpha
+```
 
 **Context Window**: 1,800,000 tokens (1.8M)
 
