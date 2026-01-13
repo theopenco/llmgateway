@@ -29,7 +29,9 @@ You can now access DeepSeek v3.1 at unprecedented pricing:
 
 ## 🧠 DeepSeek v3.1 Through CanopyWave
 
-**Model ID**: `canopywave/deepseek-v3.1`
+```bash
+canopywave/deepseek-v3.1
+```
 
 **Context Window**: 128,000 tokens
 

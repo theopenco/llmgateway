@@ -17,7 +17,9 @@ We're excited to announce support for **Gemini 3 Pro Preview** from Google with 
 
 ### **Gemini 3 Pro Preview** - Next-Generation AI Model
 
-**Model ID**: `gemini-3-pro-preview`
+```bash
+gemini-3-pro-preview
+```
 
 **Launch offer**: Gemini 3 Pro Preview is available with a **20% discount**.  
 [View the model page](/models/gemini-3-pro-preview) to explore capabilities, providers, and details.

@@ -15,7 +15,9 @@ We're excited to announce Kimi K2 Thinking from **CanopyWave** with an exclusive
 
 ## **Kimi-K2-Thinking** - Advanced Model with Reasoning
 
-**Model ID**: `canopywave/kimi-k2-thinking`
+```bash
+canopywave/kimi-k2-thinking
+```
 
 **Context Window**: 262,144 tokens (262.1K)
 

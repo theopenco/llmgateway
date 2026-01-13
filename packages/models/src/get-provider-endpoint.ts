@@ -110,6 +110,9 @@ export function getProviderEndpoint(
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
 				break;
+			case "bytedance":
+				url = "https://ark.ap-southeast.bytepluses.com/api/v3";
+				break;
 			case "aws-bedrock":
 				url =
 					getProviderEnvValue(
@@ -293,6 +296,8 @@ export function getProviderEndpoint(
 				return `${url}/api/v1/services/aigc/multimodal-generation/generation`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "bytedance":
+			return `${url}/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
 		case "cloudrift":

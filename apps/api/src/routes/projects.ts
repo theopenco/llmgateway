@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { getUserOrganizationIds } from "@/utils/authorization.js";
+
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -118,18 +120,7 @@ projects.openapi(getProject, async (c) => {
 
 	const { id } = c.req.param();
 
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const orgIds = userOrgs.map((uo) => uo.organization!.id);
+	const orgIds = await getUserOrganizationIds(user.id);
 
 	const project = await db.query.project.findFirst({
 		where: {
