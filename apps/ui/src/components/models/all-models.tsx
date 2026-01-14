@@ -282,8 +282,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				// A model is only considered free if it has the free flag AND no provider has a per-request cost
 				const hasRequestPrice = model.providerDetails.some(
 					(p) =>
-						p.provider.requestPrice &&
-						parseFloat(p.provider.requestPrice) > 0,
+						p.provider.requestPrice && parseFloat(p.provider.requestPrice) > 0,
 				);
 				if (!model.free || hasRequestPrice) {
 					return false;

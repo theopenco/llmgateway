@@ -990,8 +990,7 @@ export function ModelSelector({
 													const _aggregate = getRootAggregateInfo(model);
 													const hasRequestPrice = model.mappings.some(
 														(p) =>
-															p.requestPrice &&
-															parseFloat(p.requestPrice) > 0,
+															p.requestPrice && parseFloat(p.requestPrice) > 0,
 													);
 													const isFreeRoot =
 														model.free === true && !hasRequestPrice;
