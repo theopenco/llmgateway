@@ -77,9 +77,6 @@ import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-// Re-export for backwards compatibility with existing imports
-export { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
-
 /**
  * Checks if any messages contain images (image_url or image type content)
  * Used to filter providers that don't support vision
