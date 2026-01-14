@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
 	async rewrites() {
 		return [
 			{
-				source: "/docs/:path*.mdx",
+				source: "/:path*.mdx",
 				destination: "/llms.mdx/:path*",
 			},
 		];
