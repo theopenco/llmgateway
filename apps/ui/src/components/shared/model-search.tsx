@@ -96,7 +96,10 @@ export function ModelSearch() {
 						providerId: String(mapping.providerId),
 						providerName: provider?.name ?? String(mapping.providerId),
 						publishedAt,
-						free: (model as any).free || mapping.inputPrice === 0,
+						free:
+							((model as any).free || mapping.inputPrice === 0) &&
+							(mapping.requestPrice === undefined ||
+								mapping.requestPrice === 0),
 					});
 				}
 			}

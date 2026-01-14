@@ -58,7 +58,11 @@ export function getModelCapabilities(model: ModelDefinition): string[] {
 		capabilities.push("Image Generation");
 	}
 
-	if (model.free) {
+	// Only show "Free" if model has free flag AND no per-request pricing
+	const hasRequestPrice = model.providers.some(
+		(p) => p.requestPrice && p.requestPrice > 0,
+	);
+	if (model.free && !hasRequestPrice) {
 		capabilities.push("Free");
 	}
 

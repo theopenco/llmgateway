@@ -67,6 +67,17 @@ import type { ImageObject } from "./tools/types.js";
 import type { ServerTypes } from "@/vars.js";
 
 /**
+ * Checks if a model is truly free (has free flag AND no per-request pricing)
+ */
+function isModelTrulyFree(modelInfo: ModelDefinition): boolean {
+	if (!modelInfo.free) {
+		return false;
+	}
+	// Check if any provider has a per-request cost
+	return !modelInfo.providers.some((p) => p.requestPrice && p.requestPrice > 0);
+}
+
+/**
  * Estimates tokens from content length using simple division
  */
 export function estimateTokensFromContent(content: string): number {
@@ -1935,7 +1946,7 @@ chat.openapi(completions, async (c) => {
 
 			if (
 				parseFloat(organization.credits || "0") <= 0 &&
-				!(modelInfo as ModelDefinition).free
+				!isModelTrulyFree(modelInfo as ModelDefinition)
 			) {
 				throw new HTTPException(402, {
 					message:
@@ -1956,7 +1967,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
-		(modelInfo as ModelDefinition).free &&
+		isModelTrulyFree(modelInfo as ModelDefinition) &&
 		(!providerKey || !providerKey.token)
 	) {
 		await validateFreeModelUsage(
