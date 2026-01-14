@@ -114,6 +114,8 @@ export type SerializedOrganization = Omit<
 	| "trialStartDate"
 	| "trialEndDate"
 	| "isTrialActive"
+	| "paymentFailureCount"
+	| "lastPaymentFailureAt"
 > & {
 	createdAt: string;
 	updatedAt: string;
