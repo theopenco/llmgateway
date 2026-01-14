@@ -568,9 +568,12 @@ export function ModelSelector({
 				const price = e.mapping.inputPrice
 					? parseFloat(e.mapping.inputPrice)
 					: 0;
+				const requestPrice = e.mapping.requestPrice
+					? parseFloat(e.mapping.requestPrice)
+					: 0;
 				switch (filters.priceRange) {
 					case "free":
-						return price === 0;
+						return price === 0 && requestPrice === 0;
 					case "low":
 						return price > 0 && price <= 0.000001;
 					case "medium":
@@ -985,7 +988,13 @@ export function ModelSelector({
 												if (isRoot) {
 													const entryKey = model.id;
 													const _aggregate = getRootAggregateInfo(model);
-													const isFreeRoot = model.free === true;
+													const hasRequestPrice = model.mappings.some(
+														(p) =>
+															p.requestPrice &&
+															parseFloat(p.requestPrice) > 0,
+													);
+													const isFreeRoot =
+														model.free === true && !hasRequestPrice;
 													return (
 														<CommandItem
 															key={`${entryKey}-${index}`}
@@ -1056,7 +1065,11 @@ export function ModelSelector({
 												const isDeprecated =
 													mapping!.deprecatedAt &&
 													new Date(mapping!.deprecatedAt) <= new Date();
-												const isFreeMapping = model.free === true;
+												const hasRequestPrice =
+													mapping!.requestPrice &&
+													parseFloat(mapping!.requestPrice) > 0;
+												const isFreeMapping =
+													model.free === true && !hasRequestPrice;
 												return (
 													<CommandItem
 														key={entryKey}

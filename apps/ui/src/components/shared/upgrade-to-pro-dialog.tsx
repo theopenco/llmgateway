@@ -173,7 +173,7 @@ function UpgradeDialogContent({
 					>
 						{loading || createSubscriptionMutation.isPending
 							? "Redirecting to checkout..."
-							: `Start 7-day free trial`}
+							: `Upgrade to Pro`}
 					</Button>
 					<div className="text-sm text-muted-foreground">
 						<p>You'll be redirected to Stripe Checkout to complete payment.</p>

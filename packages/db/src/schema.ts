@@ -144,6 +144,8 @@ export const organization = pgTable("organization", {
 		enum: ["active", "inactive", "deleted"],
 	}).default("active"),
 	referralEarnings: decimal().notNull().default("0"),
+	paymentFailureCount: integer().notNull().default(0),
+	lastPaymentFailureAt: timestamp(),
 });
 
 export const referral = pgTable(

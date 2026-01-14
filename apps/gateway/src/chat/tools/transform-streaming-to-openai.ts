@@ -307,6 +307,10 @@ export function transformStreamingToOpenai(
 				const toolUsePromptTokenCount =
 					usageMetadata.toolUsePromptTokenCount || 0;
 
+				// Extract cached tokens from Google's implicit caching
+				const cachedContentTokenCount =
+					usageMetadata.cachedContentTokenCount || 0;
+
 				const totalTokenCount =
 					typeof usageMetadata.totalTokenCount === "number" &&
 					usageMetadata.totalTokenCount > 0
@@ -324,6 +328,13 @@ export function transformStreamingToOpenai(
 
 				if (reasoningTokenCount) {
 					usage.reasoning_tokens = reasoningTokenCount;
+				}
+
+				// Include cached tokens in OpenAI-compatible format
+				if (cachedContentTokenCount > 0) {
+					usage.prompt_tokens_details = {
+						cached_tokens: cachedContentTokenCount,
+					};
 				}
 
 				// I am exposing this google-specific metric under a provider-specific namespace

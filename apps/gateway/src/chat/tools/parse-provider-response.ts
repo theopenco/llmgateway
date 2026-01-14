@@ -340,6 +340,8 @@ export function parseProviderResponse(
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
 			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
+			// Extract cached tokens from Google's implicit caching
+			cachedTokens = json.usageMetadata?.cachedContentTokenCount || null;
 			// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
 			totalTokens = null;
 

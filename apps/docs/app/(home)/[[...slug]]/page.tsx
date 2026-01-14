@@ -73,7 +73,7 @@ export default async function Page(props: {
 		>
 			<div className="flex flex-row gap-2 items-center border-b pt-2 pb-6">
 				<ViewOptions
-					markdownUrl={`https://raw.githubusercontent.com/theopenco/llmgateway/refs/heads/main/apps/docs/content/${page.path}`}
+					markdownUrl={`${page.url}.mdx`}
 					githubUrl={`https://github.com/theopenco/llmgateway/blob/main/apps/docs/content/${page.path}`}
 				/>
 			</div>

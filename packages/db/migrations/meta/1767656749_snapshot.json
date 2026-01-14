@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a9b2d90a-a98e-41f1-b752-b562fbd81667",
+  "id": "1481d4b7-1ebe-4472-8825-dd0a159ae58b",
   "prevId": "18aa6317-cac2-4d7e-9fa4-624f77c65edf",
   "ddl": [
     {
@@ -1909,19 +1909,6 @@
       "table": "model"
     },
     {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "released_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -1930,32 +1917,6 @@
       "generated": null,
       "identity": null,
       "name": "name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "aliases",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "description",
       "entityType": "columns",
       "schema": "public",
       "table": "model"
@@ -1995,19 +1956,6 @@
       "generated": null,
       "identity": null,
       "name": "output",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "stability",
       "entityType": "columns",
       "schema": "public",
       "table": "model"
@@ -2697,71 +2645,6 @@
       "generated": null,
       "identity": null,
       "name": "tools",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "json_output",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "json_output_schema",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "web_search",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "discount",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "stability",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -3634,6 +3517,35 @@
       "generated": null,
       "identity": null,
       "name": "referral_earnings",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "payment_failure_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_payment_failure_at",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

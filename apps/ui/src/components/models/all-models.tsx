@@ -33,7 +33,6 @@ import React, { useMemo, useState, useCallback, useEffect } from "react";
 import Footer from "@/components/landing/footer";
 import { ModelCodeExampleDialog } from "@/components/models/model-code-example-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useModelsAndProviders } from "@/hooks/useModels";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
@@ -81,6 +80,12 @@ interface ModelWithProviders extends ApiModel {
 	}>;
 }
 
+interface AllModelsProps {
+	children: React.ReactNode;
+	models: ApiModel[];
+	providers: ApiProvider[];
+}
+
 type SortField =
 	| "name"
 	| "providers"
@@ -91,14 +96,11 @@ type SortField =
 	| "requestPrice";
 type SortDirection = "asc" | "desc";
 
-export function AllModels({ children }: { children: React.ReactNode }) {
+export function AllModels({ children, models, providers }: AllModelsProps) {
 	const config = useAppConfig();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const isMobile = useIsMobile();
-
-	// Fetch models and providers from API
-	const { models, providers } = useModelsAndProviders();
 
 	const [viewMode, setViewMode] = useState<"table" | "grid">(
 		(searchParams.get("view") as "table" | "grid") === "grid"
@@ -276,8 +278,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			) {
 				return false;
 			}
-			if (filters.capabilities.free && !model.free) {
-				return false;
+			if (filters.capabilities.free) {
+				// A model is only considered free if it has the free flag AND no provider has a per-request cost
+				const hasRequestPrice = model.providerDetails.some(
+					(p) =>
+						p.provider.requestPrice &&
+						parseFloat(p.provider.requestPrice) > 0,
+				);
+				if (!model.free || hasRequestPrice) {
+					return false;
+				}
 			}
 			if (
 				filters.capabilities.discounted &&
@@ -1073,15 +1083,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 											{shouldShowStabilityWarning(model.stability) && (
 												<AlertTriangle className="h-4 w-4 text-orange-500" />
 											)}
-											{model.free && (
-												<Badge
-													variant="secondary"
-													className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
-												>
-													<Gift className="h-3 w-3 mr-1" />
-													Free
-												</Badge>
-											)}
+											{model.free &&
+												!model.providerDetails.some(
+													(p) =>
+														p.provider.requestPrice &&
+														parseFloat(p.provider.requestPrice) > 0,
+												) && (
+													<Badge
+														variant="secondary"
+														className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
+													>
+														<Gift className="h-3 w-3 mr-1" />
+														Free
+													</Badge>
+												)}
 										</div>
 										<div className="text-xs text-muted-foreground">
 											Family:{" "}

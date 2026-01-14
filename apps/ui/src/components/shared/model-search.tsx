@@ -1,10 +1,10 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { useModelsAndProviders } from "@/hooks/useModels";
 import {
 	Command,
 	CommandEmpty,
@@ -18,6 +18,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/lib/components/popover";
+import { useAppConfig } from "@/lib/config";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -50,13 +51,40 @@ interface ModelSearchProps {
 export function ModelSearch({
 	models: propModels,
 	providers: propProviders,
-}: ModelSearchProps = {}) {
+}: ModelSearchProps) {
 	const router = useRouter();
+	const config = useAppConfig();
 	const [open, setOpen] = useState(false);
 
-	// Use props if provided, otherwise fetch via React Query
-	const { models: fetchedModels, providers: fetchedProviders } =
-		useModelsAndProviders();
+	// Fetch models/providers via React Query if not provided as props
+	const { data: fetchedModels = [] } = useQuery<ApiModel[]>({
+		queryKey: ["internal-models"],
+		queryFn: async () => {
+			const response = await fetch(`${config.apiUrl}/internal/models`);
+			if (!response.ok) {
+				throw new Error("Failed to fetch models");
+			}
+			const data = await response.json();
+			return data.models || [];
+		},
+		staleTime: 60 * 1000,
+		enabled: propModels === undefined,
+	});
+
+	const { data: fetchedProviders = [] } = useQuery<ApiProvider[]>({
+		queryKey: ["internal-providers"],
+		queryFn: async () => {
+			const response = await fetch(`${config.apiUrl}/internal/providers`);
+			if (!response.ok) {
+				throw new Error("Failed to fetch providers");
+			}
+			const data = await response.json();
+			return data.providers || [];
+		},
+		staleTime: 60 * 1000,
+		enabled: propProviders === undefined,
+	});
+
 	const models = propModels ?? fetchedModels;
 	const providers = propProviders ?? fetchedProviders;
 
@@ -116,9 +144,13 @@ export function ModelSearch({
 						providerName: provider?.name ?? String(mapping.providerId),
 						createdAt,
 						free:
-							model.free ||
-							(mapping.inputPrice !== null &&
-								parseFloat(mapping.inputPrice) === 0),
+							(model.free ||
+								(mapping.inputPrice !== null &&
+									mapping.inputPrice !== undefined &&
+									parseFloat(mapping.inputPrice) === 0)) &&
+							(mapping.requestPrice === undefined ||
+								mapping.requestPrice === null ||
+								parseFloat(mapping.requestPrice) === 0),
 					});
 				}
 			}
