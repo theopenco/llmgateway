@@ -84,31 +84,98 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 }
 
 /**
- * Recursively strips unsupported properties from JSON schema for Google
- * Google doesn't support additionalProperties, $schema, and some other JSON schema properties
+ * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
-function stripUnsupportedSchemaProperties(schema: any): any {
+function resolveRef(ref: string, rootDefs: Record<string, any>): any {
+	// Handle JSON Pointer format: #/$defs/Name or #/definitions/Name
+	const match = ref.match(/^#\/(\$defs|definitions)\/(.+)$/);
+	if (match) {
+		const defName = match[2];
+		return rootDefs[defName];
+	}
+	return null;
+}
+
+/**
+ * Recursively strips unsupported properties and expands $ref references for Google
+ * Google doesn't support $ref, additionalProperties, $schema, and some other JSON schema properties
+ */
+function stripUnsupportedSchemaProperties(
+	schema: any,
+	rootDefs?: Record<string, any>,
+): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
 	}
 
 	if (Array.isArray(schema)) {
-		return schema.map(stripUnsupportedSchemaProperties);
+		return schema.map((item) =>
+			stripUnsupportedSchemaProperties(item, rootDefs),
+		);
+	}
+
+	// Extract $defs or definitions from root schema if present (only on first call)
+	const defs = rootDefs ?? schema.$defs ?? schema.definitions ?? {};
+
+	// Handle $ref - expand the reference inline
+	if (schema.$ref) {
+		const resolved = resolveRef(schema.$ref, defs);
+		if (resolved) {
+			// Expand the reference, preserving only description and default from the original node
+			const expanded = stripUnsupportedSchemaProperties({ ...resolved }, defs);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			if (schema.default !== undefined && expanded.default === undefined) {
+				expanded.default = schema.default;
+			}
+			return expanded;
+		}
+		// If reference couldn't be resolved, remove $ref and continue
 	}
 
 	const cleaned: any = {};
 
 	for (const [key, value] of Object.entries(schema)) {
 		// Skip unsupported properties
-		if (key === "additionalProperties" || key === "$schema") {
+		// Google doesn't support: additionalProperties, $schema, $defs, definitions, $ref, ref (non-standard), maxLength, minLength, minimum, maximum, pattern
+		if (
+			key === "additionalProperties" ||
+			key === "$schema" ||
+			key === "$defs" ||
+			key === "definitions" ||
+			key === "$ref" ||
+			key === "ref" ||
+			key === "maxLength" ||
+			key === "minLength" ||
+			key === "minimum" ||
+			key === "maximum" ||
+			key === "pattern"
+		) {
 			continue;
 		}
 
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
-			cleaned[key] = stripUnsupportedSchemaProperties(value);
+			cleaned[key] = stripUnsupportedSchemaProperties(value, defs);
 		} else {
 			cleaned[key] = value;
+		}
+	}
+
+	// Filter 'required' array to only include properties that exist in 'properties'
+	if (
+		cleaned.required &&
+		Array.isArray(cleaned.required) &&
+		cleaned.properties
+	) {
+		const existingProps = Object.keys(cleaned.properties);
+		cleaned.required = cleaned.required.filter((prop: string) =>
+			existingProps.includes(prop),
+		);
+		// Remove empty required array
+		if (cleaned.required.length === 0) {
+			delete cleaned.required;
 		}
 	}
 
