@@ -146,7 +146,7 @@ async function processAutoTopUp(): Promise<void> {
 
 		for (const org of filteredOrgs) {
 			try {
-				// Check if there's a recent pending or failed auto top-up transaction
+				// Check if there's a recent pending transaction
 				const recentTransaction = await db.query.transaction.findFirst({
 					where: {
 						organizationId: {
@@ -161,24 +161,40 @@ async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				// Additional check for time constraint (within 1 hour) and status
+				// Check for pending transaction within 1 hour
 				if (recentTransaction) {
 					const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-					if (recentTransaction.createdAt > oneHourAgo) {
-						// Recent transaction within 1 hour, check its status
-						if (recentTransaction.status === "pending") {
-							logger.info(
-								`Skipping auto top-up for organization ${org.id}: pending transaction exists`,
-							);
-							continue;
-						}
+					if (
+						recentTransaction.createdAt > oneHourAgo &&
+						recentTransaction.status === "pending"
+					) {
+						logger.info(
+							`Skipping auto top-up for organization ${org.id}: pending transaction exists`,
+						);
+						continue;
+					}
+				}
 
-						if (recentTransaction.status === "failed") {
-							logger.info(
-								`Skipping auto top-up for organization ${org.id}: most recent transaction failed`,
-							);
-							continue;
-						}
+				// Check for exponential backoff based on payment failure count
+				// Backoff intervals: 1h, 2h, 4h, 8h, 16h, 24h (capped)
+				if (org.lastPaymentFailureAt && (org.paymentFailureCount ?? 0) > 0) {
+					const failureCount = org.paymentFailureCount ?? 0;
+					const baseBackoffHours = 1;
+					const maxBackoffHours = 24;
+					const backoffHours = Math.min(
+						baseBackoffHours * Math.pow(2, failureCount - 1),
+						maxBackoffHours,
+					);
+					const backoffMs = backoffHours * 60 * 60 * 1000;
+					const nextRetryTime = new Date(
+						org.lastPaymentFailureAt.getTime() + backoffMs,
+					);
+
+					if (new Date() < nextRetryTime) {
+						logger.info(
+							`Skipping auto top-up for organization ${org.id}: in backoff period (${failureCount} failures, next retry at ${nextRetryTime.toISOString()})`,
+						);
+						continue;
 					}
 				}
 
