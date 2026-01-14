@@ -5,7 +5,7 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
-import { calculateCosts } from "@/lib/costs.js";
+import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 
@@ -2581,6 +2581,42 @@ chat.openapi(completions, async (c) => {
 					// Extract plugin IDs for logging (canceled request)
 					const canceledPluginIds = plugins?.map((p) => p.id) || [];
 
+					// Calculate costs for cancelled request if billing is enabled
+					const billCancelled = shouldBillCancelledRequests();
+					let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+					let estimatedPromptTokens: number | null = null;
+
+					if (billCancelled) {
+						// Estimate prompt tokens from messages
+						const tokenEstimation = estimateTokens(
+							usedProvider,
+							messages,
+							null,
+							null,
+							null,
+						);
+						estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+						// Calculate costs based on prompt tokens only (no completion yet)
+						// If web search tool was enabled, count it as 1 search for billing
+						cancelledCosts = calculateCosts(
+							usedModel,
+							usedProvider,
+							estimatedPromptTokens,
+							0, // No completion tokens yet
+							null, // No cached tokens
+							{
+								prompt: messages.map((m) => m.content).join("\n"),
+								completion: "",
+							},
+							null, // No reasoning tokens
+							0, // No output images
+							undefined,
+							inputImageCount,
+							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+						);
+					}
+
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -2625,20 +2661,36 @@ chat.openapi(completions, async (c) => {
 						content: null,
 						reasoningContent: null,
 						finishReason: "canceled",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
+						promptTokens: billCancelled
+							? estimatedPromptTokens?.toString()
+							: null,
+						completionTokens: billCancelled ? "0" : null,
+						totalTokens: billCancelled
+							? estimatedPromptTokens?.toString()
+							: null,
 						reasoningTokens: null,
 						cachedTokens: null,
 						hasError: false,
 						streamed: true,
 						canceled: true,
 						errorDetails: null,
-						cachedInputCost: null,
-						requestCost: null,
-						webSearchCost: null,
-						discount: null,
-						dataStorageCost: "0",
+						inputCost: cancelledCosts?.inputCost ?? null,
+						outputCost: cancelledCosts?.outputCost ?? null,
+						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+						requestCost: cancelledCosts?.requestCost ?? null,
+						webSearchCost: cancelledCosts?.webSearchCost ?? null,
+						cost: cancelledCosts?.totalCost ?? null,
+						estimatedCost: cancelledCosts?.estimatedCost ?? false,
+						discount: cancelledCosts?.discount ?? null,
+						dataStorageCost: billCancelled
+							? calculateDataStorageCost(
+									estimatedPromptTokens,
+									null,
+									0,
+									null,
+									retentionLevel,
+								)
+							: "0",
 						cached: false,
 						toolResults: null,
 					});
@@ -3985,23 +4037,43 @@ chat.openapi(completions, async (c) => {
 					}
 				}
 
-				const costs = calculateCosts(
-					usedModel,
-					usedProvider,
-					calculatedPromptTokens,
-					calculatedCompletionTokens,
-					cachedTokens,
-					{
-						prompt: messages.map((m) => m.content).join("\n"),
-						completion: fullContent,
-						toolResults: streamingToolCalls || undefined,
-					},
-					reasoningTokens,
-					outputImageCount,
-					image_config?.image_size,
-					inputImageCount,
-					webSearchCount,
-				);
+				// Check if we should bill cancelled requests
+				const billCancelledRequests = shouldBillCancelledRequests();
+
+				// Calculate costs - for cancelled requests, only bill if env var is enabled
+				const costs =
+					canceled && !billCancelledRequests
+						? {
+								inputCost: null,
+								outputCost: null,
+								cachedInputCost: null,
+								requestCost: null,
+								webSearchCost: null,
+								totalCost: null,
+								promptTokens: null,
+								completionTokens: null,
+								cachedTokens: null,
+								estimatedCost: false,
+								discount: undefined,
+								pricingTier: undefined,
+							}
+						: calculateCosts(
+								usedModel,
+								usedProvider,
+								calculatedPromptTokens,
+								calculatedCompletionTokens,
+								cachedTokens,
+								{
+									prompt: messages.map((m) => m.content).join("\n"),
+									completion: fullContent,
+									toolResults: streamingToolCalls || undefined,
+								},
+								reasoningTokens,
+								outputImageCount,
+								image_config?.image_size,
+								inputImageCount,
+								webSearchCount,
+							);
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
 				const streamingPluginIds = plugins?.map((p) => p.id) || [];
@@ -4070,6 +4142,10 @@ chat.openapi(completions, async (c) => {
 					});
 				}
 
+				// For cancelled requests, determine if we should include token counts for billing
+				const shouldIncludeTokensForBilling =
+					!canceled || (canceled && billCancelledRequests);
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
@@ -4078,12 +4154,22 @@ chat.openapi(completions, async (c) => {
 					responseSize: fullContent.length,
 					content: fullContent,
 					reasoningContent: fullReasoningContent || null,
-					finishReason: finishReason,
-					promptTokens: calculatedPromptTokens?.toString() || null,
-					completionTokens: calculatedCompletionTokens?.toString() || null,
-					totalTokens: calculatedTotalTokens?.toString() || null,
-					reasoningTokens: calculatedReasoningTokens?.toString() || null,
-					cachedTokens: cachedTokens?.toString() || null,
+					finishReason: canceled ? "canceled" : finishReason,
+					promptTokens: shouldIncludeTokensForBilling
+						? calculatedPromptTokens?.toString() || null
+						: null,
+					completionTokens: shouldIncludeTokensForBilling
+						? calculatedCompletionTokens?.toString() || null
+						: null,
+					totalTokens: shouldIncludeTokensForBilling
+						? calculatedTotalTokens?.toString() || null
+						: null,
+					reasoningTokens: shouldIncludeTokensForBilling
+						? calculatedReasoningTokens?.toString() || null
+						: null,
+					cachedTokens: shouldIncludeTokensForBilling
+						? cachedTokens?.toString() || null
+						: null,
 					hasError: streamingError !== null,
 					errorDetails: streamingError
 						? {
@@ -4109,13 +4195,15 @@ chat.openapi(completions, async (c) => {
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount,
 					pricingTier: costs.pricingTier,
-					dataStorageCost: calculateDataStorageCost(
-						calculatedPromptTokens,
-						cachedTokens,
-						calculatedCompletionTokens,
-						calculatedReasoningTokens,
-						retentionLevel,
-					),
+					dataStorageCost: shouldIncludeTokensForBilling
+						? calculateDataStorageCost(
+								calculatedPromptTokens,
+								cachedTokens,
+								calculatedCompletionTokens,
+								calculatedReasoningTokens,
+								retentionLevel,
+							)
+						: "0",
 					cached: false,
 					tools,
 					toolResults: streamingToolCalls,
@@ -4330,6 +4418,42 @@ chat.openapi(completions, async (c) => {
 		// Extract plugin IDs for logging (canceled non-streaming)
 		const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
 
+		// Calculate costs for cancelled request if billing is enabled
+		const billCancelled = shouldBillCancelledRequests();
+		let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+		let estimatedPromptTokens: number | null = null;
+
+		if (billCancelled) {
+			// Estimate prompt tokens from messages
+			const tokenEstimation = estimateTokens(
+				usedProvider,
+				messages,
+				null,
+				null,
+				null,
+			);
+			estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+			// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
+			// If web search tool was enabled, count it as 1 search for billing
+			cancelledCosts = calculateCosts(
+				usedModel,
+				usedProvider,
+				estimatedPromptTokens,
+				0, // No completion tokens
+				null, // No cached tokens
+				{
+					prompt: messages.map((m) => m.content).join("\n"),
+					completion: "",
+				},
+				null, // No reasoning tokens
+				0, // No output images
+				undefined,
+				inputImageCount,
+				webSearchTool ? 1 : null, // Bill for web search if it was enabled
+			);
+		}
+
 		const baseLogEntry = createLogEntry(
 			requestId,
 			project,
@@ -4374,21 +4498,32 @@ chat.openapi(completions, async (c) => {
 			content: null,
 			reasoningContent: null,
 			finishReason: "canceled",
-			promptTokens: null,
-			completionTokens: null,
-			totalTokens: null,
+			promptTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			completionTokens: billCancelled ? "0" : null,
+			totalTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
 			reasoningTokens: null,
 			cachedTokens: null,
 			hasError: false,
 			streamed: false,
 			canceled: true,
 			errorDetails: null,
-			cachedInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			estimatedCost: false,
-			discount: null,
-			dataStorageCost: "0",
+			inputCost: cancelledCosts?.inputCost ?? null,
+			outputCost: cancelledCosts?.outputCost ?? null,
+			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+			requestCost: cancelledCosts?.requestCost ?? null,
+			webSearchCost: cancelledCosts?.webSearchCost ?? null,
+			cost: cancelledCosts?.totalCost ?? null,
+			estimatedCost: cancelledCosts?.estimatedCost ?? false,
+			discount: cancelledCosts?.discount ?? null,
+			dataStorageCost: billCancelled
+				? calculateDataStorageCost(
+						estimatedPromptTokens,
+						null,
+						0,
+						null,
+						retentionLevel,
+					)
+				: "0",
 			cached: false,
 			toolResults: null,
 		});
