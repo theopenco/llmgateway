@@ -1,3 +1,4 @@
+import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
@@ -423,8 +424,10 @@ export function transformStreamingToOpenai(
 
 					if (part.functionCall) {
 						const callIndex = toolCalls.length;
+						const toolCallId =
+							part.functionCall.name + "_" + Date.now() + "_" + callIndex;
 						toolCalls.push({
-							id: part.functionCall.name + "_" + Date.now() + "_" + callIndex,
+							id: toolCallId,
 							type: "function",
 							index: partIndex,
 							function: {
@@ -443,6 +446,23 @@ export function transformStreamingToOpenai(
 									}
 								: undefined,
 						});
+
+						// Cache thoughtSignature in Redis for server-side retrieval in multi-turn conversations
+						// This is especially important when OpenAI SDKs don't preserve extra_content/provider_extra
+						if (sig) {
+							redisClient
+								.setex(
+									`thought_signature:${toolCallId}`,
+									86400, // 1 day expiration
+									sig,
+								)
+								.catch((err) => {
+									logger.error(
+										"Failed to cache thought_signature in streaming transform",
+										{ err },
+									);
+								});
+						}
 					}
 
 					if (sig) {
