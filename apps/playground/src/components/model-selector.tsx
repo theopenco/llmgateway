@@ -566,9 +566,10 @@ export function ModelSelector({
 				}
 
 				const price = e.mapping.inputPrice || 0;
+				const requestPrice = e.mapping.requestPrice || 0;
 				switch (filters.priceRange) {
 					case "free":
-						return price === 0;
+						return price === 0 && requestPrice === 0;
 					case "low":
 						return price > 0 && price <= 0.000001;
 					case "medium":
