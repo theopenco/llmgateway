@@ -1226,6 +1226,23 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Check JSON output capability if json_object or json_schema response format is requested
+				if (
+					response_format?.type === "json_object" ||
+					response_format?.type === "json_schema"
+				) {
+					if ((provider as ProviderModelMapping).jsonOutput !== true) {
+						return false;
+					}
+				}
+
+				// Check JSON schema output capability if json_schema response format is requested
+				if (response_format?.type === "json_schema") {
+					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+						return false;
+					}
+				}
+
 				return contextSizeMet;
 			});
 
@@ -1376,6 +1393,7 @@ chat.openapi(completions, async (c) => {
 
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
+				// If JSON output is requested, also filter to providers that support it
 				const availableModelProviders = modelInfo.providers.filter(
 					(provider) => {
 						if (!availableProviders.includes(provider.providerId)) {
@@ -1386,7 +1404,26 @@ chat.openapi(completions, async (c) => {
 						}
 						// If web search tool is requested, only include providers that support it
 						if (webSearchTool) {
-							return (provider as ProviderModelMapping).webSearch === true;
+							if ((provider as ProviderModelMapping).webSearch !== true) {
+								return false;
+							}
+						}
+						// If JSON output is requested, only include providers that support it
+						if (
+							response_format?.type === "json_object" ||
+							response_format?.type === "json_schema"
+						) {
+							if ((provider as ProviderModelMapping).jsonOutput !== true) {
+								return false;
+							}
+						}
+						// If JSON schema output is requested, only include providers that support it
+						if (response_format?.type === "json_schema") {
+							if (
+								(provider as ProviderModelMapping).jsonOutputSchema !== true
+							) {
+								return false;
+							}
 						}
 						return true;
 					},
@@ -1497,13 +1534,31 @@ chat.openapi(completions, async (c) => {
 
 			// Filter model providers to only those available
 			// If web search is requested, also filter to providers that support it
+			// If JSON output is requested, also filter to providers that support it
 			const availableModelProviders = modelInfo.providers.filter((provider) => {
 				if (!availableProviders.includes(provider.providerId)) {
 					return false;
 				}
 				// If web search tool is requested, only include providers that support it
 				if (webSearchTool) {
-					return (provider as ProviderModelMapping).webSearch === true;
+					if ((provider as ProviderModelMapping).webSearch !== true) {
+						return false;
+					}
+				}
+				// If JSON output is requested, only include providers that support it
+				if (
+					response_format?.type === "json_object" ||
+					response_format?.type === "json_schema"
+				) {
+					if ((provider as ProviderModelMapping).jsonOutput !== true) {
+						return false;
+					}
+				}
+				// If JSON schema output is requested, only include providers that support it
+				if (response_format?.type === "json_schema") {
+					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+						return false;
+					}
 				}
 				return true;
 			});
