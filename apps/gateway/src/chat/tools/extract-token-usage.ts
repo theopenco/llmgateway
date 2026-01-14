@@ -25,6 +25,8 @@ export function extractTokenUsage(
 				completionTokens = data.usageMetadata.candidatesTokenCount ?? null;
 				// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount ?? null;
+				// Extract cached tokens from Google's implicit caching
+				cachedTokens = data.usageMetadata.cachedContentTokenCount ?? null;
 
 				// If candidatesTokenCount is missing and we have content or images, estimate it
 				if (
