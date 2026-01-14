@@ -25,7 +25,10 @@ We're excited to announce support for **DeepSeek v3.1**, the latest advancement 
 
 **DeepSeek v3.1**
 
-- **Model ID**: `deepseek/deepseek-v3.1`
+```bash
+deepseek/deepseek-v3.1
+```
+
 - **Provider**: DeepSeek
 - **Context Window**: 128,000 tokens
 - **Input Price**: $0.56 per million tokens

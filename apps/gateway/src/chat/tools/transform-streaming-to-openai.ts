@@ -562,6 +562,17 @@ export function transformStreamingToOpenai(
 
 		case "openai": {
 			if (data.type) {
+				// Log full OpenAI event data for debugging
+				logger.info("[OpenAI Streaming Debug]", {
+					eventType: data.type,
+					hasAnnotations: !!(data.annotations || data.part?.annotations),
+					annotationsCount: (data.annotations || data.part?.annotations || [])
+						.length,
+					hasDelta: !!data.delta,
+					deltaKeys: data.delta ? Object.keys(data.delta) : [],
+					fullData: JSON.stringify(data),
+				});
+
 				switch (data.type) {
 					case "response.created":
 					case "response.in_progress":
@@ -582,7 +593,62 @@ export function transformStreamingToOpenai(
 						};
 						break;
 
-					case "response.output_item.added":
+					case "response.output_item.added": {
+						// Check if this is a function_call item
+						const item = data.item;
+						if (item?.type === "function_call") {
+							// First chunk for function call - emit id, type, name
+							transformedData = {
+								id: data.response?.id || `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created:
+									data.response?.created_at || Math.floor(Date.now() / 1000),
+								model: data.response?.model || usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: {
+											tool_calls: [
+												{
+													index: data.output_index || 0,
+													id: item.call_id || `call_${Date.now()}`,
+													type: "function",
+													function: {
+														name: item.name || "",
+														arguments: "",
+													},
+												},
+											],
+											role: "assistant",
+										},
+										finish_reason: null,
+									},
+								],
+								usage: null,
+							};
+						} else {
+							transformedData = {
+								id: data.response?.id || `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created:
+									data.response?.created_at || Math.floor(Date.now() / 1000),
+								model: data.response?.model || usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: { role: "assistant" },
+										finish_reason: null,
+									},
+								],
+								usage: null,
+							};
+						}
+						break;
+					}
+					case "response.output_item.done":
+					case "response.web_search_call.in_progress":
+					case "response.web_search_call.searching":
+					case "response.web_search_call.completed":
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -645,6 +711,81 @@ export function transformStreamingToOpenai(
 						};
 						break;
 
+					case "response.function_call_arguments.delta":
+						// Streaming function call arguments from Responses API
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										tool_calls: [
+											{
+												index: data.output_index || 0,
+												function: {
+													arguments: data.delta || "",
+												},
+											},
+										],
+										role: "assistant",
+									},
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.function_call_arguments.done":
+						// Function call arguments complete - just emit empty delta
+						// (id/type/name already sent in output_item.added, args sent in deltas)
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: { role: "assistant" },
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+
+					case "response.output_item.annotations.added":
+					case "response.content_part.annotations.added": {
+						// Handle web search annotations/citations from OpenAI Responses API
+						const annotations =
+							data.annotations || data.part?.annotations || [];
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										...(annotations.length > 0 && { annotations }),
+									},
+									finish_reason: null,
+								},
+							],
+							usage: null,
+						};
+						break;
+					}
+
 					case "response.completed": {
 						const responseUsage = data.response?.usage;
 						let usage = null;
@@ -702,6 +843,18 @@ export function transformStreamingToOpenai(
 						break;
 				}
 			} else {
+				// Log standard OpenAI streaming format for debugging
+				logger.info("[OpenAI Standard Streaming Debug]", {
+					hasChoices: !!data.choices,
+					choicesLength: data.choices?.length || 0,
+					firstChoiceDeltaKeys: data.choices?.[0]?.delta
+						? Object.keys(data.choices[0].delta)
+						: [],
+					hasAnnotations: !!data.choices?.[0]?.delta?.annotations,
+					annotationsCount: data.choices?.[0]?.delta?.annotations?.length || 0,
+					fullData: JSON.stringify(data),
+				});
+
 				transformedData = transformOpenaiStreaming(data, usedModel);
 			}
 			break;
@@ -727,8 +880,9 @@ export function transformStreamingToOpenai(
 						},
 					],
 				};
-			} else if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
-				const toolUse = data.delta.toolUse;
+			} else if (eventType === "contentBlockStart" && data.start?.toolUse) {
+				// Tool use start event contains the tool id and name
+				const toolUse = data.start.toolUse;
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -745,7 +899,39 @@ export function transformStreamingToOpenai(
 										type: "function",
 										function: {
 											name: toolUse.name,
-											arguments: JSON.stringify(toolUse.input || {}),
+											arguments: "",
+										},
+									},
+								],
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				};
+			} else if (eventType === "contentBlockDelta" && data.delta?.toolUse) {
+				// Tool use delta event contains partial JSON arguments
+				// Per OpenAI spec, subsequent chunks omit id/type/name - only index and arguments
+				const toolUse = data.delta.toolUse;
+				// toolUse.input is a string (partial JSON), not an object
+				const args =
+					typeof toolUse.input === "string"
+						? toolUse.input
+						: JSON.stringify(toolUse.input || {});
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								tool_calls: [
+									{
+										index: data.contentBlockIndex || 0,
+										function: {
+											arguments: args,
 										},
 									},
 								],

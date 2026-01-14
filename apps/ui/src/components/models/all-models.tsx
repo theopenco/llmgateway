@@ -9,8 +9,6 @@ import {
 	MessageSquare,
 	Wrench,
 	Zap,
-	Grid,
-	List,
 	Search,
 	Filter,
 	X,
@@ -25,6 +23,8 @@ import {
 	Scale,
 	Braces,
 	FileJson2,
+	List,
+	Grid,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -86,7 +86,8 @@ type SortField =
 	| "contextSize"
 	| "inputPrice"
 	| "outputPrice"
-	| "cachedInputPrice";
+	| "cachedInputPrice"
+	| "requestPrice";
 type SortDirection = "asc" | "desc";
 
 export function AllModels({ children }: { children: React.ReactNode }) {
@@ -424,6 +425,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 						bCachedInputPrices.length > 0
 							? Math.min(...bCachedInputPrices)
 							: Infinity;
+					break;
+				}
+				case "requestPrice": {
+					// Get the min request price among all providers for this model
+					const aRequestPrices = a.providerDetails
+						.map((p) => p.provider.requestPrice)
+						.filter((p) => p !== undefined);
+					const bRequestPrices = b.providerDetails
+						.map((p) => p.provider.requestPrice)
+						.filter((p) => p !== undefined);
+					aValue =
+						aRequestPrices.length > 0 ? Math.min(...aRequestPrices) : Infinity;
+					bValue =
+						bRequestPrices.length > 0 ? Math.min(...bRequestPrices) : Infinity;
 					break;
 				}
 				default:
@@ -981,6 +996,16 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 								</Button>
 							</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("requestPrice")}
+									className="h-auto p-0 font-semibold hover:bg-transparent"
+								>
+									Request Price
+									{getSortIcon("requestPrice")}
+								</Button>
+							</TableHead>
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
 								Native Web Search
 							</TableHead>
 							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
@@ -1207,6 +1232,47 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="text-sm font-mono"
 											>
+												{provider.requestPrice !== undefined &&
+												provider.requestPrice > 0 ? (
+													provider.discount ? (
+														<div className="flex flex-col justify-center items-center">
+															<span className="line-through text-muted-foreground text-xs">
+																${provider.requestPrice.toFixed(3)}
+															</span>
+															<span className="text-green-600 font-semibold">
+																$
+																{(
+																	provider.requestPrice *
+																	(1 - provider.discount)
+																).toFixed(3)}
+															</span>
+															<span className="text-muted-foreground text-xs">
+																/req
+															</span>
+														</div>
+													) : (
+														<>
+															${provider.requestPrice.toFixed(3)}
+															<span className="text-muted-foreground text-xs ml-1">
+																/req
+															</span>
+														</>
+													)
+												) : (
+													"—"
+												)}
+											</div>
+										))}
+									</div>
+								</TableCell>
+
+								<TableCell className="text-center">
+									<div className="space-y-1">
+										{model.providerDetails.map(({ provider }) => (
+											<div
+												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+												className="text-sm font-mono"
+											>
 												{provider.webSearch && provider.webSearchPrice
 													? `$${(provider.webSearchPrice * 1000).toFixed(2)}/1K`
 													: provider.webSearch
@@ -1348,28 +1414,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 											API Docs
 										</Button>
 									</Link>
-									<Button
-										variant={viewMode === "table" ? "default" : "outline"}
-										size="sm"
-										onClick={() => {
-											setViewMode("table");
-											updateUrlWithFilters({ view: "table" });
-										}}
-									>
-										<List className="h-4 w-4 mr-1" />
-										Table
-									</Button>
-									<Button
-										variant={viewMode === "grid" ? "default" : "outline"}
-										size="sm"
-										onClick={() => {
-											setViewMode("grid");
-											updateUrlWithFilters({ view: "grid" });
-										}}
-									>
-										<Grid className="h-4 w-4 mr-1" />
-										Grid
-									</Button>
+
 									<Button size="sm" asChild>
 										<Link href="/models/compare">
 											<Scale className="h-4 w-4 mr-1" />
@@ -1446,7 +1491,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 							<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{hasActiveFilters
 												? `${modelsWithProviders.length}/${totalModelCount}`
@@ -1456,7 +1501,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{hasActiveFilters
 												? `${filteredProviderCount}/${totalProviderCount}`
@@ -1468,7 +1513,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{
 												modelsWithProviders.filter((m) =>
@@ -1482,7 +1527,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{
 												modelsWithProviders.filter((m) =>
@@ -1496,7 +1541,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 									</CardContent>
 								</Card>
 								<Card>
-									<CardContent className="p-4">
+									<CardContent>
 										<div className="text-2xl font-bold">
 											{modelsWithProviders.filter((m) => m.free).length}
 										</div>
@@ -1505,6 +1550,30 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										</div>
 									</CardContent>
 								</Card>
+							</div>
+							<div className="flex items-center gap-2">
+								<Button
+									variant={viewMode === "table" ? "default" : "outline"}
+									size="sm"
+									onClick={() => {
+										setViewMode("table");
+										updateUrlWithFilters({ view: "table" });
+									}}
+								>
+									<List className="h-4 w-4 mr-1" />
+									Table
+								</Button>
+								<Button
+									variant={viewMode === "grid" ? "default" : "outline"}
+									size="sm"
+									onClick={() => {
+										setViewMode("grid");
+										updateUrlWithFilters({ view: "grid" });
+									}}
+								>
+									<Grid className="h-4 w-4 mr-1" />
+									Grid
+								</Button>
 							</div>
 
 							{viewMode === "table" ? renderTableView() : renderGridView()}

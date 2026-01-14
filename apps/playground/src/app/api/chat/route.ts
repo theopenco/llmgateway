@@ -36,6 +36,7 @@ interface ChatRequestBody {
 		image_size?: "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
+	web_search?: boolean;
 	githubToken?: string;
 }
 
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
 		provider,
 		image_config,
 		reasoning_effort,
+		web_search,
 		githubToken: githubTokenBody,
 	}: ChatRequestBody = body;
 
@@ -97,6 +99,7 @@ export async function POST(req: Request) {
 		extraBody: {
 			...(reasoning_effort ? { reasoning_effort } : {}),
 			...(image_config ? { image_config } : {}),
+			...(web_search ? { web_search } : {}),
 		},
 	});
 
@@ -120,7 +123,7 @@ export async function POST(req: Request) {
 
 			const result = streamText({
 				model: llmgateway.chat(selectedModel),
-				messages: convertToModelMessages(messages),
+				messages: await convertToModelMessages(messages),
 				tools,
 				stopWhen: stepCountIs(10),
 				onFinish: async () => {
@@ -139,10 +142,13 @@ export async function POST(req: Request) {
 		// Default streaming chat path (no tools)
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
-			messages: convertToModelMessages(messages),
+			messages: await convertToModelMessages(messages),
 		});
 
-		return result.toUIMessageStreamResponse({ sendReasoning: true });
+		return result.toUIMessageStreamResponse({
+			sendReasoning: true,
+			sendSources: true,
+		});
 	} catch (error: any) {
 		const message = error.message || "LLM Gateway request failed";
 		const status = error.status || 500;

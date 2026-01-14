@@ -236,7 +236,7 @@ export const alibabaModels = [
 			{
 				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
-				stability: "unstable",
+				test: "skip",
 				modelName: "qwen-3-235b-a22b-instruct-2507",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 1.2 / 1e6,

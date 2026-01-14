@@ -441,6 +441,22 @@ export const providers = [
 		website: "https://nano-gpt.com",
 		announcement: null,
 	},
+	{
+		id: "bytedance",
+		name: "ByteDance",
+		description:
+			"ByteDance's ModelArk platform with OpenAI-compatible API for large language models",
+		env: {
+			required: {
+				apiKey: "LLM_BYTEDANCE_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF4757",
+		website: "https://www.byteplus.com/en/product/modelark",
+		announcement: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

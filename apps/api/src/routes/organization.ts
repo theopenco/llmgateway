@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { userHasOrganizationAccess } from "@/utils/authorization.js";
+
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -158,18 +160,8 @@ organization.openapi(getProjects, async (c) => {
 
 	const { id } = c.req.param();
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-			organizationId: {
-				eq: id,
-			},
-		},
-	});
-
-	if (!userOrganization) {
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -553,18 +545,8 @@ organization.openapi(getTransactions, async (c) => {
 
 	const { id } = c.req.param();
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-			organizationId: {
-				eq: id,
-			},
-		},
-	});
-
-	if (!userOrganization) {
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -618,18 +600,8 @@ organization.openapi(getReferralStats, async (c) => {
 
 	const { id } = c.req.param();
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-			organizationId: {
-				eq: id,
-			},
-		},
-	});
-
-	if (!userOrganization) {
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});

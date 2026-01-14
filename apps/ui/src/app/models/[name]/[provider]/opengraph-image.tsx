@@ -98,6 +98,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			? getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
+		const requestPrice = selectedMapping?.requestPrice;
+		const hasTokenPricing =
+			pricing?.input || pricing?.output || pricing?.cachedInput;
 
 		const contextSize = selectedMapping?.contextSize || 0;
 
@@ -311,17 +314,19 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							gap: 28,
 						}}
 					>
-						<span
-							style={{
-								color: "#6B7280",
-								fontSize: 24,
-								fontWeight: 500,
-								textTransform: "uppercase",
-								letterSpacing: "0.1em",
-							}}
-						>
-							Pricing per 1M tokens
-						</span>
+						{(hasTokenPricing || requestPrice) && (
+							<span
+								style={{
+									color: "#6B7280",
+									fontSize: 24,
+									fontWeight: 500,
+									textTransform: "uppercase",
+									letterSpacing: "0.1em",
+								}}
+							>
+								{requestPrice ? "Pricing" : "Pricing per 1M tokens"}
+							</span>
+						)}
 						<div
 							style={{
 								display: "flex",
@@ -357,63 +362,97 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								</span>
 							</div>
 
-							{/* Input */}
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
+							{/* Request Price */}
+							{requestPrice && (
+								<div
 									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
 									}}
 								>
-									Input
-								</span>
-								{formatDollars(
-									pricing?.input || undefined,
-									selectedMapping?.discount,
-								)}
-							</div>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Price per Request
+									</span>
+									<span style={{ fontWeight: 700, fontSize: 56 }}>
+										${requestPrice.toFixed(4)}
+									</span>
+								</div>
+							)}
 
-							{/* Output */}
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
+							{/* Input - only show if has token pricing */}
+							{hasTokenPricing && (
+								<div
 									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
 									}}
 								>
-									Output
-								</span>
-								{formatDollars(
-									pricing?.output || undefined,
-									selectedMapping?.discount,
-								)}
-							</div>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Input
+									</span>
+									{formatDollars(
+										pricing?.input || undefined,
+										selectedMapping?.discount,
+									)}
+								</div>
+							)}
+
+							{/* Output - only show if has token pricing */}
+							{hasTokenPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Output
+									</span>
+									{formatDollars(
+										pricing?.output || undefined,
+										selectedMapping?.discount,
+									)}
+								</div>
+							)}
 						</div>
 					</div>
 

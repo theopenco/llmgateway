@@ -1,5 +1,12 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy, Plug, Brain } from "lucide-react";
+import {
+	AlertCircle,
+	RefreshCcw,
+	Copy,
+	Plug,
+	Brain,
+	GlobeIcon,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -42,6 +49,12 @@ import {
 	ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
+import {
+	Source,
+	Sources,
+	SourcesContent,
+	SourcesTrigger,
+} from "@/components/ai-elements/sources";
 import {
 	Tool,
 	ToolContent,
@@ -111,6 +124,9 @@ interface ChatUIProps {
 	setImageSize: (value: "1K" | "2K" | "4K") => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
+	supportsWebSearch: boolean;
+	webSearchEnabled: boolean;
+	setWebSearchEnabled: (value: boolean) => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -178,6 +194,9 @@ export const ChatUI = ({
 	setImageSize,
 	alibabaImageSize,
 	setAlibabaImageSize,
+	supportsWebSearch,
+	webSearchEnabled,
+	setWebSearchEnabled,
 	onUserMessage,
 	isLoading = false,
 	error = null,
@@ -213,6 +232,15 @@ export const ChatUI = ({
 			setText(""); // Clear input immediately
 
 			const parts: any[] = [];
+			const imagesToSave =
+				supportsImages && files?.length
+					? files
+							.filter((f) => f.mediaType?.startsWith("image/") && f.url)
+							.map((f) => ({
+								type: "image_url" as const,
+								image_url: { url: f.url! },
+							}))
+					: undefined;
 
 			if (content.trim()) {
 				parts.push({ type: "text", text: content });
@@ -237,6 +265,12 @@ export const ChatUI = ({
 				return;
 			}
 
+			// Ensure the chat exists + user message is persisted BEFORE streaming starts.
+			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
+			if (onUserMessage && (content.trim() || imagesToSave?.length)) {
+				await onUserMessage(content, imagesToSave);
+			}
+
 			// Call sendMessage which will handle adding the user message and API request
 			await sendMessage(
 				{
@@ -250,15 +284,10 @@ export const ChatUI = ({
 					},
 				},
 			);
-
-			// Then save to database in the background
-			if (onUserMessage && content.trim()) {
-				onUserMessage(content).catch((error) => {
-					toast.error(`Failed to save message to database: ${error}`);
-				});
-			}
-		} catch {
-			toast.error("Could not send message.");
+		} catch (e) {
+			toast.error(
+				`Could not send message. ${e instanceof Error ? e.message : ""}`.trim(),
+			);
 		}
 	};
 	return (
@@ -336,6 +365,9 @@ export const ChatUI = ({
 										.filter((p) => p.type === "reasoning")
 										.map((p) => p.text)
 										.join("");
+									const sourceParts = m.parts.filter(
+										(p) => p.type === "source-url",
+									);
 
 									return (
 										<div key={m.id}>
@@ -450,6 +482,18 @@ export const ChatUI = ({
 												</div>
 											) : null}
 
+											{/* Sources at the bottom */}
+											{sourceParts.length > 0 ? (
+												<Sources>
+													<SourcesTrigger count={sourceParts.length} />
+													{sourceParts.map((part, i) => (
+														<SourcesContent key={`${m.id}-${i}`}>
+															<Source href={part.url} title={part.url} />
+														</SourcesContent>
+													))}
+												</Sources>
+											) : null}
+
 											{isLastMessage && (
 												<Actions className="mt-2">
 													<Action
@@ -543,8 +587,9 @@ export const ChatUI = ({
 					multiple
 					globalDrop
 					aria-disabled={isLoading || status === "streaming"}
-					onSubmit={async (message) => {
-						await handlePromptSubmit(message.text ?? "", message.files);
+					onSubmit={(message) => {
+						// Fire-and-forget so PromptInput can clear attachments immediately.
+						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
 				>
 					<PromptInputBody>
@@ -570,26 +615,19 @@ export const ChatUI = ({
 								onTranscriptionChange={setText}
 								textareaRef={textareaRef}
 							/>
-							{/* <Tooltip delayDuration={400}>
-								<TooltipTrigger asChild>
-									<span className="inline-flex pointer-events-auto">
-										<PromptInputButton
-											variant="ghost"
-											disabled
-											className="pointer-events-none"
-										>
-											<GlobeIcon size={16} />
-											<span>Search</span>
-										</PromptInputButton>
-									</span>
-								</TooltipTrigger>
-								<TooltipContent>coming soon</TooltipContent>
-							</Tooltip> */}
+							{supportsWebSearch && (
+								<PromptInputButton
+									variant={webSearchEnabled ? "default" : "ghost"}
+									onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+								>
+									<GlobeIcon size={16} />
+								</PromptInputButton>
+							)}
 							<ConnectorsDialog
 								trigger={
 									<PromptInputButton variant="ghost">
 										<Plug size={16} />
-										<span>Connectors</span>
+										<span>MCPs</span>
 									</PromptInputButton>
 								}
 							/>

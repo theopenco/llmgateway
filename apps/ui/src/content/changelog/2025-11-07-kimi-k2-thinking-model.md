@@ -17,7 +17,10 @@ We're excited to announce support for **Kimi K2 Thinking**, Moonshot AI's advanc
 
 **Kimi K2 Thinking**
 
-- **Model ID**: `moonshot/kimi-k2-thinking`
+```bash
+moonshot/kimi-k2-thinking
+```
+
 - **Provider**: Moonshot AI
 - **Context Window**: 262,144 tokens (262.1K)
 - **Input Price**: $0.60 per million tokens

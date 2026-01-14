@@ -13,6 +13,8 @@ import type { TooltipProps } from "recharts";
 
 interface CostBreakdownChartProps {
 	initialData?: ActivitT;
+	projectId?: string;
+	apiKeyId?: string;
 }
 
 const CustomTooltip = ({
@@ -39,7 +41,11 @@ const CustomTooltip = ({
 	return null;
 };
 
-export function CostBreakdownChart({ initialData }: CostBreakdownChartProps) {
+export function CostBreakdownChart({
+	initialData,
+	projectId,
+	apiKeyId,
+}: CostBreakdownChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardNavigation();
 	const [showAllSegments, setShowAllSegments] = useState(false);
@@ -47,6 +53,9 @@ export function CostBreakdownChart({ initialData }: CostBreakdownChartProps) {
 	// Get days from URL parameter
 	const daysParam = searchParams.get("days");
 	const days = daysParam === "30" ? 30 : 7;
+
+	// Use provided projectId or fall back to selectedProject
+	const effectiveProjectId = projectId || selectedProject?.id;
 
 	const api = useApi();
 	const { data, isLoading, error } = api.useQuery(
@@ -56,17 +65,18 @@ export function CostBreakdownChart({ initialData }: CostBreakdownChartProps) {
 			params: {
 				query: {
 					days: String(days),
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+					...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+					...(apiKeyId ? { apiKeyId } : {}),
 				},
 			},
 		},
 		{
-			enabled: !!selectedProject?.id,
+			enabled: !!effectiveProjectId,
 			initialData,
 		},
 	);
 
-	if (!selectedProject?.id) {
+	if (!effectiveProjectId) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
 				<p className="text-muted-foreground">

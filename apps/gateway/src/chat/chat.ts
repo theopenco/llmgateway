@@ -323,6 +323,12 @@ const completionsRequestSchema = z.object({
 			seed: z.number().optional(),
 		})
 		.optional(),
+	// Web search enablement
+	web_search: z.boolean().optional().default(false).openapi({
+		description:
+			"Enable native web search for models that support it. When enabled, the model can search the web for real-time information.",
+		example: true,
+	}),
 	// Plugins configuration
 	plugins: z
 		.array(
@@ -494,7 +500,7 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	const {
+	let {
 		model: modelInput,
 		messages,
 		temperature,
@@ -511,8 +517,20 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		web_search,
 		plugins,
 	} = validationResult.data;
+
+	// If web_search parameter is true, automatically add the web_search tool
+	if (
+		web_search &&
+		(!tools || !tools.some((t: any) => t.type === "web_search"))
+	) {
+		tools = tools || [];
+		tools.push({
+			type: "web_search" as const,
+		});
+	}
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
 	let inputImageCount = 0;
@@ -899,24 +917,25 @@ chat.openapi(completions, async (c) => {
 	let routingMetadata: RoutingMetadata | undefined;
 
 	const auth = c.req.header("Authorization");
-	if (!auth) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: No Authorization header provided. Expected 'Bearer your-api-token'",
-		});
+	const xApiKey = c.req.header("x-api-key");
+
+	let token: string | undefined;
+
+	if (auth) {
+		const split = auth.split("Bearer ");
+		if (split.length === 2 && split[1]) {
+			token = split[1];
+		}
 	}
 
-	const split = auth.split("Bearer ");
-	if (split.length !== 2) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid Authorization header format. Expected 'Bearer your-api-token'",
-		});
+	if (!token && xApiKey) {
+		token = xApiKey;
 	}
-	const token = split[1];
+
 	if (!token) {
 		throw new HTTPException(401, {
-			message: "Unauthorized: No token provided",
+			message:
+				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
 		});
 	}
 
@@ -2915,6 +2934,7 @@ chat.openapi(completions, async (c) => {
 			let streamingToolCalls = null;
 			let imageByteSize = 0; // Track total image data size for token estimation
 			let outputImageCount = 0; // Track number of output images for cost calculation
+			let webSearchCount = 0; // Track web search calls for cost calculation
 			let doneSent = false; // Track if [DONE] has been sent
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -3183,6 +3203,7 @@ chat.openapi(completions, async (c) => {
 									outputImageCount,
 									image_config?.image_size,
 									inputImageCount,
+									webSearchCount,
 								);
 
 								// Only include costs in response if not hosted or if org is pro
@@ -3375,6 +3396,54 @@ chat.openapi(completions, async (c) => {
 								}
 							}
 
+							// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
+							// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
+							if (usedProvider === "anthropic") {
+								const toolCalls =
+									transformedData.choices?.[0]?.delta?.tool_calls;
+								if (toolCalls && toolCalls.length > 0) {
+									// First, extract tool calls to update our tracking
+									const rawToolCalls = extractToolCalls(data, usedProvider);
+									if (rawToolCalls && rawToolCalls.length > 0) {
+										if (!streamingToolCalls) {
+											streamingToolCalls = [];
+										}
+										for (const newCall of rawToolCalls) {
+											// For content_block_start events (have id), add to tracking
+											if (newCall.id) {
+												const contentBlockIndex: number =
+													typeof data.index === "number"
+														? data.index
+														: streamingToolCalls.length;
+												// Store at the content block index position
+												streamingToolCalls[contentBlockIndex] = {
+													...newCall,
+													_contentBlockIndex: contentBlockIndex,
+												};
+											}
+											// For content_block_delta events, enrich with stored id/type/name
+											else if (newCall._contentBlockIndex !== undefined) {
+												const existingCall =
+													streamingToolCalls[newCall._contentBlockIndex];
+												if (existingCall) {
+													// Enrich the transformed data with id, type, and function.name
+													for (const tc of toolCalls) {
+														if (tc.index === newCall._contentBlockIndex) {
+															tc.id = existingCall.id;
+															tc.type = "function";
+															if (!tc.function) {
+																tc.function = {};
+															}
+															tc.function.name = existingCall.function.name;
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+
 							await writeSSEAndCache({
 								data: JSON.stringify(transformedData),
 								id: String(eventId++),
@@ -3449,6 +3518,46 @@ chat.openapi(completions, async (c) => {
 								}
 							}
 
+							// Track web search calls for cost calculation
+							// Check for web search results based on provider-specific data
+							if (usedProvider === "anthropic") {
+								// For Anthropic, count web_search_tool_result blocks
+								if (
+									data.type === "content_block_start" &&
+									data.content_block?.type === "web_search_tool_result"
+								) {
+									webSearchCount++;
+								}
+							} else if (
+								usedProvider === "google-ai-studio" ||
+								usedProvider === "google-vertex"
+							) {
+								// For Google, count when grounding metadata is present
+								if (data.candidates?.[0]?.groundingMetadata) {
+									const groundingMetadata =
+										data.candidates[0].groundingMetadata;
+									if (
+										groundingMetadata.webSearchQueries &&
+										groundingMetadata.webSearchQueries.length > 0 &&
+										webSearchCount === 0
+									) {
+										// Only count once for the entire response
+										webSearchCount = groundingMetadata.webSearchQueries.length;
+									} else if (
+										groundingMetadata.groundingChunks &&
+										webSearchCount === 0
+									) {
+										// Fallback: count once if we have grounding chunks
+										webSearchCount = 1;
+									}
+								}
+							} else if (usedProvider === "openai") {
+								// For OpenAI Responses API, count web_search_call.completed events
+								if (data.type === "response.web_search_call.completed") {
+									webSearchCount++;
+								}
+							}
+
 							// Extract reasoning content for logging using helper function
 							// For providers with custom extraction logic (google-ai-studio, anthropic),
 							// use raw data. For others, use transformed OpenAI format.
@@ -3489,8 +3598,9 @@ chat.openapi(completions, async (c) => {
 											streamingToolCalls[newCall._contentBlockIndex];
 									} else {
 										// For other providers and Anthropic content_block_start, match by ID
+										// Note: Array may have sparse entries due to index-based assignment, so check for null/undefined
 										existingCall = streamingToolCalls.find(
-											(call) => call.id === newCall.id,
+											(call) => call && call.id === newCall.id,
 										);
 									}
 
@@ -3876,7 +3986,6 @@ chat.openapi(completions, async (c) => {
 				const billCancelledRequests = shouldBillCancelledRequests();
 
 				// Calculate costs - for cancelled requests, only bill if env var is enabled
-				// For cancelled streaming requests, bill for web search if it was enabled
 				const costs =
 					canceled && !billCancelledRequests
 						? {
@@ -3908,7 +4017,7 @@ chat.openapi(completions, async (c) => {
 								outputImageCount,
 								image_config?.image_size,
 								inputImageCount,
-								canceled && webSearchTool ? 1 : null, // Bill for web search if cancelled with search enabled
+								webSearchCount,
 							);
 
 				// Extract plugin IDs for logging (streaming - no healing applied)

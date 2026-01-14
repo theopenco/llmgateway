@@ -39,9 +39,25 @@ When you use a model ID without a provider prefix, LLMGateway's intelligent rout
 - **Uptime (50%)** - Prioritizes providers with high reliability and low error rates
 - **Throughput (20%)** - Favors providers with higher tokens per second generation speed
 - **Price (20%)** - Considers cost efficiency while maintaining quality
-- **Latency (10%)** - Considers time to first token (uses reasoning token time when available)
+- **Latency (10%)** - Considers time to first token (only applied for streaming requests)
 
 The algorithm calculates a weighted score for each available provider and selects the one with the lowest (best) score. All metrics are normalized to ensure fair comparison across providers.
+
+**Latency Weight for Non-Streaming Requests**:
+
+For non-streaming requests, the latency weight (10%) is redistributed proportionally to the other factors since time-to-first-token is less relevant when waiting for the complete response.
+
+**Exponential Uptime Penalty**:
+
+Providers with uptime below 95% receive an additional exponential penalty that increases rapidly as uptime drops:
+
+- 95-100% uptime: No penalty
+- 90% uptime: ~0.07 penalty
+- 80% uptime: ~0.62 penalty
+- 70% uptime: ~1.73 penalty
+- 50% uptime: ~5.61 penalty
+
+This ensures providers experiencing significant issues are strongly deprioritized while minor fluctuations have minimal impact.
 
 **Epsilon-Greedy Exploration** (1% of requests):
 
@@ -108,7 +124,29 @@ When you specify a provider explicitly, LLMGateway checks the provider's recent 
 	requested provider.
 </Callout>
 
-If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, this can be configured in your project settings (coming soon).
+#### Disabling Fallback with X-No-Fallback Header
+
+If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, you can use the `X-No-Fallback` header:
+
+```bash
+# Force use of a specific provider even if it has low uptime
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "X-No-Fallback: true" \
+  -d '{
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+<Callout type="warn">
+	Using `X-No-Fallback: true` disables automatic provider failover. Your
+	requests will be sent to the specified provider even if it is experiencing
+	issues, which may result in higher error rates.
+</Callout>
+
+When the `X-No-Fallback` header is used, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
 
 ## Optimized Auto Routing
 

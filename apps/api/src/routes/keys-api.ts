@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import { getUserProjectIds } from "@/utils/authorization.js";
 
 import { eq, db, shortid, tables } from "@llmgateway/db";
 
@@ -172,34 +173,14 @@ keysApi.openapi(create, async (c) => {
 
 	const { description, projectId, usageLimit } = c.req.valid("json");
 
-	// Get the user's organizations
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
+	// Check if user has access to the project
+	const projectIds = await getUserProjectIds(user.id);
 
-	if (!userOrgs.length) {
+	if (!projectIds.length) {
 		throw new HTTPException(400, {
 			message: "No organizations found for user",
 		});
 	}
-
-	// Get all project IDs the user has access to
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
 
 	if (!projectIds.includes(projectId)) {
 		throw new HTTPException(403, {

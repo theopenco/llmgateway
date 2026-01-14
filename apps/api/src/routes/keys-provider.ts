@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -299,30 +300,12 @@ keysProvider.openapi(list, async (c) => {
 		});
 	}
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
+	// Get all active organization IDs the user has access to
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
-	if (!userOrgs.length) {
+	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
 	}
-
-	// Get all organization IDs the user has access to
-	const organizationIds = userOrgs
-		.filter((org) => org.organization?.status !== "deleted")
-		.map((org) => org.organization!.id);
 
 	// Get all provider keys for these organizations
 	const providerKeys = await db.query.providerKey.findMany({
@@ -395,26 +378,8 @@ keysProvider.openapi(deleteKey, async (c) => {
 
 	const { id } = c.req.param();
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	// Get all organization IDs the user has access to
-	const organizationIds = userOrgs
-		.filter((org) => org.organization?.status !== "deleted")
-		.map((org) => org.organization!.id);
+	// Get all active organization IDs the user has access to
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({
@@ -513,26 +478,8 @@ keysProvider.openapi(updateStatus, async (c) => {
 	const { id } = c.req.param();
 	const { status } = c.req.valid("json");
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	// Get all organization IDs the user has access to
-	const organizationIds = userOrgs
-		.filter((org) => org.organization?.status !== "deleted")
-		.map((org) => org.organization!.id);
+	// Get all active organization IDs the user has access to
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({

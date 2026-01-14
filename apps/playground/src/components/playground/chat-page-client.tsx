@@ -38,6 +38,8 @@ interface ChatPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialPrompt?: string;
+	enableWebSearch?: boolean;
 }
 
 export default function ChatPageClient({
@@ -47,6 +49,8 @@ export default function ChatPageClient({
 	selectedOrganization,
 	projects,
 	selectedProject,
+	initialPrompt,
+	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const router = useRouter();
@@ -59,31 +63,13 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// Sort models by publishedAt (or releasedAt fallback) to match model selector ordering
-	const sortedModels = useMemo(() => {
-		return [...models].sort((a, b) => {
-			const dateA = a.publishedAt
-				? new Date(a.publishedAt).getTime()
-				: a.releasedAt
-					? new Date(a.releasedAt).getTime()
-					: 0;
-			const dateB = b.publishedAt
-				? new Date(b.publishedAt).getTime()
-				: b.releasedAt
-					? new Date(b.releasedAt).getTime()
-					: 0;
-			return dateB - dateA;
-		});
-	}, [models]);
-
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		// Use the first model from sorted list as default
-		const firstModel = sortedModels[0];
-		return firstModel?.id || "auto";
+		// Default to "auto" model which auto-selects the best provider
+		return "auto";
 	};
 
 	const [selectedModel, setSelectedModel] = useState(getInitialModel());
@@ -104,6 +90,7 @@ export default function ChatPageClient({
 	>("auto");
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -163,6 +150,7 @@ export default function ChatPageClient({
 
 				// Wait for chatId to be available (handleUserMessage might still be running)
 				let chatId = chatIdRef.current;
+
 				if (!chatId) {
 					// Poll for chatId with timeout
 					for (let i = 0; i < 50; i++) {
@@ -177,8 +165,8 @@ export default function ChatPageClient({
 				}
 
 				if (!chatId) {
-					console.error(
-						"No chatId available after waiting, cannot save AI response",
+					toast.error(
+						"Failed to save AI response: No chat ID found (chat may not have finished saving before the stream ended).",
 					);
 					return;
 				}
@@ -200,13 +188,44 @@ export default function ChatPageClient({
 						image_url: { url: p.image_url.url },
 					}));
 
-				// Handle file parts (AI SDK format for images)
+				// Handle file parts for images (supports multiple shapes from providers)
 				const fileParts = (message.parts as any[])
-					.filter((p) => p.type === "file" && p.mediaType?.startsWith("image/"))
+					.filter((p) => {
+						if (p.type !== "file") {
+							return false;
+						}
+						const mediaType =
+							p.mediaType ||
+							p.mimeType ||
+							p.mime_type ||
+							p.file?.mediaType ||
+							p.file?.mimeType ||
+							p.file?.mime_type;
+						return (
+							typeof mediaType === "string" && mediaType.startsWith("image/")
+						);
+					})
 					.map((p) => {
-						const { dataUrl } = parseImageFile(p);
+						const mediaType =
+							p.mediaType ||
+							p.mimeType ||
+							p.mime_type ||
+							p.file?.mediaType ||
+							p.file?.mimeType ||
+							p.file?.mime_type;
+						const url =
+							p.url ||
+							p.data ||
+							p.base64 ||
+							p.file?.url ||
+							p.file?.data ||
+							p.file?.base64;
+						const { dataUrl } = parseImageFile({
+							url,
+							mediaType,
+						});
 						return {
-							type: "image_url",
+							type: "image_url" as const,
 							image_url: { url: dataUrl },
 						};
 					});
@@ -219,17 +238,34 @@ export default function ChatPageClient({
 				);
 
 				const bodyToSave = {
-					role: "assistant",
+					role: "assistant" as const,
 					content: textContent || undefined,
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
 				};
 
-				await addMessage.mutateAsync({
-					params: { path: { id: chatId } },
-					body: bodyToSave as any,
-				});
+				try {
+					await addMessage.mutateAsync({
+						params: { path: { id: chatId } },
+						body: bodyToSave,
+					});
+				} catch (error: any) {
+					// If chat not found, clear the stale chat ID
+					if (
+						error?.status === 404 &&
+						error?.message?.includes("Chat not found")
+					) {
+						chatIdRef.current = null;
+						setCurrentChatId(null);
+						setMessages([]);
+						toast.error("Chat was deleted. Please start a new conversation.");
+					} else {
+						toast.error(
+							`Failed to save AI response: ${getErrorMessage(error)}`,
+						);
+					}
+				}
 				// Note: useAddMessage already invalidates /chats query on success
 			},
 		});
@@ -284,6 +320,24 @@ export default function ChatPageClient({
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
+	const supportsWebSearch = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const [providerId, modelId] = selectedModel.includes("/")
+			? (selectedModel.split("/") as [string, string])
+			: ["", selectedModel];
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.providers.some((p) => p.webSearch);
+		}
+		const mapping = def.providers.find((p) => p.providerId === providerId);
+		return !!mapping?.webSearch;
+	}, [models, selectedModel]);
+
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
 			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
@@ -329,6 +383,9 @@ export default function ChatPageClient({
 					...(githubToken ? { githubToken } : {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(webSearchEnabled && supportsWebSearch
+						? { web_search: true }
+						: {}),
 				},
 			};
 
@@ -343,6 +400,8 @@ export default function ChatPageClient({
 			imageSize,
 			alibabaImageSize,
 			selectedModel,
+			webSearchEnabled,
+			supportsWebSearch,
 		],
 	);
 
@@ -350,7 +409,7 @@ export default function ChatPageClient({
 	const [comparisonEnabled, setComparisonEnabled] = useState(false);
 	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
 	const [syncInput, setSyncInput] = useState(true);
-	const [syncedText, setSyncedText] = useState("");
+	const [syncedText, setSyncedText] = useState(initialPrompt || "");
 	const extraSubmitRefs = useRef<
 		Record<number, (content: string) => Promise<void> | void>
 	>({});
@@ -375,6 +434,11 @@ export default function ChatPageClient({
 			setSelectedModel(currentChatData.chat.model);
 		}
 
+		// Update the web search state when loading a chat
+		if (currentChatData.chat?.webSearch !== undefined) {
+			setWebSearchEnabled(currentChatData.chat.webSearch);
+		}
+
 		setMessages((prev) => {
 			// Load messages if empty (URL change clears messages first)
 			if (prev.length === 0) {
@@ -387,8 +451,8 @@ export default function ChatPageClient({
 					}
 
 					// Add reasoning if present
-					if (msg.reasoning) {
-						parts.push({ type: "reasoning", text: msg.reasoning });
+					if ((msg as any).reasoning) {
+						parts.push({ type: "reasoning", text: (msg as any).reasoning });
 					}
 
 					// Add images if present
@@ -500,9 +564,11 @@ export default function ChatPageClient({
 				body: {
 					title,
 					model: selectedModel,
+					webSearch: webSearchEnabled,
 				},
 			});
 			const newChatId = chatData.chat.id;
+
 			setCurrentChatId(newChatId);
 			chatIdRef.current = newChatId; // Manually update the ref
 
@@ -518,7 +584,13 @@ export default function ChatPageClient({
 		}
 	};
 
-	const handleUserMessage = async (content: string) => {
+	const handleUserMessage = async (
+		content: string,
+		images?: Array<{
+			type: "image_url";
+			image_url: { url: string };
+		}>,
+	) => {
 		setError(null);
 		setIsLoading(true);
 
@@ -532,9 +604,52 @@ export default function ChatPageClient({
 
 			await addMessage.mutateAsync({
 				params: { path: { id: chatId } },
-				body: { role: "user", content },
+				body: {
+					role: "user",
+					...(content.trim() ? { content } : {}),
+					...(images?.length ? { images: JSON.stringify(images) } : {}),
+				},
 			});
-		} catch (error) {
+		} catch (error: any) {
+			// If chat not found, it means the chat was deleted or is stale
+			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
+				chatIdRef.current = null;
+				setCurrentChatId(null);
+				setMessages([]);
+
+				// Try again with a new chat
+				try {
+					const newChatId = await ensureCurrentChat(content);
+					await addMessage.mutateAsync({
+						params: { path: { id: newChatId } },
+						body: {
+							role: "user",
+							...(content.trim() ? { content } : {}),
+							...(images?.length ? { images: JSON.stringify(images) } : {}),
+						},
+					});
+					setIsLoading(false);
+					return; // Exit early, don't show error
+				} catch (retryError) {
+					const retryErrorMessage = getErrorMessage(retryError);
+					setError(retryErrorMessage);
+					toast.error(retryErrorMessage);
+					setIsLoading(false);
+					return;
+				}
+			}
+
+			// If free limit or message limit is hit, keep the existing UI state and show a
+			// helpful toast instead of treating it like a hard failure/crash.
+			if (
+				error?.status === 400 &&
+				(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
+					error?.message?.includes("FREE_LIMIT_REACHED"))
+			) {
+				toast.error(error.message);
+				return;
+			}
+
 			const errorMessage = getErrorMessage(error);
 			setError(errorMessage);
 			toast.error(errorMessage);
@@ -635,7 +750,7 @@ export default function ChatPageClient({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
-	const [text, setText] = useState("");
+	const [text, setText] = useState(initialPrompt || "");
 	const primaryText = syncInput ? syncedText : text;
 	const setPrimaryText = (value: string) => {
 		if (syncInput) {
@@ -848,6 +963,9 @@ export default function ChatPageClient({
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
+											setWebSearchEnabled={setWebSearchEnabled}
+											supportsWebSearch={supportsWebSearch}
+											webSearchEnabled={webSearchEnabled}
 										/>
 									</div>
 								</div>
@@ -873,6 +991,9 @@ export default function ChatPageClient({
 										setImageSize={setImageSize}
 										alibabaImageSize={alibabaImageSize}
 										setAlibabaImageSize={setAlibabaImageSize}
+										supportsWebSearch={supportsWebSearch}
+										webSearchEnabled={webSearchEnabled}
+										setWebSearchEnabled={setWebSearchEnabled}
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
@@ -959,6 +1080,7 @@ function ExtraChatPanel({
 	>("auto");
 	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
 
 	const { messages, sendMessage, status, stop, regenerate } = useChat({
@@ -1000,6 +1122,24 @@ function ExtraChatPanel({
 		}
 		const mapping = def.providers.find((p) => p.providerId === providerId);
 		return !!mapping?.reasoning;
+	}, [models, selectedModel]);
+
+	const supportsWebSearch = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const [providerId, modelId] = selectedModel.includes("/")
+			? (selectedModel.split("/") as [string, string])
+			: ["", selectedModel];
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.providers.some((p) => p.webSearch);
+		}
+		const mapping = def.providers.find((p) => p.providerId === providerId);
+		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
 	const sendMessageWithHeaders = useCallback(
@@ -1046,6 +1186,9 @@ function ExtraChatPanel({
 					...(githubToken ? { githubToken } : {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(webSearchEnabled && supportsWebSearch
+						? { web_search: true }
+						: {}),
 				},
 			};
 
@@ -1060,6 +1203,8 @@ function ExtraChatPanel({
 			imageSize,
 			alibabaImageSize,
 			selectedModel,
+			webSearchEnabled,
+			supportsWebSearch,
 		],
 	);
 
@@ -1150,6 +1295,9 @@ function ExtraChatPanel({
 					setImageSize={setImageSize}
 					alibabaImageSize={alibabaImageSize}
 					setAlibabaImageSize={setAlibabaImageSize}
+					supportsWebSearch={supportsWebSearch}
+					webSearchEnabled={webSearchEnabled}
+					setWebSearchEnabled={setWebSearchEnabled}
 					isLoading={false}
 					error={null}
 				/>

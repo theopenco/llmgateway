@@ -1,0 +1,108 @@
+import type { ModelDefinition } from "@/models.js";
+
+export const bytedanceModels = [
+	{
+		id: "seed-1-6-250615",
+		name: "Seed 1.6 (250615)",
+		description:
+			"ByteDance Seed 1.6 vision model with thinking/non-thinking modes, multimodal inputs, and 256K context window",
+		family: "bytedance",
+		releasedAt: new Date("2025-06-15"),
+		publishedAt: new Date("2026-01-12"),
+		providers: [
+			{
+				providerId: "bytedance",
+				modelName: "seed-1-6-250615",
+				inputPrice: 0.00025 / 1000,
+				outputPrice: 0.002 / 1000,
+				cachedInputPrice: 0.00005 / 1000,
+				requestPrice: 0,
+				contextSize: 256000,
+				maxOutput: undefined,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "seed-1-6-250915",
+		name: "Seed 1.6 (250915)",
+		description:
+			"ByteDance Seed 1.6 vision model released September 15, 2025 with thinking/non-thinking modes and multimodal inputs",
+		family: "bytedance",
+		releasedAt: new Date("2025-09-15"),
+		publishedAt: new Date("2026-01-13"),
+		providers: [
+			{
+				providerId: "bytedance",
+				modelName: "seed-1-6-250915",
+				inputPrice: 0.00025 / 1000,
+				cachedInputPrice: 0.00005 / 1000,
+				outputPrice: 0.002 / 1000,
+				requestPrice: 0,
+				contextSize: 256000,
+				maxOutput: undefined,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "seed-1-6-flash-250715",
+		name: "Seed 1.6 Flash (250715)",
+		description:
+			"ByteDance Seed 1.6 Flash - faster, cost-effective vision model released July 15, 2025",
+		family: "bytedance",
+		releasedAt: new Date("2025-07-15"),
+		publishedAt: new Date("2026-01-13"),
+		providers: [
+			{
+				providerId: "bytedance",
+				modelName: "seed-1-6-flash-250715",
+				inputPrice: 0.00007 / 1000,
+				cachedInputPrice: 0.000015 / 1000,
+				outputPrice: 0.0003 / 1000,
+				requestPrice: 0,
+				contextSize: 256000,
+				maxOutput: undefined,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "seed-1-8-251228",
+		name: "Seed 1.8 (251228)",
+		description:
+			"ByteDance Seed 1.8 advanced vision model released December 28, 2025 with enhanced capabilities",
+		family: "bytedance",
+		releasedAt: new Date("2025-12-28"),
+		publishedAt: new Date("2026-01-13"),
+		providers: [
+			{
+				providerId: "bytedance",
+				modelName: "seed-1-8-251228",
+				inputPrice: 0.00025 / 1000,
+				cachedInputPrice: 0.00005 / 1000,
+				outputPrice: 0.002 / 1000,
+				requestPrice: 0,
+				contextSize: 256000,
+				maxOutput: undefined,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+] as const satisfies ModelDefinition[];

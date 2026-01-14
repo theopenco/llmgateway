@@ -331,12 +331,38 @@ export const toolCallModels = testModels
 	// Exclude novita/minimax-m2.1 due to model variability in tool calling
 	.filter((m) => m.model !== "novita/minimax-m2.1");
 
+export const streamingToolCallModels = toolCallModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => {
+		// Check model-level streaming first, then fall back to provider-level
+		if (p.streaming !== undefined) {
+			return p.streaming;
+		}
+		const provider = providers.find((pr) => pr.id === p.providerId);
+		return provider?.streaming;
+	}),
+);
+
 export const imageModels = testModels.filter((m) => {
 	const model = models.find((mo) => m.originalModel === mo.id);
 	return (model as ModelDefinition).output?.includes("image");
 });
 
 export const streamingImageModels = imageModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => {
+		// Check model-level streaming first, then fall back to provider-level
+		if (p.streaming !== undefined) {
+			return p.streaming;
+		}
+		const provider = providers.find((pr) => pr.id === p.providerId);
+		return provider?.streaming;
+	}),
+);
+
+export const webSearchModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
+);
+
+export const streamingWebSearchModels = webSearchModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => {
 		// Check model-level streaming first, then fall back to provider-level
 		if (p.streaming !== undefined) {
