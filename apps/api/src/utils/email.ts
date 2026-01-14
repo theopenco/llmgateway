@@ -263,9 +263,13 @@ export function generatePaymentFailureEmailHtml(
 	const escapedOrgName = escapeHtml(organizationName);
 	const escapedErrorMessage = escapeHtml(details.errorMessage);
 
+	// Escape currency and handle zero amount case properly
+	const escapedCurrency = details.currency
+		? escapeHtml(details.currency)
+		: null;
 	const formattedAmount =
-		details.amount && details.currency
-			? `${details.currency} ${details.amount.toFixed(2)}`
+		details.amount !== undefined && details.amount !== null && escapedCurrency
+			? `${escapedCurrency} ${details.amount.toFixed(2)}`
 			: null;
 
 	let actionMessage = "Please update your payment method and try again.";

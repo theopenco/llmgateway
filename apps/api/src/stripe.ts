@@ -620,6 +620,18 @@ async function handlePaymentIntentFailed(
 	const errorCode = lastPaymentError?.code;
 	const declineCode = lastPaymentError?.decline_code;
 
+	// Log warning for payment failure
+	logger.warn("Payment intent failed", {
+		organizationId,
+		organizationName: organization.name,
+		amount: totalAmountInDollars,
+		currency: paymentIntent.currency.toUpperCase(),
+		errorMessage,
+		errorCode,
+		declineCode,
+		stripePaymentIntentId: paymentIntent.id,
+	});
+
 	// Check if this is an auto top-up with an existing pending transaction
 	const transactionId = metadata?.transactionId;
 	if (transactionId) {
@@ -712,28 +724,27 @@ async function handlePaymentIntentFailed(
 				subject: "Payment Failed - Action Required",
 				html: generatePaymentFailureEmailHtml(organization.name, {
 					errorMessage,
-					errorCode: errorCode ?? undefined,
-					declineCode: declineCode ?? undefined,
+					errorCode,
+					declineCode,
 					amount: totalAmountInDollars,
 					currency: paymentIntent.currency.toUpperCase(),
 				}),
 			});
 
-			logger.info(
-				`Sent payment failure email to ${organization.billingEmail} for organization ${organizationId} (failure #${newFailureCount})`,
-			);
+			logger.warn("Payment failure email sent", {
+				organizationId,
+				billingEmail: organization.billingEmail,
+				failureCount: newFailureCount,
+			});
 		} catch (emailError) {
 			logger.error("Failed to send payment failure email", emailError as Error);
 		}
 	} else {
-		logger.info(
-			`Skipping payment failure email for organization ${organizationId}: in backoff period (failure #${newFailureCount})`,
-		);
+		logger.warn("Skipping payment failure email (in backoff period)", {
+			organizationId,
+			failureCount: newFailureCount,
+		});
 	}
-
-	logger.info(
-		`Payment intent failed for organization ${organizationId}: ${errorMessage} (failure #${newFailureCount})`,
-	);
 }
 
 async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
