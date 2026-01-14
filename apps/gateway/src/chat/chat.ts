@@ -1785,10 +1785,24 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (
-			parseFloat(organization.credits || "0") <= 0 &&
-			!(modelInfo as ModelDefinition).free
-		) {
+		// Check both regular credits AND dev plan credits
+		const regularCredits = parseFloat(organization.credits || "0");
+		const devPlanCreditsRemaining =
+			organization.devPlan !== "none"
+				? parseFloat(organization.devPlanCreditsLimit || "0") -
+					parseFloat(organization.devPlanCreditsUsed || "0")
+				: 0;
+		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+
+		if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
+			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+				const renewalDate = organization.devPlanExpiresAt
+					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+					: "your next billing date";
+				throw new HTTPException(402, {
+					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				});
+			}
 			throw new HTTPException(402, {
 				message: "Organization has insufficient credits",
 			});
@@ -1878,10 +1892,24 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			if (
-				parseFloat(organization.credits || "0") <= 0 &&
-				!(modelInfo as ModelDefinition).free
-			) {
+			// Check both regular credits AND dev plan credits
+			const regularCredits = parseFloat(organization.credits || "0");
+			const devPlanCreditsRemaining =
+				organization.devPlan !== "none"
+					? parseFloat(organization.devPlanCreditsLimit || "0") -
+						parseFloat(organization.devPlanCreditsUsed || "0")
+					: 0;
+			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+
+			if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
+				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+					const renewalDate = organization.devPlanExpiresAt
+						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+						: "your next billing date";
+					throw new HTTPException(402, {
+						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					});
+				}
 				throw new HTTPException(402, {
 					message:
 						"No API key set for provider and organization has insufficient credits",
@@ -1915,7 +1943,15 @@ chat.openapi(completions, async (c) => {
 	// Check if organization has credits for data retention costs
 	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
 	if (organization && organization.retentionLevel === "retain") {
-		if (parseFloat(organization.credits || "0") <= 0) {
+		const regularCredits = parseFloat(organization.credits || "0");
+		const devPlanCreditsRemaining =
+			organization.devPlan !== "none"
+				? parseFloat(organization.devPlanCreditsLimit || "0") -
+					parseFloat(organization.devPlanCreditsUsed || "0")
+				: 0;
+		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+
+		if (totalAvailableCredits <= 0) {
 			throw new HTTPException(402, {
 				message:
 					"Organization has insufficient credits for data retention. Data retention requires credits for storage costs ($0.01 per 1M tokens). Please add credits or disable data retention in organization settings.",
