@@ -1,6 +1,3 @@
-import { redisClient } from "@llmgateway/cache";
-import { logger } from "@llmgateway/logger";
-
 import type { Provider } from "@llmgateway/models";
 
 /**
@@ -45,6 +42,8 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 		case "google-vertex": {
 			// Google AI Studio tool calls in streaming
 			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)
+			// Note: Redis caching of thought_signature happens in transform-streaming-to-openai.ts
+			// where the actual tool_call ID sent to clients is generated
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			return (
 				parts
@@ -65,22 +64,6 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 									thought_signature: part.thoughtSignature,
 								},
 							};
-							// Cache thoughtSignature in Redis for server-side retrieval in multi-turn conversations
-							// This is especially important when OpenAI SDKs don't preserve extra_content
-							redisClient
-								.setex(
-									`thought_signature:${toolCall.id}`,
-									86400, // 1 day expiration
-									part.thoughtSignature,
-								)
-								.catch((err) => {
-									logger.error(
-										"Failed to cache thought_signature in streaming",
-										{
-											err,
-										},
-									);
-								});
 						}
 						return toolCall;
 					}) || null
