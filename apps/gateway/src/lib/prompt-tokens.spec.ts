@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { estimateTokensFromContent } from "@/chat/chat.js";
 import { calculatePromptTokensFromMessages } from "@/chat/tools/calculate-prompt-tokens.js";
+import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "@/chat/tools/estimate-tokens.js";
 
 describe("Prompt token calculation", () => {
