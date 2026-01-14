@@ -10,7 +10,6 @@ import { stripe } from "./routes/payments.js";
 import {
 	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
-	generateTrialStartedEmailHtml,
 	sendTransactionalEmail,
 } from "./utils/email.js";
 import { generateAndEmailInvoice } from "./utils/invoice.js";
@@ -215,9 +214,6 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 				break;
 			case "customer.subscription.deleted":
 				await handleSubscriptionDeleted(event);
-				break;
-			case "customer.subscription.trial_will_end":
-				await handleTrialWillEnd(event);
 				break;
 			case "charge.refunded":
 				await handleChargeRefunded(event);
@@ -1233,7 +1229,7 @@ async function handleSubscriptionCreated(
 	event: Stripe.CustomerSubscriptionCreatedEvent,
 ) {
 	const subscription = event.data.object;
-	const { customer, metadata, trial_start, trial_end } = subscription;
+	const { customer, metadata } = subscription;
 
 	logger.info(
 		`Processing subscription created for customer: ${customer}, subscription: ${subscription.id}`,
@@ -1258,47 +1254,20 @@ async function handleSubscriptionCreated(
 		`Found organization: ${organization.name} (${organization.id}) for subscription creation`,
 	);
 
-	// Check if subscription has trial period
-	const hasTrialPeriod = trial_start && trial_end;
-	const trialStartDate = trial_start ? new Date(trial_start * 1000) : null;
-	const trialEndDate = trial_end ? new Date(trial_end * 1000) : null;
-
 	try {
-		// Update organization with trial information
-		const updateData: any = {
-			plan: "pro",
-			stripeSubscriptionId: subscription.id,
-			subscriptionCancelled: false,
-		};
-
-		if (hasTrialPeriod) {
-			updateData.trialStartDate = trialStartDate;
-			updateData.trialEndDate = trialEndDate;
-			updateData.isTrialActive = true;
-		}
-
 		await db
 			.update(tables.organization)
-			.set(updateData)
+			.set({
+				plan: "pro",
+				stripeSubscriptionId: subscription.id,
+				subscriptionCancelled: false,
+			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();
 
 		logger.info(
-			`Successfully updated organization ${organizationId} with subscription ${subscription.id}. Trial active: ${hasTrialPeriod}`,
+			`Successfully updated organization ${organizationId} with subscription ${subscription.id}`,
 		);
-
-		// Send trial started email if this is a trial subscription
-		if (hasTrialPeriod && trialEndDate) {
-			await sendTransactionalEmail({
-				to: organization.billingEmail,
-				subject: "Welcome to Your LLMGateway Pro Trial",
-				html: generateTrialStartedEmailHtml(organization.name, trialEndDate),
-			});
-
-			logger.info(
-				`Sent trial started email to ${organization.billingEmail} for organization ${organizationId}`,
-			);
-		}
 
 		// Track subscription creation in PostHog
 		posthog.groupIdentify({
@@ -1310,7 +1279,7 @@ async function handleSubscriptionCreated(
 		});
 		posthog.capture({
 			distinctId: "organization",
-			event: hasTrialPeriod ? "trial_started" : "subscription_created",
+			event: "subscription_created",
 			groups: {
 				organization: organizationId,
 			},
@@ -1319,78 +1288,11 @@ async function handleSubscriptionCreated(
 				organization: organizationId,
 				subscriptionId: subscription.id,
 				source: "stripe_subscription_created",
-				trialStartDate: trialStartDate?.toISOString(),
-				trialEndDate: trialEndDate?.toISOString(),
 			},
 		});
 	} catch (error) {
 		logger.error(
 			`Error updating organization ${organizationId} with subscription ${subscription.id}:`,
-			error as Error,
-		);
-		throw error;
-	}
-}
-
-async function handleTrialWillEnd(
-	event: Stripe.CustomerSubscriptionTrialWillEndEvent,
-) {
-	const subscription = event.data.object;
-	const { customer, metadata } = subscription;
-
-	logger.info(
-		`Processing trial will end for customer: ${customer}, subscription: ${subscription.id}`,
-	);
-
-	const result = await resolveOrganizationFromStripeEvent({
-		metadata: metadata as { organizationId?: string } | undefined,
-		customer: typeof customer === "string" ? customer : customer?.id,
-		subscription: subscription.id,
-	});
-
-	if (!result) {
-		logger.error(
-			`Organization not found for customer: ${customer}, subscription: ${subscription.id}`,
-		);
-		return;
-	}
-
-	const { organizationId, organization } = result;
-
-	logger.info(
-		`Found organization: ${organization.name} (${organization.id}) for trial ending`,
-	);
-
-	try {
-		// Update organization to mark trial as ending
-		await db
-			.update(tables.organization)
-			.set({
-				isTrialActive: false,
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		logger.info(
-			`Successfully marked trial as ending for organization ${organizationId}`,
-		);
-
-		// Track trial ending in PostHog
-		posthog.capture({
-			distinctId: "organization",
-			event: "trial_will_end",
-			groups: {
-				organization: organizationId,
-			},
-			properties: {
-				plan: "pro",
-				organization: organizationId,
-				subscriptionId: subscription.id,
-				source: "stripe_trial_will_end",
-			},
-		});
-	} catch (error) {
-		logger.error(
-			`Error updating organization ${organizationId} trial status:`,
 			error as Error,
 		);
 		throw error;

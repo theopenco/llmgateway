@@ -3518,9 +3518,6 @@ export interface paths {
                             subscriptionCancelled: boolean;
                             /** @enum {string|null} */
                             billingCycle: "monthly" | "yearly" | null;
-                            isTrialActive: boolean;
-                            trialStartDate: string | null;
-                            trialEndDate: string | null;
                         };
                     };
                 };
