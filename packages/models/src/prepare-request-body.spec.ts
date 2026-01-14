@@ -273,4 +273,115 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		expect(requestBody.generationConfig.thinkingConfig).toBeUndefined();
 	});
+
+	test("should expand $ref references in tool parameters", async () => {
+		const toolsWithRef = [
+			{
+				type: "function" as const,
+				function: {
+					name: "ask_question",
+					description: "Ask a question",
+					parameters: {
+						type: "object",
+						properties: {
+							question: { type: "string" },
+							options: {
+								type: "array",
+								items: { $ref: "#/$defs/QuestionOption" },
+							},
+						},
+						$defs: {
+							QuestionOption: {
+								type: "object",
+								properties: {
+									label: { type: "string" },
+									value: { type: "string" },
+								},
+								required: ["label", "value"],
+							},
+						},
+						required: ["question"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithRef,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.tools).toBeDefined();
+		expect(requestBody.tools[0].functionDeclarations).toBeDefined();
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// Should not have $defs anymore
+		expect(params.$defs).toBeUndefined();
+
+		// The $ref should be expanded inline
+		expect(params.properties.options.items).toEqual({
+			type: "object",
+			properties: {
+				label: { type: "string" },
+				value: { type: "string" },
+			},
+			required: ["label", "value"],
+		});
+	});
+
+	test("should strip additionalProperties from tool parameters", async () => {
+		const toolsWithAdditionalProps = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+						},
+						additionalProperties: false,
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithAdditionalProps,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// Should not have additionalProperties
+		expect(params.additionalProperties).toBeUndefined();
+	});
 });

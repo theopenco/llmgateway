@@ -9,7 +9,7 @@ export async function GET(
 	{ params }: RouteContext<"/llms.mdx/[[...slug]]">,
 ) {
 	const { slug } = await params;
-	const page = source.getPage(slug ?? []);
+	const page = source.getPage(slug);
 	if (!page) {
 		notFound();
 	}
