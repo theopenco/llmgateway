@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
@@ -261,113 +262,222 @@ async function handleCheckoutSessionCompleted(
 	}
 
 	const { organizationId, organization } = result;
+	const subscriptionId =
+		typeof subscription === "string" ? subscription : subscription?.id;
+
+	// Check if this is a dev plan subscription
+	const isDevPlan = metadata?.subscriptionType === "dev_plan";
+	const devPlanTier = metadata?.devPlan as DevPlanTier | undefined;
 
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}`,
 	);
 
-	// Update organization with subscription ID and upgrade to pro plan
 	try {
-		const subscriptionId =
-			typeof subscription === "string" ? subscription : subscription?.id;
+		if (isDevPlan && devPlanTier) {
+			// Handle dev plan subscription
+			const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
-		const result = await db
-			.update(tables.organization)
-			.set({
-				plan: "pro",
-				stripeSubscriptionId: subscriptionId,
-				subscriptionCancelled: false,
-			})
-			.where(eq(tables.organization.id, organizationId))
-			.returning();
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: devPlanTier,
+					devPlanCreditsLimit: creditsLimit.toString(),
+					devPlanCreditsUsed: "0",
+					devPlanBillingCycleStart: new Date(),
+					devPlanStripeSubscriptionId: subscriptionId,
+					devPlanCancelled: false,
+				})
+				.where(eq(tables.organization.id, organizationId));
 
-		logger.info(
-			`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
-		);
+			logger.info(
+				`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
+			);
 
-		// Check for existing transaction to avoid duplicates
-		const stripeInvoiceId = session.invoice as string | undefined;
-		const existing = stripeInvoiceId
-			? await db.query.transaction.findFirst({
-					where: {
-						stripeInvoiceId: {
-							eq: stripeInvoiceId,
+			// Create transaction record for dev plan start
+			const stripeInvoiceId = session.invoice as string | undefined;
+			const existing = stripeInvoiceId
+				? await db.query.transaction.findFirst({
+						where: {
+							stripeInvoiceId: {
+								eq: stripeInvoiceId,
+							},
 						},
-					},
-				})
-			: null;
+					})
+				: null;
 
-		if (!existing) {
-			// Create transaction record for subscription start
-			const [transaction] = await db
-				.insert(tables.transaction)
-				.values({
-					organizationId,
-					type: "subscription_start",
-					amount: ((session.amount_total || 0) / 100).toString(),
-					currency: (session.currency || "USD").toUpperCase(),
-					status: "completed",
-					stripeInvoiceId: stripeInvoiceId,
-					description: "Pro subscription started via Stripe Checkout",
+			if (!existing) {
+				const [transaction] = await db
+					.insert(tables.transaction)
+					.values({
+						organizationId,
+						type: "dev_plan_start",
+						amount: ((session.amount_total || 0) / 100).toString(),
+						creditAmount: creditsLimit.toString(),
+						currency: (session.currency || "USD").toUpperCase(),
+						status: "completed",
+						stripeInvoiceId: stripeInvoiceId,
+						description: `Dev Plan ${devPlanTier.toUpperCase()} started via Stripe Checkout`,
+					})
+					.returning();
+
+				// Generate and email invoice
+				try {
+					await generateAndEmailInvoice({
+						invoiceNumber: transaction.id,
+						invoiceDate: new Date(),
+						organizationName: organization.name,
+						billingEmail: organization.billingEmail,
+						billingCompany: organization.billingCompany,
+						billingAddress: organization.billingAddress,
+						billingTaxId: organization.billingTaxId,
+						billingNotes: organization.billingNotes,
+						lineItems: [
+							{
+								description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+								amount: (session.amount_total || 0) / 100,
+							},
+						],
+						currency: (session.currency || "USD").toUpperCase(),
+					});
+				} catch (e) {
+					logger.error(
+						"Invoice email failed (dev plan checkout); suppressing webhook failure",
+						e as Error,
+					);
+				}
+			}
+
+			// Track dev plan subscription in PostHog
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "dev_plan_started",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					devPlan: devPlanTier,
+					creditsLimit: creditsLimit,
+					organization: organizationId,
+					subscriptionId: subscriptionId,
+					source: "stripe_checkout",
+				},
+			});
+		} else {
+			// Handle regular pro plan subscription
+			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
+			if (organization.isPersonal) {
+				logger.warn(
+					`Skipping plan: "pro" for personal org ${organizationId} - personal orgs should use devPlan field`,
+				);
+				return;
+			}
+
+			const result = await db
+				.update(tables.organization)
+				.set({
+					plan: "pro",
+					stripeSubscriptionId: subscriptionId,
+					subscriptionCancelled: false,
 				})
+				.where(eq(tables.organization.id, organizationId))
 				.returning();
 
-			// Generate and email invoice
-			try {
-				await generateAndEmailInvoice({
-					invoiceNumber: transaction.id,
-					invoiceDate: new Date(),
-					organizationName: organization.name,
-					billingEmail: organization.billingEmail,
-					billingCompany: organization.billingCompany,
-					billingAddress: organization.billingAddress,
-					billingTaxId: organization.billingTaxId,
-					billingNotes: organization.billingNotes,
-					lineItems: [
-						{
-							description: "Pro Subscription",
-							amount: (session.amount_total || 0) / 100,
+			logger.info(
+				`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
+			);
+
+			// Check for existing transaction to avoid duplicates
+			const stripeInvoiceId = session.invoice as string | undefined;
+			const existing = stripeInvoiceId
+				? await db.query.transaction.findFirst({
+						where: {
+							stripeInvoiceId: {
+								eq: stripeInvoiceId,
+							},
 						},
-					],
-					currency: (session.currency || "USD").toUpperCase(),
-				});
-			} catch (e) {
-				logger.error(
-					"Invoice email failed (checkout); suppressing webhook failure",
-					e as Error,
+					})
+				: null;
+
+			if (!existing) {
+				// Create transaction record for subscription start
+				const [transaction] = await db
+					.insert(tables.transaction)
+					.values({
+						organizationId,
+						type: "subscription_start",
+						amount: ((session.amount_total || 0) / 100).toString(),
+						currency: (session.currency || "USD").toUpperCase(),
+						status: "completed",
+						stripeInvoiceId: stripeInvoiceId,
+						description: "Pro subscription started via Stripe Checkout",
+					})
+					.returning();
+
+				// Generate and email invoice
+				try {
+					await generateAndEmailInvoice({
+						invoiceNumber: transaction.id,
+						invoiceDate: new Date(),
+						organizationName: organization.name,
+						billingEmail: organization.billingEmail,
+						billingCompany: organization.billingCompany,
+						billingAddress: organization.billingAddress,
+						billingTaxId: organization.billingTaxId,
+						billingNotes: organization.billingNotes,
+						lineItems: [
+							{
+								description: "Pro Subscription",
+								amount: (session.amount_total || 0) / 100,
+							},
+						],
+						currency: (session.currency || "USD").toUpperCase(),
+					});
+				} catch (e) {
+					logger.error(
+						"Invoice email failed (checkout); suppressing webhook failure",
+						e as Error,
+					);
+				}
+			} else {
+				logger.info(
+					"Subscription transaction already exists for invoice; skipping duplicate insert/email",
+					{ stripeInvoiceId },
 				);
 			}
-		} else {
-			logger.info(
-				"Subscription transaction already exists for invoice; skipping duplicate insert/email",
-				{ stripeInvoiceId },
-			);
-		}
 
-		// Track subscription creation in PostHog
-		posthog.groupIdentify({
-			groupType: "organization",
-			groupKey: organizationId,
-			properties: {
-				name: organization.name,
-			},
-		});
-		posthog.capture({
-			distinctId: "organization",
-			event: "subscription_created",
-			groups: {
-				organization: organizationId,
-			},
-			properties: {
-				plan: "pro",
-				organization: organizationId,
-				subscriptionId: subscriptionId,
-				source: "stripe_checkout",
-			},
-		});
+			// Track subscription creation in PostHog
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "subscription_created",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					plan: "pro",
+					organization: organizationId,
+					subscriptionId: subscriptionId,
+					source: "stripe_checkout",
+				},
+			});
+		}
 	} catch (error) {
 		logger.error(
-			`Error updating organization ${organizationId} to pro plan via checkout:`,
+			`Error updating organization ${organizationId} via checkout:`,
 			error as Error,
 		);
 		throw error;
@@ -981,89 +1091,144 @@ async function handleInvoicePaymentSucceeded(
 
 	const { organizationId, organization } = result;
 
+	// Check if this is a dev plan subscription renewal
+	const isDevPlanRenewal =
+		organization.devPlanStripeSubscriptionId === subscriptionId &&
+		organization.devPlan !== "none";
+
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlanRenewal: ${isDevPlanRenewal}`,
 	);
 
-	// Create transaction record for subscription start
-	const [transaction] = await db
-		.insert(tables.transaction)
-		.values({
+	if (isDevPlanRenewal) {
+		// Handle dev plan renewal - reset credits
+		const creditsLimit = getDevPlanCreditsLimit(
+			organization.devPlan as DevPlanTier,
+		);
+
+		// Create transaction record for dev plan renewal
+		await db.insert(tables.transaction).values({
 			organizationId,
-			type: "subscription_start",
+			type: "dev_plan_renewal",
 			amount: (invoice.amount_paid / 100).toString(),
+			creditAmount: creditsLimit.toString(),
 			currency: invoice.currency.toUpperCase(),
 			status: "completed",
 			stripePaymentIntentId: (invoice as any).payment_intent,
 			stripeInvoiceId: invoice.id,
-			description: "Pro subscription started",
-		})
-		.returning();
+			description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
+		});
 
-	// Update organization to pro plan and mark subscription as not cancelled
-	try {
-		const result = await db
+		// Reset credits used and update billing cycle start
+		await db
 			.update(tables.organization)
 			.set({
-				plan: "pro",
-				subscriptionCancelled: false,
+				devPlanCreditsUsed: "0",
+				devPlanBillingCycleStart: new Date(),
+				devPlanCancelled: false,
 			})
-			.where(eq(tables.organization.id, organizationId))
-			.returning();
+			.where(eq(tables.organization.id, organizationId));
 
 		logger.info(
-			`Successfully upgraded organization ${organizationId} to pro plan. Updated rows: ${result.length}`,
+			`Dev plan ${organization.devPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
 		);
 
-		logger.info(
-			`Verification - organization plan is now: ${result && result[0]?.plan}`,
-		);
-
-		// Generate and email invoice
-		await generateAndEmailInvoice({
-			invoiceNumber: transaction.id,
-			invoiceDate: new Date(),
-			organizationName: organization.name,
-			billingEmail: organization.billingEmail,
-			billingCompany: organization.billingCompany,
-			billingAddress: organization.billingAddress,
-			billingNotes: organization.billingNotes,
-			lineItems: [
-				{
-					description: "Pro Subscription",
-					amount: invoice.amount_paid / 100,
-				},
-			],
-			currency: invoice.currency.toUpperCase(),
-		});
-
-		// Track subscription creation in PostHog
-		posthog.groupIdentify({
-			groupType: "organization",
-			groupKey: organizationId,
-			properties: {
-				name: organization.name,
-			},
-		});
+		// Track dev plan renewal in PostHog
 		posthog.capture({
 			distinctId: "organization",
-			event: "subscription_created",
+			event: "dev_plan_renewed",
 			groups: {
 				organization: organizationId,
 			},
 			properties: {
-				plan: "pro",
+				devPlan: organization.devPlan,
+				creditsLimit: creditsLimit,
 				organization: organizationId,
-				subscriptionId: subscriptionId,
 				source: "stripe_invoice",
 			},
 		});
-	} catch (error) {
-		logger.error(
-			`Error updating organization ${organizationId} to pro plan:`,
-			error as Error,
-		);
-		throw error;
+	} else {
+		// Handle regular pro plan subscription
+		// Create transaction record for subscription start
+		const [transaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "subscription_start",
+				amount: (invoice.amount_paid / 100).toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: "Pro subscription started",
+			})
+			.returning();
+
+		// Update organization to pro plan and mark subscription as not cancelled
+		try {
+			const result = await db
+				.update(tables.organization)
+				.set({
+					plan: "pro",
+					subscriptionCancelled: false,
+				})
+				.where(eq(tables.organization.id, organizationId))
+				.returning();
+
+			logger.info(
+				`Successfully upgraded organization ${organizationId} to pro plan. Updated rows: ${result.length}`,
+			);
+
+			logger.info(
+				`Verification - organization plan is now: ${result && result[0]?.plan}`,
+			);
+
+			// Generate and email invoice
+			await generateAndEmailInvoice({
+				invoiceNumber: transaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail,
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingNotes: organization.billingNotes,
+				lineItems: [
+					{
+						description: "Pro Subscription",
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+
+			// Track subscription creation in PostHog
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "subscription_created",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					plan: "pro",
+					organization: organizationId,
+					subscriptionId: subscriptionId,
+					source: "stripe_invoice",
+				},
+			});
+		} catch (error) {
+			logger.error(
+				`Error updating organization ${organizationId} to pro plan:`,
+				error as Error,
+			);
+			throw error;
+		}
 	}
 }
 
@@ -1092,62 +1257,119 @@ async function handleSubscriptionUpdated(
 
 	const { organizationId, organization } = result;
 
+	// Check if this is a dev plan subscription
+	const isDevPlan =
+		metadata?.subscriptionType === "dev_plan" ||
+		organization.devPlanStripeSubscriptionId === subscription.id;
+
 	// Update plan expiration date
-	const planExpiresAt = currentPeriodEnd
+	const expiresAt = currentPeriodEnd
 		? new Date(currentPeriodEnd * 1000)
 		: undefined;
 
 	// Check if subscription is active and organization was previously cancelled
 	const isSubscriptionActive = !cancelAtPeriodEnd;
-	const wasSubscriptionCancelled = organization.subscriptionCancelled;
 
-	// Create transaction record for subscription cancellation if it was cancelled
-	if (!isSubscriptionActive && !wasSubscriptionCancelled) {
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "subscription_cancel",
-			currency: "USD",
-			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
-			description: "Pro subscription cancelled",
-		});
+	if (isDevPlan) {
+		// Handle dev plan subscription update
+		const wasDevPlanCancelled = organization.devPlanCancelled;
+
+		// Create transaction record for dev plan cancellation if it was cancelled
+		if (!isSubscriptionActive && !wasDevPlanCancelled) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "dev_plan_cancel",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: subscription.latest_invoice as string,
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} cancelled`,
+			});
+		}
+
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanExpiresAt: expiresAt,
+				devPlanCancelled: !isSubscriptionActive,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		// Track dev plan reactivation if it was previously cancelled and is now active
+		if (isSubscriptionActive && wasDevPlanCancelled) {
+			posthog.capture({
+				distinctId: "organization",
+				event: "dev_plan_reactivated",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					devPlan: organization.devPlan,
+					organization: organizationId,
+					source: "stripe_subscription_updated",
+				},
+			});
+			logger.info(
+				`Reactivated dev plan subscription for organization ${organizationId}`,
+			);
+		}
+
+		logger.info(
+			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
+		);
+	} else {
+		// Handle regular pro plan subscription update
+		const wasSubscriptionCancelled = organization.subscriptionCancelled;
+
+		// Create transaction record for subscription cancellation if it was cancelled
+		if (!isSubscriptionActive && !wasSubscriptionCancelled) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "subscription_cancel",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: subscription.latest_invoice as string,
+				description: "Pro subscription cancelled",
+			});
+		}
+
+		await db
+			.update(tables.organization)
+			.set({
+				planExpiresAt: expiresAt,
+				subscriptionCancelled: !isSubscriptionActive,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		// Track subscription reactivation if it was previously cancelled and is now active
+		if (isSubscriptionActive && wasSubscriptionCancelled) {
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "subscription_reactivated",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					plan: "pro",
+					organization: organizationId,
+					source: "stripe_subscription_updated",
+				},
+			});
+			logger.info(
+				`Reactivated subscription for organization ${organizationId}`,
+			);
+		}
+
+		logger.info(
+			`Updated subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
+		);
 	}
-
-	await db
-		.update(tables.organization)
-		.set({
-			planExpiresAt,
-			subscriptionCancelled: !isSubscriptionActive,
-		})
-		.where(eq(tables.organization.id, organizationId));
-
-	// Track subscription reactivation if it was previously cancelled and is now active
-	if (isSubscriptionActive && wasSubscriptionCancelled) {
-		posthog.groupIdentify({
-			groupType: "organization",
-			groupKey: organizationId,
-			properties: {
-				name: organization.name,
-			},
-		});
-		posthog.capture({
-			distinctId: "organization",
-			event: "subscription_reactivated",
-			groups: {
-				organization: organizationId,
-			},
-			properties: {
-				plan: "pro",
-				organization: organizationId,
-				source: "stripe_subscription_updated",
-			},
-		});
-		logger.info(`Reactivated subscription for organization ${organizationId}`);
-	}
-
-	logger.info(
-		`Updated subscription for organization ${organizationId}, expires at: ${planExpiresAt}, cancelled: ${!isSubscriptionActive}`,
-	);
 }
 
 async function handleSubscriptionDeleted(
@@ -1166,63 +1388,127 @@ async function handleSubscriptionDeleted(
 		return;
 	}
 
-	const { organizationId } = result;
+	const { organizationId, organization } = result;
 
-	// Create transaction record for subscription end
-	await db.insert(tables.transaction).values({
-		organizationId,
-		type: "subscription_end",
-		currency: "USD",
-		status: "completed",
-		stripeInvoiceId: subscription.latest_invoice as string,
-		description: "Pro subscription ended",
-	});
+	// Check if this is a dev plan subscription
+	const isDevPlan =
+		metadata?.subscriptionType === "dev_plan" ||
+		organization.devPlanStripeSubscriptionId === subscription.id;
 
-	// Downgrade organization to free plan and mark subscription as cancelled
-	await db
-		.update(tables.organization)
-		.set({
-			plan: "free",
-			stripeSubscriptionId: null,
-			planExpiresAt: null,
-			subscriptionCancelled: false,
-		})
-		.where(eq(tables.organization.id, organizationId));
+	if (isDevPlan) {
+		// Handle dev plan subscription deletion
+		const previousDevPlan = organization.devPlan;
 
-	// Send subscription cancelled email
-	await sendTransactionalEmail({
-		to: result.organization.billingEmail,
-		subject: "Your LLMGateway Subscription Has Been Cancelled",
-		html: generateSubscriptionCancelledEmailHtml(result.organization.name),
-	});
+		// Create transaction record for dev plan end
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "dev_plan_end",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: subscription.latest_invoice as string,
+			description: `Dev Plan ${previousDevPlan?.toUpperCase()} ended`,
+		});
 
-	logger.info(
-		`Sent subscription cancelled email to ${result.organization.billingEmail} for organization ${organizationId}`,
-	);
+		// Reset dev plan fields
+		await db
+			.update(tables.organization)
+			.set({
+				devPlan: "none",
+				devPlanCreditsLimit: "0",
+				devPlanCreditsUsed: "0",
+				devPlanStripeSubscriptionId: null,
+				devPlanExpiresAt: null,
+				devPlanCancelled: false,
+				devPlanBillingCycleStart: null,
+			})
+			.where(eq(tables.organization.id, organizationId));
 
-	// Track subscription cancellation in PostHog
-	posthog.groupIdentify({
-		groupType: "organization",
-		groupKey: organizationId,
-		properties: {
-			name: result.organization.name,
-		},
-	});
-	posthog.capture({
-		distinctId: "organization",
-		event: "subscription_cancelled",
-		groups: {
-			organization: organizationId,
-		},
-		properties: {
-			previousPlan: "pro",
-			newPlan: "free",
-			organization: organizationId,
-			source: "stripe_subscription_deleted",
-		},
-	});
+		// Send dev plan cancelled email
+		await sendTransactionalEmail({
+			to: organization.billingEmail,
+			subject: "Your LLMGateway Dev Plan Has Been Cancelled",
+			html: generateSubscriptionCancelledEmailHtml(organization.name),
+		});
 
-	logger.info(`Downgraded organization ${organizationId} to free plan`);
+		logger.info(
+			`Sent dev plan cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
+		);
+
+		// Track dev plan cancellation in PostHog
+		posthog.capture({
+			distinctId: "organization",
+			event: "dev_plan_ended",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				previousDevPlan: previousDevPlan,
+				organization: organizationId,
+				source: "stripe_subscription_deleted",
+			},
+		});
+
+		logger.info(
+			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
+		);
+	} else {
+		// Handle regular pro plan subscription deletion
+		// Create transaction record for subscription end
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "subscription_end",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: subscription.latest_invoice as string,
+			description: "Pro subscription ended",
+		});
+
+		// Downgrade organization to free plan and mark subscription as cancelled
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "free",
+				stripeSubscriptionId: null,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		// Send subscription cancelled email
+		await sendTransactionalEmail({
+			to: organization.billingEmail,
+			subject: "Your LLMGateway Subscription Has Been Cancelled",
+			html: generateSubscriptionCancelledEmailHtml(organization.name),
+		});
+
+		logger.info(
+			`Sent subscription cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
+		);
+
+		// Track subscription cancellation in PostHog
+		posthog.groupIdentify({
+			groupType: "organization",
+			groupKey: organizationId,
+			properties: {
+				name: organization.name,
+			},
+		});
+		posthog.capture({
+			distinctId: "organization",
+			event: "subscription_cancelled",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				previousPlan: "pro",
+				newPlan: "free",
+				organization: organizationId,
+				source: "stripe_subscription_deleted",
+			},
+		});
+
+		logger.info(`Downgraded organization ${organizationId} to free plan`);
+	}
 }
 
 async function handleSubscriptionCreated(

@@ -84,6 +84,80 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 }
 
 /**
+ * Recursively sanitizes schemas for Cerebras:
+ * - Ensures additionalProperties: false is set on all object schemas
+ * - Removes unsupported string validation fields (format, minLength, maxLength, pattern)
+ */
+function sanitizeCerebrasSchema(schema: any): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	if (Array.isArray(schema)) {
+		return schema.map((item) => sanitizeCerebrasSchema(item));
+	}
+
+	const result: any = { ...schema };
+
+	// If this is an object type schema, ensure additionalProperties is false
+	if (result.type === "object") {
+		result.additionalProperties = false;
+	}
+
+	// Remove unsupported string validation fields (Cerebras doesn't support them)
+	if (result.type === "string") {
+		delete result.format;
+		delete result.minLength;
+		delete result.maxLength;
+		delete result.pattern;
+	}
+
+	// Recursively process properties
+	if (result.properties) {
+		result.properties = Object.fromEntries(
+			Object.entries(result.properties).map(([key, value]) => [
+				key,
+				sanitizeCerebrasSchema(value),
+			]),
+		);
+	}
+
+	// Recursively process items (for arrays)
+	if (result.items) {
+		result.items = sanitizeCerebrasSchema(result.items);
+	}
+
+	// Recursively process anyOf, oneOf, allOf
+	for (const key of ["anyOf", "oneOf", "allOf"]) {
+		if (result[key] && Array.isArray(result[key])) {
+			result[key] = result[key].map((item: any) =>
+				sanitizeCerebrasSchema(item),
+			);
+		}
+	}
+
+	// Recursively process $defs/definitions
+	if (result.$defs) {
+		result.$defs = Object.fromEntries(
+			Object.entries(result.$defs).map(([key, value]) => [
+				key,
+				sanitizeCerebrasSchema(value),
+			]),
+		);
+	}
+	if (result.definitions) {
+		result.definitions = Object.fromEntries(
+			Object.entries(result.definitions).map(([key, value]) => [
+				key,
+				sanitizeCerebrasSchema(value),
+			]),
+		);
+	}
+
+	return result;
+}
+
+/**
  * Resolves a $ref path like "#/$defs/QuestionOption" to the actual definition
  */
 function resolveRef(ref: string, rootDefs: Record<string, any>): any {
@@ -1163,12 +1237,16 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				// Cerebras requires strict: true for json_schema mode
+				// and schema must be sanitized (no unsupported string fields)
 				if (response_format.type === "json_schema") {
 					requestBody.response_format = {
 						...response_format,
 						json_schema: {
 							...response_format.json_schema,
 							strict: true,
+							schema: response_format.json_schema?.schema
+								? sanitizeCerebrasSchema(response_format.json_schema.schema)
+								: response_format.json_schema?.schema,
 						},
 					};
 				} else {
@@ -1177,12 +1255,16 @@ export async function prepareRequestBody(
 			}
 
 			// Cerebras requires strict: true inside each tool's function object
+			// and additionalProperties: false on all object schemas
 			if (requestBody.tools && Array.isArray(requestBody.tools)) {
 				requestBody.tools = requestBody.tools.map((tool: any) => ({
 					...tool,
 					function: {
 						...tool.function,
 						strict: true,
+						parameters: tool.function.parameters
+							? sanitizeCerebrasSchema(tool.function.parameters)
+							: tool.function.parameters,
 					},
 				}));
 			}

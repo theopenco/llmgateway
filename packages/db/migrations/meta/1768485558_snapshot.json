@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1b100a8d-89bd-4cf4-82b2-c8ff5de36459",
+  "id": "a58b4bfc-91db-441e-bedc-5993a8b95be6",
   "prevId": "1481d4b7-1ebe-4472-8825-dd0a159ae58b",
   "ddl": [
     {
@@ -1909,19 +1909,6 @@
       "table": "model"
     },
     {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "released_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -1930,32 +1917,6 @@
       "generated": null,
       "identity": null,
       "name": "name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "aliases",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "description",
       "entityType": "columns",
       "schema": "public",
       "table": "model"
@@ -1995,19 +1956,6 @@
       "generated": null,
       "identity": null,
       "name": "output",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "stability",
       "entityType": "columns",
       "schema": "public",
       "table": "model"
@@ -2697,71 +2645,6 @@
       "generated": null,
       "identity": null,
       "name": "tools",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "json_output",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "json_output_schema",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "web_search",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "discount",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "stability",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -5505,6 +5388,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_project_id_used_model_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "processed_at IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_processed_at_null_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"

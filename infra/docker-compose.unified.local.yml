@@ -10,6 +10,7 @@ services:
     ports:
       - "3002:3002" # UI
       - "3003:3003" # Playground
+      - "3004:3004" # Code
       - "3005:3005" # Docs
       - "3006:3006" # Admin
       - "4001:4001" # Gateway
@@ -28,6 +29,7 @@ services:
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
+      - CODE_URL=${CODE_URL:-http://localhost:3004}
 
       # Authentication
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}

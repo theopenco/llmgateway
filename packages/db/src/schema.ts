@@ -146,6 +146,19 @@ export const organization = pgTable("organization", {
 	referralEarnings: decimal().notNull().default("0"),
 	paymentFailureCount: integer().notNull().default(0),
 	lastPaymentFailureAt: timestamp(),
+	// Dev Plans fields (for personal accounts)
+	isPersonal: boolean().notNull().default(false),
+	devPlan: text({
+		enum: ["none", "lite", "pro", "max"],
+	})
+		.notNull()
+		.default("none"),
+	devPlanCreditsUsed: decimal().notNull().default("0"),
+	devPlanCreditsLimit: decimal().notNull().default("0"),
+	devPlanBillingCycleStart: timestamp(),
+	devPlanStripeSubscriptionId: text().unique(),
+	devPlanCancelled: boolean().notNull().default(false),
+	devPlanExpiresAt: timestamp(),
 });
 
 export const referral = pgTable(
@@ -194,6 +207,12 @@ export const transaction = pgTable(
 				"subscription_end",
 				"credit_topup",
 				"credit_refund",
+				"dev_plan_start",
+				"dev_plan_upgrade",
+				"dev_plan_downgrade",
+				"dev_plan_cancel",
+				"dev_plan_end",
+				"dev_plan_renewal",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -497,6 +516,10 @@ export const log = pgTable(
 			.where(sql`data_retention_cleaned_up = false`),
 		// Index for distinct usedModel queries by project
 		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
+		// Partial index for batch credit processing: only indexes unprocessed logs
+		index("log_processed_at_null_idx")
+			.on(table.createdAt)
+			.where(sql`processed_at IS NULL`),
 	],
 );
 

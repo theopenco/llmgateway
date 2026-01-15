@@ -2182,6 +2182,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             }[];
                         };
                     };
@@ -2233,6 +2240,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -2412,6 +2426,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -2473,7 +2494,7 @@ export interface paths {
                                 updatedAt: string;
                                 organizationId: string;
                                 /** @enum {string} */
-                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund";
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
                                 amount: string | null;
                                 creditAmount: string | null;
                                 currency: string;
@@ -3558,6 +3579,263 @@ export interface paths {
                             subscriptionCancelled: boolean;
                             /** @enum {string|null} */
                             billingCycle: "monthly" | "yearly" | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/personal-org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Personal organization retrieved or created */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            isPersonal: boolean;
+                            /** @enum {string} */
+                            devPlan: "none" | "lite" | "pro" | "max";
+                            devPlanCreditsUsed: string;
+                            devPlanCreditsLimit: string;
+                            devPlanBillingCycleStart: string | null;
+                            devPlanCancelled: boolean;
+                            devPlanExpiresAt: string | null;
+                            credits: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        tier: "lite" | "pro" | "max";
+                    };
+                };
+            };
+            responses: {
+                /** @description Stripe Checkout session created successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            checkoutUrl: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev plan subscription cancelled successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev plan subscription resumed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/change-tier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        newTier: "lite" | "pro" | "max";
+                    };
+                };
+            };
+            responses: {
+                /** @description Dev plan tier changed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev plan status retrieved successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            hasPersonalOrg: boolean;
+                            /** @enum {string} */
+                            devPlan: "none" | "lite" | "pro" | "max";
+                            devPlanCreditsUsed: string;
+                            devPlanCreditsLimit: string;
+                            devPlanCreditsRemaining: string;
+                            devPlanBillingCycleStart: string | null;
+                            devPlanCancelled: boolean;
+                            devPlanExpiresAt: string | null;
+                            regularCredits: string;
+                            organizationId: string | null;
+                            apiKey: string | null;
                         };
                     };
                 };

@@ -105,6 +105,14 @@ describe("Rate Limiting", () => {
 				referralEarnings: "0",
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				isPersonal: false,
+				devPlan: "none" as const,
+				devPlanCreditsUsed: "0",
+				devPlanCreditsLimit: "0",
+				devPlanBillingCycleStart: null,
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: false,
+				devPlanExpiresAt: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(0);
@@ -151,6 +159,14 @@ describe("Rate Limiting", () => {
 				referralEarnings: "0",
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				isPersonal: false,
+				devPlan: "none" as const,
+				devPlanCreditsUsed: "0",
+				devPlanCreditsLimit: "0",
+				devPlanBillingCycleStart: null,
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: false,
+				devPlanExpiresAt: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // Under elevated limit (20)
@@ -194,6 +210,14 @@ describe("Rate Limiting", () => {
 				referralEarnings: "0",
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				isPersonal: false,
+				devPlan: "none" as const,
+				devPlanCreditsUsed: "0",
+				devPlanCreditsLimit: "0",
+				devPlanBillingCycleStart: null,
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: false,
+				devPlanExpiresAt: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // At limit (5)
@@ -245,6 +269,14 @@ describe("Rate Limiting", () => {
 				referralEarnings: "0",
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				isPersonal: false,
+				devPlan: "none" as const,
+				devPlanCreditsUsed: "0",
+				devPlanCreditsLimit: "0",
+				devPlanBillingCycleStart: null,
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: false,
+				devPlanExpiresAt: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(20); // At elevated limit (20)
@@ -296,6 +328,14 @@ describe("Rate Limiting", () => {
 				referralEarnings: "0",
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				isPersonal: false,
+				devPlan: "none" as const,
+				devPlanCreditsUsed: "0",
+				devPlanCreditsLimit: "0",
+				devPlanBillingCycleStart: null,
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: false,
+				devPlanExpiresAt: null,
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(
 				new Error("Redis error"),

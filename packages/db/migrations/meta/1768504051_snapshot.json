@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "85d4469e-7d19-4199-bab1-645b77e375b1",
-  "prevId": "1b100a8d-89bd-4cf4-82b2-c8ff5de36459",
+  "id": "dbd64b07-8165-45ed-90b8-60e29509f84a",
+  "prevId": "b0865621-d047-4d89-a737-fd4f5ccdc48f",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -3701,6 +3701,125 @@
       "table": "organization"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "is_personal",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'none'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_credits_used",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_credits_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_billing_cycle_start",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_stripe_subscription_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_cancelled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -5546,6 +5665,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "processed_at IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_processed_at_null_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "chat_id",
           "isExpression": false,
           "asc": true,
@@ -6627,6 +6767,17 @@
       ],
       "nullsNotDistinct": false,
       "name": "organization_stripe_subscription_id_key",
+      "schema": "public",
+      "table": "organization",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "dev_plan_stripe_subscription_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "organization_dev_plan_stripe_subscription_id_key",
       "schema": "public",
       "table": "organization",
       "entityType": "uniques"
