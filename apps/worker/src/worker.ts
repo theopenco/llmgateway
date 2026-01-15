@@ -375,26 +375,31 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		let totalFreePlanCleaned = 0;
 		let totalProPlanCleaned = 0;
 
+		// Fetch project IDs for each plan upfront (small query, runs once)
+		const freePlanProjects = await db
+			.select({ id: tables.project.id })
+			.from(tables.project)
+			.innerJoin(
+				organization,
+				eq(tables.project.organizationId, organization.id),
+			)
+			.where(eq(organization.plan, "free"));
+		const freePlanProjectIds = freePlanProjects.map((p) => p.id);
+
 		// Process free plan organizations in batches
-		let hasMoreFreePlanRecords = true;
+		let hasMoreFreePlanRecords = freePlanProjectIds.length > 0;
 		while (hasMoreFreePlanRecords) {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
-				// Use JOIN instead of subquery for better performance with large tables
-				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
-				// Use project_id subquery to leverage partial index on (project_id, created_at)
+				// Uses inArray with actual values to leverage index on (project_id, created_at)
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
 					.where(
 						and(
-							sql`${log.projectId} IN (
-								SELECT ${tables.project.id} FROM ${tables.project}
-								INNER JOIN ${organization} ON ${tables.project.organizationId} = ${organization.id}
-								WHERE ${organization.plan} = 'free'
-							)`,
+							inArray(log.projectId, freePlanProjectIds),
 							lt(log.createdAt, freePlanCutoff),
-							sql`${log.dataRetentionCleanedUp} = false`,
+							eq(log.dataRetentionCleanedUp, false),
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
@@ -448,26 +453,31 @@ export async function cleanupExpiredLogData(): Promise<void> {
 			);
 		}
 
+		// Fetch pro plan project IDs upfront
+		const proPlanProjects = await db
+			.select({ id: tables.project.id })
+			.from(tables.project)
+			.innerJoin(
+				organization,
+				eq(tables.project.organizationId, organization.id),
+			)
+			.where(eq(organization.plan, "pro"));
+		const proPlanProjectIds = proPlanProjects.map((p) => p.id);
+
 		// Process pro plan organizations in batches
-		let hasMoreProPlanRecords = true;
+		let hasMoreProPlanRecords = proPlanProjectIds.length > 0;
 		while (hasMoreProPlanRecords) {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
-				// Use JOIN instead of subquery for better performance with large tables
-				// dataRetentionCleanedUp=false implies there's data to clean, no need for OR conditions
-				// Use project_id subquery to leverage partial index on (project_id, created_at)
+				// Uses inArray with actual values to leverage index on (project_id, created_at)
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
 					.where(
 						and(
-							sql`${log.projectId} IN (
-								SELECT ${tables.project.id} FROM ${tables.project}
-								INNER JOIN ${organization} ON ${tables.project.organizationId} = ${organization.id}
-								WHERE ${organization.plan} = 'pro'
-							)`,
+							inArray(log.projectId, proPlanProjectIds),
 							lt(log.createdAt, proPlanCutoff),
-							sql`${log.dataRetentionCleanedUp} = false`,
+							eq(log.dataRetentionCleanedUp, false),
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
