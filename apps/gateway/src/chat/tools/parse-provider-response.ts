@@ -494,6 +494,32 @@ export function parseProviderResponse(
 				}
 				break;
 			}
+			// Check if this is a ByteDance Seedream image generation response
+			// Format: { data: [{ url: "..." }] }
+			if (
+				usedProvider === "bytedance" &&
+				json.data &&
+				Array.isArray(json.data)
+			) {
+				const imageData = json.data;
+				if (imageData.length > 0) {
+					images = imageData.map(
+						(item: any): ImageObject => ({
+							type: "image_url",
+							image_url: {
+								url: item.url,
+							},
+						}),
+					);
+					content = "Generated image";
+					finishReason = "stop";
+					// Seedream image generation doesn't return token usage
+					promptTokens = 0;
+					completionTokens = 0;
+					totalTokens = 0;
+				}
+				break;
+			}
 			// Check if this is an OpenAI responses format (has output array instead of choices)
 			if (json.output && Array.isArray(json.output)) {
 				// OpenAI responses endpoint format
