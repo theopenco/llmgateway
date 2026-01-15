@@ -413,4 +413,31 @@ export const zaiModels = [
 			},
 		],
 	},
+	{
+		id: "glm-image",
+		name: "GLM-Image",
+		description:
+			"Z.AI's GLM-Image text-to-image generation model with hybrid auto-regressive architecture, excellent for text-rendering and knowledge-intensive generation.",
+		family: "glm",
+		output: ["text", "image"],
+		releasedAt: new Date("2025-01-06"),
+		publishedAt: new Date("2026-01-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "zai",
+				modelName: "glm-image",
+				inputPrice: 0,
+				outputPrice: 0,
+				requestPrice: 0.015,
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
