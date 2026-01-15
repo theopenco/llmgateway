@@ -8,8 +8,8 @@ import { logger } from "@llmgateway/logger";
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
 import {
+	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
-	generateTrialStartedEmailHtml,
 	sendTransactionalEmail,
 } from "./utils/email.js";
 import { generateAndEmailInvoice } from "./utils/invoice.js";
@@ -228,9 +228,6 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 				break;
 			case "customer.subscription.deleted":
 				await handleSubscriptionDeleted(event);
-				break;
-			case "customer.subscription.trial_will_end":
-				await handleTrialWillEnd(event);
 				break;
 			case "charge.refunded":
 				await handleChargeRefunded(event);
@@ -569,10 +566,13 @@ async function handlePaymentIntentSucceeded(
 	}
 
 	// Update organization credits with credit amount (plus bonus if applicable)
+	// Also reset payment failure tracking since payment succeeded
 	await db
 		.update(tables.organization)
 		.set({
 			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+			paymentFailureCount: 0,
+			lastPaymentFailureAt: null,
 		})
 		.where(eq(tables.organization.id, organizationId));
 
@@ -715,7 +715,7 @@ async function handlePaymentIntentFailed(
 		return;
 	}
 
-	const { organizationId } = result;
+	const { organizationId, organization } = result;
 
 	// Convert amount from cents to dollars
 	const totalAmountInDollars = amount / 100;
@@ -725,6 +725,24 @@ async function handlePaymentIntentFailed(
 		? parseFloat(metadata.baseAmount)
 		: null;
 
+	// Extract error details from Stripe
+	const lastPaymentError = paymentIntent.last_payment_error;
+	const errorMessage = lastPaymentError?.message || "Unknown error";
+	const errorCode = lastPaymentError?.code;
+	const declineCode = lastPaymentError?.decline_code;
+
+	// Log warning for payment failure
+	logger.warn("Payment intent failed", {
+		organizationId,
+		organizationName: organization.name,
+		amount: totalAmountInDollars,
+		currency: paymentIntent.currency.toUpperCase(),
+		errorMessage,
+		errorCode,
+		declineCode,
+		stripePaymentIntentId: paymentIntent.id,
+	});
+
 	// Check if this is an auto top-up with an existing pending transaction
 	const transactionId = metadata?.transactionId;
 	if (transactionId) {
@@ -733,7 +751,7 @@ async function handlePaymentIntentFailed(
 			.update(tables.transaction)
 			.set({
 				status: "failed",
-				description: `Auto top-up failed via Stripe webhook: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+				description: `Auto top-up failed via Stripe webhook: ${errorMessage}`,
 			})
 			.where(eq(tables.transaction.id, transactionId))
 			.returning()
@@ -756,7 +774,7 @@ async function handlePaymentIntentFailed(
 				currency: paymentIntent.currency.toUpperCase(),
 				status: "failed",
 				stripePaymentIntentId: paymentIntent.id,
-				description: `Credit top-up failed via Stripe (fallback): ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+				description: `Credit top-up failed via Stripe (fallback): ${errorMessage}`,
 			});
 		}
 	} else {
@@ -769,13 +787,75 @@ async function handlePaymentIntentFailed(
 			currency: paymentIntent.currency.toUpperCase(),
 			status: "failed",
 			stripePaymentIntentId: paymentIntent.id,
-			description: `Credit top-up failed via Stripe: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
+			description: `Credit top-up failed via Stripe: ${errorMessage}`,
 		});
 	}
 
-	logger.info(
-		`Payment intent failed for organization ${organizationId}: ${paymentIntent.last_payment_error?.message || "Unknown error"}`,
-	);
+	// Update payment failure tracking with exponential backoff
+	// Calculate new failure count and check if we should send an email
+	const previousFailureCount = organization.paymentFailureCount ?? 0;
+	const previousFailureAt = organization.lastPaymentFailureAt;
+	const newFailureCount = previousFailureCount + 1;
+
+	// Update organization with new failure count and timestamp
+	await db
+		.update(tables.organization)
+		.set({
+			paymentFailureCount: newFailureCount,
+			lastPaymentFailureAt: new Date(),
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	// Determine if we should send an email based on exponential backoff
+	// Email intervals: 1st failure immediately, then 1h, 2h, 4h, 8h, 16h, 24h (capped)
+	let shouldSendEmail = false;
+	if (previousFailureCount === 0) {
+		// First failure - always send email
+		shouldSendEmail = true;
+	} else if (previousFailureAt) {
+		// Calculate backoff period based on previous failure count
+		const baseBackoffHours = 1;
+		const maxBackoffHours = 24;
+		const backoffHours = Math.min(
+			baseBackoffHours * Math.pow(2, previousFailureCount - 1),
+			maxBackoffHours,
+		);
+		const backoffMs = backoffHours * 60 * 60 * 1000;
+		const nextEmailTime = new Date(previousFailureAt.getTime() + backoffMs);
+
+		// Send email if we're past the backoff period
+		shouldSendEmail = new Date() >= nextEmailTime;
+	}
+
+	// Send payment failure email if not in backoff period
+	if (shouldSendEmail) {
+		try {
+			await sendTransactionalEmail({
+				to: organization.billingEmail,
+				subject: "Payment Failed - Action Required",
+				html: generatePaymentFailureEmailHtml(organization.name, {
+					errorMessage,
+					errorCode,
+					declineCode,
+					amount: totalAmountInDollars,
+					currency: paymentIntent.currency.toUpperCase(),
+				}),
+			});
+
+			logger.warn("Payment failure email sent", {
+				organizationId,
+				billingEmail: organization.billingEmail,
+				failureCount: newFailureCount,
+			});
+		} catch (emailError) {
+			logger.error("Failed to send payment failure email", emailError as Error);
+		}
+	} else {
+		logger.warn("Skipping payment failure email (in backoff period)", {
+			organizationId,
+			failureCount: newFailureCount,
+		});
+	}
 }
 
 async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
@@ -1440,7 +1520,7 @@ async function handleSubscriptionCreated(
 	event: Stripe.CustomerSubscriptionCreatedEvent,
 ) {
 	const subscription = event.data.object;
-	const { customer, metadata, trial_start, trial_end } = subscription;
+	const { customer, metadata } = subscription;
 
 	logger.info(
 		`Processing subscription created for customer: ${customer}, subscription: ${subscription.id}`,
@@ -1465,47 +1545,20 @@ async function handleSubscriptionCreated(
 		`Found organization: ${organization.name} (${organization.id}) for subscription creation`,
 	);
 
-	// Check if subscription has trial period
-	const hasTrialPeriod = trial_start && trial_end;
-	const trialStartDate = trial_start ? new Date(trial_start * 1000) : null;
-	const trialEndDate = trial_end ? new Date(trial_end * 1000) : null;
-
 	try {
-		// Update organization with trial information
-		const updateData: any = {
-			plan: "pro",
-			stripeSubscriptionId: subscription.id,
-			subscriptionCancelled: false,
-		};
-
-		if (hasTrialPeriod) {
-			updateData.trialStartDate = trialStartDate;
-			updateData.trialEndDate = trialEndDate;
-			updateData.isTrialActive = true;
-		}
-
 		await db
 			.update(tables.organization)
-			.set(updateData)
+			.set({
+				plan: "pro",
+				stripeSubscriptionId: subscription.id,
+				subscriptionCancelled: false,
+			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();
 
 		logger.info(
-			`Successfully updated organization ${organizationId} with subscription ${subscription.id}. Trial active: ${hasTrialPeriod}`,
+			`Successfully updated organization ${organizationId} with subscription ${subscription.id}`,
 		);
-
-		// Send trial started email if this is a trial subscription
-		if (hasTrialPeriod && trialEndDate) {
-			await sendTransactionalEmail({
-				to: organization.billingEmail,
-				subject: "Welcome to Your LLMGateway Pro Trial",
-				html: generateTrialStartedEmailHtml(organization.name, trialEndDate),
-			});
-
-			logger.info(
-				`Sent trial started email to ${organization.billingEmail} for organization ${organizationId}`,
-			);
-		}
 
 		// Track subscription creation in PostHog
 		posthog.groupIdentify({
@@ -1517,7 +1570,7 @@ async function handleSubscriptionCreated(
 		});
 		posthog.capture({
 			distinctId: "organization",
-			event: hasTrialPeriod ? "trial_started" : "subscription_created",
+			event: "subscription_created",
 			groups: {
 				organization: organizationId,
 			},
@@ -1526,78 +1579,11 @@ async function handleSubscriptionCreated(
 				organization: organizationId,
 				subscriptionId: subscription.id,
 				source: "stripe_subscription_created",
-				trialStartDate: trialStartDate?.toISOString(),
-				trialEndDate: trialEndDate?.toISOString(),
 			},
 		});
 	} catch (error) {
 		logger.error(
 			`Error updating organization ${organizationId} with subscription ${subscription.id}:`,
-			error as Error,
-		);
-		throw error;
-	}
-}
-
-async function handleTrialWillEnd(
-	event: Stripe.CustomerSubscriptionTrialWillEndEvent,
-) {
-	const subscription = event.data.object;
-	const { customer, metadata } = subscription;
-
-	logger.info(
-		`Processing trial will end for customer: ${customer}, subscription: ${subscription.id}`,
-	);
-
-	const result = await resolveOrganizationFromStripeEvent({
-		metadata: metadata as { organizationId?: string } | undefined,
-		customer: typeof customer === "string" ? customer : customer?.id,
-		subscription: subscription.id,
-	});
-
-	if (!result) {
-		logger.error(
-			`Organization not found for customer: ${customer}, subscription: ${subscription.id}`,
-		);
-		return;
-	}
-
-	const { organizationId, organization } = result;
-
-	logger.info(
-		`Found organization: ${organization.name} (${organization.id}) for trial ending`,
-	);
-
-	try {
-		// Update organization to mark trial as ending
-		await db
-			.update(tables.organization)
-			.set({
-				isTrialActive: false,
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		logger.info(
-			`Successfully marked trial as ending for organization ${organizationId}`,
-		);
-
-		// Track trial ending in PostHog
-		posthog.capture({
-			distinctId: "organization",
-			event: "trial_will_end",
-			groups: {
-				organization: organizationId,
-			},
-			properties: {
-				plan: "pro",
-				organization: organizationId,
-				subscriptionId: subscription.id,
-				source: "stripe_trial_will_end",
-			},
-		});
-	} catch (error) {
-		logger.error(
-			`Error updating organization ${organizationId} trial status:`,
 			error as Error,
 		);
 		throw error;

@@ -272,8 +272,14 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			) {
 				return false;
 			}
-			if (filters.capabilities.free && !model.free) {
-				return false;
+			if (filters.capabilities.free) {
+				// A model is only considered free if it has the free flag AND no provider has a per-request cost
+				const hasRequestPrice = model.providerDetails.some(
+					(p) => p.provider.requestPrice && p.provider.requestPrice > 0,
+				);
+				if (!model.free || hasRequestPrice) {
+					return false;
+				}
 			}
 			if (
 				filters.capabilities.discounted &&
@@ -1035,15 +1041,20 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 											{shouldShowStabilityWarning(model.stability) && (
 												<AlertTriangle className="h-4 w-4 text-orange-500" />
 											)}
-											{model.free && (
-												<Badge
-													variant="secondary"
-													className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
-												>
-													<Gift className="h-3 w-3 mr-1" />
-													Free
-												</Badge>
-											)}
+											{model.free &&
+												!model.providerDetails.some(
+													(p) =>
+														p.provider.requestPrice &&
+														p.provider.requestPrice > 0,
+												) && (
+													<Badge
+														variant="secondary"
+														className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
+													>
+														<Gift className="h-3 w-3 mr-1" />
+														Free
+													</Badge>
+												)}
 										</div>
 										<div className="text-xs text-muted-foreground">
 											Family:{" "}

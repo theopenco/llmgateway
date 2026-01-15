@@ -104,16 +104,46 @@ export async function sendTransactionalEmail({
 	}
 }
 
-export function generateTrialStartedEmailHtml(
+export interface PaymentFailureDetails {
+	errorMessage: string;
+	errorCode?: string;
+	declineCode?: string;
+	amount?: number;
+	currency?: string;
+}
+
+export function generatePaymentFailureEmailHtml(
 	organizationName: string,
-	trialEndDate: Date,
+	details: PaymentFailureDetails,
 ): string {
 	const escapedOrgName = escapeHtml(organizationName);
-	const formattedEndDate = trialEndDate.toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "long",
-		day: "numeric",
-	});
+	const escapedErrorMessage = escapeHtml(details.errorMessage);
+
+	// Escape currency and handle zero amount case properly
+	const escapedCurrency = details.currency
+		? escapeHtml(details.currency)
+		: null;
+	const formattedAmount =
+		details.amount !== undefined && details.amount !== null && escapedCurrency
+			? `${escapedCurrency} ${details.amount.toFixed(2)}`
+			: null;
+
+	let actionMessage = "Please update your payment method and try again.";
+	if (details.declineCode === "insufficient_funds") {
+		actionMessage =
+			"Please ensure your card has sufficient funds or use a different payment method.";
+	} else if (
+		details.declineCode === "expired_card" ||
+		details.errorCode === "expired_card"
+	) {
+		actionMessage = "Your card has expired. Please update your payment method.";
+	} else if (
+		details.declineCode === "lost_card" ||
+		details.declineCode === "stolen_card"
+	) {
+		actionMessage =
+			"This card cannot be used. Please add a different payment method.";
+	}
 
 	return `
 <!DOCTYPE html>
@@ -121,7 +151,7 @@ export function generateTrialStartedEmailHtml(
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Welcome to LLMGateway Pro</title>
+		<title>Payment Failed - LLMGateway</title>
 	</head>
 	<body
 		style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #ffffff;"
@@ -133,9 +163,9 @@ export function generateTrialStartedEmailHtml(
 						<!-- Header -->
 						<tr>
 							<td
-								style="background-color: #000000; padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;"
+								style="background-color: #dc2626; padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;"
 							>
-								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Welcome to Pro! 🎉</h1>
+								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Payment Failed</h1>
 							</td>
 						</tr>
 
@@ -147,62 +177,28 @@ export function generateTrialStartedEmailHtml(
 								</p>
 
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									Thank you for upgrading <strong>${escapedOrgName}</strong> to <strong>LLMGateway Pro</strong>!
-									You now have access to all our premium
-									features designed to give you more control, flexibility, and insights.
+									We were unable to process a payment for <strong>${escapedOrgName}</strong>.
 								</p>
+
+								<!-- Error Details Box -->
+								<div
+									style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 20px; margin-bottom: 20px;"
+								>
+									<p style="margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: #991b1b;">
+										Error Details:
+									</p>
+									<p style="margin: 0; font-size: 14px; color: #7f1d1d;">
+										${escapedErrorMessage}
+									</p>
+									${formattedAmount ? `<p style="margin: 10px 0 0 0; font-size: 14px; color: #7f1d1d;">Amount: ${formattedAmount}</p>` : ""}
+								</div>
 
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									Your trial will end on <strong>${formattedEndDate}</strong>. After that, you'll be charged for your
-									Pro subscription unless you cancel before the trial ends.
+									${escapeHtml(actionMessage)}
 								</p>
 
-								<h2 style="margin: 30px 0 20px 0; font-size: 20px; font-weight: 600; color: #000000;">Your Pro
-									Features:</h2>
-
-								<table role="presentation" style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-									<tr>
-										<td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span
-												style="font-size: 16px; color: #333333;"
-											>Provider API key management (bring your own keys)</span>
-										</td>
-									</tr>
-									<tr>
-										<td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span style="font-size: 16px; color: #333333;">80% lower fees on credit top-ups (1% vs 5%)</span>
-										</td>
-									</tr>
-									<tr>
-										<td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span style="font-size: 16px; color: #333333;">Extended data retention (90 days)</span>
-										</td>
-									</tr>
-									<tr>
-										<td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span style="font-size: 16px; color: #333333;">Team management</span>
-										</td>
-									</tr>
-									<tr>
-										<td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span style="font-size: 16px; color: #333333;">Advanced analytics and insights</span>
-										</td>
-									</tr>
-									<tr>
-										<td style="padding: 12px 0;">
-											<span style="color: #000000; font-size: 18px; margin-right: 10px;">✓</span>
-											<span style="font-size: 16px; color: #333333;">Priority support</span>
-										</td>
-									</tr>
-								</table>
-
 								<p style="margin: 0 0 30px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									Ready to explore? Head to your dashboard to start using your new Pro features.
+									To ensure uninterrupted service, please update your payment information as soon as possible.
 								</p>
 
 								<!-- CTA Button -->
@@ -210,16 +206,16 @@ export function generateTrialStartedEmailHtml(
 									<tr>
 										<td align="center" style="padding: 10px 0;">
 											<a
-												href="https://llmgateway.io/dashboard"
+												href="https://llmgateway.io/dashboard/settings/org/billing"
 												style="display: inline-block; background-color: #000000; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
-											>Go to Dashboard</a>
+											>Update Payment Method</a>
 										</td>
 									</tr>
 								</table>
 
 								<p style="margin: 30px 0 0 0; font-size: 14px; line-height: 1.6; color: #666666;">
-									If you have any questions or need help getting started, our priority support team is here for you.
-									Just reply to this email!
+									If you believe this is an error or need assistance, please reply to this email and we'll be happy to
+									help.
 								</p>
 							</td>
 						</tr>
@@ -230,7 +226,7 @@ export function generateTrialStartedEmailHtml(
 								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
 							>
 								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help getting started? Check out our <a
+									Need help? Check out our <a
 									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
 								>documentation</a> or reply to this email for any questions.
 								</p>

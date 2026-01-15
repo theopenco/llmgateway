@@ -1,3 +1,4 @@
+import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
@@ -307,6 +308,10 @@ export function transformStreamingToOpenai(
 				const toolUsePromptTokenCount =
 					usageMetadata.toolUsePromptTokenCount || 0;
 
+				// Extract cached tokens from Google's implicit caching
+				const cachedContentTokenCount =
+					usageMetadata.cachedContentTokenCount || 0;
+
 				const totalTokenCount =
 					typeof usageMetadata.totalTokenCount === "number" &&
 					usageMetadata.totalTokenCount > 0
@@ -324,6 +329,13 @@ export function transformStreamingToOpenai(
 
 				if (reasoningTokenCount) {
 					usage.reasoning_tokens = reasoningTokenCount;
+				}
+
+				// Include cached tokens in OpenAI-compatible format
+				if (cachedContentTokenCount > 0) {
+					usage.prompt_tokens_details = {
+						cached_tokens: cachedContentTokenCount,
+					};
 				}
 
 				// I am exposing this google-specific metric under a provider-specific namespace
@@ -412,8 +424,10 @@ export function transformStreamingToOpenai(
 
 					if (part.functionCall) {
 						const callIndex = toolCalls.length;
+						const toolCallId =
+							part.functionCall.name + "_" + Date.now() + "_" + callIndex;
 						toolCalls.push({
-							id: part.functionCall.name + "_" + Date.now() + "_" + callIndex,
+							id: toolCallId,
 							type: "function",
 							index: partIndex,
 							function: {
@@ -432,6 +446,23 @@ export function transformStreamingToOpenai(
 									}
 								: undefined,
 						});
+
+						// Cache thoughtSignature in Redis for server-side retrieval in multi-turn conversations
+						// This is especially important when OpenAI SDKs don't preserve extra_content/provider_extra
+						if (sig) {
+							redisClient
+								.setex(
+									`thought_signature:${toolCallId}`,
+									86400, // 1 day expiration
+									sig,
+								)
+								.catch((err) => {
+									logger.error(
+										"Failed to cache thought_signature in streaming transform",
+										{ err },
+									);
+								});
+						}
 					}
 
 					if (sig) {

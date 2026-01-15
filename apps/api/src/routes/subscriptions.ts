@@ -135,7 +135,6 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				userEmail: user.email,
 			},
 			subscription_data: {
-				trial_period_days: 7,
 				metadata: {
 					organizationId: organization.id,
 					plan: "pro",
@@ -461,9 +460,6 @@ const getSubscriptionStatus = createRoute({
 						planExpiresAt: z.string().nullable(),
 						subscriptionCancelled: z.boolean(),
 						billingCycle: z.enum(["monthly", "yearly"]).nullable(),
-						isTrialActive: z.boolean(),
-						trialStartDate: z.string().nullable(),
-						trialEndDate: z.string().nullable(),
 					}),
 				},
 			},
@@ -527,8 +523,5 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		planExpiresAt: organization.planExpiresAt?.toISOString() || null,
 		subscriptionCancelled: organization.subscriptionCancelled || false,
 		billingCycle,
-		isTrialActive: organization.isTrialActive || false,
-		trialStartDate: organization.trialStartDate?.toISOString() || null,
-		trialEndDate: organization.trialEndDate?.toISOString() || null,
 	});
 });
