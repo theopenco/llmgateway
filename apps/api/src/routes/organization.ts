@@ -30,6 +30,13 @@ const organizationSchema = z.object({
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
 	referralEarnings: z.string(),
+	// Dev Plans fields
+	isPersonal: z.boolean(),
+	devPlan: z.enum(["none", "lite", "pro", "max"]),
+	devPlanCreditsUsed: z.string(),
+	devPlanCreditsLimit: z.string(),
+	devPlanBillingCycleStart: z.date().nullable(),
+	devPlanExpiresAt: z.date().nullable(),
 });
 
 const projectSchema = z.object({

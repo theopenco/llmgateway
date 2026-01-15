@@ -2142,6 +2142,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             }[];
                         };
                     };
@@ -2193,6 +2200,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -2372,6 +2386,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             };
                         };
                     };

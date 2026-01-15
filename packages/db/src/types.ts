@@ -118,6 +118,8 @@ export type SerializedOrganization = Omit<
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
 	| "devPlanBillingCycleStart"
+	| "devPlanStripeSubscriptionId"
+	| "devPlanCancelled"
 	| "devPlanExpiresAt"
 > & {
 	createdAt: string;
