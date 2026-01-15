@@ -141,6 +141,43 @@ Available Z.AI models:
 	images with embedded text.
 </Callout>
 
+### ByteDance Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bytedance/seedream-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a futuristic cyberpunk city at night"
+      }
+    ],
+    "image_config": {
+      "image_size": "2048x2048"
+    }
+  }'
+```
+
+| Parameter    | Type   | Description                                                                                      |
+| ------------ | ------ | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x2048"`, `"4096x4096"` |
+
+Available ByteDance models:
+
+| Model                    | Price        | Description                                                     |
+| ------------------------ | ------------ | --------------------------------------------------------------- |
+| `bytedance/seedream-4-0` | $0.035/image | High-quality text-to-image generation with 2K default output    |
+| `bytedance/seedream-4-5` | $0.045/image | Enhanced quality and consistency with improved prompt adherence |
+
+<Callout type="info">
+	Seedream models support up to 2-10 reference images for multi-image fusion and
+	generation. The default output resolution is 2048×2048 (2K), with support up
+	to 4096×4096 (4K).
+</Callout>
+
 ## Response Format
 
 Image generation models return responses in the standard chat completions format, with generated images included in the `images` array within the assistant message:
