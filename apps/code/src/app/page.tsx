@@ -7,26 +7,22 @@ const plans = [
 	{
 		name: "Lite",
 		price: 29,
-		credits: 87,
 		description: "For small dev tasks and getting started",
 		features: [
-			"$87 in monthly credits",
 			"Access to all LLM models",
 			"Claude, GPT-4, and more",
-			"Credits reset monthly",
+			"Usage resets monthly",
 		],
 		tier: "lite",
 	},
 	{
 		name: "Pro",
 		price: 79,
-		credits: 237,
 		description: "For advanced usage and daily development",
 		features: [
-			"$237 in monthly credits",
 			"Access to all LLM models",
 			"Claude, GPT-4, and more",
-			"Credits reset monthly",
+			"Usage resets monthly",
 			"Best value for developers",
 		],
 		tier: "pro",
@@ -35,13 +31,11 @@ const plans = [
 	{
 		name: "Max",
 		price: 179,
-		credits: 447,
 		description: "For ultra high usage and power users",
 		features: [
-			"$447 in monthly credits",
 			"Access to all LLM models",
 			"Claude, GPT-4, and more",
-			"Credits reset monthly",
+			"Usage resets monthly",
 			"Perfect for heavy usage",
 		],
 		tier: "max",
@@ -76,13 +70,12 @@ export default function LandingPage() {
 							<span className="text-primary"> AI-Powered Coding</span>
 						</h1>
 						<p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-							Subscribe to a monthly plan and get credits to use with Claude
-							Code, Cursor, Windsurf, and other AI coding tools. Simple pricing,
-							powerful models.
+							Subscribe to a monthly plan for Claude Code, Cursor, Windsurf, and
+							other AI coding tools. Simple pricing, powerful models.
 						</p>
 						<div className="flex gap-4 justify-center">
 							<Link href="/signup">
-								<Button size="lg">Start Free Trial</Button>
+								<Button size="lg">Get Started</Button>
 							</Link>
 							<Link href="#pricing">
 								<Button size="lg" variant="outline">
@@ -100,9 +93,9 @@ export default function LandingPage() {
 								<div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
 									<Zap className="h-6 w-6 text-primary" />
 								</div>
-								<h3 className="font-semibold mb-2">Monthly Credits</h3>
+								<h3 className="font-semibold mb-2">Monthly Usage</h3>
 								<p className="text-sm text-muted-foreground">
-									Get 3x your subscription price in credits every month,
+									Get 3x your subscription price in usage every month,
 									automatically refreshed.
 								</p>
 							</div>
@@ -121,8 +114,7 @@ export default function LandingPage() {
 								</div>
 								<h3 className="font-semibold mb-2">Simple Billing</h3>
 								<p className="text-sm text-muted-foreground">
-									No usage surprises. Pay a fixed monthly price and get
-									predictable credits.
+									No surprises. Pay a fixed monthly price for predictable usage.
 								</p>
 							</div>
 						</div>
@@ -134,7 +126,7 @@ export default function LandingPage() {
 						<div className="text-center mb-12">
 							<h2 className="text-3xl font-bold mb-4">Choose Your Dev Plan</h2>
 							<p className="text-muted-foreground max-w-2xl mx-auto">
-								All plans include access to every model. Your credits reset at
+								All plans include access to every model. Your usage resets at
 								the start of each billing cycle.
 							</p>
 						</div>
@@ -164,9 +156,6 @@ export default function LandingPage() {
 											<span className="text-4xl font-bold">${plan.price}</span>
 											<span className="text-muted-foreground">/month</span>
 										</div>
-										<p className="text-sm text-primary mt-2">
-											${plan.credits} in credits
-										</p>
 									</div>
 									<ul className="space-y-3 mb-6">
 										{plan.features.map((feature) => (
@@ -200,7 +189,7 @@ export default function LandingPage() {
 							development.
 						</p>
 						<Link href="/signup">
-							<Button size="lg">Start Your Free Trial</Button>
+							<Button size="lg">Get Started</Button>
 						</Link>
 					</div>
 				</section>

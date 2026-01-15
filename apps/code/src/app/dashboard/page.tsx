@@ -8,6 +8,9 @@ import {
 	LogOut,
 	Check,
 	ArrowRight,
+	Copy,
+	ExternalLink,
+	Key,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,22 +19,22 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 const plans = [
 	{
 		name: "Lite",
 		price: 29,
-		credits: 87,
 		description: "For small dev tasks",
 		tier: "lite" as const,
 	},
 	{
 		name: "Pro",
 		price: 79,
-		credits: 237,
 		description: "For advanced usage",
 		tier: "pro" as const,
 		popular: true,
@@ -39,7 +42,6 @@ const plans = [
 	{
 		name: "Max",
 		price: 179,
-		credits: 447,
 		description: "For ultra high usage",
 		tier: "max" as const,
 	},
@@ -49,10 +51,12 @@ export default function Dashboard() {
 	const router = useRouter();
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
+	const config = useAppConfig();
 	const api = useApi();
 	const [subscribingTier, setSubscribingTier] = useState<string | null>(null);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
+	const [showApiKey, setShowApiKey] = useState(false);
 
 	const { user, isLoading: userLoading } = useUser({
 		redirectTo: "/login?returnUrl=/dashboard",
@@ -136,7 +140,7 @@ export default function Dashboard() {
 			});
 			posthog.capture("dev_plan_tier_changed", { newTier });
 			toast.success("Plan changed successfully", {
-				description: "Your credits have been updated to the new plan.",
+				description: "Your plan has been updated.",
 			});
 		} catch {
 			toast.error("Failed to change plan");
@@ -148,6 +152,13 @@ export default function Dashboard() {
 	const handleSignOut = async () => {
 		await signOut();
 		router.push("/");
+	};
+
+	const handleCopyApiKey = async () => {
+		if (devPlanStatus?.apiKey) {
+			await navigator.clipboard.writeText(devPlanStatus.apiKey);
+			toast.success("API key copied to clipboard");
+		}
 	};
 
 	if (userLoading || statusLoading) {
@@ -162,7 +173,6 @@ export default function Dashboard() {
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
 	const creditsUsed = parseFloat(devPlanStatus?.devPlanCreditsUsed || "0");
 	const creditsLimit = parseFloat(devPlanStatus?.devPlanCreditsLimit || "0");
-	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
 	const usagePercentage =
 		creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 0;
 
@@ -231,10 +241,8 @@ export default function Dashboard() {
 							<div className="space-y-4">
 								<div>
 									<div className="flex justify-between text-sm mb-2">
-										<span>Credits Used</span>
-										<span>
-											${creditsUsed.toFixed(2)} / ${creditsLimit.toFixed(2)}
-										</span>
+										<span>Usage</span>
+										<span>{usagePercentage.toFixed(0)}%</span>
 									</div>
 									<div className="h-2 bg-muted rounded-full overflow-hidden">
 										<div
@@ -243,7 +251,7 @@ export default function Dashboard() {
 										/>
 									</div>
 									<p className="text-sm text-muted-foreground mt-2">
-										${creditsRemaining.toFixed(2)} remaining this cycle
+										{(100 - usagePercentage).toFixed(0)}% remaining this cycle
 									</p>
 								</div>
 
@@ -258,6 +266,51 @@ export default function Dashboard() {
 								)}
 							</div>
 						</div>
+
+						{devPlanStatus?.apiKey && (
+							<div className="rounded-lg border p-6">
+								<div className="flex items-center gap-2 mb-4">
+									<Key className="h-5 w-5" />
+									<h3 className="font-semibold">Your API Key</h3>
+								</div>
+								<p className="text-sm text-muted-foreground mb-4">
+									Use this API key to authenticate with LLM Gateway in your
+									coding tools.
+								</p>
+								<div className="flex gap-2 mb-4">
+									<Input
+										type={showApiKey ? "text" : "password"}
+										value={devPlanStatus.apiKey}
+										readOnly
+										className="font-mono text-sm"
+									/>
+									<Button
+										variant="outline"
+										size="icon"
+										onClick={handleCopyApiKey}
+									>
+										<Copy className="h-4 w-4" />
+									</Button>
+									<Button
+										variant="outline"
+										onClick={() => setShowApiKey(!showApiKey)}
+									>
+										{showApiKey ? "Hide" : "Show"}
+									</Button>
+								</div>
+								<div className="flex items-center gap-2 text-sm text-muted-foreground">
+									<ExternalLink className="h-4 w-4" />
+									<a
+										href={`${config.uiUrl}/guides`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="underline hover:text-foreground"
+									>
+										View integration guides
+									</a>
+								</div>
+							</div>
+						)}
 
 						<div>
 							<h3 className="font-semibold mb-4">Change Plan</h3>
@@ -277,9 +330,8 @@ export default function Dashboard() {
 													</span>
 												)}
 											</div>
-											<p className="text-2xl font-bold">${plan.price}/mo</p>
-											<p className="text-sm text-muted-foreground mb-4">
-												${plan.credits} in credits
+											<p className="text-2xl font-bold mb-4">
+												${plan.price}/mo
 											</p>
 											{!isCurrentPlan && (
 												<Button
@@ -310,8 +362,7 @@ export default function Dashboard() {
 							<CreditCard className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
 							<h2 className="font-semibold text-lg mb-2">No Active Plan</h2>
 							<p className="text-muted-foreground mb-4">
-								Subscribe to a Dev Plan to get monthly credits for AI-powered
-								coding.
+								Subscribe to a Dev Plan for AI-powered coding.
 							</p>
 						</div>
 
@@ -339,9 +390,6 @@ export default function Dashboard() {
 										<div className="text-center mb-4">
 											<span className="text-3xl font-bold">${plan.price}</span>
 											<span className="text-muted-foreground">/month</span>
-											<p className="text-sm text-primary mt-1">
-												${plan.credits} in credits
-											</p>
 										</div>
 										<ul className="space-y-2 mb-6">
 											<li className="flex items-center gap-2 text-sm">
@@ -350,7 +398,7 @@ export default function Dashboard() {
 											</li>
 											<li className="flex items-center gap-2 text-sm">
 												<Check className="h-4 w-4 text-primary" />
-												Credits reset monthly
+												Usage resets monthly
 											</li>
 										</ul>
 										<Button

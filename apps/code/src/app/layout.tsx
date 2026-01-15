@@ -25,14 +25,14 @@ export const metadata: Metadata = {
 	metadataBase: new URL("https://code.llmgateway.io"),
 	title: "LLM Gateway Code - Dev Plans for Developers",
 	description:
-		"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Get monthly credits for Claude, GPT-4, and other models.",
+		"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Access Claude, GPT-4, and other models.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
 	openGraph: {
 		title: "LLM Gateway Code - Dev Plans for Developers",
 		description:
-			"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Get monthly credits for Claude, GPT-4, and other models.",
+			"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Access Claude, GPT-4, and other models.",
 		images: ["/opengraph.png?v=1"],
 		type: "website",
 		url: "https://code.llmgateway.io",
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "LLM Gateway Code - Dev Plans for Developers",
 		description:
-			"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Get monthly credits for Claude, GPT-4, and other models.",
+			"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Access Claude, GPT-4, and other models.",
 		images: ["/opengraph.png?v=1"],
 	},
 };

@@ -3774,6 +3774,7 @@ export interface paths {
                             devPlanExpiresAt: string | null;
                             regularCredits: string;
                             organizationId: string | null;
+                            apiKey: string | null;
                         };
                     };
                 };

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { ensureStripeCustomer } from "@/stripe.js";
 
-import { db, tables, eq } from "@llmgateway/db";
+import { db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { stripe } from "./payments.js";
@@ -20,6 +20,43 @@ const DEV_PLAN_PRICES = {
 } as const;
 
 type DevPlanTier = keyof typeof DEV_PLAN_PRICES;
+
+// Helper to get or create API key for personal org
+async function getOrCreatePersonalOrgApiKey(
+	orgId: string,
+	projectId: string,
+	userId: string,
+): Promise<string> {
+	// Check for existing API key
+	const existingKey = await db.query.apiKey.findFirst({
+		where: {
+			projectId: {
+				eq: projectId,
+			},
+			status: {
+				ne: "deleted",
+			},
+		},
+	});
+
+	if (existingKey) {
+		return existingKey.token;
+	}
+
+	// Create new API key
+	const prefix =
+		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+	const token = prefix + shortid(40);
+
+	await db.insert(tables.apiKey).values({
+		token,
+		projectId,
+		description: "Dev Plan API Key",
+		createdBy: userId,
+	});
+
+	return token;
+}
 
 function getDevPlanCreditsLimit(tier: DevPlanTier): number {
 	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER || "3");
@@ -615,6 +652,7 @@ const getStatus = createRoute({
 						devPlanExpiresAt: z.string().nullable(),
 						regularCredits: z.string(),
 						organizationId: z.string().nullable(),
+						apiKey: z.string().nullable(),
 					}),
 				},
 			},
@@ -657,12 +695,34 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanExpiresAt: null,
 			regularCredits: "0",
 			organizationId: null,
+			apiKey: null,
 		});
 	}
 
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+
+	// Get API key if user has an active dev plan
+	let apiKey: string | null = null;
+	if (personalOrg.devPlan !== "none") {
+		// Find the default project for this org
+		const project = await db.query.project.findFirst({
+			where: {
+				organizationId: {
+					eq: personalOrg.id,
+				},
+			},
+		});
+
+		if (project) {
+			apiKey = await getOrCreatePersonalOrgApiKey(
+				personalOrg.id,
+				project.id,
+				user.id,
+			);
+		}
+	}
 
 	return c.json({
 		hasPersonalOrg: true,
@@ -676,5 +736,6 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() || null,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
+		apiKey,
 	});
 });
