@@ -124,3 +124,12 @@
 		@apply font-mono;
 	}
 }
+
+/* rendering-content-visibility: Defer off-screen rendering for long message lists
+ * This significantly improves initial render performance for conversations with many messages
+ * Browser skips layout/paint for off-screen items (10x faster initial render for 1000+ messages)
+ */
+.message-item {
+	content-visibility: auto;
+	contain-intrinsic-size: 0 120px;
+}
