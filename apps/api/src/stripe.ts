@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
@@ -16,20 +17,6 @@ import { generateAndEmailInvoice } from "./utils/invoice.js";
 
 import type { ServerTypes } from "./vars.js";
 import type Stripe from "stripe";
-
-// Dev plan pricing
-const DEV_PLAN_PRICES = {
-	lite: 29,
-	pro: 79,
-	max: 179,
-} as const;
-
-type DevPlanTier = keyof typeof DEV_PLAN_PRICES;
-
-function getDevPlanCreditsLimit(tier: DevPlanTier): number {
-	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER || "3");
-	return DEV_PLAN_PRICES[tier] * multiplier;
-}
 
 export async function ensureStripeCustomer(
 	organizationId: string,

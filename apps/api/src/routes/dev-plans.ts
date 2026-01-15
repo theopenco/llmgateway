@@ -6,6 +6,11 @@ import { ensureStripeCustomer } from "@/stripe.js";
 
 import { db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import {
+	DEV_PLAN_PRICES,
+	getDevPlanCreditsLimit,
+	type DevPlanTier,
+} from "@llmgateway/shared";
 
 import { stripe } from "./payments.js";
 
@@ -13,13 +18,59 @@ import type { ServerTypes } from "@/vars.js";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
 
-const DEV_PLAN_PRICES = {
-	lite: 29,
-	pro: 79,
-	max: 179,
-} as const;
+interface User {
+	id: string;
+	email: string;
+	emailVerified?: boolean;
+}
 
-type DevPlanTier = keyof typeof DEV_PLAN_PRICES;
+// Helper to get or create personal organization for a user
+// Uses a transaction to ensure atomicity when creating org, membership, and project
+async function getOrCreatePersonalOrg(user: User) {
+	// Find existing personal org for user
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const existingPersonalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	);
+
+	if (existingPersonalOrg?.organization) {
+		return existingPersonalOrg.organization;
+	}
+
+	// Create new personal org with transaction for atomicity
+	return await db.transaction(async (tx) => {
+		const [newOrg] = await tx
+			.insert(tables.organization)
+			.values({
+				name: "Personal",
+				isPersonal: true,
+				billingEmail: user.email,
+			})
+			.returning();
+
+		await tx.insert(tables.userOrganization).values({
+			userId: user.id,
+			organizationId: newOrg.id,
+			role: "owner",
+		});
+
+		await tx.insert(tables.project).values({
+			name: "Default Project",
+			organizationId: newOrg.id,
+			mode: "credits",
+		});
+
+		return newOrg;
+	});
+}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
@@ -56,11 +107,6 @@ async function getOrCreatePersonalOrgApiKey(
 	});
 
 	return token;
-}
-
-function getDevPlanCreditsLimit(tier: DevPlanTier): number {
-	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER || "3");
-	return DEV_PLAN_PRICES[tier] * multiplier;
 }
 
 function getDevPlanPriceId(tier: DevPlanTier): string | undefined {
@@ -109,72 +155,20 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 		});
 	}
 
-	// Find existing personal org for user
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingPersonalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
-	);
-
-	if (existingPersonalOrg?.organization) {
-		const org = existingPersonalOrg.organization;
-		return c.json({
-			id: org.id,
-			name: org.name,
-			isPersonal: org.isPersonal,
-			devPlan: org.devPlan,
-			devPlanCreditsUsed: org.devPlanCreditsUsed,
-			devPlanCreditsLimit: org.devPlanCreditsLimit,
-			devPlanBillingCycleStart:
-				org.devPlanBillingCycleStart?.toISOString() || null,
-			devPlanCancelled: org.devPlanCancelled,
-			devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() || null,
-			credits: org.credits,
-		});
-	}
-
-	// Create new personal org
-	const [newOrg] = await db
-		.insert(tables.organization)
-		.values({
-			name: "Personal",
-			isPersonal: true,
-			billingEmail: user.email,
-		})
-		.returning();
-
-	await db.insert(tables.userOrganization).values({
-		userId: user.id,
-		organizationId: newOrg.id,
-		role: "owner",
-	});
-
-	// Create default project for personal org
-	await db.insert(tables.project).values({
-		name: "Default Project",
-		organizationId: newOrg.id,
-		mode: "credits",
-	});
+	const org = await getOrCreatePersonalOrg(user);
 
 	return c.json({
-		id: newOrg.id,
-		name: newOrg.name,
-		isPersonal: newOrg.isPersonal,
-		devPlan: newOrg.devPlan,
-		devPlanCreditsUsed: newOrg.devPlanCreditsUsed,
-		devPlanCreditsLimit: newOrg.devPlanCreditsLimit,
+		id: org.id,
+		name: org.name,
+		isPersonal: org.isPersonal,
+		devPlan: org.devPlan,
+		devPlanCreditsUsed: org.devPlanCreditsUsed,
+		devPlanCreditsLimit: org.devPlanCreditsLimit,
 		devPlanBillingCycleStart:
-			newOrg.devPlanBillingCycleStart?.toISOString() || null,
-		devPlanCancelled: newOrg.devPlanCancelled,
-		devPlanExpiresAt: newOrg.devPlanExpiresAt?.toISOString() || null,
-		credits: newOrg.credits,
+			org.devPlanBillingCycleStart?.toISOString() || null,
+		devPlanCancelled: org.devPlanCancelled,
+		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() || null,
+		credits: org.credits,
 	});
 });
 
@@ -225,45 +219,7 @@ devPlans.openapi(subscribe, async (c) => {
 	}
 
 	// Get or create personal org
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	let personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
-	)?.organization;
-
-	if (!personalOrg) {
-		// Create new personal org
-		const [newOrg] = await db
-			.insert(tables.organization)
-			.values({
-				name: "Personal",
-				isPersonal: true,
-				billingEmail: user.email,
-			})
-			.returning();
-
-		await db.insert(tables.userOrganization).values({
-			userId: user.id,
-			organizationId: newOrg.id,
-			role: "owner",
-		});
-
-		// Create default project
-		await db.insert(tables.project).values({
-			name: "Default Project",
-			organizationId: newOrg.id,
-			mode: "credits",
-		});
-
-		personalOrg = newOrg;
-	}
+	const personalOrg = await getOrCreatePersonalOrg(user);
 
 	// Check if already has an active dev plan subscription
 	if (
