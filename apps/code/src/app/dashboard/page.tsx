@@ -281,7 +281,8 @@ export default function Dashboard() {
 										/>
 									</div>
 									<p className="text-sm text-muted-foreground mt-2">
-										{(100 - usagePercentage).toFixed(0)}% remaining this cycle
+										{Math.max(0, 100 - usagePercentage).toFixed(0)}% remaining
+										this cycle
 									</p>
 								</div>
 
