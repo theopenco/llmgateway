@@ -298,16 +298,29 @@ export default function Dashboard() {
 										{showApiKey ? "Hide" : "Show"}
 									</Button>
 								</div>
-								<div className="flex items-center gap-2 text-sm text-muted-foreground">
-									<ExternalLink className="h-4 w-4" />
-									<a
-										href={`${config.uiUrl}/guides`}
-										target="_blank"
-										rel="noopener noreferrer"
-										className="underline hover:text-foreground"
-									>
-										View integration guides
-									</a>
+								<div className="flex gap-4">
+									<div className="flex items-center gap-2 text-sm text-muted-foreground">
+										<ExternalLink className="h-4 w-4" />
+										<a
+											href={`${config.uiUrl}/guides`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="underline hover:text-foreground"
+										>
+											View integration guides
+										</a>
+									</div>
+									<div className="flex items-center gap-2 text-sm text-muted-foreground">
+										<ExternalLink className="h-4 w-4" />
+										<a
+											href={`${config.uiUrl}/models`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="underline hover:text-foreground"
+										>
+											View all models
+										</a>
+									</div>
 								</div>
 							</div>
 						)}
