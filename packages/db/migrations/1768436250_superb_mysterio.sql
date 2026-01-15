@@ -1,0 +1,1 @@
+CREATE INDEX "log_unprocessed_idx" ON "log" ("created_at") WHERE processed_at IS NULL;
