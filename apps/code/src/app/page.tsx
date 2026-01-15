@@ -34,7 +34,7 @@ const plans = [
 	},
 	{
 		name: "Max",
-		price: 149,
+		price: 179,
 		credits: 447,
 		description: "For ultra high usage and power users",
 		features: [

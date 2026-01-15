@@ -21,7 +21,7 @@ import type Stripe from "stripe";
 const DEV_PLAN_PRICES = {
 	lite: 29,
 	pro: 79,
-	max: 149,
+	max: 179,
 } as const;
 
 type DevPlanTier = keyof typeof DEV_PLAN_PRICES;

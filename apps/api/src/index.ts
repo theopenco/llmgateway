@@ -57,6 +57,8 @@ app.use(
 		origin: process.env.ORIGIN_URLS?.split(",") || [
 			"http://localhost:3002",
 			"http://localhost:3003",
+			"http://localhost:3004",
+			"http://localhost:3005",
 			"http://localhost:3006",
 		],
 		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
