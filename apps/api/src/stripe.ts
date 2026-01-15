@@ -385,6 +385,14 @@ async function handleCheckoutSessionCompleted(
 			});
 		} else {
 			// Handle regular pro plan subscription
+			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
+			if (organization.isPersonal) {
+				logger.warn(
+					`Skipping plan: "pro" for personal org ${organizationId} - personal orgs should use devPlan field`,
+				);
+				return;
+			}
+
 			const result = await db
 				.update(tables.organization)
 				.set({
