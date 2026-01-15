@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "pnpm generate && tsc && next build --webpack && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/code/.next/ && test -d public && cp -r public .next/standalone/apps/code/",
-		"dev": "next dev --port 3007 --webpack",
+		"dev": "next dev --port 3004 --webpack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",
