@@ -498,7 +498,7 @@ export const log = pgTable(
 		// Index for distinct usedModel queries by project
 		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
 		// Partial index for batch credit processing: only indexes unprocessed logs
-		index("log_unprocessed_idx")
+		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
 	],
