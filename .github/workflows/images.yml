@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, gateway, playground, ui, docs, worker, admin]
+        app: [api, gateway, playground, ui, docs, worker, admin, code]
         platform: ${{ github.event_name == 'pull_request' && fromJSON('["linux/amd64"]') || fromJSON('["linux/amd64", "linux/arm64"]') }}
     permissions:
       contents: read
@@ -127,7 +127,7 @@ jobs:
     if: needs.setup.result == 'success' && github.event_name != 'pull_request'
     strategy:
       matrix:
-        app: [api, gateway, playground, ui, docs, worker, admin]
+        app: [api, gateway, playground, ui, docs, worker, admin, code]
     permissions:
       contents: read
       packages: write
@@ -218,7 +218,7 @@ jobs:
       - name: Build all split Docker images for testing
         run: |
           # Build all split images sequentially
-          for app in api gateway playground ui docs worker admin; do
+          for app in api gateway playground ui docs worker admin code; do
             echo "Building $app image..."
             docker build \
               -f infra/split.dockerfile \

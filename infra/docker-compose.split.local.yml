@@ -229,6 +229,39 @@ services:
       - POSTHOG_HOST=${POSTHOG_HOST}
       - CI=${CI}
 
+  # Code Service
+  code:
+    build:
+      context: ..
+      dockerfile: infra/split.dockerfile
+      target: code
+    container_name: llmgateway-code
+    restart: unless-stopped
+    ports:
+      - "${CODE_PORT:-3004}:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - API_URL=${API_URL:-http://localhost:4002}
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CODE_URL=${CODE_URL:-http://localhost:3004}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - POSTHOG_KEY=${POSTHOG_KEY}
+      - CI=${CI}
+
   # PostgreSQL Database
   postgres:
     platform: linux/amd64
