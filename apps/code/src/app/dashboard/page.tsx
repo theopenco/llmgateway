@@ -25,52 +25,11 @@ import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import type { ComponentType, SVGProps } from "react";
-
-type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
-
-const AnthropicIcon: IconComponent = (props) => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		shapeRendering="geometricPrecision"
-		textRendering="geometricPrecision"
-		imageRendering="optimizeQuality"
-		fillRule="evenodd"
-		clipRule="evenodd"
-		viewBox="0 0 512 512"
-		{...props}
-	>
-		<path
-			fill="currentColor"
-			d="M318.725 148.64h-45.91l92.385 214.72h45.91l-92.385-214.72Zm-79.54 0-92.385 214.72h47.04l18.955-45.652h94.515l18.954 45.652h47.04l-92.385-214.72h-41.734Zm51.983 130.48h-62.232l31.116-74.903 31.116 74.903Z"
-		/>
-	</svg>
-);
-
-const ClineIcon: IconComponent = (props) => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 466.73 487.04"
-		{...props}
-	>
-		<path
-			d="m463.6 275.08-29.26-58.75V182.5c0-56.08-45.01-101.5-100.53-101.5H283.8c3.62-7.43 5.61-15.79 5.61-24.61C289.41 25.22 264.33 0 233.34 0s-56.07 25.22-56.07 56.39c0 8.82 1.99 17.17 5.61 24.61h-50.01C77.36 81 32.35 126.42 32.35 182.5v33.83L2.48 274.92c-3.01 5.9-3.01 12.92 0 18.81l29.87 57.93v33.83c0 56.08 45.01 101.5 100.52 101.5h200.95c55.51 0 100.53-45.42 100.53-101.5v-33.83l29.21-58.13c2.9-5.79 2.9-12.61.05-18.46Zm-260.85 47.88c0 25.48-20.54 46.14-45.88 46.14s-45.88-20.66-45.88-46.14v-82.02c0-25.48 20.54-46.14 45.88-46.14s45.88 20.66 45.88 46.14zm147.83 0c0 25.48-20.54 46.14-45.88 46.14s-45.88-20.66-45.88-46.14v-82.02c0-25.48 20.54-46.14 45.88-46.14s45.88 20.66 45.88 46.14z"
-			fill="currentColor"
-		/>
-	</svg>
-);
-
-const OpenCodeIcon: IconComponent = (props) => (
-	<svg
-		fill="none"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 240 300"
-		{...props}
-	>
-		<path d="M180 240H60V120h120z" fill="currentColor" fillOpacity={0.5} />
-		<path d="M180 60H60v180h120zm60 240H0V0h240z" fill="currentColor" />
-	</svg>
-);
+import {
+	AnthropicIcon,
+	ClineIcon,
+	OpenCodeIcon,
+} from "@llmgateway/shared/components";
 
 const integrations = [
 	{
