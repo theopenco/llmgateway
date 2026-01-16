@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e479dd71-a49e-4c11-ac02-2c88a95fc2a4",
+  "id": "4c6c591c-8063-42ff-af40-736341a98752",
   "prevId": "b0865621-d047-4d89-a737-fd4f5ccdc48f",
   "ddl": [
     {
@@ -1911,7 +1911,7 @@
     {
       "type": "timestamp",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "now()",
@@ -1927,10 +1927,10 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
-        "value": "''",
+        "value": "'(empty)'",
         "type": "unknown"
       },
       "generated": null,
@@ -1943,7 +1943,7 @@
     {
       "type": "json",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "type": "unknown",
@@ -1959,10 +1959,10 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
-        "value": "''",
+        "value": "'(empty)'",
         "type": "unknown"
       },
       "generated": null,
@@ -1988,7 +1988,7 @@
     {
       "type": "boolean",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "false",
@@ -2004,7 +2004,7 @@
     {
       "type": "json",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "type": "unknown",
@@ -2020,7 +2020,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "'stable'",
@@ -2725,7 +2725,7 @@
     {
       "type": "boolean",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "false",
@@ -2741,9 +2741,12 @@
     {
       "type": "boolean",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
-      "default": null,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
       "generated": null,
       "identity": null,
       "name": "json_output_schema",
@@ -2754,7 +2757,7 @@
     {
       "type": "boolean",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "false",
@@ -2770,7 +2773,7 @@
     {
       "type": "numeric",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "'0'",
@@ -2786,7 +2789,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "'stable'",
