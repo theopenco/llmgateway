@@ -450,6 +450,16 @@ export async function prepareRequestBody(
 		temperature = 1;
 	}
 
+	// OpenAI family models require max_tokens >= 16
+	if (
+		modelDef?.family === "openai" &&
+		max_tokens !== undefined &&
+		max_tokens < 16
+	) {
+		// eslint-disable-next-line no-param-reassign
+		max_tokens = 16;
+	}
+
 	switch (usedProvider) {
 		case "openai": {
 			// Check if the model supports responses API
