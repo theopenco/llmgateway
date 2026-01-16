@@ -130,6 +130,28 @@ async function convertImagesToBase64(
 	);
 }
 
+/**
+ * Checks if any messages contain images (image_url or image type content)
+ * Used to filter providers that don't support vision
+ */
+function messagesContainImages(messages: BaseMessage[]): boolean {
+	for (const message of messages) {
+		if (Array.isArray(message.content)) {
+			for (const part of message.content) {
+				if (
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					(part.type === "image_url" || part.type === "image")
+				) {
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
 export const chat = new OpenAPIHono<ServerTypes>();
 
 const completionsRequestSchema = z.object({
@@ -578,6 +600,9 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
+
+	// Check if messages contain images for vision capability filtering
+	const hasImages = messagesContainImages(messages as BaseMessage[]);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1254,6 +1279,11 @@ chat.openapi(completions, async (c) => {
 					}
 				}
 
+				// Check vision capability if images are present in messages
+				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
+					return false;
+				}
+
 				return contextSizeMet;
 			});
 
@@ -1436,6 +1466,13 @@ chat.openapi(completions, async (c) => {
 								return false;
 							}
 						}
+						// If images are present in messages, only include providers that support vision
+						if (
+							hasImages &&
+							(provider as ProviderModelMapping).vision !== true
+						) {
+							return false;
+						}
 						return true;
 					},
 				);
@@ -1571,6 +1608,10 @@ chat.openapi(completions, async (c) => {
 						return false;
 					}
 				}
+				// If images are present in messages, only include providers that support vision
+				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
+					return false;
+				}
 				return true;
 			});
 
@@ -1578,8 +1619,12 @@ chat.openapi(completions, async (c) => {
 				throw new HTTPException(400, {
 					message:
 						project.mode === "api-keys"
-							? `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-							: `No available provider could be found for model ${usedModel}`,
+							? hasImages
+								? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the configured providers support vision.`
+								: `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
+							: hasImages
+								? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the available providers support vision.`
+								: `No available provider could be found for model ${usedModel}`,
 				});
 			}
 
