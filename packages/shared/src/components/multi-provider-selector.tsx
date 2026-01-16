@@ -18,8 +18,21 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 import type { ProviderDefinition } from "@llmgateway/models";
 
+interface ApiProvider {
+	id: string;
+	createdAt: string;
+	name: string | null;
+	description: string | null;
+	streaming: boolean | null;
+	cancellation: boolean | null;
+	color: string | null;
+	website: string | null;
+	announcement: string | null;
+	status: "active" | "inactive";
+}
+
 interface MultiProviderSelectorProps {
-	providers: readonly ProviderDefinition[];
+	providers: readonly ProviderDefinition[] | ApiProvider[];
 	selectedProviders: string[];
 	onProvidersChange: (providers: string[]) => void;
 	placeholder?: string;
@@ -120,10 +133,12 @@ export function MultiProviderSelector({
 											</div>
 
 											<div className="flex items-center gap-2">
-												<div
-													className="w-3 h-3 rounded-full"
-													style={{ backgroundColor: provider.color }}
-												/>
+												{provider.color && (
+													<div
+														className="w-3 h-3 rounded-full"
+														style={{ backgroundColor: provider.color }}
+													/>
+												)}
 												{isSelected && (
 													<Check className="h-4 w-4 text-green-600" />
 												)}

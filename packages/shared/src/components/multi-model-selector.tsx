@@ -24,15 +24,72 @@ import type {
 	StabilityLevel,
 } from "@llmgateway/models";
 
+interface ApiModel {
+	id: string;
+	createdAt: string;
+	releasedAt: string | null;
+	name: string | null;
+	aliases: string[] | null;
+	description: string | null;
+	family: string;
+	free: boolean | null;
+	output: string[] | null;
+	stability: StabilityLevel | null;
+	status: "active" | "inactive";
+	mappings: ApiModelProviderMapping[];
+}
+
+interface ApiModelProviderMapping {
+	id: string;
+	createdAt: string;
+	modelId: string;
+	providerId: string;
+	modelName: string;
+	inputPrice: string | null;
+	outputPrice: string | null;
+	cachedInputPrice: string | null;
+	imageInputPrice: string | null;
+	requestPrice: string | null;
+	contextSize: number | null;
+	maxOutput: number | null;
+	streaming: boolean;
+	vision: boolean | null;
+	reasoning: boolean | null;
+	reasoningOutput: string | null;
+	tools: boolean | null;
+	jsonOutput: boolean | null;
+	jsonOutputSchema: boolean | null;
+	webSearch: boolean | null;
+	discount: string | null;
+	stability: StabilityLevel | null;
+	supportedParameters: string[] | null;
+	deprecatedAt: string | null;
+	deactivatedAt: string | null;
+	status: "active" | "inactive";
+}
+
+interface ApiProvider {
+	id: string;
+	createdAt: string;
+	name: string | null;
+	description: string | null;
+	streaming: boolean | null;
+	cancellation: boolean | null;
+	color: string | null;
+	website: string | null;
+	announcement: string | null;
+	status: "active" | "inactive";
+}
+
 interface MultiModelSelectorProps {
-	models: readonly ModelDefinition[];
-	providers: readonly ProviderDefinition[];
+	models: readonly ModelDefinition[] | ApiModel[];
+	providers: readonly ProviderDefinition[] | ApiProvider[];
 	selectedModels: string[];
 	onModelsChange: (models: string[]) => void;
 	placeholder?: string;
 }
 
-function getStabilityBadgeProps(stability?: StabilityLevel) {
+function getStabilityBadgeProps(stability?: StabilityLevel | null) {
 	switch (stability) {
 		case "beta":
 			return {
@@ -57,13 +114,41 @@ function getStabilityBadgeProps(stability?: StabilityLevel) {
 	}
 }
 
-function shouldShowStabilityWarning(stability?: StabilityLevel) {
+function shouldShowStabilityWarning(stability?: StabilityLevel | null) {
 	return stability && ["unstable", "experimental"].includes(stability);
 }
 
+type UnifiedModel = ModelDefinition | ApiModel;
+
+function isApiModel(model: UnifiedModel): model is ApiModel {
+	return "mappings" in model;
+}
+
+function getModelProviders(model: UnifiedModel) {
+	if (isApiModel(model)) {
+		return model.mappings.map((m) => ({
+			providerId: m.providerId,
+			modelName: m.modelName,
+			stability: m.stability,
+		}));
+	}
+	return model.providers.map((p) => ({
+		providerId: p.providerId,
+		modelName: p.modelName,
+		stability: p.stability,
+	}));
+}
+
+function getModelReleasedAt(model: UnifiedModel): string | Date | undefined {
+	if (isApiModel(model)) {
+		return model.releasedAt ?? undefined;
+	}
+	return model.releasedAt;
+}
+
 function getMostUnstableStability(
-	model: ModelDefinition,
-): StabilityLevel | undefined {
+	model: UnifiedModel,
+): StabilityLevel | null | undefined {
 	const stabilityLevels: StabilityLevel[] = [
 		"experimental",
 		"unstable",
@@ -71,9 +156,10 @@ function getMostUnstableStability(
 		"stable",
 	];
 
+	const providers = getModelProviders(model);
 	const allStabilities = [
 		model.stability,
-		...model.providers.map((p) => p.stability || model.stability),
+		...providers.map((p) => p.stability || model.stability),
 	].filter(Boolean) as StabilityLevel[];
 
 	for (const level of stabilityLevels) {
@@ -104,17 +190,24 @@ export function MultiModelSelector({
 	const modelsWithProviderInfo = useMemo(() => {
 		return [...models]
 			.sort((a, b) => {
-				const dateA = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
-				const dateB = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+				const dateA = getModelReleasedAt(a)
+					? new Date(getModelReleasedAt(a)!).getTime()
+					: 0;
+				const dateB = getModelReleasedAt(b)
+					? new Date(getModelReleasedAt(b)!).getTime()
+					: 0;
 				return dateB - dateA;
 			})
-			.map((model) => ({
-				...model,
-				providersWithInfo: model.providers.map((provider) => ({
-					...provider,
-					providerInfo: getProviderInfo(provider.providerId),
-				})),
-			}));
+			.map((model) => {
+				const modelProviders = getModelProviders(model);
+				return {
+					...model,
+					providersWithInfo: modelProviders.map((provider) => ({
+						...provider,
+						providerInfo: getProviderInfo(provider.providerId),
+					})),
+				};
+			});
 	}, [models, getProviderInfo]);
 
 	const handleModelToggle = useCallback(
@@ -149,7 +242,7 @@ export function MultiModelSelector({
 								variant="secondary"
 								className="flex items-center gap-1"
 							>
-								{firstProvider?.providerInfo && (
+								{firstProvider?.providerInfo?.color && (
 									<div
 										className="w-2 h-2 rounded-full"
 										style={{

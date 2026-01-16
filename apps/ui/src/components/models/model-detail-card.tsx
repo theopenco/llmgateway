@@ -14,17 +14,17 @@ import {
 import { ModelCard } from "./model-card";
 
 import type {
-	ModelDefinition,
-	ProviderModelMapping,
-	StabilityLevel,
-	providers,
-} from "@llmgateway/models";
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
+import type { StabilityLevel } from "@llmgateway/models";
 import type { LucideProps } from "lucide-react";
 
-interface ModelWithProviders extends ModelDefinition {
+interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
-		provider: ProviderModelMapping;
-		providerInfo: (typeof providers)[number];
+		provider: ApiModelProviderMapping;
+		providerInfo: ApiProvider;
 	}>;
 }
 
@@ -33,17 +33,28 @@ interface ModelDetailCardProps {
 }
 
 export function ModelDetailCard({ model }: ModelDetailCardProps) {
-	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
-		return stability && ["unstable", "experimental"].includes(stability);
+	const shouldShowStabilityWarning = (
+		stability?: StabilityLevel | null,
+	): boolean | undefined => {
+		return (
+			stability !== null &&
+			stability !== undefined &&
+			["unstable", "experimental"].includes(stability)
+		);
 	};
 
-	const formatPrice = (price: number | undefined, discount?: number) => {
-		if (price === undefined) {
+	const formatPrice = (
+		price: string | null | undefined,
+		discount?: string | null,
+	) => {
+		if (price === null || price === undefined) {
 			return "—";
 		}
-		const originalPrice = price * 1e6;
-		if (discount) {
-			const discountedPrice = price * 1e6 * (1 - discount);
+		const priceNum = parseFloat(price);
+		const discountNum = discount ? parseFloat(discount) : 0;
+		const originalPrice = priceNum * 1e6;
+		if (discountNum > 0) {
+			const discountedPrice = priceNum * 1e6 * (1 - discountNum);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">
@@ -61,8 +72,8 @@ export function ModelDetailCard({ model }: ModelDetailCardProps) {
 	};
 
 	const getCapabilityIcons = (
-		provider: ProviderModelMapping,
-		modelData?: any,
+		provider: ApiModelProviderMapping,
+		modelData?: ApiModel,
 	) => {
 		const capabilities: Array<{
 			icon: React.ForwardRefExoticComponent<
@@ -124,10 +135,10 @@ export function ModelDetailCard({ model }: ModelDetailCardProps) {
 				color: "text-pink-500",
 			});
 		}
-		if (provider.discount && provider.discount > 0) {
+		if (provider.discount && parseFloat(provider.discount) > 0) {
 			capabilities.push({
 				icon: Gift,
-				label: `${(provider.discount * 100).toFixed(0)}% Discount`,
+				label: `${(parseFloat(provider.discount) * 100).toFixed(0)}% Discount`,
 				color: "text-green-500",
 			});
 		}

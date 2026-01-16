@@ -5,6 +5,12 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_PRICES,
+	type DevPlanTier,
+	getDevPlanCreditsLimit,
+} from "./dev-plans.js";
+
+export {
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,

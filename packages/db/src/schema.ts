@@ -146,6 +146,19 @@ export const organization = pgTable("organization", {
 	referralEarnings: decimal().notNull().default("0"),
 	paymentFailureCount: integer().notNull().default(0),
 	lastPaymentFailureAt: timestamp(),
+	// Dev Plans fields (for personal accounts)
+	isPersonal: boolean().notNull().default(false),
+	devPlan: text({
+		enum: ["none", "lite", "pro", "max"],
+	})
+		.notNull()
+		.default("none"),
+	devPlanCreditsUsed: decimal().notNull().default("0"),
+	devPlanCreditsLimit: decimal().notNull().default("0"),
+	devPlanBillingCycleStart: timestamp(),
+	devPlanStripeSubscriptionId: text().unique(),
+	devPlanCancelled: boolean().notNull().default(false),
+	devPlanExpiresAt: timestamp(),
 });
 
 export const referral = pgTable(
@@ -194,6 +207,12 @@ export const transaction = pgTable(
 				"subscription_end",
 				"credit_topup",
 				"credit_refund",
+				"dev_plan_start",
+				"dev_plan_upgrade",
+				"dev_plan_downgrade",
+				"dev_plan_cancel",
+				"dev_plan_end",
+				"dev_plan_renewal",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -678,10 +697,18 @@ export const model = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		name: text(),
+		releasedAt: timestamp().defaultNow().notNull(),
+		name: text().default("(empty)").notNull(),
+		aliases: json().$type<string[]>().default([]).notNull(),
+		description: text().default("(empty)").notNull(),
 		family: text().notNull(),
-		free: boolean(),
-		output: json().$type<string[]>(),
+		free: boolean().default(false).notNull(),
+		output: json().$type<string[]>().default(["text"]).notNull(),
+		stability: text({
+			enum: ["stable", "beta", "unstable", "experimental"],
+		})
+			.default("stable")
+			.notNull(),
 		status: text({
 			enum: ["active", "inactive"],
 		})
@@ -728,6 +755,15 @@ export const modelProviderMapping = pgTable(
 		reasoning: boolean(),
 		reasoningOutput: text(),
 		tools: boolean(),
+		jsonOutput: boolean().default(false).notNull(),
+		jsonOutputSchema: boolean().default(false).notNull(),
+		webSearch: boolean().default(false).notNull(),
+		discount: decimal().default("0").notNull(),
+		stability: text({
+			enum: ["stable", "beta", "unstable", "experimental"],
+		})
+			.default("stable")
+			.notNull(),
 		supportedParameters: json().$type<string[]>(),
 		test: text({
 			enum: ["skip", "only"],

@@ -30,6 +30,13 @@ const organizationSchema = z.object({
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
 	referralEarnings: z.string(),
+	// Dev Plans fields
+	isPersonal: z.boolean(),
+	devPlan: z.enum(["none", "lite", "pro", "max"]),
+	devPlanCreditsUsed: z.string(),
+	devPlanCreditsLimit: z.string(),
+	devPlanBillingCycleStart: z.date().nullable(),
+	devPlanExpiresAt: z.date().nullable(),
 });
 
 const projectSchema = z.object({
@@ -72,6 +79,12 @@ const transactionSchema = z.object({
 		"subscription_end",
 		"credit_topup",
 		"credit_refund",
+		"dev_plan_start",
+		"dev_plan_upgrade",
+		"dev_plan_downgrade",
+		"dev_plan_cancel",
+		"dev_plan_end",
+		"dev_plan_renewal",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),
@@ -121,7 +134,9 @@ organization.openapi(getOrganizations, async (c) => {
 
 	const organizations = userOrganizations
 		.map((uo) => uo.organization!)
-		.filter((org) => org.status !== "deleted");
+		.filter((org) => org.status !== "deleted")
+		// Hide personal orgs from regular UI - they are only visible on code.llmgateway.io
+		.filter((org) => !org.isPersonal);
 
 	return c.json({
 		organizations,
@@ -498,6 +513,14 @@ organization.openapi(deleteOrganization, async (c) => {
 	) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// Block deletion of personal orgs - they are managed via dev plans
+	if (userOrganization.organization?.isPersonal) {
+		throw new HTTPException(403, {
+			message:
+				"Personal organizations cannot be deleted. Please cancel your dev plan at code.llmgateway.io instead.",
 		});
 	}
 

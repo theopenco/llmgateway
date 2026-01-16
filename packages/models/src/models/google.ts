@@ -8,7 +8,6 @@ export const googleModels = [
 			"Google's most capable model with reasoning and multimodal support.",
 		family: "google",
 		releasedAt: new Date("2025-07-01"),
-		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -82,7 +81,6 @@ export const googleModels = [
 		description: "Preview version of Gemini 2.5 Pro (May 2025).",
 		family: "google",
 		releasedAt: new Date("2025-05-06"),
-		publishedAt: new Date("2025-05-06"),
 		providers: [
 			{
 				test: "skip",
@@ -156,7 +154,6 @@ export const googleModels = [
 		description: "Preview version of Gemini 2.5 Pro (June 2025).",
 		family: "google",
 		releasedAt: new Date("2025-06-05"),
-		publishedAt: new Date("2025-06-05"),
 		providers: [
 			{
 				test: "skip",
@@ -230,7 +227,6 @@ export const googleModels = [
 		description: "Early preview of fast Gemini 2.5 Flash model.",
 		family: "google",
 		releasedAt: new Date("2025-04-17"),
-		publishedAt: new Date("2025-04-17"),
 		providers: [
 			{
 				discount: 0.2,
@@ -274,7 +270,6 @@ export const googleModels = [
 		description: "May preview of Gemini 2.5 Flash with improved performance.",
 		family: "google",
 		releasedAt: new Date("2025-05-20"),
-		publishedAt: new Date("2025-05-20"),
 		providers: [
 			{
 				discount: 0.2,
@@ -318,7 +313,6 @@ export const googleModels = [
 		description: "September preview of Gemini 2.5 Flash with caching.",
 		family: "google",
 		releasedAt: new Date("2025-09-01"),
-		publishedAt: new Date("2025-09-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -362,7 +356,6 @@ export const googleModels = [
 		description: "Fast, cost-effective model with reasoning capabilities.",
 		family: "google",
 		releasedAt: new Date("2025-07-01"),
-		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -411,7 +404,6 @@ export const googleModels = [
 			"Ultra-lightweight Gemini for high-volume, cost-sensitive tasks.",
 		family: "google",
 		releasedAt: new Date("2025-07-01"),
-		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -453,7 +445,6 @@ export const googleModels = [
 		description: "Preview of lightweight Gemini Flash Lite variant.",
 		family: "google",
 		releasedAt: new Date("2025-09-01"),
-		publishedAt: new Date("2025-09-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -496,7 +487,6 @@ export const googleModels = [
 			"Preview of next-generation Gemini 3 Pro with enhanced capabilities.",
 		family: "google",
 		releasedAt: new Date("2025-11-18"),
-		publishedAt: new Date("2025-11-18"),
 		providers: [
 			{
 				discount: 0.2,
@@ -575,7 +565,6 @@ export const googleModels = [
 			"Preview of next-generation Gemini 3 Flash built for speed, combining frontier intelligence with superior search and grounding.",
 		family: "google",
 		releasedAt: new Date("2025-12-17"),
-		publishedAt: new Date("2025-12-17"),
 		providers: [
 			{
 				discount: 0.2,
@@ -655,7 +644,6 @@ export const googleModels = [
 		family: "google",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-07-01"),
-		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				test: "skip",
@@ -699,7 +687,6 @@ export const googleModels = [
 		family: "google",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-07-01"),
-		publishedAt: new Date("2025-07-01"),
 		providers: [
 			{
 				test: "skip",
@@ -744,7 +731,6 @@ export const googleModels = [
 		family: "google",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-11-20"),
-		publishedAt: new Date("2025-11-20"),
 		providers: [
 			{
 				test: "skip",
@@ -790,7 +776,6 @@ export const googleModels = [
 		description: "Gemini Flash preview with explicit thinking/reasoning mode.",
 		family: "google",
 		releasedAt: new Date("2025-04-17"),
-		publishedAt: new Date("2025-04-17"),
 		providers: [
 			{
 				discount: 0.2,
@@ -834,7 +819,6 @@ export const googleModels = [
 		description: "Previous generation Gemini Pro with multimodal support.",
 		family: "google",
 		releasedAt: new Date("2024-02-15"),
-		publishedAt: new Date("2024-02-15"),
 		providers: [
 			{
 				discount: 0.2,
@@ -878,7 +862,6 @@ export const googleModels = [
 		description: "Fast Gemini 1.5 model for quick multimodal tasks.",
 		family: "google",
 		releasedAt: new Date("2024-05-14"),
-		publishedAt: new Date("2024-05-14"),
 		providers: [
 			{
 				discount: 0.2,
@@ -922,7 +905,6 @@ export const googleModels = [
 		description: "Compact 8B Gemini Flash for lightweight inference.",
 		family: "google",
 		releasedAt: new Date("2024-06-01"),
-		publishedAt: new Date("2024-06-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -966,7 +948,6 @@ export const googleModels = [
 		description: "Efficient Gemini 2.0 variant for cost-effective processing.",
 		family: "google",
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1006,7 +987,6 @@ export const googleModels = [
 		description: "Gemini 2.0 Flash with balanced speed and capability.",
 		family: "google",
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1046,7 +1026,6 @@ export const googleModels = [
 		description: "Compact Gemma 3N instruction-tuned model (2B effective).",
 		family: "google",
 		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1070,7 +1049,6 @@ export const googleModels = [
 		description: "Gemma 3N instruction-tuned model (4B effective).",
 		family: "google",
 		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1094,7 +1072,6 @@ export const googleModels = [
 		description: "Tiny 1B Gemma 3 model for edge deployment.",
 		family: "google",
 		releasedAt: new Date("2025-03-01"),
-		publishedAt: new Date("2025-03-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1118,7 +1095,6 @@ export const googleModels = [
 		description: "Small 4B Gemma 3 model for efficient inference.",
 		family: "google",
 		releasedAt: new Date("2025-03-01"),
-		publishedAt: new Date("2025-03-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1142,7 +1118,6 @@ export const googleModels = [
 		description: "Medium 12B Gemma 3 model balancing size and capability.",
 		family: "google",
 		releasedAt: new Date("2025-03-01"),
-		publishedAt: new Date("2025-03-01"),
 		providers: [
 			{
 				discount: 0.2,
@@ -1166,7 +1141,6 @@ export const googleModels = [
 		description: "Gemma 2 9B instruction model via Groq inference.",
 		family: "google",
 		releasedAt: new Date("2024-06-01"),
-		publishedAt: new Date("2024-06-01"),
 		providers: [
 			{
 				providerId: "groq",
@@ -1191,7 +1165,6 @@ export const googleModels = [
 		description: "Large 27B Gemma 3 model with vision support.",
 		family: "google",
 		releasedAt: new Date("2025-03-01"),
-		publishedAt: new Date("2025-03-01"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -1214,7 +1187,6 @@ export const googleModels = [
 		description: "Gemma 2 27B via Together AI inference.",
 		family: "google",
 		releasedAt: new Date("2024-06-01"),
-		publishedAt: new Date("2024-06-01"),
 		providers: [
 			{
 				test: "skip",

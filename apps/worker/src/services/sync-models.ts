@@ -54,19 +54,31 @@ export async function syncProvidersAndModels() {
 				.insert(model)
 				.values({
 					id: modelDef.id,
-					name: modelDef.name || null,
+					name: modelDef.name,
+					aliases: "aliases" in modelDef ? modelDef.aliases : undefined,
+					description:
+						"description" in modelDef ? modelDef.description : undefined,
 					family: modelDef.family,
-					free: "free" in modelDef ? modelDef.free || null : null,
-					output: "output" in modelDef ? modelDef.output || null : null,
+					free: "free" in modelDef ? modelDef.free : undefined,
+					output: "output" in modelDef ? modelDef.output : undefined,
+					stability: "stability" in modelDef ? modelDef.stability : undefined,
+					releasedAt:
+						"releasedAt" in modelDef ? modelDef.releasedAt : undefined,
 					status: "active",
 				})
 				.onConflictDoUpdate({
 					target: model.id,
 					set: {
-						name: modelDef.name || null,
+						name: modelDef.name,
+						aliases: "aliases" in modelDef ? modelDef.aliases : undefined,
+						description:
+							"description" in modelDef ? modelDef.description : undefined,
 						family: modelDef.family,
-						free: "free" in modelDef ? modelDef.free || null : null,
-						output: "output" in modelDef ? modelDef.output || null : null,
+						free: "free" in modelDef ? modelDef.free : undefined,
+						output: "output" in modelDef ? modelDef.output : undefined,
+						stability: "stability" in modelDef ? modelDef.stability : undefined,
+						releasedAt:
+							"releasedAt" in modelDef ? modelDef.releasedAt : undefined,
 						updatedAt: new Date(),
 					},
 				});
@@ -93,56 +105,68 @@ export async function syncProvidersAndModels() {
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
 										? mapping.inputPrice.toString()
-										: null,
+										: undefined,
 								outputPrice:
 									"outputPrice" in mapping && mapping.outputPrice !== undefined
 										? mapping.outputPrice.toString()
-										: null,
+										: undefined,
 								cachedInputPrice:
 									"cachedInputPrice" in mapping &&
 									mapping.cachedInputPrice !== undefined
 										? mapping.cachedInputPrice.toString()
-										: null,
+										: undefined,
 								imageInputPrice:
 									"imageInputPrice" in mapping &&
 									mapping.imageInputPrice !== undefined
 										? mapping.imageInputPrice.toString()
-										: null,
+										: undefined,
 								requestPrice:
 									"requestPrice" in mapping &&
 									mapping.requestPrice !== undefined
 										? mapping.requestPrice.toString()
-										: null,
+										: undefined,
 								contextSize:
-									"contextSize" in mapping ? mapping.contextSize || null : null,
+									"contextSize" in mapping ? mapping.contextSize : undefined,
 								maxOutput:
-									"maxOutput" in mapping ? mapping.maxOutput || null : null,
+									"maxOutput" in mapping ? mapping.maxOutput : undefined,
 								streaming: mapping.streaming === false ? false : true,
-								vision: "vision" in mapping ? mapping.vision || null : null,
+								vision: "vision" in mapping ? mapping.vision : undefined,
 								reasoning:
-									"reasoning" in mapping ? mapping.reasoning || null : null,
+									"reasoning" in mapping ? mapping.reasoning : undefined,
 								reasoningOutput:
 									"reasoningOutput" in mapping
-										? (mapping.reasoningOutput as string | null) || null
-										: null,
-								tools: "tools" in mapping ? mapping.tools || null : null,
+										? (mapping.reasoningOutput as string | undefined)
+										: undefined,
+								tools: "tools" in mapping ? mapping.tools : undefined,
+								jsonOutput:
+									"jsonOutput" in mapping ? mapping.jsonOutput : undefined,
+								jsonOutputSchema:
+									"jsonOutputSchema" in mapping
+										? mapping.jsonOutputSchema
+										: undefined,
+								webSearch:
+									"webSearch" in mapping ? mapping.webSearch : undefined,
+								discount:
+									"discount" in mapping && mapping.discount !== undefined
+										? mapping.discount.toString()
+										: undefined,
+								stability:
+									"stability" in mapping ? mapping.stability : undefined,
 								supportedParameters:
 									"supportedParameters" in mapping
-										? (mapping.supportedParameters as string[] | null) || null
-										: null,
+										? (mapping.supportedParameters as string[] | undefined)
+										: undefined,
 								test:
 									"test" in mapping
-										? (mapping.test as "skip" | "only" | null) || null
-										: null,
+										? (mapping.test as "skip" | "only" | undefined)
+										: undefined,
 								status: "active",
 								deprecatedAt:
-									"deprecatedAt" in mapping
-										? mapping.deprecatedAt || null
-										: null,
+									"deprecatedAt" in mapping ? mapping.deprecatedAt : undefined,
 								deactivatedAt:
 									"deactivatedAt" in mapping
-										? mapping.deactivatedAt || null
-										: null,
+										? mapping.deactivatedAt
+										: undefined,
 								updatedAt: new Date(),
 							})
 							.where(eq(modelProviderMapping.id, existingMapping.id));
@@ -154,52 +178,60 @@ export async function syncProvidersAndModels() {
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined
 									? mapping.inputPrice.toString()
-									: null,
+									: undefined,
 							outputPrice:
 								"outputPrice" in mapping && mapping.outputPrice !== undefined
 									? mapping.outputPrice.toString()
-									: null,
+									: undefined,
 							cachedInputPrice:
 								"cachedInputPrice" in mapping &&
 								mapping.cachedInputPrice !== undefined
 									? mapping.cachedInputPrice.toString()
-									: null,
+									: undefined,
 							imageInputPrice:
 								"imageInputPrice" in mapping &&
 								mapping.imageInputPrice !== undefined
 									? mapping.imageInputPrice.toString()
-									: null,
+									: undefined,
 							requestPrice:
 								"requestPrice" in mapping && mapping.requestPrice !== undefined
 									? mapping.requestPrice.toString()
-									: null,
+									: undefined,
 							contextSize:
-								"contextSize" in mapping ? mapping.contextSize || null : null,
-							maxOutput:
-								"maxOutput" in mapping ? mapping.maxOutput || null : null,
+								"contextSize" in mapping ? mapping.contextSize : undefined,
+							maxOutput: "maxOutput" in mapping ? mapping.maxOutput : undefined,
 							streaming: mapping.streaming === false ? false : true,
-							vision: "vision" in mapping ? mapping.vision || null : null,
-							reasoning:
-								"reasoning" in mapping ? mapping.reasoning || null : null,
+							vision: "vision" in mapping ? mapping.vision : undefined,
+							reasoning: "reasoning" in mapping ? mapping.reasoning : undefined,
 							reasoningOutput:
 								"reasoningOutput" in mapping
-									? (mapping.reasoningOutput as string | null) || null
-									: null,
-							tools: "tools" in mapping ? mapping.tools || null : null,
+									? (mapping.reasoningOutput as string | undefined)
+									: undefined,
+							tools: "tools" in mapping ? mapping.tools : undefined,
+							jsonOutput:
+								"jsonOutput" in mapping ? mapping.jsonOutput : undefined,
+							jsonOutputSchema:
+								"jsonOutputSchema" in mapping
+									? mapping.jsonOutputSchema
+									: undefined,
+							webSearch: "webSearch" in mapping ? mapping.webSearch : undefined,
+							discount:
+								"discount" in mapping && mapping.discount !== undefined
+									? mapping.discount.toString()
+									: undefined,
+							stability: "stability" in mapping ? mapping.stability : undefined,
 							supportedParameters:
 								"supportedParameters" in mapping
-									? (mapping.supportedParameters as string[] | null) || null
-									: null,
+									? (mapping.supportedParameters as string[] | undefined)
+									: undefined,
 							deprecatedAt:
-								"deprecatedAt" in mapping ? mapping.deprecatedAt || null : null,
+								"deprecatedAt" in mapping ? mapping.deprecatedAt : undefined,
 							deactivatedAt:
-								"deactivatedAt" in mapping
-									? mapping.deactivatedAt || null
-									: null,
+								"deactivatedAt" in mapping ? mapping.deactivatedAt : undefined,
 							test:
 								"test" in mapping
-									? (mapping.test as "skip" | "only" | null) || null
-									: null,
+									? (mapping.test as "skip" | "only" | undefined)
+									: undefined,
 							status: "active",
 						});
 					}

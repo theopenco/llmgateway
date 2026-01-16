@@ -7,7 +7,6 @@ export const zaiModels = [
 		description: "Zhipu GLM-4.5 with reasoning capabilities.",
 		family: "glm",
 		releasedAt: new Date("2024-05-06"),
-		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -35,7 +34,6 @@ export const zaiModels = [
 		description: "GLM-4.5 with vision support.",
 		family: "glm",
 		releasedAt: new Date("2024-05-06"),
-		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -54,6 +52,22 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "novita",
+				modelName: "zai-org/glm-4.5v",
+				inputPrice: 0.6 / 1e6,
+				cachedInputPrice: 0.11 / 1e6,
+				outputPrice: 1.8 / 1e6,
+				requestPrice: 0,
+				contextSize: 65536,
+				maxOutput: 16000,
+				streaming: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -62,7 +76,6 @@ export const zaiModels = [
 		description: "Lightweight GLM-4.5 variant.",
 		family: "glm",
 		releasedAt: new Date("2024-05-06"),
-		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -88,7 +101,6 @@ export const zaiModels = [
 		description: "Extended GLM-4.5 with advanced reasoning.",
 		family: "glm",
 		releasedAt: new Date("2024-05-06"),
-		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -115,7 +127,6 @@ export const zaiModels = [
 		description: "Enhanced GLM-4.5 Air variant.",
 		family: "glm",
 		releasedAt: new Date("2024-05-06"),
-		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -142,7 +153,6 @@ export const zaiModels = [
 		family: "glm",
 		free: true,
 		releasedAt: new Date("2024-05-06"),
-		publishedAt: new Date("2024-05-06"),
 		providers: [
 			{
 				providerId: "zai",
@@ -167,7 +177,6 @@ export const zaiModels = [
 		description: "Latest GLM with enhanced reasoning capabilities.",
 		family: "glm",
 		releasedAt: new Date("2025-12-22"),
-		publishedAt: new Date("2025-12-22"),
 		providers: [
 			{
 				providerId: "zai",
@@ -203,6 +212,21 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "novita",
+				modelName: "zai-org/glm-4.7",
+				inputPrice: 0.6 / 1e6,
+				cachedInputPrice: 0.11 / 1e6,
+				outputPrice: 2.2 / 1e6,
+				requestPrice: 0,
+				contextSize: 204800,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
@@ -226,7 +250,6 @@ export const zaiModels = [
 		description: "Updated GLM with reasoning capabilities.",
 		family: "glm",
 		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "zai",
@@ -278,6 +301,21 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "novita",
+				modelName: "zai-org/glm-4.6",
+				inputPrice: 0.55 / 1e6,
+				cachedInputPrice: 0.11 / 1e6,
+				outputPrice: 2.2 / 1e6,
+				requestPrice: 0,
+				contextSize: 204800,
+				maxOutput: undefined,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -286,7 +324,6 @@ export const zaiModels = [
 		description: "GLM-4 32B instruction-tuned model.",
 		family: "glm",
 		releasedAt: new Date("2024-04-14"),
-		publishedAt: new Date("2024-04-14"),
 		providers: [
 			{
 				providerId: "zai",
@@ -313,7 +350,6 @@ export const zaiModels = [
 			"Flagship vision-language model (106B) with native function calling support.",
 		family: "glm",
 		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "zai",
@@ -331,6 +367,21 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "novita",
+				modelName: "zai-org/glm-4.6v",
+				inputPrice: 0.3 / 1e6,
+				cachedInputPrice: 0.055 / 1e6,
+				outputPrice: 0.9 / 1e6,
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 16000,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -339,7 +390,6 @@ export const zaiModels = [
 		description: "Fast vision-language model with extended capabilities.",
 		family: "glm",
 		releasedAt: new Date("2025-12-08"),
-		publishedAt: new Date("2025-12-08"),
 		providers: [
 			{
 				providerId: "zai",
@@ -367,7 +417,6 @@ export const zaiModels = [
 		family: "glm",
 		free: true,
 		releasedAt: new Date("2025-06-01"),
-		publishedAt: new Date("2025-06-01"),
 		providers: [
 			{
 				providerId: "zai",
@@ -394,7 +443,6 @@ export const zaiModels = [
 		family: "zai",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-03-04"),
-		publishedAt: new Date("2026-01-02"),
 		providers: [
 			{
 				test: "skip",

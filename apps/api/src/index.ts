@@ -20,6 +20,7 @@ import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
+import { internalModels } from "./routes/internal-models.js";
 import { referral } from "./routes/referral.js";
 import { stripeRoutes } from "./stripe.js";
 
@@ -57,6 +58,8 @@ app.use(
 		origin: process.env.ORIGIN_URLS?.split(",") || [
 			"http://localhost:3002",
 			"http://localhost:3003",
+			"http://localhost:3004",
+			"http://localhost:3005",
 			"http://localhost:3006",
 		],
 		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
@@ -180,6 +183,8 @@ app.route("/stripe", stripeRoutes);
 app.route("/", beacon);
 
 app.route("/", referral);
+
+app.route("/internal", internalModels);
 
 app.doc("/json", config);
 

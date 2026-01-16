@@ -56,16 +56,16 @@ import {
 } from "@llmgateway/shared/components";
 
 import type {
-	ModelDefinition,
-	ProviderDefinition,
-	ProviderId,
-	ProviderModelMapping,
-} from "@llmgateway/models";
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
+import type { ProviderId } from "@llmgateway/models";
 import type { LucideProps } from "lucide-react";
 
 interface ModelSelectorProps {
-	models: ModelDefinition[];
-	providers: ProviderDefinition[];
+	models: ApiModel[];
+	providers: ApiProvider[];
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
@@ -81,8 +81,8 @@ interface FilterState {
 
 // helper to extract simple capability labels from a mapping
 function getMappingCapabilities(
-	mapping?: ProviderModelMapping,
-	model?: ModelDefinition,
+	mapping?: ApiModelProviderMapping,
+	model?: ApiModel,
 ): string[] {
 	const labels: string[] = [];
 
@@ -139,8 +139,8 @@ function getCapabilityIconConfig(capability: string): {
 
 // helper to check if a model is unstable or experimental
 function isModelUnstable(
-	mapping: ProviderModelMapping,
-	model: ModelDefinition,
+	mapping: ApiModelProviderMapping,
+	model: ApiModel,
 ): boolean {
 	const providerStability = mapping.stability;
 	const modelStability = model.stability;
@@ -166,42 +166,44 @@ interface MappingPriceInfo {
 
 // Helper to format prices using any provider discount while reusing shared formatPrice logic.
 function getMappingPriceInfo(
-	mapping: ProviderModelMapping | undefined,
+	mapping: ApiModelProviderMapping | undefined,
 	field: PriceField,
 ): MappingPriceInfo {
 	if (!mapping) {
 		return { label: "Unknown" };
 	}
 
-	let basePrice: number | undefined;
+	let basePriceStr: string | null | undefined;
 	if (field === "input") {
-		basePrice = mapping.inputPrice;
+		basePriceStr = mapping.inputPrice;
 	} else if (field === "output") {
-		basePrice = mapping.outputPrice;
+		basePriceStr = mapping.outputPrice;
 	} else if (field === "cachedInput") {
-		basePrice = mapping.cachedInputPrice;
+		basePriceStr = mapping.cachedInputPrice;
 	} else if (field === "request") {
-		basePrice = mapping.requestPrice;
+		basePriceStr = mapping.requestPrice;
 	} else if (field === "imageInput") {
-		basePrice = mapping.imageInputPrice;
-	} else if (field === "imageOutput") {
-		basePrice = mapping.imageOutputPrice;
+		basePriceStr = mapping.imageInputPrice;
 	}
 
-	if (basePrice === undefined) {
+	if (basePriceStr === null || basePriceStr === undefined) {
 		return { label: "Unknown" };
 	}
+
+	const basePrice = parseFloat(basePriceStr);
 
 	// Free models
 	if (basePrice === 0) {
 		return { label: "Free", original: "Free" };
 	}
 
+	const discountNum = mapping.discount ? parseFloat(mapping.discount) : 0;
+
 	// Request price is a flat per-request fee, not per-token
 	if (field === "request") {
 		const original = `$${basePrice.toFixed(3)}/req`;
-		if (mapping.discount && mapping.discount > 0) {
-			const discountedPrice = basePrice * (1 - mapping.discount);
+		if (discountNum > 0) {
+			const discountedPrice = basePrice * (1 - discountNum);
 			const discounted = `$${discountedPrice.toFixed(3)}/req`;
 			return { label: discounted, original, discounted };
 		}
@@ -211,8 +213,8 @@ function getMappingPriceInfo(
 	const original = formatPrice(basePrice);
 
 	// Apply discount if present
-	if (mapping.discount && mapping.discount > 0) {
-		const discounted = formatPrice(basePrice * (1 - mapping.discount));
+	if (discountNum > 0) {
+		const discounted = formatPrice(basePrice * (1 - discountNum));
 		return {
 			label: discounted,
 			original,
@@ -235,7 +237,7 @@ interface RootAggregateInfo {
 	capabilities: string[];
 }
 
-function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
+function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 	const now = new Date();
 
 	let minInputPrice: number | undefined;
@@ -248,20 +250,25 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 	let maxOutput: number | undefined;
 	const capabilitySet = new Set<string>();
 
-	const applyDiscount = (price: number | undefined, discount?: number) => {
-		if (price === undefined) {
+	const applyDiscount = (
+		priceStr: string | null | undefined,
+		discountStr?: string | null,
+	) => {
+		if (priceStr === null || priceStr === undefined) {
 			return undefined;
 		}
+		const price = parseFloat(priceStr);
 		if (price === 0) {
 			return 0;
 		}
+		const discount = discountStr ? parseFloat(discountStr) : 0;
 		if (!discount || discount <= 0) {
 			return price;
 		}
 		return price * (1 - discount);
 	};
 
-	for (const mapping of model.providers) {
+	for (const mapping of model.mappings) {
 		// Skip deactivated providers when computing "best" supported values
 		const isDeactivated =
 			mapping.deactivatedAt && new Date(mapping.deactivatedAt) <= now;
@@ -324,19 +331,8 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minImageInputPrice = effectiveImageInput;
 		}
 
-		const effectiveImageOutput = applyDiscount(
-			mapping.imageOutputPrice,
-			mapping.discount,
-		);
 		if (
-			effectiveImageOutput !== undefined &&
-			(minImageOutputPrice === undefined ||
-				effectiveImageOutput < minImageOutputPrice)
-		) {
-			minImageOutputPrice = effectiveImageOutput;
-		}
-
-		if (
+			mapping.contextSize !== null &&
 			mapping.contextSize !== undefined &&
 			(maxContextSize === undefined || mapping.contextSize > maxContextSize)
 		) {
@@ -344,6 +340,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 		}
 
 		if (
+			mapping.maxOutput !== null &&
 			mapping.maxOutput !== undefined &&
 			(maxOutput === undefined || mapping.maxOutput > maxOutput)
 		) {
@@ -387,14 +384,14 @@ export function ModelSelector({
 	const [searchQuery, setSearchQuery] = React.useState("");
 	const [detailsOpen, setDetailsOpen] = React.useState(false);
 	const [selectedDetails, setSelectedDetails] = React.useState<{
-		model: ModelDefinition;
-		mapping?: ProviderModelMapping;
-		provider?: ProviderDefinition;
+		model: ApiModel;
+		mapping?: ApiModelProviderMapping;
+		provider?: ApiProvider;
 	} | null>(null);
 	const [previewEntry, setPreviewEntry] = React.useState<{
-		model: ModelDefinition;
-		mapping?: ProviderModelMapping;
-		provider?: ProviderDefinition;
+		model: ApiModel;
+		mapping?: ApiModelProviderMapping;
+		provider?: ApiProvider;
 		isRoot?: boolean;
 	} | null>(null);
 	const [filters, setFilters] = React.useState<FilterState>({
@@ -414,7 +411,7 @@ export function ModelSelector({
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping = selectedModel?.providers.find(
+	const selectedMapping = selectedModel?.mappings.find(
 		(p) => p.providerId === selectedProviderId,
 	);
 	const selectedEntryKey =
@@ -430,27 +427,30 @@ export function ModelSelector({
 	// Build entries of model per provider mapping (include all, filter later)
 	const allEntries = React.useMemo(() => {
 		const out: {
-			model: ModelDefinition;
-			mapping?: ProviderModelMapping;
-			provider?: ProviderDefinition;
+			model: ApiModel;
+			mapping?: ApiModelProviderMapping;
+			provider?: ApiProvider;
 			isRoot?: boolean;
 			searchText: string;
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by publishedAt date (when added to LLM Gateway), newest first
-		// Falls back to releasedAt if publishedAt is not available
+		// Sort models by createdAt (when added to LLM Gateway), newest first
+		// Falls back to releasedAt if createdAt is not available
+		// Note: createdAt comes from API response, releasedAt is in the models package
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA = a.publishedAt
-				? new Date(a.publishedAt).getTime()
-				: a.releasedAt
-					? new Date(a.releasedAt).getTime()
-					: 0;
-			const dateB = b.publishedAt
-				? new Date(b.publishedAt).getTime()
-				: b.releasedAt
-					? new Date(b.releasedAt).getTime()
-					: 0;
+			const dateA =
+				"createdAt" in a && a.createdAt
+					? new Date(a.createdAt as string | Date).getTime()
+					: a.releasedAt
+						? new Date(a.releasedAt).getTime()
+						: 0;
+			const dateB =
+				"createdAt" in b && b.createdAt
+					? new Date(b.createdAt as string | Date).getTime()
+					: b.releasedAt
+						? new Date(b.releasedAt).getTime()
+						: 0;
 			return dateB - dateA;
 		});
 
@@ -474,7 +474,7 @@ export function ModelSelector({
 				continue;
 			}
 
-			for (const mp of m.providers) {
+			for (const mp of m.mappings) {
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
@@ -565,8 +565,12 @@ export function ModelSelector({
 					return false;
 				}
 
-				const price = e.mapping.inputPrice || 0;
-				const requestPrice = e.mapping.requestPrice || 0;
+				const price = e.mapping.inputPrice
+					? parseFloat(e.mapping.inputPrice)
+					: 0;
+				const requestPrice = e.mapping.requestPrice
+					? parseFloat(e.mapping.requestPrice)
+					: 0;
 				switch (filters.priceRange) {
 					case "free":
 						return price === 0 && requestPrice === 0;
@@ -707,7 +711,7 @@ export function ModelSelector({
 									}
 									return getProviderLogo(
 										(selectedProviderId ||
-											selectedModel.providers[0].providerId) as ProviderId,
+											selectedModel.mappings[0].providerId) as ProviderId,
 									);
 								})()}
 								<div className="flex flex-col items-start min-w-0 flex-1">
@@ -716,15 +720,15 @@ export function ModelSelector({
 											{selectedModel.name}
 										</span>
 										{(() => {
-											const selectedMapping = selectedModel.providers.find(
+											const mappingForWarning = selectedModel.mappings.find(
 												(p) => p.providerId === selectedProviderId,
 											);
 											const isUnstable =
-												selectedMapping &&
-												isModelUnstable(selectedMapping, selectedModel);
+												mappingForWarning &&
+												isModelUnstable(mappingForWarning, selectedModel);
 											const isDeprecated =
-												selectedMapping?.deprecatedAt &&
-												new Date(selectedMapping.deprecatedAt) <= new Date();
+												mappingForWarning?.deprecatedAt &&
+												new Date(mappingForWarning.deprecatedAt) <= new Date();
 											return isUnstable || isDeprecated ? (
 												<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
 											) : null;
@@ -844,7 +848,9 @@ export function ModelSelector({
 																		{ProviderIcon && (
 																			<ProviderIcon
 																				className="h-3 w-3"
-																				style={{ color: provider.color }}
+																				style={{
+																					color: provider.color ?? undefined,
+																				}}
 																			/>
 																		)}
 																		{provider.name}
@@ -982,8 +988,9 @@ export function ModelSelector({
 												if (isRoot) {
 													const entryKey = model.id;
 													const _aggregate = getRootAggregateInfo(model);
-													const hasRequestPrice = model.providers.some(
-														(p) => p.requestPrice && p.requestPrice > 0,
+													const hasRequestPrice = model.mappings.some(
+														(p) =>
+															p.requestPrice && parseFloat(p.requestPrice) > 0,
 													);
 													const isFreeRoot =
 														model.free === true && !hasRequestPrice;
@@ -1058,7 +1065,8 @@ export function ModelSelector({
 													mapping!.deprecatedAt &&
 													new Date(mapping!.deprecatedAt) <= new Date();
 												const hasRequestPrice =
-													mapping!.requestPrice && mapping!.requestPrice > 0;
+													mapping!.requestPrice &&
+													parseFloat(mapping!.requestPrice) > 0;
 												const isFreeMapping =
 													model.free === true && !hasRequestPrice;
 												return (
@@ -1475,8 +1483,7 @@ export function ModelSelector({
 													)}
 													{/* Image Generation Pricing */}
 													{(previewEntry.mapping?.requestPrice ||
-														previewEntry.mapping?.imageInputPrice ||
-														previewEntry.mapping?.imageOutputPrice) && (
+														previewEntry.mapping?.imageInputPrice) && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
 																{previewEntry.mapping?.requestPrice !==
@@ -1523,39 +1530,6 @@ export function ModelSelector({
 																				const price = getMappingPriceInfo(
 																					previewEntry.mapping,
 																					"imageInput",
-																				);
-																				if (
-																					price.original &&
-																					price.discounted &&
-																					price.original !== price.discounted
-																				) {
-																					return (
-																						<>
-																							<span className="line-through text-muted-foreground">
-																								{price.original}
-																							</span>{" "}
-																							<span className="text-green-500">
-																								{price.discounted}
-																							</span>
-																						</>
-																					);
-																				}
-																				return price.label;
-																			})()}
-																		</p>
-																	</div>
-																)}
-																{previewEntry.mapping?.imageOutputPrice !==
-																	undefined && (
-																	<div className="space-y-1">
-																		<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																			Image Output
-																		</span>
-																		<p className="text-xs font-mono">
-																			{(() => {
-																				const price = getMappingPriceInfo(
-																					previewEntry.mapping,
-																					"imageOutput",
 																				);
 																				if (
 																					price.original &&
@@ -1966,8 +1940,7 @@ export function ModelSelector({
 											)}
 											{/* Image Generation Pricing */}
 											{(selectedDetails.mapping?.requestPrice ||
-												selectedDetails.mapping?.imageInputPrice ||
-												selectedDetails.mapping?.imageOutputPrice) && (
+												selectedDetails.mapping?.imageInputPrice) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing
@@ -2017,39 +1990,6 @@ export function ModelSelector({
 																		const price = getMappingPriceInfo(
 																			selectedDetails.mapping,
 																			"imageInput",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
-															</div>
-														)}
-														{selectedDetails.mapping?.imageOutputPrice !==
-															undefined && (
-															<div className="space-y-1">
-																<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																	Image Output
-																</span>
-																<p className="text-sm font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			selectedDetails.mapping,
-																			"imageOutput",
 																		);
 																		if (
 																			price.original &&

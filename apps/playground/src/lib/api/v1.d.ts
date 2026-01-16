@@ -207,6 +207,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all models
+         * @description Returns all models with their provider mappings, sorted by createdAt descending
+         */
+        get: operations["internal_get_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all providers
+         * @description Returns all providers, sorted by createdAt descending
+         */
+        get: operations["internal_get_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -2142,6 +2182,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             }[];
                         };
                     };
@@ -2193,6 +2240,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -2372,6 +2426,13 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -2433,7 +2494,7 @@ export interface paths {
                                 updatedAt: string;
                                 organizationId: string;
                                 /** @enum {string} */
-                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund";
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
                                 amount: string | null;
                                 creditAmount: string | null;
                                 currency: string;
@@ -3531,6 +3592,263 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dev-plans/personal-org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Personal organization retrieved or created */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            isPersonal: boolean;
+                            /** @enum {string} */
+                            devPlan: "none" | "lite" | "pro" | "max";
+                            devPlanCreditsUsed: string;
+                            devPlanCreditsLimit: string;
+                            devPlanBillingCycleStart: string | null;
+                            devPlanCancelled: boolean;
+                            devPlanExpiresAt: string | null;
+                            credits: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        tier: "lite" | "pro" | "max";
+                    };
+                };
+            };
+            responses: {
+                /** @description Stripe Checkout session created successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            checkoutUrl: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev plan subscription cancelled successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev plan subscription resumed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/change-tier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        newTier: "lite" | "pro" | "max";
+                    };
+                };
+            };
+            responses: {
+                /** @description Dev plan tier changed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev plan status retrieved successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            hasPersonalOrg: boolean;
+                            /** @enum {string} */
+                            devPlan: "none" | "lite" | "pro" | "max";
+                            devPlanCreditsUsed: string;
+                            devPlanCreditsLimit: string;
+                            devPlanCreditsRemaining: string;
+                            devPlanBillingCycleStart: string | null;
+                            devPlanCancelled: boolean;
+                            devPlanExpiresAt: string | null;
+                            regularCredits: string;
+                            organizationId: string | null;
+                            apiKey: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3542,4 +3860,105 @@ export interface components {
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    internal_get_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of all models with their provider mappings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        models: {
+                            id: string;
+                            createdAt: string | null;
+                            releasedAt: string | null;
+                            name: string | null;
+                            aliases: string[] | null;
+                            description: string | null;
+                            family: string;
+                            free: boolean | null;
+                            output: string[] | null;
+                            /** @enum {string|null} */
+                            stability: "stable" | "beta" | "unstable" | "experimental" | null;
+                            /** @enum {string} */
+                            status: "active" | "inactive";
+                            mappings: {
+                                id: string;
+                                createdAt: string | null;
+                                modelId: string;
+                                providerId: string;
+                                modelName: string;
+                                inputPrice: string | null;
+                                outputPrice: string | null;
+                                cachedInputPrice: string | null;
+                                imageInputPrice: string | null;
+                                requestPrice: string | null;
+                                contextSize: number | null;
+                                maxOutput: number | null;
+                                streaming: boolean;
+                                vision: boolean | null;
+                                reasoning: boolean | null;
+                                reasoningOutput: string | null;
+                                tools: boolean | null;
+                                jsonOutput: boolean | null;
+                                jsonOutputSchema: boolean | null;
+                                webSearch: boolean | null;
+                                discount: string | null;
+                                /** @enum {string|null} */
+                                stability: "stable" | "beta" | "unstable" | "experimental" | null;
+                                supportedParameters: string[] | null;
+                                deprecatedAt: string | null;
+                                deactivatedAt: string | null;
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            }[];
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    internal_get_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of all providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        providers: {
+                            id: string;
+                            createdAt: string | null;
+                            name: string | null;
+                            description: string | null;
+                            streaming: boolean | null;
+                            cancellation: boolean | null;
+                            color: string | null;
+                            website: string | null;
+                            announcement: string | null;
+                            /** @enum {string} */
+                            status: "active" | "inactive";
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+}

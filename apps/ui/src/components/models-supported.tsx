@@ -40,10 +40,16 @@ import {
 	providerLogoUrls,
 } from "@llmgateway/shared/components";
 
-interface ModelWithProviders extends ModelDefinition {
+import type {
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
+
+interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
-		provider: ProviderModelMapping;
-		providerInfo: (typeof providerDefinitions)[number];
+		provider: ApiModelProviderMapping;
+		providerInfo: ApiProvider;
 	}>;
 }
 
@@ -77,6 +83,72 @@ const getProviderLogoSmall = (providerId: ProviderId) => {
 	);
 };
 
+// Convert static ModelDefinition to ApiModel-like structure
+const convertToApiModel = (
+	def: ModelDefinition,
+	map: ProviderModelMapping,
+): ModelWithProviders => {
+	const provider = providerDefinitions.find((p) => p.id === map.providerId)!;
+	return {
+		id: def.id,
+		createdAt: new Date().toISOString(),
+		releasedAt: def.releasedAt?.toISOString() ?? null,
+		name: def.name ?? null,
+		aliases: def.aliases ?? null,
+		description: def.description ?? null,
+		family: def.family,
+		free: def.free ?? null,
+		output: def.output ?? null,
+		stability: def.stability ?? null,
+		status: "active",
+		mappings: [],
+		providerDetails: [
+			{
+				provider: {
+					id: `${map.providerId}-${def.id}`,
+					createdAt: new Date().toISOString(),
+					modelId: def.id,
+					providerId: map.providerId,
+					modelName: map.modelName,
+					inputPrice: map.inputPrice?.toString() ?? null,
+					outputPrice: map.outputPrice?.toString() ?? null,
+					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
+					imageInputPrice: map.imageInputPrice?.toString() ?? null,
+					requestPrice: map.requestPrice?.toString() ?? null,
+					contextSize: map.contextSize ?? null,
+					maxOutput: map.maxOutput ?? null,
+					streaming: map.streaming ?? true,
+					vision: map.vision ?? null,
+					reasoning: map.reasoning ?? null,
+					reasoningOutput: map.reasoningOutput ?? null,
+					tools: map.tools ?? null,
+					jsonOutput: map.jsonOutput ?? null,
+					jsonOutputSchema: map.jsonOutputSchema ?? null,
+					webSearch: map.webSearch ?? null,
+					discount: map.discount?.toString() ?? null,
+					stability: map.stability ?? null,
+					supportedParameters: map.supportedParameters ?? null,
+					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,
+					deactivatedAt: map.deactivatedAt?.toISOString() ?? null,
+					status: "active",
+				},
+				providerInfo: {
+					id: provider.id,
+					createdAt: new Date().toISOString(),
+					name: provider.name ?? null,
+					description: provider.description ?? null,
+					streaming: provider.streaming ?? null,
+					cancellation: provider.cancellation ?? null,
+					color: provider.color ?? null,
+					website: provider.website ?? null,
+					announcement: provider.announcement ?? null,
+					status: "active",
+				},
+			},
+		],
+	};
+};
+
 const groupedProviders = modelDefinitions.reduce<
 	Record<string, ModelWithProviders[]>
 >((acc, def) => {
@@ -85,15 +157,7 @@ const groupedProviders = modelDefinitions.reduce<
 		if (!acc[provider.name]) {
 			acc[provider.name] = [];
 		}
-		acc[provider.name].push({
-			...def,
-			providerDetails: [
-				{
-					provider: map,
-					providerInfo: provider,
-				},
-			],
-		} as ModelWithProviders);
+		acc[provider.name].push(convertToApiModel(def, map));
 	});
 	return acc;
 }, {});
@@ -114,8 +178,8 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 	const [selectedProvider, setSelectedProvider] = useState<string>("all");
 
 	const getCapabilityIcons = (
-		providerMapping: ProviderModelMapping,
-		model?: any,
+		providerMapping: ApiModelProviderMapping,
+		model?: ApiModel,
 	) => {
 		const capabilities = [];
 		if (providerMapping.streaming) {
@@ -163,17 +227,28 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 		return capabilities;
 	};
 
-	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
-		return stability && ["unstable", "experimental"].includes(stability);
+	const shouldShowStabilityWarning = (
+		stability?: StabilityLevel | null,
+	): boolean | undefined => {
+		return (
+			stability !== null &&
+			stability !== undefined &&
+			["unstable", "experimental"].includes(stability)
+		);
 	};
 
-	const formatPrice = (price: number | undefined, discount?: number) => {
-		if (price === undefined) {
+	const formatPrice = (
+		price: string | null | undefined,
+		discount?: string | null,
+	) => {
+		if (price === null || price === undefined) {
 			return "—";
 		}
-		const originalPrice = (price * 1e6).toFixed(2);
-		if (discount) {
-			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
+		const priceNum = parseFloat(price);
+		const discountNum = discount ? parseFloat(discount) : 0;
+		const originalPrice = (priceNum * 1e6).toFixed(2);
+		if (discountNum > 0) {
+			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">
@@ -339,8 +414,8 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 								{sortedProviderEntries
 									.filter(([providerName]) => providerName !== "LLM Gateway")
 									.map(([providerName, models]) => {
-										const providerId =
-											models[0].providerDetails[0].provider.providerId;
+										const providerId = models[0].providerDetails[0].provider
+											.providerId as ProviderId;
 										return (
 											<SelectItem key={providerName} value={providerName}>
 												<div className="flex items-center gap-2">
@@ -369,7 +444,8 @@ export const ModelsSupported = ({ isDashboard }: { isDashboard?: boolean }) => {
 
 			<section className="space-y-12">
 				{filteredProviderEntries.map(([providerName, models]) => {
-					const providerId = models[0].providerDetails[0].provider.providerId;
+					const providerId = models[0].providerDetails[0].provider
+						.providerId as ProviderId;
 					return (
 						<div key={providerName} className="space-y-6">
 							<Link
