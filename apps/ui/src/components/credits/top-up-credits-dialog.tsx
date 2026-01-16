@@ -361,7 +361,9 @@ function PaymentStep({
 				if (setupResult.error) {
 					toast({
 						title: "Error Saving Card",
-						description: setupResult.error.message,
+						description:
+							setupResult.error.message ||
+							"An error occurred while saving your card",
 						variant: "destructive",
 					});
 					setLoading(false);
@@ -384,7 +386,9 @@ function PaymentStep({
 			if (result.error) {
 				toast({
 					title: "Payment Failed",
-					description: result.error.message,
+					description:
+						result.error.message ||
+						"An error occurred while processing your payment",
 					variant: "destructive",
 				});
 				setLoading(false);

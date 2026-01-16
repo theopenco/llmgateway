@@ -89,7 +89,7 @@ export default function Login() {
 				},
 				onError: (ctx) => {
 					toast({
-						title: ctx.error.message || "An unknown error occurred",
+						title: ctx?.error?.message || "An unknown error occurred",
 						variant: "destructive",
 					});
 				},

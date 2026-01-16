@@ -79,7 +79,7 @@ export function CreditsStep({
 			});
 
 			if (result.error) {
-				throw new Error(result.error.message);
+				throw new Error(result.error.message || "Payment failed");
 			}
 
 			await queryClient.invalidateQueries({

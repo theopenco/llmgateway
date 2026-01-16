@@ -237,7 +237,7 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 			if (result.error) {
 				toast({
 					title: "Error",
-					description: result.error.message,
+					description: result.error.message || "An error occurred",
 					variant: "destructive",
 				});
 			} else {

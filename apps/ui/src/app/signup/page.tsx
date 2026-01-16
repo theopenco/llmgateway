@@ -106,7 +106,7 @@ export default function Signup() {
 				},
 				onError: (ctx) => {
 					toast({
-						title: ctx.error.message || "Failed to sign up",
+						title: ctx?.error?.message || "Failed to sign up",
 						variant: "destructive",
 					});
 				},
