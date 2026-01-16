@@ -469,7 +469,6 @@ export const zaiModels = [
 		family: "glm",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-01-06"),
-		publishedAt: new Date("2026-01-15"),
 		providers: [
 			{
 				test: "skip",
