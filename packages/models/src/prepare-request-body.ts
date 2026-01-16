@@ -379,6 +379,34 @@ export async function prepareRequestBody(
 		return alibabaImageRequest;
 	}
 
+	// Handle ByteDance Seedream image generation
+	if (imageGenerations && usedProvider === "bytedance") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		// ByteDance Seedream format
+		const bytedanceImageRequest: any = {
+			model: usedModel,
+			prompt,
+			...(image_config?.image_size && { size: image_config.image_size }),
+		};
+
+		return bytedanceImageRequest;
+	}
+
 	// Check if the model supports system role
 	// Look up by model ID first, then fall back to provider modelName
 	const modelDef = models.find(

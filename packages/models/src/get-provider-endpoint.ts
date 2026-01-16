@@ -297,6 +297,9 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		case "bytedance":
+			if (imageGenerations) {
+				return `${url}/images/generations`;
+			}
 			return `${url}/chat/completions`;
 		case "inference.net":
 		case "llmgateway":

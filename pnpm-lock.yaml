@@ -263,16 +263,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.0
-        version: 1.19.0(hono@4.10.3)
+        version: 1.19.0(hono@4.11.4)
       '@hono/swagger-ui':
         specifier: ^0.5.2
-        version: 0.5.2(hono@4.10.3)
+        version: 0.5.2(hono@4.11.4)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.10.3)(zod@3.25.75)
+        version: 0.19.8(hono@4.11.4)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.2(hono@4.10.3)(zod@3.25.75)
+        version: 0.7.2(hono@4.11.4)(zod@3.25.75)
       '@kubiks/otel-better-auth':
         specifier: 2.0.2
         version: 2.0.2(@opentelemetry/api@1.9.0)(better-auth@1.3.26)
@@ -316,11 +316,11 @@ importers:
         specifier: workspace:*
         version: link:../gateway
       hono:
-        specifier: ^4.10.3
-        version: 4.10.3
+        specifier: ^4.11.4
+        version: 4.11.4
       hono-openapi:
         specifier: ^1.1.1
-        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.10.3)(openapi-types@12.1.3)
+        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.11.4)(openapi-types@12.1.3)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -338,7 +338,7 @@ importers:
         version: 5.10.4
       stripe:
         specifier: 18.1.1
-        version: 18.1.1(@types/node@25.0.3)
+        version: 18.1.1(@types/node@25.0.8)
       zod:
         specifier: 3.25.75
         version: 3.25.75
@@ -508,7 +508,7 @@ importers:
         version: 16.0.11(@types/react@19.2.7)(lucide-react@0.544.0(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       fumadocs-mdx:
         specifier: 13.0.8
-        version: 13.0.8(fumadocs-core@16.0.11(@types/react@19.2.7)(lucide-react@0.544.0(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)(vite@7.1.11(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1))
+        version: 13.0.8(fumadocs-core@16.0.11(@types/react@19.2.7)(lucide-react@0.544.0(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)(vite@7.1.11(@types/node@25.0.8)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1))
       fumadocs-openapi:
         specifier: 10.0.6
         version: 10.0.6(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(lucide-react@0.544.0(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(prettier@3.6.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.12)
@@ -575,16 +575,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.0
-        version: 1.19.0(hono@4.10.3)
+        version: 1.19.0(hono@4.11.4)
       '@hono/swagger-ui':
         specifier: ^0.5.2
-        version: 0.5.2(hono@4.10.3)
+        version: 0.5.2(hono@4.11.4)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.10.3)(zod@3.25.75)
+        version: 0.19.8(hono@4.11.4)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.2(hono@4.10.3)(zod@3.25.75)
+        version: 0.7.2(hono@4.11.4)(zod@3.25.75)
       '@llmgateway/cache':
         specifier: workspace:*
         version: link:../../packages/cache
@@ -619,11 +619,11 @@ importers:
         specifier: 3.0.1
         version: 3.0.1
       hono:
-        specifier: ^4.10.3
-        version: 4.10.3
+        specifier: ^4.11.4
+        version: 4.11.4
       hono-openapi:
         specifier: ^1.1.1
-        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.10.3)(openapi-types@12.1.3)
+        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.11.4)(openapi-types@12.1.3)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -861,10 +861,10 @@ importers:
     dependencies:
       '@content-collections/core':
         specifier: 0.11.1
-        version: 0.11.1(typescript@5.9.3)
+        version: 0.11.1(typescript@5.9.2)
       '@content-collections/next':
         specifier: 0.2.9
-        version: 0.2.9(@content-collections/core@0.11.1(typescript@5.9.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
+        version: 0.2.9(@content-collections/core@0.11.1(typescript@5.9.2))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
       '@hookform/resolvers':
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.3))
@@ -1066,7 +1066,7 @@ importers:
         version: 10.4.21(postcss@8.5.6)
       openapi-typescript:
         specifier: 7.10.1
-        version: 7.10.1(typescript@5.9.3)
+        version: 7.10.1(typescript@5.9.2)
       postcss:
         specifier: ^8.5.6
         version: 8.5.6
@@ -1096,7 +1096,7 @@ importers:
         version: 10.5.0
       stripe:
         specifier: 18.1.1
-        version: 18.1.1(@types/node@25.0.3)
+        version: 18.1.1(@types/node@25.0.8)
       zod:
         specifier: 3.25.75
         version: 3.25.75
@@ -1181,8 +1181,8 @@ importers:
         specifier: 2.2.0
         version: 2.2.0(@opentelemetry/api@1.9.0)
       hono:
-        specifier: ^4.10.3
-        version: 4.10.3
+        specifier: ^4.11.4
+        version: 4.11.4
 
   packages/logger:
     dependencies:
@@ -4802,8 +4802,8 @@ packages:
   '@types/node@24.9.1':
     resolution: {integrity: sha512-QoiaXANRkSXK6p0Duvt56W208du4P9Uye9hWLWgGMDTEoKPhuenzNcC4vGUmrNkiOKTlIrBoyNQYNpSwfEZXSg==}
 
-  '@types/node@25.0.3':
-    resolution: {integrity: sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA==}
+  '@types/node@25.0.8':
+    resolution: {integrity: sha512-powIePYMmC3ibL0UJ2i2s0WIbq6cg6UyVFQxSCpaPxxzAaziRfimGivjdF943sSGV6RADVbk0Nvlm5P/FB44Zg==}
 
   '@types/nodemailer@7.0.2':
     resolution: {integrity: sha512-Zo6uOA9157WRgBk/ZhMpTQ/iCWLMk7OIs/Q9jvHarMvrzUUP/MDdPHL2U1zpf57HrrWGv4nYQn5uIxna0xY3xw==}
@@ -7048,8 +7048,8 @@ packages:
       hono:
         optional: true
 
-  hono@4.10.3:
-    resolution: {integrity: sha512-2LOYWUbnhdxdL8MNbNg9XZig6k+cZXm5IjHn2Aviv7honhBMOHb+jxrKIeJRZJRmn+htUCKhaicxwXuUDlchRA==}
+  hono@4.11.4:
+    resolution: {integrity: sha512-U7tt8JsyrxSRKspfhtLET79pU8K+tInj5QZXs1jSugO1Vq5dFj3kmZsRldo29mTBfcjDRVRXrEZ6LS63Cog9ZA==}
     engines: {node: '>=16.9.0'}
 
   html-to-image@1.11.13:
@@ -7082,8 +7082,8 @@ packages:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
 
-  iconv-lite@0.7.1:
-    resolution: {integrity: sha512-2Tth85cXwGFHfvRgZWszZSvdo+0Xsqmw8k8ZwxScfcBneNUraK+dxRxRm24nszx80Y0TVio8kKLt5sLE7ZCLlw==}
+  iconv-lite@0.7.2:
+    resolution: {integrity: sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw==}
     engines: {node: '>=0.10.0'}
 
   ieee754@1.2.1:
@@ -10749,7 +10749,7 @@ snapshots:
       '@types/conventional-commits-parser': 5.0.1
       chalk: 5.6.0
 
-  '@content-collections/core@0.11.1(typescript@5.9.3)':
+  '@content-collections/core@0.11.1(typescript@5.9.2)':
     dependencies:
       '@standard-schema/spec': 1.0.0
       camelcase: 8.0.0
@@ -10761,18 +10761,18 @@ snapshots:
       pluralize: 8.0.0
       serialize-javascript: 6.0.2
       tinyglobby: 0.2.15
-      typescript: 5.9.3
+      typescript: 5.9.2
       yaml: 2.8.1
       zod: 3.25.76
 
-  '@content-collections/integrations@0.3.0(@content-collections/core@0.11.1(typescript@5.9.3))':
+  '@content-collections/integrations@0.3.0(@content-collections/core@0.11.1(typescript@5.9.2))':
     dependencies:
-      '@content-collections/core': 0.11.1(typescript@5.9.3)
+      '@content-collections/core': 0.11.1(typescript@5.9.2)
 
-  '@content-collections/next@0.2.9(@content-collections/core@0.11.1(typescript@5.9.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))':
+  '@content-collections/next@0.2.9(@content-collections/core@0.11.1(typescript@5.9.2))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))':
     dependencies:
-      '@content-collections/core': 0.11.1(typescript@5.9.3)
-      '@content-collections/integrations': 0.3.0(@content-collections/core@0.11.1(typescript@5.9.3))
+      '@content-collections/core': 0.11.1(typescript@5.9.2)
+      '@content-collections/integrations': 0.3.0(@content-collections/core@0.11.1(typescript@5.9.2))
       next: 16.1.1(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
 
   '@drizzle-team/brocli@0.10.2': {}
@@ -11186,24 +11186,24 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@1.19.0(hono@4.10.3)':
+  '@hono/node-server@1.19.0(hono@4.11.4)':
     dependencies:
-      hono: 4.10.3
+      hono: 4.11.4
 
-  '@hono/swagger-ui@0.5.2(hono@4.10.3)':
+  '@hono/swagger-ui@0.5.2(hono@4.11.4)':
     dependencies:
-      hono: 4.10.3
+      hono: 4.11.4
 
-  '@hono/zod-openapi@0.19.8(hono@4.10.3)(zod@3.25.75)':
+  '@hono/zod-openapi@0.19.8(hono@4.11.4)(zod@3.25.75)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 7.3.0(zod@3.25.75)
-      '@hono/zod-validator': 0.7.2(hono@4.10.3)(zod@3.25.75)
-      hono: 4.10.3
+      '@hono/zod-validator': 0.7.2(hono@4.11.4)(zod@3.25.75)
+      hono: 4.11.4
       zod: 3.25.75
 
-  '@hono/zod-validator@0.7.2(hono@4.10.3)(zod@3.25.75)':
+  '@hono/zod-validator@0.7.2(hono@4.11.4)(zod@3.25.75)':
     dependencies:
-      hono: 4.10.3
+      hono: 4.11.4
       zod: 3.25.75
 
   '@hookform/resolvers@5.2.2(react-hook-form@7.65.0(react@19.2.3))':
@@ -13945,7 +13945,7 @@ snapshots:
     dependencies:
       undici-types: 7.16.0
 
-  '@types/node@25.0.3':
+  '@types/node@25.0.8':
     dependencies:
       undici-types: 7.16.0
     optional: true
@@ -16104,7 +16104,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  fumadocs-mdx@13.0.8(fumadocs-core@16.0.11(@types/react@19.2.7)(lucide-react@0.544.0(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)(vite@7.1.11(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)):
+  fumadocs-mdx@13.0.8(fumadocs-core@16.0.11(@types/react@19.2.7)(lucide-react@0.544.0(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(next@16.1.1(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)(vite@7.1.11(@types/node@25.0.8)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)):
     dependencies:
       '@mdx-js/mdx': 3.1.1
       '@standard-schema/spec': 1.0.0
@@ -16127,7 +16127,7 @@ snapshots:
     optionalDependencies:
       next: 16.1.1(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3
-      vite: 7.1.11(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)
+      vite: 7.1.11(@types/node@25.0.8)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -16572,16 +16572,16 @@ snapshots:
 
   highlightjs-vue@1.0.0: {}
 
-  hono-openapi@1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.10.3)(openapi-types@12.1.3):
+  hono-openapi@1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.11.4)(openapi-types@12.1.3):
     dependencies:
       '@standard-community/standard-json': 0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75)
       '@standard-community/standard-openapi': 0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75)
       '@types/json-schema': 7.0.15
       openapi-types: 12.1.3
     optionalDependencies:
-      hono: 4.10.3
+      hono: 4.11.4
 
-  hono@4.10.3: {}
+  hono@4.11.4: {}
 
   html-to-image@1.11.13: {}
 
@@ -16615,7 +16615,7 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
-  iconv-lite@0.7.1:
+  iconv-lite@0.7.2:
     dependencies:
       safer-buffer: 2.1.2
 
@@ -17989,6 +17989,16 @@ snapshots:
 
   openapi-typescript-helpers@0.0.15: {}
 
+  openapi-typescript@7.10.1(typescript@5.9.2):
+    dependencies:
+      '@redocly/openapi-core': 1.34.5(supports-color@10.2.2)
+      ansi-colors: 4.1.3
+      change-case: 5.4.4
+      parse-json: 8.3.0
+      supports-color: 10.2.2
+      typescript: 5.9.2
+      yargs-parser: 21.1.1
+
   openapi-typescript@7.10.1(typescript@5.9.3):
     dependencies:
       '@redocly/openapi-core': 1.34.5(supports-color@10.2.2)
@@ -19144,11 +19154,11 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
-  stripe@18.1.1(@types/node@25.0.3):
+  stripe@18.1.1(@types/node@25.0.8):
     dependencies:
       qs: 6.14.0
     optionalDependencies:
-      '@types/node': 25.0.3
+      '@types/node': 25.0.8
 
   strnum@1.1.2: {}
 
@@ -19248,7 +19258,7 @@ snapshots:
       '@js-joda/core': 5.6.5
       '@types/node': 24.10.1
       bl: 6.1.6
-      iconv-lite: 0.7.1
+      iconv-lite: 0.7.2
       js-md4: 0.3.2
       native-duplexpair: 1.0.0
       sprintf-js: 1.1.3
@@ -19648,7 +19658,7 @@ snapshots:
       tsx: 4.20.6
       yaml: 2.8.1
 
-  vite@7.1.11(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1):
+  vite@7.1.11(@types/node@25.0.8)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1):
     dependencies:
       esbuild: 0.25.11
       fdir: 6.5.0(picomatch@4.0.3)
@@ -19657,7 +19667,7 @@ snapshots:
       rollup: 4.52.5
       tinyglobby: 0.2.15
     optionalDependencies:
-      '@types/node': 25.0.3
+      '@types/node': 25.0.8
       fsevents: 2.3.3
       jiti: 2.6.1
       lightningcss: 1.30.2
