@@ -272,6 +272,99 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Transforms message content types for OpenAI's Responses API.
+ * The Responses API uses different content type identifiers:
+ * - "text" -> "input_text" (for user/system/tool messages) or "output_text" (for assistant messages)
+ * - "image_url" -> "input_image"
+ */
+function transformContentForResponsesApi(content: any, role: string): any {
+	// Handle string content - wrap it in the appropriate format
+	if (typeof content === "string") {
+		if (role === "assistant") {
+			return [{ type: "output_text", text: content }];
+		}
+		return [{ type: "input_text", text: content }];
+	}
+
+	// Handle array content
+	if (Array.isArray(content)) {
+		return content.map((part: any) => {
+			if (part.type === "text") {
+				// Transform "text" to "input_text" or "output_text" based on role
+				if (role === "assistant") {
+					return { type: "output_text", text: part.text };
+				}
+				return { type: "input_text", text: part.text };
+			}
+			if (part.type === "image_url") {
+				// Transform "image_url" to "input_image"
+				// The Responses API expects the image URL directly or base64 data
+				const imageUrl = part.image_url?.url || part.image_url;
+
+				// Check if it's a base64 data URL
+				if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
+					// Parse data URL: data:image/jpeg;base64,/9j/4AAQ...
+					const matches = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+					if (matches) {
+						return {
+							type: "input_image",
+							image_url: imageUrl,
+						};
+					}
+				}
+
+				// For regular URLs, pass directly
+				return {
+					type: "input_image",
+					image_url: imageUrl,
+				};
+			}
+			// Return other content types as-is (they may need additional handling)
+			return part;
+		});
+	}
+
+	// Return as-is if not string or array
+	return content;
+}
+
+/**
+ * Transforms messages for OpenAI's Responses API format.
+ * This includes:
+ * - Converting content types (text -> input_text/output_text, image_url -> input_image)
+ * - Removing unsupported fields (tool_calls, tool_call_id)
+ * - Converting tool role to user role
+ */
+function transformMessagesForResponsesApi(messages: any[]): any[] {
+	return messages.map((msg: any) => {
+		const transformed: any = {
+			role: msg.role,
+		};
+
+		// Responses API doesn't support 'tool' role - convert to 'user'
+		if (transformed.role === "tool") {
+			transformed.role = "user";
+		}
+
+		// Transform content types
+		transformed.content = transformContentForResponsesApi(
+			msg.content,
+			transformed.role,
+		);
+
+		// Copy name if present (for developer/system messages)
+		if (msg.name) {
+			transformed.name = msg.name;
+		}
+
+		// Note: tool_calls and tool_call_id are intentionally NOT copied
+		// as they are not supported in Responses API input
+
+		return transformed;
+	});
+}
+
+/**
  * Prepares the request body for different providers
  */
 export async function prepareRequestBody(
@@ -475,23 +568,12 @@ export async function prepareRequestBody(
 				// gpt-5-pro only supports "high" reasoning effort
 				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
 
-				// Transform messages for responses API - remove tool_calls and convert tool results
-				const transformedMessages = processedMessages.map((msg: any) => {
-					const transformed = { ...msg };
-					// Remove tool_calls from assistant messages (not supported in responses API input)
-					if (transformed.tool_calls) {
-						delete transformed.tool_calls;
-					}
-					// Responses API doesn't support tool_call_id in tool messages
-					if (transformed.tool_call_id) {
-						delete transformed.tool_call_id;
-					}
-					// Responses API doesn't support 'tool' role - convert to 'user'
-					if (transformed.role === "tool") {
-						transformed.role = "user";
-					}
-					return transformed;
-				});
+				// Transform messages for responses API:
+				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
+				// - Remove tool_calls and tool_call_id (not supported)
+				// - Convert tool role to user role
+				const transformedMessages =
+					transformMessagesForResponsesApi(processedMessages);
 
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedModel,
