@@ -5,11 +5,13 @@ import {
 } from "./models.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
+import { isTextContent } from "./types.js";
 
 import type { ProviderId } from "./providers.js";
 import type {
 	BaseMessage,
 	FunctionParameter,
+	MessageContent,
 	OpenAIFunctionToolInput,
 	OpenAIRequestBody,
 	OpenAIResponsesRequestBody,
@@ -26,6 +28,28 @@ function isFunctionTool(
 	tool: OpenAIToolInput,
 ): tool is OpenAIFunctionToolInput {
 	return tool.type === "function";
+}
+
+/**
+ * Converts message content to text-only format for models that don't support vision.
+ * Extracts only text content from array format and converts to string.
+ */
+function stripImageContentFromMessages(messages: BaseMessage[]): BaseMessage[] {
+	return messages.map((msg) => {
+		if (Array.isArray(msg.content)) {
+			// Extract only text content from the array
+			const textParts = msg.content
+				.filter((part: MessageContent) => isTextContent(part))
+				.map((part: MessageContent) => (isTextContent(part) ? part.text : ""));
+			// Join text parts into a single string
+			const textContent = textParts.join("\n").trim();
+			return {
+				...msg,
+				content: textContent || "",
+			};
+		}
+		return msg;
+	});
 }
 
 /**
@@ -575,6 +599,15 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
+
+				// Check if model supports vision - if not, strip image content from messages
+				const supportsVision =
+					(providerMapping as ProviderModelMapping)?.vision === true;
+				if (!supportsVision) {
+					requestBody.messages =
+						stripImageContentFromMessages(processedMessages);
+				}
+
 				if (stream) {
 					requestBody.stream_options = {
 						include_usage: true,
@@ -651,6 +684,16 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "zai": {
+			// Check if model supports vision - if not, strip image content from messages
+			const zaiProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === "zai",
+			);
+			const zaiSupportsVision =
+				(zaiProviderMapping as ProviderModelMapping)?.vision === true;
+			if (!zaiSupportsVision) {
+				requestBody.messages = stripImageContentFromMessages(processedMessages);
+			}
+
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -1245,6 +1288,16 @@ export async function prepareRequestBody(
 		}
 		case "inference.net":
 		case "together.ai": {
+			// Check if model supports vision - if not, strip image content from messages
+			const togetherProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			);
+			const togetherSupportsVision =
+				(togetherProviderMapping as ProviderModelMapping)?.vision === true;
+			if (!togetherSupportsVision) {
+				requestBody.messages = stripImageContentFromMessages(processedMessages);
+			}
+
 			if (usedModel.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
 			}
@@ -1268,6 +1321,16 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "cerebras": {
+			// Check if model supports vision - if not, strip image content from messages
+			const cerebrasProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === "cerebras",
+			);
+			const cerebrasSupportsVision =
+				(cerebrasProviderMapping as ProviderModelMapping)?.vision === true;
+			if (!cerebrasSupportsVision) {
+				requestBody.messages = stripImageContentFromMessages(processedMessages);
+			}
+
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -1328,6 +1391,16 @@ export async function prepareRequestBody(
 			break;
 		}
 		default: {
+			// Check if model supports vision - if not, strip image content from messages
+			const defaultProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			);
+			const defaultSupportsVision =
+				(defaultProviderMapping as ProviderModelMapping)?.vision === true;
+			if (!defaultSupportsVision) {
+				requestBody.messages = stripImageContentFromMessages(processedMessages);
+			}
+
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
