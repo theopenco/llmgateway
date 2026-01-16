@@ -22,6 +22,7 @@ APP_ENDPOINTS["api"]="http://localhost:4002"
 APP_ENDPOINTS["gateway"]="http://localhost:4001"
 APP_ENDPOINTS["ui"]="http://localhost:3002"
 APP_ENDPOINTS["playground"]="http://localhost:3003"
+APP_ENDPOINTS["code"]="http://localhost:3004"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
 APP_ENDPOINTS["admin"]="http://localhost:3006"
 

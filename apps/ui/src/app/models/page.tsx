@@ -1,5 +1,6 @@
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
 	title: "AI Models Directory - Compare LLM Models & Providers | LLM Gateway",
@@ -19,9 +20,14 @@ export const metadata = {
 	},
 };
 
-export default function ModelsPage() {
+export default async function ModelsPage() {
+	const [models, providers] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+	]);
+
 	return (
-		<AllModels>
+		<AllModels models={models} providers={providers}>
 			<HeroRSC navbarOnly sticky={false} />
 		</AllModels>
 	);

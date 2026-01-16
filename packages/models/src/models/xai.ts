@@ -7,7 +7,6 @@ export const xaiModels = [
 		description: "xAI's advanced model with strong reasoning capabilities.",
 		family: "xai",
 		releasedAt: new Date("2025-02-17"),
-		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				test: "skip",
@@ -31,7 +30,6 @@ export const xaiModels = [
 		description: "Compact Grok-3 for fast, cost-effective inference.",
 		family: "xai",
 		releasedAt: new Date("2025-02-17"),
-		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				providerId: "xai",
@@ -54,7 +52,6 @@ export const xaiModels = [
 		description: "Optimized Grok-3 variant for lower latency.",
 		family: "xai",
 		releasedAt: new Date("2025-02-17"),
-		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				test: "skip",
@@ -80,7 +77,6 @@ export const xaiModels = [
 		description: "Fastest Grok-3 Mini variant.",
 		family: "xai",
 		releasedAt: new Date("2025-02-17"),
-		publishedAt: new Date("2025-02-17"),
 		providers: [
 			{
 				providerId: "xai",
@@ -105,7 +101,6 @@ export const xaiModels = [
 		description: "December 2024 version of Grok-2.",
 		family: "xai",
 		releasedAt: new Date("2024-08-14"),
-		publishedAt: new Date("2024-08-14"),
 		providers: [
 			{
 				test: "skip",
@@ -131,7 +126,6 @@ export const xaiModels = [
 		description: "Grok-2 with vision capabilities.",
 		family: "xai",
 		releasedAt: new Date("2024-08-14"),
-		publishedAt: new Date("2024-08-14"),
 		providers: [
 			{
 				providerId: "xai",
@@ -157,7 +151,6 @@ export const xaiModels = [
 		description: "July 2025 version of Grok 4.",
 		family: "xai",
 		releasedAt: new Date("2025-07-09"),
-		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				test: "skip",
@@ -182,7 +175,6 @@ export const xaiModels = [
 		description: "Latest Grok 4 with vision and tool support.",
 		family: "xai",
 		releasedAt: new Date("2025-07-09"),
-		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -206,7 +198,6 @@ export const xaiModels = [
 		description: "Grok 4 optimized for fast reasoning.",
 		family: "xai",
 		releasedAt: new Date("2025-07-09"),
-		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -231,7 +222,6 @@ export const xaiModels = [
 		description: "Grok 4 without reasoning for faster responses.",
 		family: "xai",
 		releasedAt: new Date("2025-07-09"),
-		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -256,7 +246,6 @@ export const xaiModels = [
 		description: "Grok optimized for code generation tasks.",
 		family: "xai",
 		releasedAt: new Date("2025-07-09"),
-		publishedAt: new Date("2025-07-09"),
 		providers: [
 			{
 				test: "skip",
@@ -280,7 +269,6 @@ export const xaiModels = [
 		description: "Grok 4.1 with fast reasoning and vision support.",
 		family: "xai",
 		releasedAt: new Date("2025-11-17"),
-		publishedAt: new Date("2025-11-17"),
 		providers: [
 			{
 				providerId: "xai",
@@ -304,7 +292,6 @@ export const xaiModels = [
 		description: "Grok 4.1 without reasoning mode.",
 		family: "xai",
 		releasedAt: new Date("2025-10-01"),
-		publishedAt: new Date("2025-10-01"),
 		providers: [
 			{
 				providerId: "xai",

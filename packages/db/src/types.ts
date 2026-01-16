@@ -78,11 +78,12 @@ export type Project = Omit<ProjectBase, "status" | "mode"> & {
 
 export type Organization = Omit<
 	OrganizationBase,
-	"status" | "plan" | "retentionLevel"
+	"status" | "plan" | "retentionLevel" | "devPlan"
 > & {
 	plan: "free" | "pro";
 	retentionLevel: "retain" | "none";
 	status: "active" | "inactive" | "deleted" | null;
+	devPlan: "none" | "lite" | "pro" | "max";
 };
 
 export type User = UserBase;
@@ -116,10 +117,16 @@ export type SerializedOrganization = Omit<
 	| "isTrialActive"
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
+	| "devPlanBillingCycleStart"
+	| "devPlanStripeSubscriptionId"
+	| "devPlanCancelled"
+	| "devPlanExpiresAt"
 > & {
 	createdAt: string;
 	updatedAt: string;
 	planExpiresAt: string | null;
+	devPlanBillingCycleStart: string | null;
+	devPlanExpiresAt: string | null;
 };
 
 export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {

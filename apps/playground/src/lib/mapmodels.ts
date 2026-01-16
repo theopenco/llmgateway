@@ -1,14 +1,14 @@
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ComboboxModel } from "@/lib/types";
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 export function mapModels(
-	models: readonly ModelDefinition[],
-	providers: readonly ProviderDefinition[],
+	models: readonly ApiModel[],
+	providers: readonly ApiProvider[],
 ): ComboboxModel[] {
 	const entries: ComboboxModel[] = [];
 	for (const m of models) {
 		// Add root model entry
-		const rootProviders = m.providers.map((p) => ({
+		const rootProviders = m.mappings.map((p) => ({
 			providerInfo: providers.find((pr) => pr.id === p.providerId),
 			...p,
 		}));
@@ -29,7 +29,7 @@ export function mapModels(
 			imageGen: hasImageGen,
 		});
 
-		for (const p of m.providers) {
+		for (const p of m.mappings) {
 			const providerInfo = providers.find((pr) => pr.id === p.providerId);
 			// Ensure we use the same ID format as ModelSelector: providerId/modelId
 			// Note: ModelSelector uses m.id (Gateway ID), not p.modelName (Provider ID)
@@ -47,11 +47,11 @@ export function mapModels(
 				provider: providerInfo?.name ?? p.providerId,
 				providerId: p.providerId,
 				family: m.family,
-				context: p.contextSize,
-				inputPrice: p.inputPrice,
-				outputPrice: p.outputPrice,
-				vision: p.vision,
-				tools: p.tools,
+				context: p.contextSize ?? undefined,
+				inputPrice: p.inputPrice ? parseFloat(p.inputPrice) : undefined,
+				outputPrice: p.outputPrice ? parseFloat(p.outputPrice) : undefined,
+				vision: p.vision ?? undefined,
+				tools: p.tools ?? undefined,
 				imageGen: m.output?.includes("image"),
 			});
 		}

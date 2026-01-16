@@ -27,17 +27,17 @@ import { formatContextSize } from "@/lib/utils";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import type {
-	ModelDefinition,
-	ProviderModelMapping,
-	providers,
-	StabilityLevel,
-} from "@llmgateway/models";
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
+import type { StabilityLevel } from "@llmgateway/models";
 import type { LucideProps } from "lucide-react";
 
-interface ModelWithProviders extends ModelDefinition {
+interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
-		provider: ProviderModelMapping;
-		providerInfo: (typeof providers)[number];
+		provider: ApiModelProviderMapping;
+		providerInfo: ApiProvider;
 	}>;
 }
 
@@ -50,8 +50,8 @@ export function ModelCard({
 }: {
 	model: ModelWithProviders;
 	getCapabilityIcons: (
-		provider: ProviderModelMapping,
-		model?: any,
+		provider: ApiModelProviderMapping,
+		model?: ApiModel,
 	) => {
 		icon: React.ForwardRefExoticComponent<
 			Omit<LucideProps, "ref"> & React.RefAttributes<SVGSVGElement>
@@ -60,12 +60,12 @@ export function ModelCard({
 		color: string;
 	}[];
 	shouldShowStabilityWarning: (
-		stability?: StabilityLevel,
+		stability?: StabilityLevel | null,
 	) => boolean | undefined;
 	goToModel: () => void;
 	formatPrice: (
-		price: number | undefined,
-		discount?: number,
+		price: string | null | undefined,
+		discount?: string | null,
 	) => string | React.JSX.Element;
 }) {
 	const config = useAppConfig();
@@ -78,9 +78,12 @@ export function ModelCard({
 		setTimeout(() => setCopiedModel(null), 2000);
 	};
 
-	const hasProviderStabilityWarning = (provider: ProviderModelMapping) => {
+	const hasProviderStabilityWarning = (
+		provider: ApiModelProviderMapping,
+	): boolean => {
 		return (
-			provider.stability &&
+			provider.stability !== null &&
+			provider.stability !== undefined &&
 			["unstable", "experimental"].includes(provider.stability)
 		);
 	};
@@ -349,52 +352,21 @@ export function ModelCard({
 													)}
 												</div>
 											</div>
-											{provider.imageOutputPrice !== undefined && (
-												<div className="space-y-1">
-													<div className="text-xs text-muted-foreground">
-														Image Out
-													</div>
-													<div className="font-semibold text-foreground text-sm">
-														{typeof formatPrice(
-															provider.imageOutputPrice,
-															provider.discount,
-														) === "string" ? (
-															<>
-																{formatPrice(
-																	provider.imageOutputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs ml-1">
-																	/M
-																</span>
-															</>
-														) : (
-															<span className="inline-flex items-baseline gap-1">
-																{formatPrice(
-																	provider.imageOutputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs">
-																	/M
-																</span>
+											{provider.requestPrice !== null &&
+												provider.requestPrice !== undefined &&
+												parseFloat(provider.requestPrice) > 0 && (
+													<div className="space-y-1">
+														<div className="text-xs text-muted-foreground">
+															Per Request
+														</div>
+														<div className="font-semibold text-foreground text-sm">
+															${parseFloat(provider.requestPrice).toFixed(3)}
+															<span className="text-muted-foreground text-xs ml-1">
+																/req
 															</span>
-														)}
+														</div>
 													</div>
-												</div>
-											)}
-											{provider.requestPrice !== undefined && (
-												<div className="space-y-1">
-													<div className="text-xs text-muted-foreground">
-														Per Request
-													</div>
-													<div className="font-semibold text-foreground text-sm">
-														${provider.requestPrice.toFixed(3)}
-														<span className="text-muted-foreground text-xs ml-1">
-															/req
-														</span>
-													</div>
-												</div>
-											)}
+												)}
 										</div>
 									</div>
 

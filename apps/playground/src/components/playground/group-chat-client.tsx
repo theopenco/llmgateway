@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useRef } from "react";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
 import { GroupChatUI } from "@/components/playground/group-chat-ui";
@@ -15,14 +16,13 @@ import { useUser } from "@/hooks/useUser";
 import { mapModels } from "@/lib/mapmodels";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
-import { ModelSelector } from "@llmgateway/shared/components";
 
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 interface GroupChatClientProps {
-	models: ModelDefinition[];
-	providers: ProviderDefinition[];
+	models: ApiModel[];
+	providers: ApiProvider[];
 	organizations: Organization[];
 	selectedOrganization: Organization | null;
 	projects: Project[];
@@ -466,7 +466,7 @@ export default function GroupChatClient({
 													{ProviderIcon ? (
 														<ProviderIcon
 															className="h-3.5 w-3.5"
-															style={{ color: providerDef?.color }}
+															style={{ color: providerDef?.color ?? undefined }}
 														/>
 													) : null}
 													<span className="max-w-[220px] truncate">

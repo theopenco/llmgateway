@@ -114,6 +114,15 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=admin.
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=admin
 
+# Builder for Code
+FROM base-builder AS code-builder
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --parents packages/**/package.json .
+COPY --parents apps/**/package.json .
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=code... install --frozen-lockfile
+COPY . .
+RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=code
+
 FROM debian:12-slim AS runtime
 
 # Install base runtime dependencies
@@ -249,4 +258,21 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/admin
+CMD ["node", "server.js"]
+
+# Code runtime stage
+FROM runtime AS code
+WORKDIR /app
+COPY --from=base-builder /app/.tool-versions ./
+
+# Copy the ENTIRE standalone output - this is self-contained
+COPY --from=code-builder /app/apps/code/.next/standalone/ ./
+
+EXPOSE 80
+ENV PORT=80
+ENV NODE_ENV=production
+ENV HOSTNAME="0.0.0.0"
+
+# Set working directory to where server.js is located in Docker build
+WORKDIR /app/apps/code
 CMD ["node", "server.js"]

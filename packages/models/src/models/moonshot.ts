@@ -7,7 +7,6 @@ export const moonshotModels = [
 		description: "Moonshot's Kimi K2 model for general tasks.",
 		family: "moonshot",
 		releasedAt: new Date("2025-07-10"),
-		publishedAt: new Date("2025-07-10"),
 		providers: [
 			{
 				providerId: "groq",
@@ -113,7 +112,6 @@ export const moonshotModels = [
 		description: "Kimi K2 with extended thinking capabilities.",
 		family: "moonshot",
 		releasedAt: new Date("2025-07-10"),
-		publishedAt: new Date("2025-07-10"),
 		providers: [
 			{
 				providerId: "moonshot",
@@ -166,7 +164,6 @@ export const moonshotModels = [
 		description: "Faster turbo variant of Kimi K2 with extended thinking.",
 		family: "moonshot",
 		releasedAt: new Date("2025-11-06"),
-		publishedAt: new Date("2025-11-06"),
 		providers: [
 			{
 				providerId: "moonshot",

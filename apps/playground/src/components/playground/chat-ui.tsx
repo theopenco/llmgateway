@@ -7,7 +7,7 @@ import {
 	Brain,
 	GlobeIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, memo, useMemo } from "react";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
@@ -173,6 +173,209 @@ const heroSuggestionGroups = {
 		"Design a futuristic robot assistant",
 	],
 };
+
+// js-combine-iterations: Extract message parts in a single pass instead of multiple filter() calls
+interface ExtractedParts {
+	textParts: string[];
+	imageParts: any[];
+	toolParts: any[];
+	reasoningContent: string;
+	sourceParts: any[];
+}
+
+function extractMessageParts(parts: any[]): ExtractedParts {
+	const textParts: string[] = [];
+	const imageParts: any[] = [];
+	const toolParts: any[] = [];
+	const reasoningParts: string[] = [];
+	const sourceParts: any[] = [];
+
+	for (const p of parts) {
+		if (p.type === "text") {
+			textParts.push(p.text);
+		} else if (p.type === "reasoning") {
+			reasoningParts.push(p.text);
+		} else if (p.type === "dynamic-tool") {
+			toolParts.push(p);
+		} else if (p.type === "source-url") {
+			sourceParts.push(p);
+		} else if (
+			(p.type === "image_url" && p.image_url?.url) ||
+			(p.type === "file" && p.mediaType?.startsWith("image/"))
+		) {
+			imageParts.push(p);
+		}
+	}
+
+	return {
+		textParts,
+		imageParts,
+		toolParts,
+		reasoningContent: reasoningParts.join(""),
+		sourceParts,
+	};
+}
+
+// rerender-memo: Memoize message component to prevent re-renders when only streaming status changes
+const AssistantMessage = memo(
+	({
+		message,
+		isLastMessage,
+		status,
+		regenerate,
+	}: {
+		message: UIMessage;
+		isLastMessage: boolean;
+		status: string;
+		regenerate: () => void;
+	}) => {
+		// useMemo for extracted parts to avoid recomputation
+		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
+			useMemo(() => extractMessageParts(message.parts), [message.parts]);
+		const textContent = textParts.join("");
+
+		return (
+			<div className="message-item">
+				{reasoningContent ? (
+					<Reasoning
+						className="w-full"
+						isStreaming={status === "streaming" && isLastMessage}
+					>
+						<ReasoningTrigger />
+						<ReasoningContent>{reasoningContent}</ReasoningContent>
+					</Reasoning>
+				) : null}
+
+				{toolParts.map((tool) => (
+					<Tool key={tool.toolCallId}>
+						<ToolHeader
+							type={tool.type as `tool-${string}`}
+							state={tool.state}
+						/>
+						<ToolContent>
+							<ToolInput input={tool.input} />
+							<ToolOutput errorText={tool.errorText} output={tool.output} />
+						</ToolContent>
+					</Tool>
+				))}
+
+				{textContent ? <Response>{textContent}</Response> : null}
+
+				{imageParts.length > 0 ? (
+					<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+						{imageParts.map((part: any, idx: number) => {
+							const { base64Only, mediaType } = parseImagePartToDataUrl(part);
+							if (!base64Only) {
+								return null;
+							}
+							return (
+								<ImageZoom key={idx}>
+									<Image
+										base64={base64Only}
+										mediaType={mediaType}
+										alt={part.name || "Generated image"}
+										className="h-[400px] aspect-auto border rounded-lg object-cover"
+									/>
+								</ImageZoom>
+							);
+						})}
+					</div>
+				) : isLastMessage && status === "streaming" ? (
+					<div className="mt-3">
+						<Loader />
+					</div>
+				) : null}
+
+				{sourceParts.length > 0 ? (
+					<Sources>
+						<SourcesTrigger count={sourceParts.length} />
+						{sourceParts.map((part, i) => (
+							<SourcesContent key={`${message.id}-${i}`}>
+								<Source href={part.url} title={part.url} />
+							</SourcesContent>
+						))}
+					</Sources>
+				) : null}
+
+				{isLastMessage && (
+					<Actions className="mt-2">
+						<Action
+							onClick={() => regenerate()}
+							label="Retry"
+							tooltip="Regenerate response"
+						>
+							<RefreshCcw className="size-3" />
+						</Action>
+						<Action
+							onClick={async () => {
+								try {
+									await navigator.clipboard.writeText(textContent);
+									toast.success("Copied to clipboard");
+								} catch {
+									toast.error("Failed to copy to clipboard");
+								}
+							}}
+							label="Copy"
+							tooltip="Copy to clipboard"
+						>
+							<Copy className="size-3" />
+						</Action>
+					</Actions>
+				)}
+			</div>
+		);
+	},
+);
+
+// rerender-memo: Memoize user message component
+const UserMessage = memo(
+	({
+		message,
+		isLastMessage,
+		status,
+	}: {
+		message: UIMessage;
+		isLastMessage: boolean;
+		status: string;
+	}) => {
+		const { textParts, imageParts } = useMemo(
+			() => extractMessageParts(message.parts),
+			[message.parts],
+		);
+
+		return (
+			<Message from={message.role} className="message-item">
+				<MessageContent variant="flat">
+					{textParts.map((t, idx) => (
+						<div key={idx}>{t}</div>
+					))}
+					{imageParts.length > 0 && (
+						<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+							{imageParts.map((part: any, idx: number) => {
+								const { base64Only, mediaType } = parseImagePartToDataUrl(part);
+								if (!base64Only) {
+									return null;
+								}
+								return (
+									<ImageZoom key={idx}>
+										<Image
+											base64={base64Only}
+											mediaType={mediaType}
+											alt={part.name || "Uploaded image"}
+											className="h-[300px] aspect-auto border rounded-lg object-cover"
+										/>
+									</ImageZoom>
+								);
+							})}
+						</div>
+					)}
+				</MessageContent>
+				{isLastMessage &&
+					(status === "submitted" || status === "streaming") && <Loader />}
+			</Message>
+		);
+	},
+);
 
 export const ChatUI = ({
 	messages,
@@ -348,225 +551,23 @@ export const ChatUI = ({
 								const isLastMessage = messageIndex === messages.length - 1;
 
 								if (m.role === "assistant") {
-									const textContent = m.parts
-										.filter((p) => p.type === "text")
-										.map((p) => p.text)
-										.join("");
-									const toolParts = m.parts.filter(
-										(p) => p.type === "dynamic-tool",
-									);
-									// Combine all image parts (both image_url and file types)
-									const imageParts = m.parts.filter(
-										(p: any) =>
-											(p.type === "image_url" && p.image_url?.url) ||
-											(p.type === "file" && p.mediaType?.startsWith("image/")),
-									);
-									const reasoningContent = m.parts
-										.filter((p) => p.type === "reasoning")
-										.map((p) => p.text)
-										.join("");
-									const sourceParts = m.parts.filter(
-										(p) => p.type === "source-url",
-									);
-
 									return (
-										<div key={m.id}>
-											{reasoningContent ? (
-												<Reasoning
-													className="w-full"
-													isStreaming={
-														status === "streaming" &&
-														m.id === messages.at(-1)?.id
-													}
-												>
-													<ReasoningTrigger />
-													<ReasoningContent>
-														{reasoningContent}
-													</ReasoningContent>
-												</Reasoning>
-											) : null}
-
-											{toolParts.map((tool) => (
-												<Tool key={tool.toolCallId}>
-													<ToolHeader
-														type={tool.type as `tool-${string}`}
-														state={tool.state}
-													/>
-													<ToolContent>
-														<ToolInput input={tool.input} />
-														{/* <Confirmation
-															approval={tool.approval}
-															state={tool.state}
-														>
-															<ConfirmationTitle>
-																<ConfirmationRequest>
-																	This tool requires your approval to proceed.
-																</ConfirmationRequest>
-																<ConfirmationAccepted>
-																	<CheckIcon className="size-4 text-green-600 dark:text-green-400" />
-																	<span>Accepted</span>
-																</ConfirmationAccepted>
-																<ConfirmationRejected>
-																	<XIcon className="size-4 text-destructive" />
-																	<span>Rejected</span>
-																</ConfirmationRejected>
-															</ConfirmationTitle>
-															<ConfirmationActions>
-																<ConfirmationAction
-																	onClick={async () => {
-																		try {
-																			addToolApprovalResponse({
-																				id: tool.approval!.id,
-																				approved: false,
-																			});
-																		} catch {
-																			toast.error("Failed to submit rejection");
-																		}
-																	}}
-																	variant="outline"
-																>
-																	Reject
-																</ConfirmationAction>
-																<ConfirmationAction
-																	onClick={async () => {
-																		try {
-																			addToolApprovalResponse({
-																				approved: true,
-																				id: tool.approval!.id,
-																			});
-																		} catch {
-																			toast.error("Failed to submit approval");
-																		}
-																	}}
-																	variant="default"
-																>
-																	Accept
-																</ConfirmationAction>
-															</ConfirmationActions>
-														</Confirmation> */}
-														<ToolOutput
-															errorText={tool.errorText}
-															output={tool.output}
-														/>
-													</ToolContent>
-												</Tool>
-											))}
-
-											{/* Then assistant text */}
-											{textContent ? <Response>{textContent}</Response> : null}
-
-											{/* Images after text */}
-											{imageParts.length > 0 ? (
-												<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-													{imageParts.map((part: any, idx: number) => {
-														const { base64Only, mediaType } =
-															parseImagePartToDataUrl(part);
-														if (!base64Only) {
-															return null;
-														}
-														return (
-															<ImageZoom key={idx}>
-																<Image
-																	base64={base64Only}
-																	mediaType={mediaType}
-																	alt={part.name || "Generated image"}
-																	className="h-[400px] aspect-auto border rounded-lg object-cover"
-																/>
-															</ImageZoom>
-														);
-													})}
-												</div>
-											) : isLastMessage && status === "streaming" ? (
-												<div className="mt-3">
-													<Loader />
-												</div>
-											) : null}
-
-											{/* Sources at the bottom */}
-											{sourceParts.length > 0 ? (
-												<Sources>
-													<SourcesTrigger count={sourceParts.length} />
-													{sourceParts.map((part, i) => (
-														<SourcesContent key={`${m.id}-${i}`}>
-															<Source href={part.url} title={part.url} />
-														</SourcesContent>
-													))}
-												</Sources>
-											) : null}
-
-											{isLastMessage && (
-												<Actions className="mt-2">
-													<Action
-														onClick={() => regenerate()}
-														label="Retry"
-														tooltip="Regenerate response"
-													>
-														<RefreshCcw className="size-3" />
-													</Action>
-													<Action
-														onClick={async () => {
-															try {
-																await navigator.clipboard.writeText(
-																	textContent,
-																);
-																toast.success("Copied to clipboard");
-															} catch {
-																toast.error("Failed to copy to clipboard");
-															}
-														}}
-														label="Copy"
-														tooltip="Copy to clipboard"
-													>
-														<Copy className="size-3" />
-													</Action>
-												</Actions>
-											)}
-										</div>
+										<AssistantMessage
+											key={m.id}
+											message={m}
+											isLastMessage={isLastMessage}
+											status={status}
+											regenerate={regenerate}
+										/>
 									);
 								} else {
-									// User messages: show text plus any attached images
-									const textParts = m.parts
-										.filter((p) => p.type === "text")
-										.map((p) => p.text);
-
-									const imageParts = (m.parts as any[]).filter(
-										(p: any) =>
-											p.type === "file" && p.mediaType?.startsWith("image/"),
-									);
-
 									return (
-										<Message key={m.id} from={m.role}>
-											<MessageContent variant="flat">
-												{textParts.map((t, idx) => (
-													<div key={idx}>{t}</div>
-												))}
-												{imageParts.length > 0 && (
-													<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-														{imageParts.map((part: any, idx: number) => {
-															const { base64Only, mediaType } =
-																parseImagePartToDataUrl(part);
-															if (!base64Only) {
-																return null;
-															}
-															return (
-																<ImageZoom key={idx}>
-																	<Image
-																		base64={base64Only}
-																		mediaType={mediaType}
-																		alt={part.name || "Uploaded image"}
-																		className="h-[300px] aspect-auto border rounded-lg object-cover"
-																	/>
-																</ImageZoom>
-															);
-														})}
-													</div>
-												)}
-											</MessageContent>
-											{isLastMessage &&
-												(status === "submitted" || status === "streaming") && (
-													<Loader />
-												)}
-										</Message>
+										<UserMessage
+											key={m.id}
+											message={m}
+											isLastMessage={isLastMessage}
+											status={status}
+										/>
 									);
 								}
 							})

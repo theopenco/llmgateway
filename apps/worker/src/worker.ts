@@ -669,23 +669,68 @@ export async function batchProcessLogs(): Promise<void> {
 
 			// Batch update organization credits within the same transaction
 			// Also calculate referral earnings (1% of spent credits)
+			// Dev plan credits are deducted first, then regular credits
 			const referralEarnings = new Map<string, Decimal>();
 
 			for (const [orgId, totalCost] of orgCosts.entries()) {
 				if (totalCost.greaterThan(0)) {
-					const costNumber = totalCost.toNumber();
-					await tx
-						.update(organization)
-						.set({
-							credits: sql`${organization.credits} - ${costNumber}`,
-						})
-						.where(eq(organization.id, orgId));
+					let remainingCost = totalCost;
 
-					logger.debug(
-						`Deducted ${costNumber} credits from organization ${orgId}`,
-					);
+					// Fetch the organization to check for dev plan
+					const org = await tx.query.organization.findFirst({
+						where: { id: { eq: orgId } },
+					});
+
+					// First, try to deduct from dev plan credits if available
+					if (org && org.devPlan !== "none") {
+						const devPlanCreditsLimit = new Decimal(
+							org.devPlanCreditsLimit || "0",
+						);
+						const devPlanCreditsUsed = new Decimal(
+							org.devPlanCreditsUsed || "0",
+						);
+						const devPlanRemaining =
+							devPlanCreditsLimit.minus(devPlanCreditsUsed);
+
+						if (devPlanRemaining.greaterThan(0)) {
+							const deductFromDevPlan = Decimal.min(
+								remainingCost,
+								devPlanRemaining,
+							);
+							const deductNumber = deductFromDevPlan.toNumber();
+
+							await tx
+								.update(organization)
+								.set({
+									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
+								})
+								.where(eq(organization.id, orgId));
+
+							logger.debug(
+								`Deducted ${deductNumber} dev plan credits from organization ${orgId}`,
+							);
+
+							remainingCost = remainingCost.minus(deductFromDevPlan);
+						}
+					}
+
+					// Deduct any remaining cost from regular credits
+					if (remainingCost.greaterThan(0)) {
+						const costNumber = remainingCost.toNumber();
+						await tx
+							.update(organization)
+							.set({
+								credits: sql`${organization.credits} - ${costNumber}`,
+							})
+							.where(eq(organization.id, orgId));
+
+						logger.debug(
+							`Deducted ${costNumber} regular credits from organization ${orgId}`,
+						);
+					}
 
 					// Check if this org was referred and calculate 1% referral earnings
+					// Based on total cost (both dev plan and regular credits)
 					const referral = await tx.query.referral.findFirst({
 						where: {
 							referredOrganizationId: { eq: orgId },

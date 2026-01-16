@@ -8,7 +8,6 @@ export const bytedanceModels = [
 			"ByteDance Seed 1.6 vision model with thinking/non-thinking modes, multimodal inputs, and 256K context window",
 		family: "bytedance",
 		releasedAt: new Date("2025-06-15"),
-		publishedAt: new Date("2026-01-12"),
 		providers: [
 			{
 				providerId: "bytedance",
@@ -34,7 +33,6 @@ export const bytedanceModels = [
 			"ByteDance Seed 1.6 vision model released September 15, 2025 with thinking/non-thinking modes and multimodal inputs",
 		family: "bytedance",
 		releasedAt: new Date("2025-09-15"),
-		publishedAt: new Date("2026-01-13"),
 		providers: [
 			{
 				providerId: "bytedance",
@@ -60,7 +58,6 @@ export const bytedanceModels = [
 			"ByteDance Seed 1.6 Flash - faster, cost-effective vision model released July 15, 2025",
 		family: "bytedance",
 		releasedAt: new Date("2025-07-15"),
-		publishedAt: new Date("2026-01-13"),
 		providers: [
 			{
 				providerId: "bytedance",
@@ -86,7 +83,6 @@ export const bytedanceModels = [
 			"ByteDance Seed 1.8 advanced vision model released December 28, 2025 with enhanced capabilities",
 		family: "bytedance",
 		releasedAt: new Date("2025-12-28"),
-		publishedAt: new Date("2026-01-13"),
 		providers: [
 			{
 				providerId: "bytedance",

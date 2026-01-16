@@ -120,7 +120,7 @@ COPY infra/start.sh /start.sh
 RUN chmod +x /start.sh
 
 # Expose ports
-EXPOSE 3002 3003 3005 3006 4001 4002 5432 6379
+EXPOSE 3002 3003 3004 3005 3006 4001 4002 5432 6379
 
 # Set environment variables
 ENV NODE_ENV=production
