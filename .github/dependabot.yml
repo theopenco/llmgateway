@@ -58,3 +58,5 @@ updates:
       better-auth:
         patterns:
           - "better-auth"
+          - "@better-auth/*"
+          - "@better-fetch/*"
