@@ -109,7 +109,6 @@ export const bytedanceModels = [
 		family: "bytedance",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-08-28"),
-		publishedAt: new Date("2026-01-15"),
 		providers: [
 			{
 				test: "skip",
@@ -137,7 +136,6 @@ export const bytedanceModels = [
 		family: "bytedance",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-11-28"),
-		publishedAt: new Date("2026-01-15"),
 		providers: [
 			{
 				test: "skip",
