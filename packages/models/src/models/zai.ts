@@ -242,6 +242,21 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "bytedance",
+				modelName: "glm-4-7-251222",
+				inputPrice: 0.6 / 1e6,
+				cachedInputPrice: 0.11 / 1e6,
+				outputPrice: 2.2 / 1e6,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
+			},
 		],
 	},
 	{

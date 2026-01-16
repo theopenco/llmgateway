@@ -601,6 +601,21 @@ export const openaiModels = [
 				reasoning: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "bytedance",
+				modelName: "gpt-oss-120b-250805",
+				inputPrice: 0.1 / 1e6,
+				cachedInputPrice: 0.02 / 1e6,
+				outputPrice: 0.5 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: 32000,
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: false, // BytePlus doesn't support response_format
+			},
 		],
 	},
 	{
