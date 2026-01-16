@@ -1,4 +1,4 @@
-import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 
 export function formatPrice(price: number | undefined): string {
 	// Unknown / missing pricing
@@ -18,7 +18,7 @@ export function formatPrice(price: number | undefined): string {
 	return `$${perMillion.toFixed(2)}/1M tokens`;
 }
 
-export function formatContextSize(size: number | undefined): string {
+export function formatContextSize(size: number | null | undefined): string {
 	if (!size) {
 		return "Unknown";
 	}
@@ -32,16 +32,16 @@ export function formatContextSize(size: number | undefined): string {
 }
 
 export function getProviderForModel(
-	model: ModelDefinition,
-	providers: ProviderDefinition[],
-): ProviderDefinition | undefined {
-	const primaryProvider = model.providers[0];
+	model: ApiModel,
+	providers: ApiProvider[],
+): ApiProvider | undefined {
+	const primaryProvider = model.mappings[0];
 	return providers.find((p) => p.id === primaryProvider?.providerId);
 }
 
-export function getModelCapabilities(model: ModelDefinition): string[] {
+export function getModelCapabilities(model: ApiModel): string[] {
 	const capabilities: string[] = [];
-	const provider = model.providers[0];
+	const provider = model.mappings[0];
 
 	if (provider?.streaming) {
 		capabilities.push("Streaming");

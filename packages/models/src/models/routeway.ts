@@ -8,7 +8,6 @@ export const routewayModels = [
 		family: "deepseek",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -32,7 +31,6 @@ export const routewayModels = [
 		family: "glm",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -56,7 +54,6 @@ export const routewayModels = [
 		family: "kimi",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -80,7 +77,6 @@ export const routewayModels = [
 		family: "gpt-oss",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -104,7 +100,6 @@ export const routewayModels = [
 		family: "meta",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -128,7 +123,6 @@ export const routewayModels = [
 		family: "meta",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -152,7 +146,6 @@ export const routewayModels = [
 		family: "meta",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -176,7 +169,6 @@ export const routewayModels = [
 		family: "nvidia",
 		free: true,
 		releasedAt: new Date("2025-01-01"),
-		publishedAt: new Date("2025-01-01"),
 		providers: [
 			{
 				providerId: "routeway",

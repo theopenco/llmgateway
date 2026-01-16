@@ -8,7 +8,6 @@ export const deepseekModels = [
 			"Large-scale Chinese AI model with strong multilingual capabilities.",
 		family: "deepseek",
 		releasedAt: new Date("2024-12-26"),
-		publishedAt: new Date("2024-12-26"),
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -46,7 +45,6 @@ export const deepseekModels = [
 		description: "May 2028 version of DeepSeek R1 reasoning model.",
 		family: "deepseek",
 		releasedAt: new Date("2025-05-28"),
-		publishedAt: new Date("2025-05-28"),
 		providers: [
 			{
 				providerId: "cloudrift",
@@ -85,7 +83,6 @@ export const deepseekModels = [
 		family: "deepseek",
 		stability: "beta" as const,
 		releasedAt: new Date("2025-01-20"),
-		publishedAt: new Date("2025-01-20"),
 		providers: [
 			{
 				providerId: "groq",
@@ -110,7 +107,6 @@ export const deepseekModels = [
 			"Updated DeepSeek V3 with vision, tools, and improved performance.",
 		family: "deepseek",
 		releasedAt: new Date("2025-08-21"),
-		publishedAt: new Date("2025-08-21"),
 		providers: [
 			{
 				providerId: "canopywave",
@@ -153,7 +149,6 @@ export const deepseekModels = [
 			"Latest DeepSeek V3 with vision, tools, and improved performance.",
 		family: "deepseek",
 		releasedAt: new Date("2025-12-02"),
-		publishedAt: new Date("2025-12-02"),
 		providers: [
 			{
 				providerId: "deepseek",

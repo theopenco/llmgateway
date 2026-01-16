@@ -13,16 +13,16 @@ import { useRouter } from "next/navigation";
 import { ModelCard } from "@/components/models/model-card";
 
 import type {
-	ModelDefinition,
-	ProviderModelMapping,
-	StabilityLevel,
-	providers,
-} from "@llmgateway/models";
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
+import type { StabilityLevel } from "@llmgateway/models";
 
-interface ModelWithProviders extends ModelDefinition {
+interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
-		provider: ProviderModelMapping;
-		providerInfo: (typeof providers)[number];
+		provider: ApiModelProviderMapping;
+		providerInfo: ApiProvider;
 	}>;
 }
 
@@ -34,8 +34,8 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 	const router = useRouter();
 
 	const getCapabilityIcons = (
-		providerMapping: ProviderModelMapping,
-		model?: any,
+		providerMapping: ApiModelProviderMapping,
+		model?: ApiModel,
 	) => {
 		const capabilities = [];
 		if (providerMapping.streaming) {
@@ -83,17 +83,28 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 		return capabilities;
 	};
 
-	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
-		return stability && ["unstable", "experimental"].includes(stability);
+	const shouldShowStabilityWarning = (
+		stability?: StabilityLevel | null,
+	): boolean | undefined => {
+		return (
+			stability !== null &&
+			stability !== undefined &&
+			["unstable", "experimental"].includes(stability)
+		);
 	};
 
-	const formatPrice = (price: number | undefined, discount?: number) => {
-		if (price === undefined) {
+	const formatPrice = (
+		price: string | null | undefined,
+		discount?: string | null,
+	) => {
+		if (price === null || price === undefined) {
 			return "—";
 		}
-		const originalPrice = (price * 1e6).toFixed(2);
-		if (discount) {
-			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
+		const priceNum = parseFloat(price);
+		const discountNum = discount ? parseFloat(discount) : 0;
+		const originalPrice = (priceNum * 1e6).toFixed(2);
+		if (discountNum > 0) {
+			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">

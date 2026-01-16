@@ -3,9 +3,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
-
-import { models, providers } from "@llmgateway/models";
 
 import type { Project, Organization } from "@/lib/types";
 
@@ -127,6 +126,12 @@ export default async function ChatPage({
 	}
 
 	const projects = (initialProjectsData?.projects || []) as Project[];
+
+	// Fetch models and providers from API
+	const [models, providers] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+	]);
 
 	// Determine selected project: URL > cookie > first
 	let selectedProject: Project | null = null;

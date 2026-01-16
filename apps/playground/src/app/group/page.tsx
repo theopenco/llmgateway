@@ -3,9 +3,8 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import GroupChatClient from "@/components/playground/group-chat-client";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
-
-import { models, providers } from "@llmgateway/models";
 
 import type { Project, Organization } from "@/lib/types";
 
@@ -23,6 +22,12 @@ export default async function GroupPage({
 	searchParams: Promise<{ orgId: string; projectId: string }>;
 }) {
 	const { orgId, projectId } = await searchParams;
+
+	// Fetch models and providers from API
+	const [models, providers] = await Promise.all([
+		fetchModels(),
+		fetchProviders(),
+	]);
 
 	// Fetch organizations server-side
 	const initialOrganizationsData = await fetchServerData("GET", "/orgs");

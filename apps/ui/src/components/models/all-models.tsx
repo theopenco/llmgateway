@@ -62,22 +62,28 @@ import {
 import { useAppConfig } from "@/lib/config";
 import { cn, formatContextSize } from "@/lib/utils";
 
-import { models, providers } from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import { ModelCard } from "./model-card";
 
 import type {
-	ModelDefinition,
-	ProviderModelMapping,
-	StabilityLevel,
-} from "@llmgateway/models";
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
+import type { StabilityLevel } from "@llmgateway/models";
 
-interface ModelWithProviders extends ModelDefinition {
+interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
-		provider: ProviderModelMapping;
-		providerInfo: (typeof providers)[number];
+		provider: ApiModelProviderMapping;
+		providerInfo: ApiProvider;
 	}>;
+}
+
+interface AllModelsProps {
+	children: React.ReactNode;
+	models: ApiModel[];
+	providers: ApiProvider[];
 }
 
 type SortField =
@@ -90,7 +96,7 @@ type SortField =
 	| "requestPrice";
 type SortDirection = "asc" | "desc";
 
-export function AllModels({ children }: { children: React.ReactNode }) {
+export function AllModels({ children, models, providers }: AllModelsProps) {
 	const config = useAppConfig();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -172,11 +178,11 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 	const totalProviderCount = providers.length;
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
-		const baseModels = (models as readonly ModelDefinition[]).map((model) => ({
+		const baseModels = models.map((model) => ({
 			...model,
-			providerDetails: model.providers.map((provider) => ({
-				provider,
-				providerInfo: providers.find((p) => p.id === provider.providerId)!,
+			providerDetails: model.mappings.map((mapping) => ({
+				provider: mapping,
+				providerInfo: providers.find((p) => p.id === mapping.providerId)!,
 			})),
 		}));
 
@@ -275,7 +281,8 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			if (filters.capabilities.free) {
 				// A model is only considered free if it has the free flag AND no provider has a per-request cost
 				const hasRequestPrice = model.providerDetails.some(
-					(p) => p.provider.requestPrice && p.provider.requestPrice > 0,
+					(p) =>
+						p.provider.requestPrice && parseFloat(p.provider.requestPrice) > 0,
 				);
 				if (!model.free || hasRequestPrice) {
 					return false;
@@ -301,10 +308,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			// Price filters
 			const hasInputPrice = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					if (p.provider.inputPrice === undefined) {
+					if (
+						p.provider.inputPrice === null ||
+						p.provider.inputPrice === undefined
+					) {
 						return !min && !max;
 					}
-					const price = p.provider.inputPrice * 1e6; // Convert to per million tokens
+					const price = parseFloat(p.provider.inputPrice) * 1e6; // Convert to per million tokens
 					const minPrice = min ? parseFloat(min) : 0;
 					const maxPrice = max ? parseFloat(max) : Infinity;
 					return price >= minPrice && price <= maxPrice;
@@ -313,10 +323,13 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 			const hasOutputPrice = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					if (p.provider.outputPrice === undefined) {
+					if (
+						p.provider.outputPrice === null ||
+						p.provider.outputPrice === undefined
+					) {
 						return !min && !max;
 					}
-					const price = p.provider.outputPrice * 1e6; // Convert to per million tokens
+					const price = parseFloat(p.provider.outputPrice) * 1e6; // Convert to per million tokens
 					const minPrice = min ? parseFloat(min) : 0;
 					const maxPrice = max ? parseFloat(max) : Infinity;
 					return price >= minPrice && price <= maxPrice;
@@ -325,7 +338,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 
 			const hasContextSize = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					if (p.provider.contextSize === undefined) {
+					if (
+						p.provider.contextSize === null ||
+						p.provider.contextSize === undefined
+					) {
 						return !min && !max;
 					}
 					const size = p.provider.contextSize;
@@ -357,12 +373,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			return true;
 		});
 
-		// Apply sorting - default to publishedAt descending (newest first)
+		// Apply sorting - default to createdAt descending (newest first)
 		return [...filteredModels].sort((a, b) => {
-			// Default sorting by publishedAt when no sort field selected
+			// Default sorting by createdAt when no sort field selected
 			if (!sortField) {
-				const aDate = a.publishedAt?.getTime() ?? 0;
-				const bDate = b.publishedAt?.getTime() ?? 0;
+				const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+				const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
 				return bDate - aDate; // Descending (newest first)
 			}
 
@@ -391,10 +407,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					// Get the min input price among all providers for this model
 					const aInputPrices = a.providerDetails
 						.map((p) => p.provider.inputPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					const bInputPrices = b.providerDetails
 						.map((p) => p.provider.inputPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					aValue =
 						aInputPrices.length > 0 ? Math.min(...aInputPrices) : Infinity;
 					bValue =
@@ -405,10 +423,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					// Get the min output price among all providers for this model
 					const aOutputPrices = a.providerDetails
 						.map((p) => p.provider.outputPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					const bOutputPrices = b.providerDetails
 						.map((p) => p.provider.outputPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					aValue =
 						aOutputPrices.length > 0 ? Math.min(...aOutputPrices) : Infinity;
 					bValue =
@@ -419,10 +439,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					// Get the min cached input price among all providers for this model
 					const aCachedInputPrices = a.providerDetails
 						.map((p) => p.provider.cachedInputPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					const bCachedInputPrices = b.providerDetails
 						.map((p) => p.provider.cachedInputPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					aValue =
 						aCachedInputPrices.length > 0
 							? Math.min(...aCachedInputPrices)
@@ -437,10 +459,12 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 					// Get the min request price among all providers for this model
 					const aRequestPrices = a.providerDetails
 						.map((p) => p.provider.requestPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					const bRequestPrices = b.providerDetails
 						.map((p) => p.provider.requestPrice)
-						.filter((p) => p !== undefined);
+						.filter((p): p is string => p !== null && p !== undefined)
+						.map((p) => parseFloat(p));
 					aValue =
 						aRequestPrices.length > 0 ? Math.min(...aRequestPrices) : Infinity;
 					bValue =
@@ -459,7 +483,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 			}
 			return 0;
 		});
-	}, [searchQuery, filters, sortField, sortDirection]);
+	}, [searchQuery, filters, sortField, sortDirection, models, providers]);
 
 	// Calculate unique filtered providers
 	const filteredProviderCount = useMemo(() => {
@@ -494,7 +518,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		);
 	};
 
-	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
+	const getStabilityBadgeProps = (stability?: StabilityLevel | null) => {
 		switch (stability) {
 			case "beta":
 				return {
@@ -519,14 +543,23 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		}
 	};
 
-	const shouldShowStabilityWarning = (stability?: StabilityLevel) => {
-		return stability && ["unstable", "experimental"].includes(stability);
+	const shouldShowStabilityWarning = (
+		stability?: StabilityLevel | null,
+	): boolean => {
+		return (
+			stability !== null &&
+			stability !== undefined &&
+			["unstable", "experimental"].includes(stability)
+		);
 	};
 
-	const hasProviderStabilityWarning = (provider: ProviderModelMapping) => {
+	const hasProviderStabilityWarning = (
+		provider: ApiModelProviderMapping,
+	): boolean => {
 		const providerStability = provider.stability;
 		return (
-			providerStability &&
+			providerStability !== null &&
+			providerStability !== undefined &&
 			["unstable", "experimental"].includes(providerStability)
 		);
 	};
@@ -541,13 +574,18 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		}
 	};
 
-	const formatPrice = (price: number | undefined, discount?: number) => {
-		if (price === undefined) {
+	const formatPrice = (
+		price: string | null | undefined,
+		discount?: string | null,
+	) => {
+		if (price === null || price === undefined) {
 			return "—";
 		}
-		const originalPrice = (price * 1e6).toFixed(2);
-		if (discount) {
-			const discountedPrice = (price * 1e6 * (1 - discount)).toFixed(2);
+		const priceNum = parseFloat(price);
+		const discountNum = discount ? parseFloat(discount) : 0;
+		const originalPrice = (priceNum * 1e6).toFixed(2);
+		if (discountNum > 0) {
+			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">
@@ -564,7 +602,10 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 		return `$${originalPrice}`;
 	};
 
-	const getCapabilityIcons = (provider: ProviderModelMapping, model?: any) => {
+	const getCapabilityIcons = (
+		provider: ApiModelProviderMapping,
+		model?: ApiModel,
+	) => {
 		const capabilities = [];
 		if (provider.streaming) {
 			capabilities.push({
@@ -1045,7 +1086,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												!model.providerDetails.some(
 													(p) =>
 														p.provider.requestPrice &&
-														p.provider.requestPrice > 0,
+														parseFloat(p.provider.requestPrice) > 0,
 												) && (
 													<Badge
 														variant="secondary"
@@ -1126,7 +1167,9 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												<Badge
 													variant="secondary"
 													className="text-xs"
-													style={{ borderColor: providerInfo?.color }}
+													style={{
+														borderColor: providerInfo?.color ?? undefined,
+													}}
 												>
 													{providerInfo?.name || provider.providerId}
 												</Badge>
@@ -1243,18 +1286,19 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="text-sm font-mono"
 											>
-												{provider.requestPrice !== undefined &&
-												provider.requestPrice > 0 ? (
+												{provider.requestPrice !== null &&
+												provider.requestPrice !== undefined &&
+												parseFloat(provider.requestPrice) > 0 ? (
 													provider.discount ? (
 														<div className="flex flex-col justify-center items-center">
 															<span className="line-through text-muted-foreground text-xs">
-																${provider.requestPrice.toFixed(3)}
+																${parseFloat(provider.requestPrice).toFixed(3)}
 															</span>
 															<span className="text-green-600 font-semibold">
 																$
 																{(
-																	provider.requestPrice *
-																	(1 - provider.discount)
+																	parseFloat(provider.requestPrice) *
+																	(1 - parseFloat(provider.discount))
 																).toFixed(3)}
 															</span>
 															<span className="text-muted-foreground text-xs">
@@ -1263,7 +1307,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 														</div>
 													) : (
 														<>
-															${provider.requestPrice.toFixed(3)}
+															${parseFloat(provider.requestPrice).toFixed(3)}
 															<span className="text-muted-foreground text-xs ml-1">
 																/req
 															</span>
@@ -1284,11 +1328,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
 												className="text-sm font-mono"
 											>
-												{provider.webSearch && provider.webSearchPrice
-													? `$${(provider.webSearchPrice * 1000).toFixed(2)}/1K`
-													: provider.webSearch
-														? "Free"
-														: "—"}
+												{provider.webSearch ? "Supported" : "—"}
 											</div>
 										))}
 									</div>
@@ -1360,7 +1400,7 @@ export function AllModels({ children }: { children: React.ReactNode }) {
 										asChild
 									>
 										<a
-											href={`${config.playgroundUrl}?model=${encodeURIComponent(`${model.providers[0]?.providerId}/${model.id}`)}`}
+											href={`${config.playgroundUrl}?model=${encodeURIComponent(`${model.providerDetails[0]?.provider.providerId}/${model.id}`)}`}
 											target="_blank"
 											rel="noopener noreferrer"
 										>

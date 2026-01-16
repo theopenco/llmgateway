@@ -234,10 +234,6 @@ export interface ModelDefinition {
 	 * Date when the model was released by the provider
 	 */
 	releasedAt?: Date;
-	/**
-	 * Date when the model was published on LLM Gateway
-	 */
-	publishedAt?: Date;
 }
 
 export const models = [

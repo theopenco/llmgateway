@@ -697,10 +697,18 @@ export const model = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		name: text(),
+		releasedAt: timestamp().defaultNow().notNull(),
+		name: text().default("(empty)").notNull(),
+		aliases: json().$type<string[]>().default([]).notNull(),
+		description: text().default("(empty)").notNull(),
 		family: text().notNull(),
-		free: boolean(),
-		output: json().$type<string[]>(),
+		free: boolean().default(false).notNull(),
+		output: json().$type<string[]>().default(["text"]).notNull(),
+		stability: text({
+			enum: ["stable", "beta", "unstable", "experimental"],
+		})
+			.default("stable")
+			.notNull(),
 		status: text({
 			enum: ["active", "inactive"],
 		})
@@ -747,6 +755,15 @@ export const modelProviderMapping = pgTable(
 		reasoning: boolean(),
 		reasoningOutput: text(),
 		tools: boolean(),
+		jsonOutput: boolean().default(false).notNull(),
+		jsonOutputSchema: boolean().default(false).notNull(),
+		webSearch: boolean().default(false).notNull(),
+		discount: decimal().default("0").notNull(),
+		stability: text({
+			enum: ["stable", "beta", "unstable", "experimental"],
+		})
+			.default("stable")
+			.notNull(),
 		supportedParameters: json().$type<string[]>(),
 		test: text({
 			enum: ["skip", "only"],
