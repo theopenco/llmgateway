@@ -392,6 +392,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// Uses inArray with actual values to leverage index on (project_id, created_at)
+				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
+				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -399,7 +401,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						and(
 							inArray(log.projectId, freePlanProjectIds),
 							lt(log.createdAt, freePlanCutoff),
-							eq(log.dataRetentionCleanedUp, false),
+							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
@@ -470,6 +472,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// Uses inArray with actual values to leverage index on (project_id, created_at)
+				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
+				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
 				const recordsToClean = await tx
 					.select({ id: log.id })
 					.from(log)
@@ -477,7 +481,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						and(
 							inArray(log.projectId, proPlanProjectIds),
 							lt(log.createdAt, proPlanCutoff),
-							eq(log.dataRetentionCleanedUp, false),
+							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
 					.limit(CLEANUP_BATCH_SIZE)
