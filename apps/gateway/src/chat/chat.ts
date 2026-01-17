@@ -827,6 +827,98 @@ chat.openapi(completions, async (c) => {
 		providers: activeProviders,
 	};
 
+	// === Early API key and organization validation for coding model restriction ===
+	// We need to fetch these early to check coding model restrictions before capability checks
+	const auth = c.req.header("Authorization");
+	const xApiKey = c.req.header("x-api-key");
+
+	let token: string | undefined;
+
+	if (auth) {
+		const split = auth.split("Bearer ");
+		if (split.length === 2 && split[1]) {
+			token = split[1];
+		}
+	}
+
+	if (!token && xApiKey) {
+		token = xApiKey;
+	}
+
+	if (!token) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
+		});
+	}
+
+	const apiKey = await db.query.apiKey.findFirst({
+		where: {
+			token: {
+				eq: token,
+			},
+		},
+	});
+
+	if (!apiKey || apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
+		throw new HTTPException(401, {
+			message: "Unauthorized: LLMGateway API key reached its usage limit.",
+		});
+	}
+
+	// Get the project to determine mode for routing decisions
+	const project = await db.query.project.findFirst({
+		where: {
+			id: {
+				eq: apiKey.projectId,
+			},
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(500, {
+			message: "Could not find project",
+		});
+	}
+
+	// Check if project is deleted (archived)
+	if (project.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Project has been archived and is no longer accessible",
+		});
+	}
+
+	// Fetch organization for coding model restriction check
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: {
+				eq: project.organizationId,
+			},
+		},
+	});
+
+	// Validate coding model restriction for dev plan personal orgs
+	// This check must happen BEFORE capability checks to give the right error message
+	if (
+		organization?.isPersonal &&
+		organization.devPlan !== "none" &&
+		!organization.devPlanAllowAllModels
+	) {
+		const modelDef = models.find((m) => m.id === requestedModel);
+		if (modelDef && !isCodingModel(modelDef)) {
+			throw new HTTPException(403, {
+				message: `Model ${requestedModel} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+			});
+		}
+	}
+
 	if (response_format?.type === "json_object") {
 		// Filter providers by requestedProvider if specified
 		const providersToCheck = requestedProvider
@@ -956,81 +1048,6 @@ chat.openapi(completions, async (c) => {
 	let usedModel = requestedModel;
 	let routingMetadata: RoutingMetadata | undefined;
 
-	const auth = c.req.header("Authorization");
-	const xApiKey = c.req.header("x-api-key");
-
-	let token: string | undefined;
-
-	if (auth) {
-		const split = auth.split("Bearer ");
-		if (split.length === 2 && split[1]) {
-			token = split[1];
-		}
-	}
-
-	if (!token && xApiKey) {
-		token = xApiKey;
-	}
-
-	if (!token) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
-		});
-	}
-
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			token: {
-				eq: token,
-			},
-		},
-	});
-
-	if (!apiKey || apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-		});
-	}
-
-	// Get the project to determine mode for routing decisions
-	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: apiKey.projectId,
-			},
-		},
-	});
-
-	if (!project) {
-		throw new HTTPException(500, {
-			message: "Could not find project",
-		});
-	}
-
-	// Check if project is deleted (archived)
-	if (project.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Project has been archived and is no longer accessible",
-		});
-	}
-
-	// Determine image size limit based on organization plan
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: {
-				eq: project.organizationId,
-			},
-		},
-	});
-
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
 
@@ -1052,31 +1069,10 @@ chat.openapi(completions, async (c) => {
 		throwIamException(iamValidation.reason!);
 	}
 
-	// Validate coding model restriction for dev plan personal orgs
-	if (
-		organization?.isPersonal &&
-		organization.devPlan !== "none" &&
-		!organization.devPlanAllowAllModels
-	) {
-		const modelDef = models.find((m) => m.id === requestedModel);
-		if (modelDef && !isCodingModel(modelDef)) {
-			throw new HTTPException(403, {
-				message: `Model ${requestedModel} is not available for dev plans. Dev plans are optimized for coding tasks and only include models with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
-			});
-		}
-	}
-
 	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
 	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
-		const organization = await db.query.organization.findFirst({
-			where: {
-				id: {
-					eq: project.organizationId,
-				},
-			},
-		});
 		if (!organization) {
 			throw new HTTPException(500, { message: "Could not find organization" });
 		}
