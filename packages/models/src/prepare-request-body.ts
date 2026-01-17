@@ -1453,6 +1453,47 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "perplexity": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			// Perplexity supports json_schema but doesn't accept 'name' or 'strict' fields
+			if (response_format) {
+				if (
+					response_format.type === "json_schema" &&
+					response_format.json_schema
+				) {
+					requestBody.response_format = {
+						type: "json_schema",
+						json_schema: {
+							schema: response_format.json_schema.schema,
+						},
+					};
+				} else {
+					requestBody.response_format = response_format;
+				}
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			break;
+		}
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
