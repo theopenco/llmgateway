@@ -143,6 +143,14 @@ describe("test", () => {
 	});
 
 	test("Reasoning effort error for unsupported model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
