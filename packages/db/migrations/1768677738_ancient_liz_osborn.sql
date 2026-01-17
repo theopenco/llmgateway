@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "dev_plan_allow_all_models" boolean DEFAULT false NOT NULL;
