@@ -3,7 +3,7 @@ packages:
   - packages/*
 
 catalog:
-  better-auth: 1.3.30
+  better-auth: 1.4.11
 
 ignoredBuiltDependencies:
   - protobufjs
