@@ -3,8 +3,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
+import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
@@ -33,11 +34,22 @@ export function Providers({ children, config }: ProvidersProps) {
 		[],
 	);
 
-	const posthogOptions: Partial<PostHogConfig> | undefined = {
-		api_host: config.posthogHost,
-		capture_pageview: "history_change",
-		autocapture: true,
-	};
+	const posthogOptions = useMemo<Partial<PostHogConfig>>(
+		() => ({
+			api_host: config.posthogHost,
+			capture_pageview: "history_change",
+			autocapture: true,
+		}),
+		[config.posthogHost],
+	);
+
+	useEffect(() => {
+		if (!config.posthogKey) {
+			return;
+		}
+
+		posthog.init(config.posthogKey, posthogOptions);
+	}, [config.posthogKey, posthogOptions]);
 
 	return (
 		<AppConfigProvider config={config}>
@@ -48,16 +60,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					{config.posthogKey ? (
-						<PostHogProvider
-							apiKey={config.posthogKey}
-							options={posthogOptions}
-						>
-							{children}
-						</PostHogProvider>
-					) : (
-						children
-					)}
+					<PostHogProvider client={posthog}>{children}</PostHogProvider>
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="top-right" />
 					)}

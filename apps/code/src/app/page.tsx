@@ -42,6 +42,8 @@ const plans = [
 	},
 ];
 
+export const dynamic = "force-dynamic";
+
 export default function LandingPage() {
 	return (
 		<div className="min-h-screen bg-background">
@@ -52,12 +54,12 @@ export default function LandingPage() {
 						<span className="font-semibold text-lg">LLM Gateway Code</span>
 					</div>
 					<div className="flex items-center gap-4">
-						<Link href="/login">
-							<Button variant="ghost">Sign in</Button>
-						</Link>
-						<Link href="/signup">
-							<Button>Get Started</Button>
-						</Link>
+						<Button variant="ghost" asChild>
+							<Link href="/login">Sign in</Link>
+						</Button>
+						<Button asChild>
+							<Link href="/signup">Get Started</Link>
+						</Button>
 					</div>
 				</div>
 			</header>
@@ -77,11 +79,9 @@ export default function LandingPage() {
 							<Link href="/signup">
 								<Button size="lg">Get Started</Button>
 							</Link>
-							<Link href="#pricing">
-								<Button size="lg" variant="outline">
-									View Pricing
-								</Button>
-							</Link>
+							<Button size="lg" variant="outline" asChild>
+								<Link href="#pricing">View Pricing</Link>
+							</Button>
 						</div>
 					</div>
 				</section>
@@ -165,14 +165,15 @@ export default function LandingPage() {
 											</li>
 										))}
 									</ul>
-									<Link href={`/signup?plan=${plan.tier}`} className="block">
-										<Button
-											className="w-full"
-											variant={plan.popular ? "default" : "outline"}
-										>
+									<Button
+										className="w-full"
+										variant={plan.popular ? "default" : "outline"}
+										asChild
+									>
+										<Link href={`/signup?plan=${plan.tier}`} className="block">
 											Get Started
-										</Button>
-									</Link>
+										</Link>
+									</Button>
 								</div>
 							))}
 						</div>
@@ -188,9 +189,9 @@ export default function LandingPage() {
 							Join thousands of developers using LLM Gateway for AI-assisted
 							development.
 						</p>
-						<Link href="/signup">
-							<Button size="lg">Get Started</Button>
-						</Link>
+						<Button size="lg" asChild>
+							<Link href="/signup">Get Started</Link>
+						</Button>
 					</div>
 				</section>
 			</main>

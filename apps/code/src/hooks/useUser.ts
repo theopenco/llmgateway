@@ -1,9 +1,10 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 export interface UseUserOptions {
@@ -15,7 +16,9 @@ export function useUser(options?: UseUserOptions) {
 	const posthog = usePostHog();
 	const router = useRouter();
 	const api = useApi();
-	const pathname = usePathname();
+	const { posthogKey } = useAppConfig();
+	const redirectTo = options?.redirectTo;
+	const redirectWhen = options?.redirectWhen;
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -28,33 +31,22 @@ export function useUser(options?: UseUserOptions) {
 		},
 	);
 
-	if (data) {
+	useEffect(() => {
+		if (!data?.user || !posthogKey) {
+			return;
+		}
+
 		posthog.identify(data.user.id, {
 			email: data.user.email,
 			name: data.user.name,
 		});
-	}
+	}, [data?.user, posthog, posthogKey]);
 
 	useEffect(() => {
-		if (!data?.user || isLoading) {
+		if (!redirectTo || !redirectWhen) {
 			return;
 		}
 
-		const currentPath = pathname;
-		const isAuthPage = ["/login", "/signup"].includes(currentPath);
-		const isLandingPage = currentPath === "/";
-
-		if (isAuthPage || isLandingPage) {
-			return;
-		}
-	}, [data?.user, isLoading, router, pathname]);
-
-	useEffect(() => {
-		if (!options?.redirectTo || !options?.redirectWhen) {
-			return;
-		}
-
-		const { redirectTo, redirectWhen } = options;
 		const hasUser = !!data?.user;
 
 		if (redirectWhen === "authenticated" && hasUser) {
@@ -66,15 +58,7 @@ export function useUser(options?: UseUserOptions) {
 		) {
 			router.push(redirectTo);
 		}
-	}, [
-		data?.user,
-		isLoading,
-		error,
-		router,
-		options?.redirectTo,
-		options?.redirectWhen,
-		options,
-	]);
+	}, [data?.user, isLoading, error, router, redirectTo, redirectWhen]);
 
 	return {
 		user: data?.user || null,

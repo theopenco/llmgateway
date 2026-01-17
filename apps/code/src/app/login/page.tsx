@@ -6,7 +6,7 @@ import { Loader2, KeySquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useState, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+import { useAppConfig } from "@/lib/config";
 
 const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
@@ -41,11 +42,12 @@ function getSafeRedirectUrl(url: string | null): string {
 	return "/dashboard";
 }
 
-export default function Login() {
+function LoginForm() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const posthog = usePostHog();
+	const { posthogKey } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
 	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
@@ -56,8 +58,11 @@ export default function Login() {
 	});
 
 	useEffect(() => {
+		if (!posthogKey) {
+			return;
+		}
 		posthog.capture("page_viewed_login");
-	}, [posthog]);
+	}, [posthog, posthogKey]);
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
@@ -84,14 +89,16 @@ export default function Login() {
 			{
 				onSuccess: (ctx) => {
 					queryClient.clear();
-					posthog.identify(ctx.data.user.id, {
-						email: ctx.data.user.email,
-						name: ctx.data.user.name,
-					});
-					posthog.capture("user_logged_in", {
-						method: "email",
-						email: values.email,
-					});
+					if (posthogKey) {
+						posthog.identify(ctx.data.user.id, {
+							email: ctx.data.user.email,
+							name: ctx.data.user.name,
+						});
+						posthog.capture("user_logged_in", {
+							method: "email",
+							email: values.email,
+						});
+					}
 					toast.success("Login successful");
 					router.push(returnUrl);
 				},
@@ -131,7 +138,9 @@ export default function Login() {
 				});
 				return;
 			}
-			posthog.capture("user_logged_in", { method: "passkey" });
+			if (posthogKey) {
+				posthog.capture("user_logged_in", { method: "passkey" });
+			}
 			toast.success("Login successful");
 			router.push(returnUrl);
 		} catch (error: unknown) {
@@ -150,7 +159,7 @@ export default function Login() {
 	}
 
 	return (
-		<div className="px-4 sm:px-0 max-w-[64rem] mx-auto flex h-screen w-screen flex-col items-center justify-center">
+		<div className="px-4 sm:px-0 max-w-5xl mx-auto flex h-screen w-screen flex-col items-center justify-center">
 			<div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
 				<div className="flex flex-col space-y-2 text-center">
 					<h1 className="text-2xl font-semibold tracking-tight">
@@ -241,5 +250,19 @@ export default function Login() {
 				</p>
 			</div>
 		</div>
+	);
+}
+
+export default function Login() {
+	return (
+		<Suspense
+			fallback={
+				<div className="min-h-screen flex items-center justify-center">
+					<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+				</div>
+			}
+		>
+			<LoginForm />
+		</Suspense>
 	);
 }

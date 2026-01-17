@@ -213,6 +213,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "novita",
+				test: "skip", // skip tests due to reasoning issues
 				modelName: "zai-org/glm-4.7",
 				inputPrice: 0.6 / 1e6,
 				cachedInputPrice: 0.11 / 1e6,
