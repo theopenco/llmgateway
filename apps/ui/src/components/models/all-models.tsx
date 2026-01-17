@@ -2,6 +2,7 @@
 
 import {
 	Check,
+	Code,
 	Copy,
 	Eye,
 	Gift,
@@ -132,6 +133,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 	);
 	const [filters, setFilters] = useState({
 		capabilities: {
+			coding: searchParams.get("coding") === "true",
 			streaming: searchParams.get("streaming") === "true",
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
@@ -230,6 +232,19 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			}
 
 			// Capability filters
+			if (filters.capabilities.coding) {
+				const hasCodingCapabilities = model.providerDetails.some(
+					(p) =>
+						p.provider.jsonOutput &&
+						p.provider.tools &&
+						p.provider.streaming &&
+						p.provider.cachedInputPrice !== null &&
+						p.provider.cachedInputPrice !== undefined,
+				);
+				if (!hasCodingCapabilities) {
+					return false;
+				}
+			}
 			if (
 				filters.capabilities.streaming &&
 				!model.providerDetails.some((p) => p.provider.streaming)
@@ -670,6 +685,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		setSearchQuery("");
 		setFilters({
 			capabilities: {
+				coding: false,
 				streaming: false,
 				vision: false,
 				tools: false,
@@ -691,6 +707,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 
 		updateUrlWithFilters({
 			q: undefined,
+			coding: undefined,
 			streaming: undefined,
 			vision: undefined,
 			tools: undefined,
@@ -735,6 +752,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 						<h3 className="font-medium text-sm">Capabilities</h3>
 						<div className="space-y-2">
 							{[
+								{
+									key: "coding",
+									label: "Coding Recommended",
+									icon: Code,
+									color: "text-indigo-500",
+								},
 								{
 									key: "streaming",
 									label: "Streaming",

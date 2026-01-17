@@ -17,6 +17,7 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
@@ -330,17 +331,19 @@ export default function DashboardClient() {
 									<div className="flex items-center gap-2 text-sm text-muted-foreground">
 										<ExternalLink className="h-4 w-4" />
 										<a
-											href={`${config.uiUrl}/models`}
+											href={`${config.uiUrl}/models?coding=true`}
 											target="_blank"
 											rel="noopener noreferrer"
 											className="underline hover:text-foreground"
 										>
-											View all models
+											View all coding models
 										</a>
 									</div>
 								</div>
 							</div>
 						)}
+
+						<CodingModelsShowcase uiUrl={config.uiUrl} />
 
 						<DashboardIntegrations />
 
