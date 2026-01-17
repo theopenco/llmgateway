@@ -1,12 +1,5 @@
 "use client";
-import {
-	AlertCircle,
-	RefreshCcw,
-	Copy,
-	Plug,
-	Brain,
-	GlobeIcon,
-} from "lucide-react";
+import { AlertCircle, RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
 import { useRef, useState, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -62,7 +55,6 @@ import {
 	ToolInput,
 	ToolOutput,
 } from "@/components/ai-elements/tool";
-import { ConnectorsDialog } from "@/components/connectors/connectors-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
@@ -624,14 +616,6 @@ export const ChatUI = ({
 									<GlobeIcon size={16} />
 								</PromptInputButton>
 							)}
-							<ConnectorsDialog
-								trigger={
-									<PromptInputButton variant="ghost">
-										<Plug size={16} />
-										<span>MCPs</span>
-									</PromptInputButton>
-								}
-							/>
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
 							{supportsReasoning && (

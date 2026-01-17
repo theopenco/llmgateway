@@ -1,13 +1,7 @@
-import {
-	streamText,
-	type UIMessage,
-	convertToModelMessages,
-	stepCountIs,
-} from "ai";
+import { streamText, type UIMessage, convertToModelMessages } from "ai";
 import { cookies } from "next/headers";
 
 import { getUser } from "@/lib/getUser";
-import { getGithubMcpTools } from "@/lib/mcp/github";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -37,7 +31,6 @@ interface ChatRequestBody {
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 	web_search?: boolean;
-	githubToken?: string;
 }
 
 export async function POST(req: Request) {
@@ -58,7 +51,6 @@ export async function POST(req: Request) {
 		image_config,
 		reasoning_effort,
 		web_search,
-		githubToken: githubTokenBody,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -69,7 +61,6 @@ export async function POST(req: Request) {
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
-	const githubTokenHeader = req.headers.get("x-github-token") || undefined;
 	const noFallbackHeader = req.headers.get("x-no-fallback") || undefined;
 
 	const cookieStore = await cookies();
@@ -115,30 +106,6 @@ export async function POST(req: Request) {
 	}
 
 	try {
-		const tokenForMcp = githubTokenHeader || githubTokenBody;
-		if (tokenForMcp) {
-			const { tools, client: githubMCPClient } = await getGithubMcpTools(
-				tokenForMcp as string,
-			);
-
-			const result = streamText({
-				model: llmgateway.chat(selectedModel),
-				messages: await convertToModelMessages(messages),
-				tools,
-				stopWhen: stepCountIs(10),
-				onFinish: async () => {
-					if (githubMCPClient) {
-						await githubMCPClient.close();
-					}
-				},
-			});
-
-			return result.toUIMessageStreamResponse({
-				sendReasoning: true,
-				sendSources: true,
-			});
-		}
-
 		// Default streaming chat path (no tools)
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
