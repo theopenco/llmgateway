@@ -1055,6 +1055,7 @@ export default function ChatPageClient({
 												initialModel={selectedModel}
 												githubToken={githubToken}
 												mcpEnabled={mcpEnabled}
+												setMcpEnabled={setMcpEnabled}
 												syncInput={syncInput}
 												syncedText={syncedText}
 												setSyncedText={setSyncedText}
@@ -1083,6 +1084,7 @@ interface ExtraChatPanelProps {
 	initialModel: string;
 	githubToken: string | null;
 	mcpEnabled: boolean;
+	setMcpEnabled: (value: boolean) => void;
 	syncInput: boolean;
 	syncedText: string;
 	setSyncedText: (value: string) => void;
@@ -1100,6 +1102,7 @@ function ExtraChatPanel({
 	initialModel,
 	githubToken,
 	mcpEnabled,
+	setMcpEnabled,
 	syncInput,
 	syncedText,
 	setSyncedText,
