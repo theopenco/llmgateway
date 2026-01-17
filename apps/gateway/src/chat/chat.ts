@@ -2661,6 +2661,17 @@ chat.openapi(completions, async (c) => {
 						: "effort-2025-11-24";
 				}
 
+				// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+				if (
+					usedProvider === "anthropic" &&
+					response_format?.type === "json_schema"
+				) {
+					const currentBeta = headers["anthropic-beta"];
+					headers["anthropic-beta"] = currentBeta
+						? `${currentBeta},structured-outputs-2025-11-13`
+						: "structured-outputs-2025-11-13";
+				}
+
 				res = await fetch(url, {
 					method: "POST",
 					headers,
@@ -4378,6 +4389,17 @@ chat.openapi(completions, async (c) => {
 			headers["anthropic-beta"] = currentBeta
 				? `${currentBeta},effort-2025-11-24`
 				: "effort-2025-11-24";
+		}
+
+		// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+		if (
+			usedProvider === "anthropic" &&
+			response_format?.type === "json_schema"
+		) {
+			const currentBeta = headers["anthropic-beta"];
+			headers["anthropic-beta"] = currentBeta
+				? `${currentBeta},structured-outputs-2025-11-13`
+				: "structured-outputs-2025-11-13";
 		}
 
 		res = await fetch(url, {

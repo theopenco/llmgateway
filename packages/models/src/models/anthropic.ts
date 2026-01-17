@@ -234,6 +234,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 			{
 				test: "skip",
@@ -278,6 +279,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 			{
 				test: "skip",
@@ -320,6 +322,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
@@ -344,6 +347,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
@@ -413,6 +417,7 @@ export const anthropicModels = [
 				vision: true,
 				reasoning: true,
 				tools: true,
+				jsonOutputSchema: true,
 			},
 			{
 				test: "skip",
@@ -597,6 +602,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
 			},
 			{
