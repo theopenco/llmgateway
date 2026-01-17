@@ -1217,6 +1217,26 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// Handle response_format for AWS Bedrock via additionalModelRequestFields
+			// This passes Anthropic-specific parameters through the Converse API
+			if (
+				response_format?.type === "json_schema" &&
+				response_format.json_schema
+			) {
+				const schema = {
+					...response_format.json_schema.schema,
+					additionalProperties: false,
+				} as Record<string, unknown>;
+				requestBody.additionalModelRequestFields = {
+					anthropic_beta: ["structured-outputs-2025-11-13"],
+					output_format: {
+						type: "json_schema",
+						schema,
+					},
+				};
+				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
+			}
+
 			break;
 		}
 		case "google-ai-studio":
