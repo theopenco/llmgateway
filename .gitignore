@@ -21,3 +21,5 @@ benchmark_results.json
 *.b64
 /output.png
 *.tsbuildinfo
+*.db
+*.csv
