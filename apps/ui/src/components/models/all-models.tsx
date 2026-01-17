@@ -233,13 +233,27 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 
 			// Capability filters
 			if (filters.capabilities.coding) {
+				// Exclude free models
+				if (model.free) {
+					return false;
+				}
+				// Exclude unstable/experimental models
+				if (
+					model.stability === "unstable" ||
+					model.stability === "experimental"
+				) {
+					return false;
+				}
+				// Must have a stable provider with coding capabilities
 				const hasCodingCapabilities = model.providerDetails.some(
 					(p) =>
 						p.provider.jsonOutput &&
 						p.provider.tools &&
 						p.provider.streaming &&
 						p.provider.cachedInputPrice !== null &&
-						p.provider.cachedInputPrice !== undefined,
+						p.provider.cachedInputPrice !== undefined &&
+						p.provider.stability !== "unstable" &&
+						p.provider.stability !== "experimental",
 				);
 				if (!hasCodingCapabilities) {
 					return false;
