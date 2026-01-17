@@ -373,6 +373,37 @@ export const streamingWebSearchModels = webSearchModels.filter((m) =>
 	}),
 );
 
+export const jsonOutputModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.jsonOutput === true),
+);
+
+export const streamingJsonOutputModels = jsonOutputModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => {
+		// Check model-level streaming first, then fall back to provider-level
+		if (p.streaming !== undefined) {
+			return p.streaming;
+		}
+		const provider = providers.find((pr) => pr.id === p.providerId);
+		return provider?.streaming;
+	}),
+);
+
+export const jsonSchemaOutputModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.jsonOutputSchema === true),
+);
+
+export const streamingJsonSchemaOutputModels = jsonSchemaOutputModels.filter(
+	(m) =>
+		m.providers.some((p: ProviderModelMapping) => {
+			// Check model-level streaming first, then fall back to provider-level
+			if (p.streaming !== undefined) {
+				return p.streaming;
+			}
+			const provider = providers.find((pr) => pr.id === p.providerId);
+			return provider?.streaming;
+		}),
+);
+
 export async function createProviderKey(
 	provider: string,
 	token: string,

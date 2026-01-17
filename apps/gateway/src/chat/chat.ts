@@ -826,10 +826,7 @@ chat.openapi(completions, async (c) => {
 		providers: activeProviders,
 	};
 
-	if (
-		response_format?.type === "json_object" ||
-		response_format?.type === "json_schema"
-	) {
+	if (response_format?.type === "json_object") {
 		// Filter providers by requestedProvider if specified
 		const providersToCheck = requestedProvider
 			? modelInfo.providers.filter(
@@ -837,7 +834,7 @@ chat.openapi(completions, async (c) => {
 				)
 			: modelInfo.providers;
 
-		// Check if the provider(s) support JSON output
+		// Check if the provider(s) support JSON output mode
 		const supportsJsonOutput = providersToCheck.some(
 			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
 		);
@@ -847,21 +844,27 @@ chat.openapi(completions, async (c) => {
 				message: `Model ${requestedModel} does not support JSON output mode`,
 			});
 		}
+	}
 
-		// Additional validation for json_schema type
-		if (response_format?.type === "json_schema") {
-			// For non-auto/custom models, check if the provider supports json_schema
-			if (requestedModel !== "auto" && requestedModel !== "custom") {
-				const supportsJsonSchema = providersToCheck.some(
-					(provider) =>
-						(provider as ProviderModelMapping).jsonOutputSchema === true,
-				);
+	if (response_format?.type === "json_schema") {
+		// Filter providers by requestedProvider if specified
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
 
-				if (!supportsJsonSchema) {
-					throw new HTTPException(400, {
-						message: `Model ${requestedModel} does not support JSON schema output mode. Use response_format type 'json_object' instead.`,
-					});
-				}
+		// For non-auto/custom models, check if the provider supports json_schema
+		if (requestedModel !== "auto" && requestedModel !== "custom") {
+			const supportsJsonSchema = providersToCheck.some(
+				(provider) =>
+					(provider as ProviderModelMapping).jsonOutputSchema === true,
+			);
+
+			if (!supportsJsonSchema) {
+				throw new HTTPException(400, {
+					message: `Model ${requestedModel} does not support JSON schema output mode`,
+				});
 			}
 		}
 	}
