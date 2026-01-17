@@ -6,7 +6,7 @@ export const minimaxModels = [
 		name: "MiniMax M2",
 		description: "MiniMax M2 model with reasoning and tool support.",
 		family: "minimax",
-		releasedAt: new Date("2025-06-01"),
+		releasedAt: new Date("2025-10-23"),
 		providers: [
 			{
 				providerId: "canopywave",
@@ -32,7 +32,7 @@ export const minimaxModels = [
 		description:
 			"MiniMax M2.1 is a 10B-activated open-source coding and agent model with function calling, structured output, and reasoning support.",
 		family: "minimax",
-		releasedAt: new Date("2025-12-26"),
+		releasedAt: new Date("2025-12-23"),
 		providers: [
 			{
 				providerId: "novita",

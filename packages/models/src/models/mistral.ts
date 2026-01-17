@@ -6,7 +6,7 @@ export const mistralModels = [
 		name: "Mistral Large Latest",
 		description: "Mistral's flagship large model for complex reasoning tasks.",
 		family: "mistral",
-		releasedAt: new Date("2024-02-26"),
+		releasedAt: new Date("2025-12-02"),
 		providers: [
 			{
 				providerId: "mistral",
@@ -28,7 +28,7 @@ export const mistralModels = [
 		name: "Mixtral 8x7B Instruct",
 		description: "Mixture-of-experts model with 8x7B architecture.",
 		family: "mistral",
-		releasedAt: new Date("2023-12-08"),
+		releasedAt: new Date("2023-12-10"),
 		providers: [
 			{
 				providerId: "together.ai",
@@ -73,7 +73,7 @@ export const mistralModels = [
 		name: "Pixtral Large Latest",
 		description: "Mistral's multimodal model with vision capabilities.",
 		family: "mistral",
-		releasedAt: new Date("2024-11-01"),
+		releasedAt: new Date("2024-11-18"),
 		providers: [
 			{
 				providerId: "mistral",

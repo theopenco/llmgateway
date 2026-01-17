@@ -29,7 +29,7 @@ export const xaiModels = [
 		name: "Grok-3 Mini",
 		description: "Compact Grok-3 for fast, cost-effective inference.",
 		family: "xai",
-		releasedAt: new Date("2025-02-17"),
+		releasedAt: new Date("2025-04-09"),
 		providers: [
 			{
 				providerId: "xai",
@@ -51,7 +51,7 @@ export const xaiModels = [
 		name: "Grok-3 Fast",
 		description: "Optimized Grok-3 variant for lower latency.",
 		family: "xai",
-		releasedAt: new Date("2025-02-17"),
+		releasedAt: new Date("2025-05-22"),
 		providers: [
 			{
 				test: "skip",
@@ -100,7 +100,7 @@ export const xaiModels = [
 		name: "Grok-2 (1212)",
 		description: "December 2024 version of Grok-2.",
 		family: "xai",
-		releasedAt: new Date("2024-08-14"),
+		releasedAt: new Date("2024-12-12"),
 		providers: [
 			{
 				test: "skip",
@@ -125,7 +125,7 @@ export const xaiModels = [
 		name: "Grok-2 Vision (1212)",
 		description: "Grok-2 with vision capabilities.",
 		family: "xai",
-		releasedAt: new Date("2024-08-14"),
+		releasedAt: new Date("2024-12-14"),
 		providers: [
 			{
 				providerId: "xai",
@@ -221,7 +221,7 @@ export const xaiModels = [
 		name: "Grok 4 Fast Non-Reasoning",
 		description: "Grok 4 without reasoning for faster responses.",
 		family: "xai",
-		releasedAt: new Date("2025-07-09"),
+		releasedAt: new Date("2025-10-10"),
 		providers: [
 			{
 				providerId: "xai",
@@ -245,7 +245,7 @@ export const xaiModels = [
 		name: "Grok Code Fast 1",
 		description: "Grok optimized for code generation tasks.",
 		family: "xai",
-		releasedAt: new Date("2025-07-09"),
+		releasedAt: new Date("2025-08-28"),
 		providers: [
 			{
 				test: "skip",
@@ -268,7 +268,7 @@ export const xaiModels = [
 		name: "Grok 4.1 Fast Reasoning",
 		description: "Grok 4.1 with fast reasoning and vision support.",
 		family: "xai",
-		releasedAt: new Date("2025-11-17"),
+		releasedAt: new Date("2025-11-19"),
 		providers: [
 			{
 				providerId: "xai",
@@ -291,7 +291,7 @@ export const xaiModels = [
 		name: "Grok 4.1 Fast Non-Reasoning",
 		description: "Grok 4.1 without reasoning mode.",
 		family: "xai",
-		releasedAt: new Date("2025-10-01"),
+		releasedAt: new Date("2025-11-19"),
 		providers: [
 			{
 				providerId: "xai",

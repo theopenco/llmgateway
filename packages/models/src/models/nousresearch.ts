@@ -6,7 +6,7 @@ export const nousresearchModels = [
 		name: "Hermes 3 Llama 405B",
 		description: "Nous Research Hermes 3 based on Llama 405B.",
 		family: "nousresearch",
-		releasedAt: new Date("2024-08-01"),
+		releasedAt: new Date("2024-08-16"),
 		providers: [
 			{
 				providerId: "nebius",

@@ -971,7 +971,7 @@ export const openaiModels = [
 		description:
 			"GPT-5.1 specialized for code generation and software development tasks.",
 		family: "openai",
-		releasedAt: new Date("2025-11-01"),
+		releasedAt: new Date("2025-11-13"),
 		providers: [
 			{
 				providerId: "openai",
@@ -1019,7 +1019,7 @@ export const openaiModels = [
 		description:
 			"Lightweight code-focused model for efficient software development workflows.",
 		family: "openai",
-		releasedAt: new Date("2025-11-01"),
+		releasedAt: new Date("2025-11-12"),
 		providers: [
 			{
 				providerId: "openai",

@@ -7,7 +7,7 @@ export const bytedanceModels = [
 		description:
 			"ByteDance Seed 1.6 vision model with thinking/non-thinking modes, multimodal inputs, and 256K context window",
 		family: "bytedance",
-		releasedAt: new Date("2025-06-15"),
+		releasedAt: new Date("2025-06-25"),
 		providers: [
 			{
 				providerId: "bytedance",
@@ -57,7 +57,7 @@ export const bytedanceModels = [
 		description:
 			"ByteDance Seed 1.6 Flash - faster, cost-effective vision model released July 15, 2025",
 		family: "bytedance",
-		releasedAt: new Date("2025-07-15"),
+		releasedAt: new Date("2025-07-26"),
 		providers: [
 			{
 				providerId: "bytedance",
@@ -82,7 +82,7 @@ export const bytedanceModels = [
 		description:
 			"ByteDance Seed 1.8 advanced vision model released December 28, 2025 with enhanced capabilities",
 		family: "bytedance",
-		releasedAt: new Date("2025-12-28"),
+		releasedAt: new Date("2025-12-18"),
 		providers: [
 			{
 				providerId: "bytedance",
@@ -108,7 +108,7 @@ export const bytedanceModels = [
 			"ByteDance Seedream 4.0 text-to-image generation model with high-quality visual output",
 		family: "bytedance",
 		output: ["text", "image"],
-		releasedAt: new Date("2025-08-28"),
+		releasedAt: new Date("2025-09-16"),
 		providers: [
 			{
 				test: "skip",
@@ -135,7 +135,7 @@ export const bytedanceModels = [
 			"ByteDance Seedream 4.5 advanced text-to-image generation model with enhanced quality and consistency",
 		family: "bytedance",
 		output: ["text", "image"],
-		releasedAt: new Date("2025-11-28"),
+		releasedAt: new Date("2025-12-03"),
 		providers: [
 			{
 				test: "skip",

@@ -148,7 +148,7 @@ export const deepseekModels = [
 		description:
 			"Latest DeepSeek V3 with vision, tools, and improved performance.",
 		family: "deepseek",
-		releasedAt: new Date("2025-12-02"),
+		releasedAt: new Date("2025-09-29"),
 		providers: [
 			{
 				providerId: "deepseek",

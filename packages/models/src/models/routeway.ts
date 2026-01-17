@@ -7,7 +7,7 @@ export const routewayModels = [
 		description: "Free DeepSeek R1T2 Chimera for testing.",
 		family: "deepseek",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-07-08"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -30,7 +30,7 @@ export const routewayModels = [
 		description: "Free GLM-4.5 Air model.",
 		family: "glm",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-07-25"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -53,7 +53,7 @@ export const routewayModels = [
 		description: "Free Kimi K2 0905",
 		family: "kimi",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-09-05"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -76,7 +76,7 @@ export const routewayModels = [
 		description: "Free GPT OSS 20B model.",
 		family: "gpt-oss",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-08-05"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -99,7 +99,7 @@ export const routewayModels = [
 		description: "Free Llama 3.3 70B.",
 		family: "meta",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2024-12-06"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -122,7 +122,7 @@ export const routewayModels = [
 		description: "Free Llama 4 Scout.",
 		family: "meta",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-04-05"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -145,7 +145,7 @@ export const routewayModels = [
 		description: "Free Llama 4 Maverick.",
 		family: "meta",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-04-05"),
 		providers: [
 			{
 				providerId: "routeway",
@@ -168,7 +168,7 @@ export const routewayModels = [
 		description: "Free NVIDIA Nemotron Nano 9B.",
 		family: "nvidia",
 		free: true,
-		releasedAt: new Date("2025-01-01"),
+		releasedAt: new Date("2025-08-18"),
 		providers: [
 			{
 				providerId: "routeway",

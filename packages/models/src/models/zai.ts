@@ -6,7 +6,7 @@ export const zaiModels = [
 		name: "GLM-4.5",
 		description: "Zhipu GLM-4.5 with reasoning capabilities.",
 		family: "glm",
-		releasedAt: new Date("2024-05-06"),
+		releasedAt: new Date("2025-07-28"),
 		providers: [
 			{
 				providerId: "zai",
@@ -33,7 +33,7 @@ export const zaiModels = [
 		name: "GLM-4.5V",
 		description: "GLM-4.5 with vision support.",
 		family: "glm",
-		releasedAt: new Date("2024-05-06"),
+		releasedAt: new Date("2025-08-11"),
 		providers: [
 			{
 				providerId: "zai",
@@ -75,7 +75,7 @@ export const zaiModels = [
 		name: "GLM-4.5 Air",
 		description: "Lightweight GLM-4.5 variant.",
 		family: "glm",
-		releasedAt: new Date("2024-05-06"),
+		releasedAt: new Date("2025-07-25"),
 		providers: [
 			{
 				providerId: "zai",
@@ -100,7 +100,7 @@ export const zaiModels = [
 		name: "GLM-4.5 X",
 		description: "Extended GLM-4.5 with advanced reasoning.",
 		family: "glm",
-		releasedAt: new Date("2024-05-06"),
+		releasedAt: new Date("2025-07-28"),
 		providers: [
 			{
 				providerId: "zai",
@@ -126,7 +126,7 @@ export const zaiModels = [
 		name: "GLM-4.5 AirX",
 		description: "Enhanced GLM-4.5 Air variant.",
 		family: "glm",
-		releasedAt: new Date("2024-05-06"),
+		releasedAt: new Date("2025-07-28"),
 		providers: [
 			{
 				providerId: "zai",
@@ -152,7 +152,7 @@ export const zaiModels = [
 		description: "Free, fast GLM-4.5 model.",
 		family: "glm",
 		free: true,
-		releasedAt: new Date("2024-05-06"),
+		releasedAt: new Date("2025-08-13"),
 		providers: [
 			{
 				providerId: "zai",
@@ -250,7 +250,7 @@ export const zaiModels = [
 		name: "GLM-4.6",
 		description: "Updated GLM with reasoning capabilities.",
 		family: "glm",
-		releasedAt: new Date("2025-06-01"),
+		releasedAt: new Date("2025-09-30"),
 		providers: [
 			{
 				providerId: "zai",
@@ -324,7 +324,7 @@ export const zaiModels = [
 		name: "GLM-4 32B (0414-128k)",
 		description: "GLM-4 32B instruction-tuned model.",
 		family: "glm",
-		releasedAt: new Date("2024-04-14"),
+		releasedAt: new Date("2025-04-14"),
 		providers: [
 			{
 				providerId: "zai",
@@ -350,7 +350,7 @@ export const zaiModels = [
 		description:
 			"Flagship vision-language model (106B) with native function calling support.",
 		family: "glm",
-		releasedAt: new Date("2025-06-01"),
+		releasedAt: new Date("2025-12-08"),
 		providers: [
 			{
 				providerId: "zai",
@@ -417,7 +417,7 @@ export const zaiModels = [
 			"Ultra-fast, lightweight vision-language model (9B) for low-latency workloads.",
 		family: "glm",
 		free: true,
-		releasedAt: new Date("2025-06-01"),
+		releasedAt: new Date("2025-12-08"),
 		providers: [
 			{
 				providerId: "zai",
@@ -469,7 +469,7 @@ export const zaiModels = [
 			"Z.AI's GLM-Image text-to-image generation model with hybrid auto-regressive architecture, excellent for text-rendering and knowledge-intensive generation.",
 		family: "glm",
 		output: ["text", "image"],
-		releasedAt: new Date("2025-01-06"),
+		releasedAt: new Date("2025-01-14"),
 		providers: [
 			{
 				test: "skip",

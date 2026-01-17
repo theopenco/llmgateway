@@ -131,7 +131,7 @@ export const metaModels = [
 		name: "Llama 3.1 Nemotron Ultra 253B",
 		description: "NVIDIA-tuned Llama 3.1 253B for maximum capability.",
 		family: "meta",
-		releasedAt: new Date("2024-07-23"),
+		releasedAt: new Date("2025-04-07"),
 		providers: [
 			{
 				providerId: "nebius",
@@ -153,7 +153,7 @@ export const metaModels = [
 		name: "Llama Guard 4 12B",
 		description: "Safety-focused model for content moderation.",
 		family: "meta",
-		releasedAt: new Date("2025-04-05"),
+		releasedAt: new Date("2025-04-30"),
 		providers: [
 			{
 				providerId: "groq",

@@ -7,7 +7,7 @@ export const anthropicModels = [
 		description:
 			"Intelligent model with extended thinking for complex reasoning tasks.",
 		family: "anthropic",
-		releasedAt: new Date("2025-02-19"),
+		releasedAt: new Date("2025-02-24"),
 		providers: [
 			{
 				test: "skip",
@@ -309,7 +309,7 @@ export const anthropicModels = [
 		description:
 			"Fast, efficient model for high-volume, low-latency applications.",
 		family: "anthropic",
-		releasedAt: new Date("2025-09-29"),
+		releasedAt: new Date("2025-10-15"),
 		providers: [
 			{
 				providerId: "anthropic",
@@ -334,7 +334,7 @@ export const anthropicModels = [
 		description:
 			"Fast, efficient model for high-volume, low-latency applications.",
 		family: "anthropic",
-		releasedAt: new Date("2025-09-29"),
+		releasedAt: new Date("2025-10-15"),
 		providers: [
 			{
 				providerId: "anthropic",
@@ -359,7 +359,7 @@ export const anthropicModels = [
 		description:
 			"High-capability model for complex analysis and nuanced tasks.",
 		family: "anthropic",
-		releasedAt: new Date("2025-05-14"),
+		releasedAt: new Date("2025-05-22"),
 		providers: [
 			{
 				test: "skip",
@@ -540,7 +540,7 @@ export const anthropicModels = [
 		name: "Claude 3 Opus",
 		description: "Most capable Claude 3 model for expert-level tasks.",
 		family: "anthropic",
-		releasedAt: new Date("2024-02-29"),
+		releasedAt: new Date("2024-03-04"),
 		providers: [
 			{
 				test: "skip",
@@ -565,7 +565,7 @@ export const anthropicModels = [
 		description:
 			"Compact Claude 3 model with vision for fast, affordable inference.",
 		family: "anthropic",
-		releasedAt: new Date("2024-03-07"),
+		releasedAt: new Date("2024-03-04"),
 		providers: [
 			{
 				providerId: "anthropic",
