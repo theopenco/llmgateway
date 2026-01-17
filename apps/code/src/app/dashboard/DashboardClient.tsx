@@ -36,6 +36,7 @@ const ActivePlanChangeTier = dynamic(
 const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
 );
+const DevPlanSettings = dynamic(() => import("./components/DevPlanSettings"));
 
 const plans: PlanOption[] = [
 	{
@@ -344,6 +345,12 @@ export default function DashboardClient() {
 						)}
 
 						<CodingModelsShowcase uiUrl={config.uiUrl} />
+
+						<DevPlanSettings
+							devPlanAllowAllModels={
+								devPlanStatus?.devPlanAllowAllModels ?? false
+							}
+						/>
 
 						<DashboardIntegrations />
 

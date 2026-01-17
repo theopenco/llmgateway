@@ -37,6 +37,7 @@ const organizationSchema = z.object({
 	devPlanCreditsLimit: z.string(),
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
+	devPlanAllowAllModels: z.boolean(),
 });
 
 const projectSchema = z.object({

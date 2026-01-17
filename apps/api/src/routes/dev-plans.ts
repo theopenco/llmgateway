@@ -609,6 +609,7 @@ const getStatus = createRoute({
 						regularCredits: z.string(),
 						organizationId: z.string().nullable(),
 						apiKey: z.string().nullable(),
+						devPlanAllowAllModels: z.boolean(),
 					}),
 				},
 			},
@@ -652,6 +653,7 @@ devPlans.openapi(getStatus, async (c) => {
 			regularCredits: "0",
 			organizationId: null,
 			apiKey: null,
+			devPlanAllowAllModels: false,
 		});
 	}
 
@@ -693,5 +695,92 @@ devPlans.openapi(getStatus, async (c) => {
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
 		apiKey,
+		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
+	});
+});
+
+// Update dev plan settings
+const updateSettings = createRoute({
+	method: "patch",
+	path: "/settings",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						devPlanAllowAllModels: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						devPlanAllowAllModels: z.boolean(),
+					}),
+				},
+			},
+			description: "Dev plan settings updated successfully",
+		},
+	},
+});
+
+devPlans.openapi(updateSettings, async (c) => {
+	const user = c.get("user");
+	const { devPlanAllowAllModels } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	// Find personal org
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const updateData: { devPlanAllowAllModels?: boolean } = {};
+
+	if (devPlanAllowAllModels !== undefined) {
+		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
+	}
+
+	if (Object.keys(updateData).length > 0) {
+		await db
+			.update(tables.organization)
+			.set(updateData)
+			.where(eq(tables.organization.id, personalOrg.id));
+	}
+
+	return c.json({
+		success: true,
+		devPlanAllowAllModels:
+			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
 	});
 });

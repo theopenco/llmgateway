@@ -2189,6 +2189,7 @@ export interface paths {
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
+                                devPlanAllowAllModels: boolean;
                             }[];
                         };
                     };
@@ -2247,6 +2248,7 @@ export interface paths {
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
+                                devPlanAllowAllModels: boolean;
                             };
                         };
                     };
@@ -2433,6 +2435,7 @@ export interface paths {
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
+                                devPlanAllowAllModels: boolean;
                             };
                         };
                     };
@@ -3836,6 +3839,7 @@ export interface paths {
                             regularCredits: string;
                             organizationId: string | null;
                             apiKey: string | null;
+                            devPlanAllowAllModels: boolean;
                         };
                     };
                 };
@@ -3847,6 +3851,50 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/dev-plans/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        devPlanAllowAllModels?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Dev plan settings updated successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            devPlanAllowAllModels: boolean;
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
 }

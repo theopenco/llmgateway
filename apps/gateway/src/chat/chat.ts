@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
+import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -1049,6 +1050,20 @@ chat.openapi(completions, async (c) => {
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
+	}
+
+	// Validate coding model restriction for dev plan personal orgs
+	if (
+		organization?.isPersonal &&
+		organization.devPlan !== "none" &&
+		!organization.devPlanAllowAllModels
+	) {
+		const modelDef = models.find((m) => m.id === requestedModel);
+		if (modelDef && !isCodingModel(modelDef)) {
+			throw new HTTPException(403, {
+				message: `Model ${requestedModel} is not available for dev plans. Dev plans are optimized for coding tasks and only include models with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+			});
+		}
 	}
 
 	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode

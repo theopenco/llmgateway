@@ -159,6 +159,7 @@ export const organization = pgTable("organization", {
 	devPlanStripeSubscriptionId: text().unique(),
 	devPlanCancelled: boolean().notNull().default(false),
 	devPlanExpiresAt: timestamp(),
+	devPlanAllowAllModels: boolean().notNull().default(false),
 });
 
 export const referral = pgTable(
