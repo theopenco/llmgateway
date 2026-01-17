@@ -38,6 +38,7 @@ interface ChatRequestBody {
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 	web_search?: boolean;
 	githubToken?: string;
+	mcp_enabled?: boolean;
 }
 
 export async function POST(req: Request) {
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
 		reasoning_effort,
 		web_search,
 		githubToken: githubTokenBody,
+		mcp_enabled,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -115,8 +117,11 @@ export async function POST(req: Request) {
 	}
 
 	try {
-		const tokenForMcp = githubTokenHeader || githubTokenBody;
-		if (tokenForMcp) {
+		const mcpEnabled = mcp_enabled ?? false;
+		const tokenForMcp = mcpEnabled
+			? githubTokenHeader || githubTokenBody
+			: null;
+		if (tokenForMcp && mcpEnabled) {
 			const { tools, client: githubMCPClient } = await getGithubMcpTools(
 				tokenForMcp as string,
 			);

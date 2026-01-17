@@ -127,6 +127,9 @@ interface ChatUIProps {
 	supportsWebSearch: boolean;
 	webSearchEnabled: boolean;
 	setWebSearchEnabled: (value: boolean) => void;
+	mcpAvailable?: boolean;
+	mcpEnabled?: boolean;
+	setMcpEnabled?: (value: boolean) => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -400,6 +403,9 @@ export const ChatUI = ({
 	supportsWebSearch,
 	webSearchEnabled,
 	setWebSearchEnabled,
+	mcpAvailable = false,
+	mcpEnabled = false,
+	setMcpEnabled,
 	onUserMessage,
 	isLoading = false,
 	error = null,
@@ -624,6 +630,16 @@ export const ChatUI = ({
 									<GlobeIcon size={16} />
 								</PromptInputButton>
 							)}
+							{mcpAvailable && setMcpEnabled ? (
+								<PromptInputButton
+									variant={mcpEnabled ? "default" : "ghost"}
+									onClick={() => setMcpEnabled(!mcpEnabled)}
+									aria-pressed={mcpEnabled}
+								>
+									<Plug size={16} />
+									<span>MCP</span>
+								</PromptInputButton>
+							) : null}
 							<ConnectorsDialog
 								trigger={
 									<PromptInputButton variant="ghost">
