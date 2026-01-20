@@ -78,6 +78,20 @@ const guides = defineCollection({
 	}),
 });
 
+const migrations = defineCollection({
+	name: "migrations",
+	directory: "src/content/migrations",
+	include: "**/*.md",
+	schema: z.object({
+		id: z.string(),
+		slug: z.string(),
+		title: z.string(),
+		description: z.string(),
+		date: z.string(),
+		fromProvider: z.string(),
+	}),
+});
+
 export default defineConfig({
-	collections: [changelog, blog, legal, guides],
+	collections: [changelog, blog, legal, guides, migrations],
 });

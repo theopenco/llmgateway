@@ -60,14 +60,52 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Inference.net", providerId: "inference.net" },
 ];
 
+interface MigrationData {
+	slug: string;
+	title: string;
+	fromProvider: string;
+}
+
+const providerIcons: Record<string, React.ReactNode> = {
+	OpenRouter: (
+		<svg
+			fill="currentColor"
+			fillRule="evenodd"
+			viewBox="0 0 24 24"
+			xmlns="http://www.w3.org/2000/svg"
+			className="size-5"
+			aria-hidden="true"
+		>
+			<path d="m16.804 1.957 7.22 4.105v.087L16.73 10.21l.017-2.117-.821-.03c-1.059-.028-1.611.002-2.268.11-1.064.175-2.038.577-3.147 1.352L8.345 11.03c-.284.195-.495.336-.68.455l-.515.322-.397.234.385.23.53.338c.476.314 1.17.796 2.701 1.866 1.11.775 2.083 1.177 3.147 1.352l.3.045c.694.091 1.375.094 2.825.033l.022-2.159 7.22 4.105v.087L16.589 22l.014-1.862-.635.022c-1.386.042-2.137.002-3.138-.162-1.694-.28-3.26-.926-4.881-2.059l-2.158-1.5a21.997 21.997 0 0 0-.755-.498l-.467-.28a55.927 55.927 0 0 0-.76-.43C2.908 14.73.563 14.116 0 14.116V9.888l.14.004c.564-.007 2.91-.622 3.809-1.124l1.016-.58.438-.274c.428-.28 1.072-.726 2.686-1.853 1.621-1.133 3.186-1.78 4.881-2.059 1.152-.19 1.974-.213 3.814-.138z" />
+		</svg>
+	),
+	"Vercel AI Gateway": (
+		<svg
+			viewBox="0 0 76 65"
+			fill="currentColor"
+			className="size-5"
+			aria-hidden="true"
+		>
+			<path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
+		</svg>
+	),
+	LiteLLM: (
+		<span className="text-lg" role="img" aria-label="LiteLLM">
+			🚅
+		</span>
+	),
+};
+
 export function Hero({
 	navbarOnly,
 	sticky = true,
 	children,
+	migrations = [],
 }: {
 	navbarOnly?: boolean;
 	sticky?: boolean;
 	children: React.ReactNode;
+	migrations?: MigrationData[];
 }) {
 	const config = useAppConfig();
 
@@ -168,6 +206,7 @@ export function Hero({
 													className="size-4 text-green-500"
 													fill="currentColor"
 													viewBox="0 0 20 20"
+													aria-hidden="true"
 												>
 													<path
 														fillRule="evenodd"
@@ -182,6 +221,7 @@ export function Hero({
 													className="size-4 text-green-500"
 													fill="currentColor"
 													viewBox="0 0 20 20"
+													aria-hidden="true"
 												>
 													<path
 														fillRule="evenodd"
@@ -196,6 +236,7 @@ export function Hero({
 													className="size-4 text-green-500"
 													fill="currentColor"
 													viewBox="0 0 20 20"
+													aria-hidden="true"
 												>
 													<path
 														fillRule="evenodd"
@@ -222,6 +263,61 @@ export function Hero({
 								</div>
 							</div>
 
+							{/* Migration guides section */}
+							{migrations.length > 0 && (
+								<AnimatedGroup
+									variants={{
+										container: {
+											visible: {
+												transition: {
+													staggerChildren: 0.05,
+													delayChildren: 0.6,
+												},
+											},
+										},
+										...transitionVariants,
+									}}
+								>
+									<div className="mx-auto mt-10 max-w-4xl px-6">
+										<p className="mb-4 text-center text-sm text-muted-foreground">
+											Switching from another provider?
+										</p>
+										<div className="flex flex-wrap items-center justify-center gap-3">
+											{migrations.map((migration) => (
+												<Link
+													key={migration.slug}
+													href={`/migration/${migration.slug}`}
+													className="group/card flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm transition-colors hover:border-primary/50 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+												>
+													<span className="flex size-6 items-center justify-center text-muted-foreground transition-colors group-hover/card:text-foreground">
+														{providerIcons[migration.fromProvider] || (
+															<ChevronRight
+																className="size-4"
+																aria-hidden="true"
+															/>
+														)}
+													</span>
+													<span className="text-muted-foreground transition-colors group-hover/card:text-foreground">
+														{migration.fromProvider}
+													</span>
+													<ArrowRight
+														className="size-3 text-muted-foreground transition-transform group-hover/card:translate-x-0.5 group-hover/card:text-primary"
+														aria-hidden="true"
+													/>
+												</Link>
+											))}
+											<Link
+												href="/migration"
+												className="flex items-center gap-1 rounded-full px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+											>
+												<span>View all</span>
+												<ChevronRight className="size-3" aria-hidden="true" />
+											</Link>
+										</div>
+									</div>
+								</AnimatedGroup>
+							)}
+
 							<AnimatedGroup
 								variants={{
 									container: {
@@ -244,14 +340,14 @@ export function Hero({
 										<Image
 											className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
 											src="/new-hero.png"
-											alt="app screen"
+											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
 										/>
 										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
 											src="/new-hero-light.png"
-											alt="app screen"
+											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
 										/>
