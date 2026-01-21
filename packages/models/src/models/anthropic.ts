@@ -70,6 +70,8 @@ export const anthropicModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: 0.01, // $10 per 1000 searches
+				deprecatedAt: new Date("2026-01-21"),
+				deactivatedAt: new Date("2026-02-19T17:00:00Z"),
 			},
 		],
 	},
