@@ -238,7 +238,7 @@ export function CodeExample() {
 
 					<p className="text-zinc-600 dark:text-zinc-400 text-center mb-10">
 						Already using OpenAI's SDK? Change one line—your base URL—and you're
-						done. Works with Python, TypeScript, Go, and 6 more languages.
+						done. Works with any language or framework.
 					</p>
 
 					{/* Language Tabs */}

@@ -1,6 +1,7 @@
 "use client";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { PlusIcon } from "lucide-react";
+import Link from "next/link";
 
 import {
 	Accordion,
@@ -86,9 +87,9 @@ export function Faq() {
 							<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-gray-500 dark:text-gray-400 pb-2">
 								We support 180+ models across 60+ providers—including GPT-4o,
 								Claude, Gemini, Llama, Mistral, and more. Check the{" "}
-								<a href="/models" className="underline">
+								<Link href="/models" className="underline">
 									models page
-								</a>{" "}
+								</Link>{" "}
 								for the full list. We add new releases within 48 hours of
 								launch.
 							</AccordionContent>
