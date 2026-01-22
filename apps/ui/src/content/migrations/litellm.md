@@ -2,16 +2,16 @@
 id: litellm
 slug: litellm
 title: Migrate from LiteLLM
-description: How to migrate from LiteLLM proxy to LLM Gateway for a managed solution with analytics
+description: Switch from self-hosted LiteLLM to managed LLM Gateway. Same API format, zero infrastructure to maintain.
 date: 2026-01-20
 fromProvider: LiteLLM
 ---
 
-LiteLLM is an excellent open-source library for unifying LLM APIs. LLM Gateway offers similar functionality as a managed service with additional features like built-in analytics, caching, and a web dashboard.
+Running your own LiteLLM proxy works—until it doesn't. Scaling, monitoring, and keeping it running becomes another job. LLM Gateway gives you the same unified API with built-in analytics, caching, and a dashboard—without the infrastructure overhead.
 
 ## Quick Migration
 
-Since both services expose OpenAI-compatible endpoints, migration is straightforward:
+Both services use OpenAI-compatible endpoints, so migration is a two-line change:
 
 ```diff
 - const baseURL = "http://localhost:4000/v1";  // LiteLLM proxy
@@ -21,21 +21,22 @@ Since both services expose OpenAI-compatible endpoints, migration is straightfor
 + const apiKey = process.env.LLM_GATEWAY_API_KEY;
 ```
 
-## Why Migrate to LLM Gateway?
+## Why Teams Switch to LLM Gateway
 
-| Feature                  | LiteLLM       | LLM Gateway   |
-| ------------------------ | ------------- | ------------- |
-| OpenAI-compatible API    | Yes           | Yes           |
-| Self-hosting             | Required      | Optional      |
-| Managed cloud service    | No            | Yes           |
-| Built-in dashboard       | Basic         | Comprehensive |
-| Response caching         | Manual setup  | Built-in      |
-| Cost analytics           | Via callbacks | Native        |
-| Provider management      | Config file   | Web UI        |
-| Maintenance              | Self-managed  | Managed       |
-| Anthropic-compatible API | Yes           | Yes           |
+| What You Get             | LiteLLM (Self-Hosted) | LLM Gateway          |
+| ------------------------ | --------------------- | -------------------- |
+| OpenAI-compatible API    | Yes                   | Yes                  |
+| Infrastructure to manage | Yes (you run it)      | No (we run it)       |
+| Managed cloud option     | No                    | Yes                  |
+| Analytics dashboard      | Basic                 | Per-request detail   |
+| Response caching         | Manual setup          | Built-in, automatic  |
+| Cost tracking            | Via callbacks         | Native, real-time    |
+| Provider key management  | Config file           | Web UI with rotation |
+| Uptime & scaling         | You handle it         | 99.9% SLA (Pro/Ent)  |
 
-For a detailed feature-by-feature comparison, see [LLM Gateway vs LiteLLM](/compare/litellm).
+Still want to self-host? LLM Gateway is [open source under AGPLv3](/blog/how-to-self-host-llm-gateway)—same features, your infrastructure.
+
+For a detailed breakdown, see [LLM Gateway vs LiteLLM](/compare/litellm).
 
 ## Migration Steps
 
@@ -261,13 +262,13 @@ After verifying LLM Gateway works for your use case, you can decommission your L
 3. Shut down your LiteLLM proxy server
 4. Remove LiteLLM configuration files
 
-## Benefits After Migration
+## What Changes After Migration
 
-- **No Infrastructure Management**: No proxy servers to maintain or scale
-- **Built-in Analytics**: View costs, latency, and usage in the dashboard
-- **Response Caching**: Automatic caching reduces costs
-- **Web Dashboard**: Manage API keys and view analytics without CLI
-- **Automatic Updates**: New models available immediately
+- **No servers to babysit** — We handle scaling, uptime, and updates
+- **Real-time cost visibility** — See what every request costs, broken down by model
+- **Automatic caching** — Repeated requests hit cache, reducing your spend
+- **Web-based management** — No more editing YAML files for config changes
+- **New models immediately** — Access new releases within 48 hours, no deployment needed
 
 ## Self-Hosting LLM Gateway
 

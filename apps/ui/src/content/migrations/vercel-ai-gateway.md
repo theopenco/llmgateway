@@ -2,16 +2,16 @@
 id: vercel-ai-gateway
 slug: vercel-ai-gateway
 title: Migrate from Vercel AI Gateway
-description: Guide to migrate from Vercel AI Gateway to LLM Gateway for more control and flexibility
+description: Keep your Vercel AI SDK code, add response caching, detailed analytics, and smart routing. One provider for all models.
 date: 2026-01-20
 fromProvider: Vercel AI Gateway
 ---
 
-Vercel AI Gateway provides a unified interface for AI providers within the Vercel ecosystem. LLM Gateway offers similar functionality with additional features like response caching, detailed analytics, and self-hosting options.
+Using Vercel AI SDK with multiple providers means managing separate API keys and imports for each one. LLM Gateway gives you one provider that works with all models—plus response caching, per-request analytics, and automatic failover that Vercel's native providers don't offer.
 
 ## Quick Migration
 
-Replace your Vercel AI SDK provider imports with the LLM Gateway provider:
+Swap your provider imports—your AI SDK code stays the same:
 
 ```diff
 - import { openai } from "@ai-sdk/openai";
@@ -30,18 +30,19 @@ const { text } = await generateText({
 });
 ```
 
-## Why Migrate to LLM Gateway?
+## Why Teams Switch to LLM Gateway
 
-| Feature                  | Vercel AI Gateway     | LLM Gateway            |
-| ------------------------ | --------------------- | ---------------------- |
-| AI SDK integration       | Native                | Native + OpenAI compat |
-| Response caching         | No                    | Yes                    |
-| Detailed cost analytics  | Limited               | Comprehensive          |
-| Provider key management  | Per-provider env vars | Centralized (Pro)      |
-| Self-hosting             | No                    | Yes (AGPLv3)           |
-| Rate limiting            | Platform-level        | Customizable           |
-| Anthropic-compatible API | No                    | Yes (/v1/messages)     |
-| Smart routing            | No                    | Yes (auto failover)    |
+| Feature              | Vercel AI Gateway     | LLM Gateway                |
+| -------------------- | --------------------- | -------------------------- |
+| AI SDK integration   | Native (per-provider) | **One provider for all**   |
+| Response caching     | No                    | **Yes, automatic**         |
+| Cost analytics       | Limited               | **Per-request detail**     |
+| API key management   | Separate env var each | **One key, all providers** |
+| Smart routing        | No                    | **Auto failover**          |
+| Self-hosting         | No                    | **Yes (AGPLv3)**           |
+| Anthropic-compatible | No                    | **Yes (/v1/messages)**     |
+
+The key difference: one provider, one API key, all models—with caching and analytics built in.
 
 ## Migration Steps
 
@@ -233,14 +234,14 @@ const { text, toolResults } = await generateText({
 });
 ```
 
-## Benefits After Migration
+## What Changes After Migration
 
-- **Unified API Key**: One API key for all providers instead of managing multiple
-- **Response Caching**: Automatic caching reduces costs for repeated requests
-- **Cost Analytics**: Track spending per model, per request, with detailed breakdowns
-- **Smart Routing**: Automatic provider selection and failover for reliability
-- **Self-Hosting**: Deploy on your own infrastructure for complete control
-- **No Vendor Lock-in**: OpenAI-compatible API works with any client
+- **One import, all models** — No more separate `@ai-sdk/openai`, `@ai-sdk/anthropic` packages
+- **One API key** — Stop managing OPENAI_API_KEY, ANTHROPIC_API_KEY separately
+- **Response caching** — Identical requests hit cache automatically, cutting costs
+- **Per-request analytics** — See what each `generateText()` call costs in your dashboard
+- **Automatic failover** — If OpenAI goes down, we route to a backup provider
+- **Self-hosting option** — Run on your own infrastructure if you need full control
 
 ## Self-Hosting LLM Gateway
 

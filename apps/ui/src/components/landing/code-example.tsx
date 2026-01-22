@@ -233,12 +233,12 @@ export function CodeExample() {
 			<div className="container mx-auto px-4">
 				<div className="max-w-4xl mx-auto">
 					<h2 className="text-3xl font-bold tracking-tight mb-6 text-center text-zinc-900 dark:text-white">
-						Simple Integration
+						Integrate in Under 2 Minutes
 					</h2>
 
 					<p className="text-zinc-600 dark:text-zinc-400 text-center mb-10">
-						Just change your API endpoint and keep your existing code. Works
-						with any language or framework.
+						Already using OpenAI's SDK? Change one line—your base URL—and you're
+						done. Works with Python, TypeScript, Go, and 6 more languages.
 					</p>
 
 					{/* Language Tabs */}
@@ -333,8 +333,8 @@ export function CodeExample() {
 					</div>
 
 					<p className="mt-6 text-center text-sm text-zinc-600 dark:text-zinc-400">
-						LLM Gateway routes your request to the appropriate provider while
-						tracking usage and performance across all languages and frameworks.
+						Every request is tracked with cost, latency, and token usage—giving
+						you visibility you don't get from providers directly.
 					</p>
 				</div>
 			</div>

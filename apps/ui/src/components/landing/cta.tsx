@@ -13,8 +13,8 @@ export default function CallToAction() {
 						Ready to Simplify Your LLM Integration?
 					</h2>
 					<p className="text-zinc-600 dark:text-zinc-400 mb-10">
-						Start using LLM Gateway today and take control of your AI
-						infrastructure.
+						Join teams processing 27B+ tokens through LLM Gateway. Start free,
+						no credit card required.
 					</p>
 
 					<div className="flex flex-col sm:flex-row items-center justify-center gap-4">

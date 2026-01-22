@@ -69,8 +69,8 @@ export function Graph() {
 		<div className="w-full bg-background py-16 px-4 text-center dark:text-white">
 			<h2 className="text-3xl font-semibold">Model Orchestration</h2>
 			<p className="mt-2 text-muted-foreground dark:text-neutral-400 max-w-xl mx-auto">
-				We dynamically route requests from devices to the optimal AI
-				model—OpenAI, Anthropic, Google, and more.
+				Your app sends one request. We route it to OpenAI, Anthropic, Google, or
+				any of 60+ providers—automatically picking the best path.
 			</p>
 
 			<div

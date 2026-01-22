@@ -159,11 +159,12 @@ export function Hero({
 								<div className="text-center max-w-4xl mx-auto">
 									<AnimatedGroup variants={transitionVariants}>
 										<h1 className="text-balance text-2xl md:text-3xl lg:text-4xl font-medium tracking-tight text-foreground/80">
-											Use any model, from any provider with just one API.
+											One API for every LLM. Any model, any provider.
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
-											Route, manage, and analyze your LLM requests across
-											multiple providers with one unified API interface.
+											Stop juggling API keys and provider dashboards. Route
+											requests to 180+ models, track costs in real-time, and
+											switch providers without changing your code.
 										</p>
 									</AnimatedGroup>
 

@@ -37,7 +37,7 @@ const features: FeatureItem[] = [
 		),
 		title: "Unified API Interface",
 		description:
-			"Compatible with the OpenAI API format for seamless migration and integration.",
+			"Keep your existing OpenAI SDK code—just change the base URL and you're live.",
 		slug: "unified-api-interface",
 	},
 	{
@@ -62,7 +62,8 @@ const features: FeatureItem[] = [
 			</svg>
 		),
 		title: "Multi-provider Support",
-		description: "Connect to various LLM providers through a single gateway.",
+		description:
+			"Access 60+ providers through one integration—no vendor lock-in, switch models instantly.",
 		slug: "multi-provider-support",
 	},
 	{
@@ -110,7 +111,7 @@ const features: FeatureItem[] = [
 		),
 		title: "Performance Monitoring",
 		description:
-			"Compare different models' performance and cost-effectiveness.",
+			"Compare latency, cost, and quality across models to pick the best fit for each use case.",
 		slug: "performance-monitoring",
 	},
 	{
@@ -150,7 +151,8 @@ const features: FeatureItem[] = [
 			</svg>
 		),
 		title: "Secure Key Management",
-		description: "Manage API keys for different providers in one secure place.",
+		description:
+			"One dashboard for all your provider keys—no more scattered credentials or exposed secrets.",
 		slug: "secure-key-management",
 	},
 	{
@@ -190,7 +192,8 @@ const features: FeatureItem[] = [
 			</svg>
 		),
 		title: "Self-hosted or Cloud",
-		description: "Deploy on your own infrastructure or use our hosted version.",
+		description:
+			"Run on your own infrastructure for full control, or let us handle it—your choice.",
 		slug: "self-hosted-or-cloud",
 	},
 	{

@@ -2,11 +2,11 @@
 id: opencode
 slug: opencode
 title: OpenCode Integration
-description: Configure OpenCode to use LLM Gateway for access to any model through an OpenAI-compatible endpoint
+description: Connect OpenCode to 180+ models through LLM Gateway. One config file, any model, full cost tracking.
 date: 2026-01-09
 ---
 
-OpenCode is an open-source AI coding agent that runs in your terminal, IDE, or desktop. This guide shows you how to configure OpenCode to use LLM Gateway, giving you access to 75+ models from multiple providers.
+OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. This guide shows you how to connect it to LLM Gateway—giving you access to 180+ models from 60+ providers, all tracked in one dashboard.
 
 ## Prerequisites
 
@@ -126,11 +126,11 @@ Try asking OpenCode about your project or request help with coding tasks:
 
 ## Why Use LLM Gateway with OpenCode?
 
-- **Access to 75+ models**: Use models from OpenAI, Anthropic, Google, Meta, and more
-- **Cost optimization**: Track usage and leverage LLM Gateway's caching and routing features
-- **Unified billing**: One account for all providers instead of managing multiple API keys
-- **Flexibility**: Switch between models without changing authentication or configuration
-- **Cost savings**: Take advantage of LLM Gateway's volume discounts
+- **180+ models** — GPT-5, Claude, Gemini, Llama, and more from 60+ providers
+- **One API key** — Stop juggling credentials for every provider
+- **Cost tracking** — See what each coding session costs in your dashboard
+- **Response caching** — Repeated requests hit cache automatically
+- **Volume discounts** — The more you use, the more you save
 
 ## Adding More Models
 

@@ -2,15 +2,17 @@
 id: claude-code
 slug: claude-code
 title: Claude Code Integration
-description: Configure Claude Code to use LLM Gateway for access to any model through the Anthropic API format
+description: Use GPT-5, Gemini, or any model with Claude Code. Three environment variables, full cost tracking.
 date: 2026-01-02
 ---
 
-LLM Gateway provides a native Anthropic-compatible endpoint at `/v1/messages` that allows you to use any model in our catalog while maintaining the familiar Anthropic API format. This is especially useful for Claude Code users who want to access models beyond Claude.
+Claude Code is locked to Anthropic's API by default. With LLM Gateway, you can point it at any model—GPT-5, Gemini, Llama, or 180+ others—while keeping the same Anthropic API format Claude Code expects.
+
+Three environment variables. No code changes. Full cost tracking in your dashboard.
 
 ## Video Tutorial
 
-Watch this quick video guide on setting up Claude Code with LLM Gateway:
+Set up Claude Code with LLM Gateway in under 2 minutes:
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/FrNDDSER768" title="Claude Code with LLM Gateway" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
@@ -28,14 +30,14 @@ export ANTHROPIC_MODEL=gpt-5  # or any model from our catalog
 claude
 ```
 
-## Why Use LLM Gateway with Claude Code?
+## Why This Works
 
-The Anthropic endpoint transforms requests from Anthropic's message format to the OpenAI-compatible format used by LLM Gateway, then transforms the responses back to Anthropic's format. This means you can:
+LLM Gateway's `/v1/messages` endpoint speaks Anthropic's API format natively. We handle the translation to each provider behind the scenes. This means:
 
-- Use **any model** available in LLM Gateway with Claude Code
-- Maintain existing workflows that use Anthropic's API format
-- Access models from OpenAI, Google, Cohere, and other providers through the Anthropic interface
-- Leverage LLM Gateway's routing, caching, and cost optimization features
+- **Use any model** — GPT-5, Gemini, Llama, or Claude itself
+- **Keep your workflow** — Claude Code doesn't know the difference
+- **Track costs** — Every request appears in your LLM Gateway dashboard
+- **Automatic caching** — Repeated requests hit cache, saving money
 
 ## Choosing Models
 
@@ -126,15 +128,19 @@ The endpoint returns responses in Anthropic's message format:
 }
 ```
 
-## Benefits of Using LLM Gateway
+## What You Get
 
-- **Multi-Provider Access**: Use models from OpenAI, Anthropic, Google, and more through a single API
-- **Cost Control**: Track and limit your AI spending with detailed usage analytics
-- **Unified Billing**: One account for all providers instead of managing multiple API keys
-- **Caching**: Reduce costs with response caching for repeated requests
-- **Analytics**: Monitor usage patterns and costs in the dashboard
-- **Discounts**: Visit [Models page](/models?discounted=true)
+- **Any model in Claude Code** — GPT-5 for heavy lifting, GPT-4o Mini for routine tasks
+- **Cost visibility** — See exactly what each coding session costs
+- **One bill** — Stop managing separate accounts for OpenAI, Anthropic, Google
+- **Response caching** — Repeated requests (like linting the same file) hit cache
+- **Discounts** — Check [discounted models](/models?discounted=true) for savings up to 90%
 
 ## Get Started
 
-Ready to enhance your Claude Code experience? [Sign up for LLM Gateway](/signup) and get your API key today.
+1. [Sign up free](https://llmgateway.io/signup) — no credit card required
+2. Copy your API key from the dashboard
+3. Set the three environment variables above
+4. Run `claude` and start coding
+
+Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).

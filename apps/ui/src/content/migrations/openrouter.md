@@ -2,16 +2,16 @@
 id: openrouter
 slug: openrouter
 title: Migrate from OpenRouter
-description: Step-by-step guide to migrate from OpenRouter to LLM Gateway with minimal code changes
+description: Switch to LLM Gateway for 50% lower fees on Pro, better analytics, and self-hosting options. Two-line code change.
 date: 2026-01-20
 fromProvider: OpenRouter
 ---
 
-LLM Gateway provides a drop-in replacement for OpenRouter with OpenAI-compatible endpoints. Since both services follow the OpenAI API format, migration requires minimal changes to your existing code.
+LLM Gateway works just like OpenRouter—same API format, same model names—but with lower fees on Pro (2.5% vs 5%), built-in analytics, and the option to self-host. Migration takes two lines of code.
 
 ## Quick Migration
 
-Replace your OpenRouter configuration with LLM Gateway:
+Change your base URL and API key:
 
 ```diff
 - const baseURL = "https://openrouter.ai/api/v1";
@@ -20,24 +20,22 @@ Replace your OpenRouter configuration with LLM Gateway:
 + const apiKey = process.env.LLM_GATEWAY_API_KEY;
 ```
 
-## Why Migrate to LLM Gateway?
+## Why Teams Switch to LLM Gateway
 
-Both OpenRouter and LLM Gateway offer robust LLM gateway solutions. Here's how they compare:
+| Feature                  | OpenRouter                   | LLM Gateway               |
+| ------------------------ | ---------------------------- | ------------------------- |
+| Gateway fee (Pro)        | 5%                           | **2.5%** (50% lower)      |
+| OpenAI-compatible API    | Yes                          | Yes                       |
+| Model coverage           | 300+ models                  | 180+ models               |
+| Analytics dashboard      | Via third-party integrations | **Built-in, per-request** |
+| Required headers         | HTTP-Referer, X-Title        | **Just Authorization**    |
+| Self-hosting option      | No                           | **Yes (AGPLv3)**          |
+| Anthropic-compatible API | No                           | **Yes (/v1/messages)**    |
+| Native AI SDK provider   | Yes                          | Yes                       |
 
-| Feature                  | OpenRouter                    | LLM Gateway              |
-| ------------------------ | ----------------------------- | ------------------------ |
-| OpenAI-compatible API    | Yes                           | Yes                      |
-| Multiple providers       | Yes (300+ models)             | Yes                      |
-| Native AI SDK provider   | Yes                           | Yes                      |
-| Response caching         | Yes (prompt caching)          | Yes                      |
-| Analytics dashboard      | Via third-party integrations  | Built-in                 |
-| Cost tracking            | Yes                           | Yes (per-request detail) |
-| Provider key management  | Yes (BYOK)                    | Yes (Pro)                |
-| Self-hosting option      | No                            | Yes (AGPLv3)             |
-| Simpler API (no headers) | Requires HTTP-Referer/X-Title | Just Authorization       |
-| Anthropic-compatible API | No                            | Yes (/v1/messages)       |
+The biggest differences: lower fees, built-in analytics, simpler API (no extra headers), and the option to self-host.
 
-For a detailed feature-by-feature comparison, see [LLM Gateway vs OpenRouter](/compare/open-router).
+For a detailed breakdown, see [LLM Gateway vs OpenRouter](/compare/open-router).
 
 ## Migration Steps
 
@@ -178,14 +176,14 @@ for await (const chunk of stream) {
 }
 ```
 
-## Additional Benefits
+## What You Get After Switching
 
-After migrating to LLM Gateway, you get access to:
-
-- **Response Caching**: Automatic caching for identical requests to reduce costs
-- **Detailed Analytics**: Per-request cost tracking, latency metrics, and usage patterns
-- **Provider Key Management**: Use your own API keys for providers (Pro plan)
-- **Self-Hosting**: Deploy LLM Gateway on your own infrastructure
+- **50% lower gateway fees** on Pro plan (2.5% vs OpenRouter's 5%)
+- **Per-request analytics** — See exactly what each API call costs
+- **Simpler integration** — No HTTP-Referer or X-Title headers required
+- **Response caching** — Automatic caching reduces costs for repeated requests
+- **Self-hosting option** — Run on your own infrastructure if you need full control
+- **Anthropic API support** — Use `/v1/messages` for Anthropic-native integrations
 
 ## Full Comparison
 

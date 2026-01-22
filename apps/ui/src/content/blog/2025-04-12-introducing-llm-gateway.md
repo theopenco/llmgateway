@@ -3,7 +3,7 @@ id: blog-introducing-llm-gateway
 slug: introducing-llm-gateway
 date: 2025-04-12
 title: Introducing LLM Gateway
-summary: Meet the open-source API gateway for routing, observability, and cost tracking across LLM providers.
+summary: One API for 180+ models across 60+ providers. Route requests, track costs, and switch models without changing your code.
 categories: ["Announcements"]
 image:
   src: "/blog/blog-introducing-llm-gateway.png"
@@ -14,20 +14,20 @@ image:
 
 # LLM Gateway
 
-LLM Gateway is an open-source API gateway for Large Language Models (LLMs). It acts as middleware between your apps and LLM providers so you can:
+LLM Gateway is an open-source API gateway that sits between your apps and LLM providers. One integration gives you access to 180+ models from 60+ providers—and the visibility to control costs.
 
-- **Route**: Switch between providers like OpenAI, Anthropic, and Google with a single API
-- **Manage**: Centralize and rotate provider API keys
-- **Observe**: Track token usage, latency, and error rates
-- **Optimize**: Analyze cost and performance to pick the best models for your workload
+- **Route**: Switch between OpenAI, Anthropic, Google, and 60+ other providers without changing your code
+- **Manage**: One dashboard for all your API keys—no more scattered credentials
+- **Observe**: Track every request's cost, latency, and token usage in real-time
+- **Optimize**: Compare models side-by-side to find the best price-to-performance ratio
 
 ## Why LLM Gateway?
 
-Operating across multiple LLM providers quickly becomes complex credentials, SDK differences, changing models, and cost variance. LLM Gateway standardizes the interface and gives you the visibility to make data-driven choices.
+If you've built with multiple LLM providers, you know the pain: different SDKs, scattered API keys, no unified view of what you're spending. LLM Gateway gives you a single API that works with any provider—and a dashboard that shows exactly where your money goes.
 
 ## One Compatible Endpoint
 
-LLM Gateway uses an OpenAI-compatible API format, so migrating is seamless:
+Already using OpenAI's SDK? Keep your code. Just change the base URL:
 
 ```bash
 curl -X POST https://api.llmgateway.io/v1/chat/completions \
@@ -39,8 +39,15 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
-## Deep Observability
+## See Every Request, Every Dollar
 
-Get **usage metrics**, **cost analysis**, and **performance tracking** broken down by model and provider, helping you reason about tradeoffs. You can compare latency, token usage, and error rates to choose the best fit per task.
+Every API call is tracked with:
 
-If you're new to LLM Gateway, read our [Docs](/docs) to get started.
+- **Cost per request** — Know exactly what each prompt costs
+- **Latency breakdowns** — See response times by model and provider
+- **Error rates** — Spot reliability issues before they hit production
+- **Token usage** — Track input and output tokens across all requests
+
+No more guessing where your AI spend goes. Compare models head-to-head and make data-driven decisions.
+
+Ready to try it? [Get started free](/signup) — no credit card required.

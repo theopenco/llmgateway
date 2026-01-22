@@ -9,11 +9,11 @@ export function PricingHero() {
 						Pricing
 					</Badge>
 					<h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl mb-4">
-						LLM Gateway Pricing Plans
+						Simple, Transparent Pricing
 					</h1>
 					<p className="text-xl text-muted-foreground">
-						Start for free, scale with low fees. Choose the plan that works best
-						for your needs.
+						Start free with no credit card. Scale with fees 50% lower than
+						competitors on our Pro plan.
 					</p>
 				</div>
 			</div>

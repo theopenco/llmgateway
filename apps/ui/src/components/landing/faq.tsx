@@ -22,7 +22,8 @@ export function Faq() {
 							Frequently Asked Questions
 						</h2>
 						<p className="max-w-[700px] text-gray-500 md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed dark:text-gray-400">
-							Find answers to common questions about our services and offerings.
+							Everything you need to know about pricing, models, and getting
+							started.
 						</p>
 					</div>
 				</div>
@@ -83,14 +84,13 @@ export function Faq() {
 								</AccordionPrimitive.Trigger>
 							</AccordionPrimitive.Header>
 							<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-gray-500 dark:text-gray-400 pb-2">
-								We support a growing catalog of commercial and open‑source LLMs
-								across all major providers (OpenAI, Anthropic, Google and more).
-								Check the{" "}
+								We support 180+ models across 60+ providers—including GPT-4o,
+								Claude, Gemini, Llama, Mistral, and more. Check the{" "}
 								<a href="/models" className="underline">
 									models page
 								</a>{" "}
-								for the up‑to‑date list – we typically add new releases within
-								48 hours.
+								for the full list. We add new releases within 48 hours of
+								launch.
 							</AccordionContent>
 						</AccordionItem>
 
@@ -148,8 +148,8 @@ export function Faq() {
 										discounts. Contact sales for a tailored quote.
 									</li>
 									<li>
-										<strong>Self‑host:</strong> Deploy the MIT‑licensed gateway
-										on your own infrastructure — free forever.
+										<strong>Self‑host:</strong> Deploy the AGPLv3‑licensed
+										gateway on your own infrastructure—free forever.
 									</li>
 								</ul>
 							</AccordionContent>
