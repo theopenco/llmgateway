@@ -120,6 +120,16 @@
 		@apply bg-background text-foreground;
 	}
 
+	button,
+	[role="button"],
+	a[href],
+	select,
+	[type="button"],
+	[type="submit"],
+	[type="reset"] {
+		@apply cursor-pointer;
+	}
+
 	code {
 		@apply font-mono;
 	}
