@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
 	apiAuth as auth,
-	updateBrevoContactAttributes,
+	updateResendContactAttributes,
 } from "@/auth/config.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -466,9 +466,9 @@ user.openapi(completeOnboarding, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
-	// Only update Brevo if email is verified (contact exists in Brevo)
+	// Only update Resend contact if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified) {
-		await updateBrevoContactAttributes(updatedUser.email, {
+		await updateResendContactAttributes(updatedUser.email, {
 			ONBOARDING_COMPLETED: true,
 		});
 	}

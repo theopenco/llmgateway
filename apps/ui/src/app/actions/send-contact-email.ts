@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { Resend } from "resend";
 import { z } from "zod";
 
 const contactFormSchema = z.object({
@@ -165,8 +166,8 @@ export async function sendContactEmail(data: ContactFormData) {
 		};
 	}
 
-	const brevoApiKey = process.env.BREVO_API_KEY;
-	if (!brevoApiKey) {
+	const resendApiKey = process.env.RESEND_API_KEY;
+	if (!resendApiKey) {
 		return {
 			success: false,
 			message: "Email service is not configured. Please try again later.",
@@ -191,27 +192,27 @@ export async function sendContactEmail(data: ContactFormData) {
 					<div class="header">
 						<h2 style="margin: 0; color: #2563eb;">New Enterprise Contact Request</h2>
 					</div>
-					
+
 					<div class="field">
 						<div class="label">Name:</div>
 						<div class="value">${validatedData.name}</div>
 					</div>
-					
+
 					<div class="field">
 						<div class="label">Email:</div>
 						<div class="value">${validatedData.email}</div>
 					</div>
-					
+
 					<div class="field">
 						<div class="label">Country:</div>
 						<div class="value">${validatedData.country}</div>
 					</div>
-					
+
 					<div class="field">
 						<div class="label">Company Size:</div>
 						<div class="value">${validatedData.size}</div>
 					</div>
-					
+
 					<div class="field">
 						<div class="label">Message:</div>
 						<div class="value" style="white-space: pre-wrap;">${validatedData.message}</div>
@@ -221,35 +222,18 @@ export async function sendContactEmail(data: ContactFormData) {
 		</html>
 	`;
 
-	// Send email via Brevo
-	const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"api-key": brevoApiKey,
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			sender: {
-				name: "LLMGateway Contact Form",
-				email: "contact@llmgateway.io",
-			},
-			to: [
-				{
-					email: "contact@llmgateway.io",
-					name: "LLMGateway Enterprise",
-				},
-			],
-			replyTo: {
-				email: validatedData.email,
-				name: validatedData.name,
-			},
-			subject: `Enterprise Contact Request from ${validatedData.name}`,
-			htmlContent,
-		}),
+	// Send email via Resend
+	const resend = new Resend(resendApiKey);
+
+	const { error } = await resend.emails.send({
+		from: "LLMGateway Contact Form <contact@llmgateway.io>",
+		to: ["contact@llmgateway.io"],
+		replyTo: validatedData.email,
+		subject: `Enterprise Contact Request from ${validatedData.name}`,
+		html: htmlContent,
 	});
 
-	if (!response.ok) {
+	if (error) {
 		return {
 			success: false,
 			message: "Failed to send email. Please try again later.",
