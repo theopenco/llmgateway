@@ -81,8 +81,8 @@ LLMGateway is available under a dual license:
 ### Enterprise features include:
 
 - Advanced billing and subscription management
-- Extended data retention (90 days vs 3 days)
-- Provider API key management (Pro plan)
+- Extended data retention (unlimited vs 30 days)
+- Custom provider key configurations
 - Team and organization management
 - Priority support
 - And more to be defined

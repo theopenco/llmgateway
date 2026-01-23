@@ -1,12 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { KeyRound, Lock } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { ProviderSelect } from "@/components/provider-keys/provider-select";
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDefaultOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/lib/components/button";
 import {
@@ -27,7 +26,6 @@ import {
 import { Input } from "@/lib/components/input";
 import { Step } from "@/lib/components/stepper";
 import { toast } from "@/lib/components/use-toast";
-import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers } from "@llmgateway/models";
@@ -40,7 +38,6 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export function ProviderKeyStep() {
-	const config = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const { data: organization } = useDefaultOrganization();
@@ -76,15 +73,11 @@ export function ProviderKeyStep() {
 		}
 	}
 
-	const isProPlan = organization?.plan === "pro";
-
 	return (
 		<Step>
 			<div className="flex flex-col gap-6">
 				<div className="flex flex-col gap-2 text-center">
-					<h1 className="text-2xl font-bold">
-						Add Provider Keys {!isProPlan && "(Pro Only)"}
-					</h1>
+					<h1 className="text-2xl font-bold">Add Provider Keys</h1>
 					<p className="text-muted-foreground">
 						Connect to your preferred LLM providers by adding their API keys.
 					</p>
@@ -101,23 +94,7 @@ export function ProviderKeyStep() {
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
-						{!isProPlan && config.hosted ? (
-							<div className="flex flex-col items-center gap-6 py-4">
-								<div className="text-center">
-									<h3 className="text-lg font-semibold mb-2 flex items-center justify-center gap-2">
-										<Lock className="h-5 w-5" /> Upgrade to Pro
-									</h3>
-									<p className="text-muted-foreground mb-4">
-										Unlock custom provider support and more advanced features.
-									</p>
-									<UpgradeToProDialog>
-										<Button size="lg" type="button" className="mb-4">
-											Upgrade to Pro
-										</Button>
-									</UpgradeToProDialog>
-								</div>
-							</div>
-						) : !isSuccess ? (
+						{!isSuccess ? (
 							<Form {...form}>
 								<form
 									onSubmit={form.handleSubmit(onSubmit)}

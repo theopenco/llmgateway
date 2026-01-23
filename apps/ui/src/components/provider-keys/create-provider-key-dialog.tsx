@@ -3,9 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePostHog } from "posthog-js/react";
 import React, { useState } from "react";
 
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
-import { Alert, AlertDescription } from "@/lib/components/alert";
-import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -26,7 +23,6 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { toast } from "@/lib/components/use-toast";
-import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers, type ProviderDefinition } from "@llmgateway/models";
@@ -58,7 +54,6 @@ export function CreateProviderKeyDialog({
 	preselectedProvider,
 	existingProviderKeys = [],
 }: CreateProviderKeyDialogProps) {
-	const config = useAppConfig();
 	const posthog = usePostHog();
 	const [open, setOpen] = useState(false);
 	const [selectedProvider, setSelectedProvider] = useState(
@@ -83,8 +78,6 @@ export function CreateProviderKeyDialog({
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 	const queryClient = useQueryClient();
 
-	const isProPlan = selectedOrganization.plan === "pro";
-
 	const createMutation = api.useMutation("post", "/keys/provider");
 
 	// Filter provider keys by selected organization
@@ -94,11 +87,6 @@ export function CreateProviderKeyDialog({
 
 	const availableProviders = providers.filter((provider) => {
 		if (provider.id === "llmgateway") {
-			return false;
-		}
-
-		// Filter out custom provider for non-Pro users in hosted mode
-		if (provider.id === "custom" && config.hosted && !isProPlan) {
 			return false;
 		}
 
@@ -122,28 +110,6 @@ export function CreateProviderKeyDialog({
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
-
-		// Only enforce pro plan requirement if paid mode is enabled
-		if (config.hosted && !isProPlan) {
-			toast({
-				title: "Upgrade Required",
-				description:
-					"Provider keys are only available on the Pro plan. Please upgrade to use your own API keys.",
-				variant: "destructive",
-			});
-			return;
-		}
-
-		// Additional check for custom providers specifically
-		if (selectedProvider === "custom" && config.hosted && !isProPlan) {
-			toast({
-				title: "Upgrade Required",
-				description:
-					"Custom providers are only available on the Pro plan. Please upgrade to use custom OpenAI-compatible providers.",
-				variant: "destructive",
-			});
-			return;
-		}
 
 		if (!selectedProvider || !token) {
 			toast({
@@ -287,30 +253,6 @@ export function CreateProviderKeyDialog({
 						</span>
 					</DialogDescription>
 				</DialogHeader>
-				{config.hosted && !isProPlan && (
-					<div className="space-y-3">
-						<Alert>
-							<AlertDescription className="flex items-center justify-between gap-2">
-								<span>Provider keys are only available on the Pro plan.</span>
-								<div className="flex items-center gap-2">
-									<Badge variant="outline">Pro Only</Badge>
-									<UpgradeToProDialog>
-										<Button size="sm" variant="outline">
-											Upgrade
-										</Button>
-									</UpgradeToProDialog>
-								</div>
-							</AlertDescription>
-						</Alert>
-						<Alert>
-							<AlertDescription>
-								<span className="font-medium">Custom Providers:</span> Custom
-								OpenAI-compatible providers are also restricted to Pro plan
-								users for advanced integration capabilities.
-							</AlertDescription>
-						</Alert>
-					</div>
-				)}
 				<form onSubmit={handleSubmit} className="space-y-4 py-4">
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>

@@ -1,15 +1,11 @@
 import { ProjectModeSettings } from "@/components/settings/project-mode-settings";
 import { fetchServerData } from "@/lib/server-api";
 
-import type { Project, Organization } from "@/lib/types";
+import type { Project } from "@/lib/types";
 import type { ProjectModeSettingsData } from "@/types/settings";
 
 interface ProjectData {
 	project: Project;
-}
-
-interface OrganizationsData {
-	organizations: Organization[];
 }
 
 export const ProjectModeSettingsRsc = async ({
@@ -19,19 +15,20 @@ export const ProjectModeSettingsRsc = async ({
 	orgId: string;
 	projectId: string;
 }) => {
-	const [projectData, organizationsData] = await Promise.all([
-		fetchServerData<ProjectData>("GET", "/projects/{id}", {
+	const projectData = await fetchServerData<ProjectData>(
+		"GET",
+		"/projects/{id}",
+		{
 			params: {
 				path: {
 					id: projectId,
 				},
 			},
-		}),
-		fetchServerData<OrganizationsData>("GET", "/orgs"),
-	]);
+		},
+	);
 
 	// Handle null data cases
-	if (!projectData || !organizationsData) {
+	if (!projectData) {
 		return (
 			<div className="space-y-2">
 				<h3 className="text-lg font-medium">Project Mode</h3>
@@ -42,20 +39,7 @@ export const ProjectModeSettingsRsc = async ({
 		);
 	}
 
-	// Find the organization by ID
 	const project = projectData.project;
-	const organization = organizationsData.organizations.find(
-		(o) => o.id === orgId,
-	);
-
-	if (!organization) {
-		return (
-			<div className="space-y-2">
-				<h3 className="text-lg font-medium">Project Mode</h3>
-				<p className="text-muted-foreground text-sm">Organization not found.</p>
-			</div>
-		);
-	}
 
 	// Create the initial data structure
 	const initialData: ProjectModeSettingsData = {
@@ -71,7 +55,6 @@ export const ProjectModeSettingsRsc = async ({
 			initialData={initialData}
 			orgId={orgId}
 			projectId={projectId}
-			organizationPlan={organization.plan}
 			projectName={project.name}
 		/>
 	);

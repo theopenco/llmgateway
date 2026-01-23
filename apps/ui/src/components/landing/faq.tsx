@@ -61,8 +61,8 @@ export function Faq() {
 										for every request
 									</li>
 									<li>
-										<strong>Reduced gateway fee</strong> (2.5% vs 5%) on the $50
-										Pro plan
+										<strong>Bring Your Own Keys</strong> – use your own provider
+										API keys with just 1% tracking fee
 									</li>
 									<li>
 										Flexible <strong>enterprise add‑ons</strong> (dedicated
@@ -131,17 +131,16 @@ export function Faq() {
 								<p>Our pricing is simple and transparent:</p>
 								<ul className="list-disc pl-6 mt-2 space-y-1">
 									<li>
-										<strong>Free – credits + 5% fee + Stripe:</strong>{" "}
-										Pay‑as‑you‑go credits to use any model; a flat 5% platform
-										fee is applied to each request, plus standard Stripe
-										processing fees (2.9% + $0.35) on purchases.
+										<strong>Credits – 5% fee:</strong> Pay‑as‑you‑go credits to
+										use any model; a flat 5% platform fee is applied to each
+										request, plus standard Stripe processing fees (2.9% + $0.35)
+										on purchases.
 									</li>
 									<li>
-										<strong>Pro – $50/month:</strong> Bring your own LLM
-										provider keys <em>or</em> use credits with just a{" "}
-										<strong>2.5%</strong> gateway fee (half the free plan rate).
-										Includes premium analytics, higher rate limits, and priority
-										email support.
+										<strong>Bring Your Own Keys – 1% fee:</strong> Use your own
+										LLM provider API keys (OpenAI, Anthropic, Google, etc.) and
+										pay providers directly. We charge just 1% to track usage and
+										provide analytics.
 									</li>
 									<li>
 										<strong>Enterprise:</strong> Custom SLA, dedicated

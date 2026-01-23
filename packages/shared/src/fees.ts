@@ -9,30 +9,29 @@ export interface FeeBreakdown {
 
 export interface FeeCalculationInput {
 	amount: number;
-	organizationPlan: "free" | "pro";
 	cardCountry?: string;
 }
 
 const STRIPE_FIXED_FEE = 0.3;
 const STRIPE_PERCENTAGE_FEE = 0.029;
 const INTERNATIONAL_FEE_PERCENTAGE = 0.015;
-const FREE_PLAN_FEE_PERCENTAGE = 0.05;
-const PRO_PLAN_FEE_PERCENTAGE = 0.01;
+const PLATFORM_FEE_PERCENTAGE = 0.05; // Fixed 5% for all users
+
+// Fee percentage for BYOK (Bring Your Own Keys) usage - charged on tracked costs
+// when users use their own provider API keys
+export const BYOK_FEE_PERCENTAGE = parseFloat(
+	process.env.BYOK_FEE_PERCENTAGE || "0.01",
+);
 
 export function calculateFees(input: FeeCalculationInput): FeeBreakdown {
-	const { amount, organizationPlan, cardCountry } = input;
+	const { amount, cardCountry } = input;
 
 	const isInternationalCard = cardCountry && cardCountry !== "US";
-
-	const planFeePercentage =
-		organizationPlan === "free"
-			? FREE_PLAN_FEE_PERCENTAGE
-			: PRO_PLAN_FEE_PERCENTAGE;
 
 	const totalPercentageFees =
 		STRIPE_PERCENTAGE_FEE +
 		(isInternationalCard ? INTERNATIONAL_FEE_PERCENTAGE : 0) +
-		planFeePercentage;
+		PLATFORM_FEE_PERCENTAGE;
 
 	const totalAmount = (amount + STRIPE_FIXED_FEE) / (1 - totalPercentageFees);
 
@@ -40,7 +39,7 @@ export function calculateFees(input: FeeCalculationInput): FeeBreakdown {
 	const internationalFee = isInternationalCard
 		? totalAmount * INTERNATIONAL_FEE_PERCENTAGE
 		: 0;
-	const planFee = totalAmount * planFeePercentage;
+	const planFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
 
 	const totalFees = stripeFee + internationalFee + planFee;
 

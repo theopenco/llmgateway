@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	ArrowUpRight,
 	CreditCard,
 	Zap,
 	Key,
@@ -24,7 +23,6 @@ import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -194,8 +192,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		!isLoading &&
 		!isOrganizationLoading &&
 		selectedOrganization &&
-		selectedOrganization.credits === "0" &&
-		selectedOrganization.plan !== "pro";
+		selectedOrganization.credits === "0";
 
 	const isInitialLoading = isOrganizationLoading;
 
@@ -321,7 +318,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 												}
 												disabledMessage={
 													planLimits
-														? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+														? `Free plan allows maximum ${planLimits.maxKeys} API keys per project`
 														: undefined
 												}
 											>
@@ -340,12 +337,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 												</Button>
 											</CreateApiKeyDialog>
 											<TopUpCreditsButton />
-											<UpgradeToProDialog>
-												<Button variant="outline">
-													<ArrowUpRight className="mr-2 h-4 w-4" />
-													Upgrade to Pro
-												</Button>
-											</UpgradeToProDialog>
 										</>
 									)}
 								</div>

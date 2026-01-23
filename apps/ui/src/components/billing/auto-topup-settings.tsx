@@ -223,12 +223,7 @@ function AutoTopUpSettings() {
 								)}
 								{feeData.planFee > 0 && (
 									<div className="flex justify-between">
-										<span>
-											Service fee (
-											{selectedOrganization?.plan === "pro" ? "2.5%" : "5%"} -{" "}
-											{selectedOrganization?.plan === "pro" ? "Pro" : "Free"}{" "}
-											plan)
-										</span>
+										<span>Service fee (5%)</span>
 										<span>${feeData.planFee.toFixed(2)}</span>
 									</div>
 								)}

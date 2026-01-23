@@ -177,12 +177,19 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
-	if (
-		process.env.PAID_MODE === "true" &&
-		userOrganization.organization?.plan !== "pro"
-	) {
+	// Check max team size limit (5 members)
+	const currentMembers = await db.query.userOrganization.findMany({
+		where: {
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (currentMembers.length >= 5) {
 		throw new HTTPException(403, {
-			message: "Team management is only available on the Pro plan",
+			message:
+				"Your organization has reached the maximum of 5 team members. Contact us at contact@llmgateway.io to unlock more seats.",
 		});
 	}
 
@@ -321,15 +328,6 @@ team.openapi(updateMember, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (
-		process.env.PAID_MODE === "true" &&
-		userOrganization.organization?.plan !== "pro"
-	) {
-		throw new HTTPException(403, {
-			message: "Team management is only available on the Pro plan",
 		});
 	}
 
@@ -472,15 +470,6 @@ team.openapi(removeMember, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (
-		process.env.PAID_MODE === "true" &&
-		userOrganization.organization?.plan !== "pro"
-	) {
-		throw new HTTPException(403, {
-			message: "Team management is only available on the Pro plan",
 		});
 	}
 

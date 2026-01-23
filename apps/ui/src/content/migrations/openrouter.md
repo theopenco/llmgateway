@@ -2,12 +2,12 @@
 id: openrouter
 slug: openrouter
 title: Migrate from OpenRouter
-description: Switch to LLM Gateway for 50% lower fees on Pro, better analytics, and self-hosting options. Two-line code change.
+description: Switch to LLM Gateway for built-in analytics, self-hosting options, and simpler API. Two-line code change.
 date: 2026-01-20
 fromProvider: OpenRouter
 ---
 
-LLM Gateway works just like OpenRouter—same API format, same model names—but with lower fees on Pro (2.5% vs 5%), built-in analytics, and the option to self-host. Migration takes two lines of code.
+LLM Gateway works just like OpenRouter—same API format, same model names—but with built-in analytics and the option to self-host. Migration takes two lines of code.
 
 ## Quick Migration
 
@@ -24,7 +24,6 @@ Change your base URL and API key:
 
 | Feature                  | OpenRouter                   | LLM Gateway               |
 | ------------------------ | ---------------------------- | ------------------------- |
-| Gateway fee (Pro)        | 5%                           | **2.5%** (50% lower)      |
 | OpenAI-compatible API    | Yes                          | Yes                       |
 | Model coverage           | 300+ models                  | 180+ models               |
 | Analytics dashboard      | Via third-party integrations | **Built-in, per-request** |
@@ -32,8 +31,9 @@ Change your base URL and API key:
 | Self-hosting option      | No                           | **Yes (AGPLv3)**          |
 | Anthropic-compatible API | No                           | **Yes (/v1/messages)**    |
 | Native AI SDK provider   | Yes                          | Yes                       |
+| Provider key management  | Yes (BYOK)                   | Yes (BYOK)                |
 
-The biggest differences: lower fees, built-in analytics, simpler API (no extra headers), and the option to self-host.
+The biggest differences: built-in analytics, simpler API (no extra headers), and the option to self-host.
 
 For a detailed breakdown, see [LLM Gateway vs OpenRouter](/compare/open-router).
 
@@ -178,12 +178,12 @@ for await (const chunk of stream) {
 
 ## What You Get After Switching
 
-- **50% lower gateway fees** on Pro plan (2.5% vs OpenRouter's 5%)
 - **Per-request analytics** — See exactly what each API call costs
 - **Simpler integration** — No HTTP-Referer or X-Title headers required
 - **Response caching** — Automatic caching reduces costs for repeated requests
 - **Self-hosting option** — Run on your own infrastructure if you need full control
 - **Anthropic API support** — Use `/v1/messages` for Anthropic-native integrations
+- **Provider Key Management** — Use your own API keys for providers
 
 ## Full Comparison
 

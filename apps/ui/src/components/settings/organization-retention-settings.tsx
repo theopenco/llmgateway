@@ -148,13 +148,9 @@ export function OrganizationRetentionSettings() {
 					<>
 						<Alert>
 							<AlertDescription>
-								<strong>Data Retention Periods:</strong> Retained data is
-								automatically cleaned up based on your plan:
-								<ul className="list-disc list-inside mt-2 space-y-1">
-									<li>Free plan: 3 days</li>
-									<li>Pro plan: 30 days</li>
-									<li>Enterprise plan: Unlimited</li>
-								</ul>
+								<strong>Data Retention Period:</strong> Retained data is
+								automatically cleaned up after 30 days. Contact us for
+								enterprise plans with unlimited retention.
 								<p className="mt-2">
 									<strong>Data storage is billed at $0.01 per 1M tokens</strong>{" "}
 									(includes input, cached, output, and reasoning tokens).

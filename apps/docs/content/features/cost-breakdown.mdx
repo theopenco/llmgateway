@@ -11,8 +11,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLM Gateway provides real-time cost information for each API request directly in the response's `usage` object. This allows you to track costs programmatically without needing to query the dashboard.
 
 <Callout type="info">
-	Cost breakdown is available for **Pro plan** users on hosted LLM Gateway.
-	Self-hosted deployments always include cost information.
+	Cost breakdown is available for all users on both hosted and self-hosted
+	deployments.
 </Callout>
 
 ## Response Format
@@ -75,26 +75,6 @@ data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[...],"usa
 
 data: [DONE]
 ```
-
-## Free Plan Users
-
-If you're on the free plan (hosted LLM Gateway), the `usage` object will include an informational message instead of cost fields:
-
-```json
-{
-	"usage": {
-		"prompt_tokens": 10,
-		"completion_tokens": 15,
-		"total_tokens": 25,
-		"info": "upgrade to pro to include usd cost breakdown"
-	}
-}
-```
-
-<Callout type="success">
-	[Upgrade to Pro](https://llmgateway.io/dashboard) to unlock real-time cost
-	breakdown in your API responses.
-</Callout>
 
 ## Example: Tracking Costs in Code
 

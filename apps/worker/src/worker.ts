@@ -25,7 +25,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees } from "@llmgateway/shared";
+import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
 
 import {
 	calculateMinutelyHistory,
@@ -239,7 +239,6 @@ async function processAutoTopUp(): Promise<void> {
 				// Use centralized fee calculator
 				const feeBreakdown = calculateFees({
 					amount: topUpAmount,
-					organizationPlan: org.plan,
 					cardCountry: cardCountry || undefined,
 				});
 
@@ -357,41 +356,24 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	try {
 		logger.info("Starting data retention cleanup...");
 
-		// Define retention periods in days
-		const FREE_PLAN_RETENTION_DAYS = 3;
-		const PRO_PLAN_RETENTION_DAYS = 30;
+		// Unified retention period - 30 days for all users
+		const RETENTION_DAYS = 30;
 		const CLEANUP_BATCH_SIZE = 10000;
 
 		const now = new Date();
 
-		// Calculate cutoff dates
-		const freePlanCutoff = new Date(
-			now.getTime() - FREE_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-		);
-		const proPlanCutoff = new Date(
-			now.getTime() - PRO_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+		// Calculate cutoff date (30 days ago)
+		const cutoffDate = new Date(
+			now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
 		);
 
-		let totalFreePlanCleaned = 0;
-		let totalProPlanCleaned = 0;
+		let totalCleaned = 0;
 
-		// Fetch project IDs for each plan upfront (small query, runs once)
-		const freePlanProjects = await db
-			.select({ id: tables.project.id })
-			.from(tables.project)
-			.innerJoin(
-				organization,
-				eq(tables.project.organizationId, organization.id),
-			)
-			.where(eq(organization.plan, "free"));
-		const freePlanProjectIds = freePlanProjects.map((p) => p.id);
-
-		// Process free plan organizations in batches
-		let hasMoreFreePlanRecords = freePlanProjectIds.length > 0;
-		while (hasMoreFreePlanRecords) {
+		// Process all organizations in batches (no plan distinction)
+		let hasMoreRecords = true;
+		while (hasMoreRecords) {
 			const batchResult = await db.transaction(async (tx) => {
 				// Find IDs of records to clean up (with LIMIT for batching)
-				// Uses inArray with actual values to leverage index on (project_id, created_at)
 				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
 				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
 				const recordsToClean = await tx
@@ -399,8 +381,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 					.from(log)
 					.where(
 						and(
-							inArray(log.projectId, freePlanProjectIds),
-							lt(log.createdAt, freePlanCutoff),
+							lt(log.createdAt, cutoffDate),
 							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
@@ -436,102 +417,20 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				return recordsToClean.length;
 			});
 
-			totalFreePlanCleaned += batchResult;
+			totalCleaned += batchResult;
 
 			if (batchResult < CLEANUP_BATCH_SIZE) {
-				hasMoreFreePlanRecords = false;
+				hasMoreRecords = false;
 			}
 
 			if (batchResult > 0) {
-				logger.info(
-					`Cleaned up ${batchResult} logs in batch for free plan organizations`,
-				);
+				logger.info(`Cleaned up ${batchResult} logs in batch`);
 			}
 		}
 
-		if (totalFreePlanCleaned > 0) {
+		if (totalCleaned > 0) {
 			logger.info(
-				`Total cleaned up verbose data from ${totalFreePlanCleaned} logs for free plan organizations (older than ${FREE_PLAN_RETENTION_DAYS} days)`,
-			);
-		}
-
-		// Fetch pro plan project IDs upfront
-		const proPlanProjects = await db
-			.select({ id: tables.project.id })
-			.from(tables.project)
-			.innerJoin(
-				organization,
-				eq(tables.project.organizationId, organization.id),
-			)
-			.where(eq(organization.plan, "pro"));
-		const proPlanProjectIds = proPlanProjects.map((p) => p.id);
-
-		// Process pro plan organizations in batches
-		let hasMoreProPlanRecords = proPlanProjectIds.length > 0;
-		while (hasMoreProPlanRecords) {
-			const batchResult = await db.transaction(async (tx) => {
-				// Find IDs of records to clean up (with LIMIT for batching)
-				// Uses inArray with actual values to leverage index on (project_id, created_at)
-				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
-				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
-				const recordsToClean = await tx
-					.select({ id: log.id })
-					.from(log)
-					.where(
-						and(
-							inArray(log.projectId, proPlanProjectIds),
-							lt(log.createdAt, proPlanCutoff),
-							sql`${log.dataRetentionCleanedUp} = false`,
-						),
-					)
-					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { skipLocked: true });
-
-				if (recordsToClean.length === 0) {
-					return 0;
-				}
-
-				const idsToClean = recordsToClean.map((r) => r.id);
-
-				// Clean up the batch
-				await tx
-					.update(log)
-					.set({
-						messages: null,
-						content: null,
-						reasoningContent: null,
-						tools: null,
-						toolChoice: null,
-						toolResults: null,
-						customHeaders: null,
-						rawRequest: null,
-						rawResponse: null,
-						upstreamRequest: null,
-						upstreamResponse: null,
-						userAgent: null,
-						dataRetentionCleanedUp: true,
-					})
-					.where(inArray(log.id, idsToClean));
-
-				return recordsToClean.length;
-			});
-
-			totalProPlanCleaned += batchResult;
-
-			if (batchResult < CLEANUP_BATCH_SIZE) {
-				hasMoreProPlanRecords = false;
-			}
-
-			if (batchResult > 0) {
-				logger.info(
-					`Cleaned up ${batchResult} logs in batch for pro plan organizations`,
-				);
-			}
-		}
-
-		if (totalProPlanCleaned > 0) {
-			logger.info(
-				`Total cleaned up verbose data from ${totalProPlanCleaned} logs for pro plan organizations (older than ${PRO_PLAN_RETENTION_DAYS} days)`,
+				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${RETENTION_DAYS} days)`,
 			);
 		}
 
@@ -654,15 +553,29 @@ export async function batchProcessLogs(): Promise<void> {
 							row.organization_id,
 							currentOrgCost.plus(new Decimal(row.cost)),
 						);
-					} else if (row.used_mode === "api-keys" && row.data_storage_cost) {
-						// In API keys mode, only deduct storage cost for data retention
-						const storageCost = new Decimal(row.data_storage_cost);
-						if (storageCost.greaterThan(0)) {
+					} else if (row.used_mode === "api-keys") {
+						// In API keys mode, charge BYOK fee (% of tracked cost) + storage cost
+						let totalToDeduct = new Decimal(0);
+
+						// Add BYOK fee (e.g., 1% of the tracked cost)
+						if (row.cost) {
+							const byokFee = new Decimal(row.cost).times(BYOK_FEE_PERCENTAGE);
+							totalToDeduct = totalToDeduct.plus(byokFee);
+						}
+
+						// Add storage cost if applicable
+						if (row.data_storage_cost) {
+							totalToDeduct = totalToDeduct.plus(
+								new Decimal(row.data_storage_cost),
+							);
+						}
+
+						if (totalToDeduct.greaterThan(0)) {
 							const currentOrgCost =
 								orgCosts.get(row.organization_id) || new Decimal(0);
 							orgCosts.set(
 								row.organization_id,
-								currentOrgCost.plus(storageCost),
+								currentOrgCost.plus(totalToDeduct),
 							);
 						}
 					}

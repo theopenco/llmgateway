@@ -87,7 +87,6 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	const feeBreakdown = calculateFees({
 		amount,
-		organizationPlan: userOrganization.organization.plan,
 	});
 
 	const paymentIntent = await stripe.paymentIntents.create({
@@ -520,7 +519,6 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 
 	const feeBreakdown = calculateFees({
 		amount,
-		organizationPlan: userOrganization.organization.plan,
 		cardCountry,
 	});
 
@@ -642,7 +640,6 @@ payments.openapi(calculateFeesRoute, async (c) => {
 
 	const feeBreakdown = calculateFees({
 		amount,
-		organizationPlan: userOrganization.organization.plan,
 		cardCountry,
 	});
 

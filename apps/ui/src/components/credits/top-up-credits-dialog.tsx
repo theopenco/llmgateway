@@ -23,7 +23,6 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { useToast } from "@/lib/components/use-toast";
-import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 import { useStripe } from "@/lib/stripe";
@@ -165,7 +164,6 @@ function AmountStep({
 	onCancel: () => void;
 }) {
 	const presetAmounts = [10, 25, 50, 100];
-	const { selectedOrganization } = useDashboardState();
 	const api = useApi();
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
@@ -269,12 +267,7 @@ function AmountStep({
 								)}
 								{feeData.planFee > 0 && (
 									<div className="flex justify-between">
-										<span>
-											Service fee (
-											{selectedOrganization?.plan === "pro" ? "2.5%" : "5%"} -{" "}
-											{selectedOrganization?.plan === "pro" ? "Pro" : "Free"}{" "}
-											plan)
-										</span>
+										<span>Service fee (5%)</span>
 										<span>${feeData.planFee.toFixed(2)}</span>
 									</div>
 								)}
@@ -609,7 +602,6 @@ function ConfirmPaymentStep({
 	setLoading: (loading: boolean) => void;
 }) {
 	const { toast } = useToast();
-	const { selectedOrganization } = useDashboardState();
 	const api = useApi();
 	const { mutateAsync: topUpMutation } = api.useMutation(
 		"post",
@@ -710,12 +702,7 @@ function ConfirmPaymentStep({
 							)}
 							{feeData.planFee > 0 && (
 								<div className="flex justify-between">
-									<span>
-										Service fee (
-										{selectedOrganization?.plan === "pro" ? "2.5%" : "5%"} -{" "}
-										{selectedOrganization?.plan === "pro" ? "Pro" : "Free"}{" "}
-										plan)
-									</span>
+									<span>Service fee (5%)</span>
 									<span>${feeData.planFee.toFixed(2)}</span>
 								</div>
 							)}
