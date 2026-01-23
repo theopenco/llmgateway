@@ -12,8 +12,6 @@
  *     ├── provider.toml
  *     ├── README.md
  *     ├── logo.svg
- *     ├── scripts/
- *     │   └── generate.ts
  *     └── models/
  *         ├── claude-sonnet-4-5.toml
  *         ├── gpt-4o.toml
@@ -31,7 +29,6 @@ const __dirname = dirname(__filename);
 
 const OUTPUT_DIR = "exports/providers/llmgateway";
 const MODELS_DIR = join(OUTPUT_DIR, "models");
-const SCRIPTS_DIR = join(OUTPUT_DIR, "scripts");
 const LOGO_SOURCE = join(__dirname, "../apps/ui/public/brand/logo-black.svg");
 
 interface ModelsDevModel {
@@ -91,9 +88,16 @@ This provider enables access to 150+ AI models through [LLM Gateway](https://llm
 ## Directory Structure
 
 - **models/**: TOML configuration files for all supported models
-- **scripts/**: Scripts for generating model configurations
 - **provider.toml**: Provider configuration
 - **logo.svg**: Provider logo
+
+## Regenerating Models
+
+Model configurations are generated from the [LLM Gateway repository](https://github.com/theopenco/llmgateway):
+
+\`\`\`bash
+npx tsx scripts/export-models-dev.ts
+\`\`\`
 
 ## How It Works
 
@@ -142,21 +146,6 @@ const result = await generateText({
 - [Documentation](https://llmgateway.io/docs)
 - [Pricing](https://llmgateway.io/pricing)
 - [GitHub](https://github.com/theopenco/llmgateway)
-`;
-}
-
-function generateScript(): string {
-	return `/**
- * This script generates model TOML files from the LLM Gateway models package.
- *
- * Run from the llmgateway repository root:
- *   npx tsx scripts/export-models-dev.ts
- *
- * The script reads models from @llmgateway/models and generates TOML files
- * in the models/ directory.
- */
-
-// See: https://github.com/theopenco/llmgateway/blob/main/scripts/export-models-dev.ts
 `;
 }
 
@@ -311,7 +300,6 @@ function main(): void {
 		rmSync(OUTPUT_DIR, { recursive: true });
 	}
 	mkdirSync(MODELS_DIR, { recursive: true });
-	mkdirSync(SCRIPTS_DIR, { recursive: true });
 
 	// Write provider.toml
 	const providerToml = generateProviderToml();
@@ -322,11 +310,6 @@ function main(): void {
 	const readme = generateReadme();
 	writeFileSync(join(OUTPUT_DIR, "README.md"), readme);
 	console.log("Created README.md");
-
-	// Write scripts/generate.ts
-	const script = generateScript();
-	writeFileSync(join(SCRIPTS_DIR, "generate.ts"), script);
-	console.log("Created scripts/generate.ts");
 
 	// Copy logo.svg
 	copyFileSync(LOGO_SOURCE, join(OUTPUT_DIR, "logo.svg"));
