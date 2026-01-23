@@ -736,7 +736,7 @@ export const ChatUI = ({
 		return (
 			<div className="flex flex-col h-full min-h-0">
 				<Conversation>
-					<ConversationContent className="max-w-4xl mx-auto px-4 pb-24">
+					<ConversationContent className="max-w-4xl mx-auto px-4 pb-36">
 						{messagesContent}
 					</ConversationContent>
 					{inputArea}
