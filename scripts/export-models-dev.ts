@@ -5,24 +5,19 @@
  * and exports them under the "llmgateway" provider in the TOML format
  * expected by https://github.com/anomalyco/models.dev
  *
- * Models are organized into subdirectories by their original provider family
- * (e.g., models/anthropic/claude-sonnet-4-5.toml, models/openai/gpt-4o.toml)
- *
  * Usage: npx tsx scripts/export-models-dev.ts
  *
  * Output structure:
  *   exports/providers/llmgateway/
  *     ├── provider.toml
  *     ├── README.md
+ *     ├── logo.svg
  *     ├── scripts/
  *     │   └── generate.ts
  *     └── models/
- *         ├── anthropic/
- *         │   └── claude-sonnet-4-5.toml
- *         ├── openai/
- *         │   └── gpt-4o.toml
- *         ├── llmgateway/
- *         │   └── auto.toml
+ *         ├── claude-sonnet-4-5.toml
+ *         ├── gpt-4o.toml
+ *         ├── auto.toml
  *         └── ...
  */
 
@@ -38,30 +33,6 @@ const OUTPUT_DIR = "exports/providers/llmgateway";
 const MODELS_DIR = join(OUTPUT_DIR, "models");
 const SCRIPTS_DIR = join(OUTPUT_DIR, "scripts");
 const LOGO_SOURCE = join(__dirname, "../apps/ui/public/brand/logo-black.svg");
-
-// Map model family to provider subdirectory name
-const FAMILY_TO_PROVIDER: Record<string, string> = {
-	openai: "openai",
-	anthropic: "anthropic",
-	google: "google",
-	meta: "meta",
-	mistral: "mistral",
-	deepseek: "deepseek",
-	alibaba: "alibaba",
-	perplexity: "perplexity",
-	xai: "xai",
-	zai: "zai",
-	glm: "zai", // GLM models are from ZAI (Zhipu AI)
-	bytedance: "bytedance",
-	moonshot: "moonshot",
-	kimi: "moonshot", // Kimi models are from Moonshot
-	minimax: "minimax",
-	nvidia: "nvidia",
-	"gpt-oss": "openai", // GPT-OSS is an open-source GPT variant
-};
-
-// Models that belong to llmgateway itself (not from upstream providers)
-const LLMGATEWAY_MODELS = ["auto", "custom"];
 
 interface ModelsDevModel {
 	name: string;
@@ -119,20 +90,10 @@ This provider enables access to 150+ AI models through [LLM Gateway](https://llm
 
 ## Directory Structure
 
-- **models/**: TOML configuration files organized by upstream provider
-  - **anthropic/**: Claude models
-  - **openai/**: GPT and o-series models
-  - **google/**: Gemini and Gemma models
-  - **meta/**: Llama models
-  - **xai/**: Grok models
-  - **deepseek/**: DeepSeek models
-  - **alibaba/**: Qwen models
-  - **mistral/**: Mistral and Mixtral models
-  - **zai/**: GLM models
-  - **llmgateway/**: LLM Gateway native models (auto-routing)
-  - And more...
+- **models/**: TOML configuration files for all supported models
 - **scripts/**: Scripts for generating model configurations
 - **provider.toml**: Provider configuration
+- **logo.svg**: Provider logo
 
 ## How It Works
 
@@ -192,7 +153,7 @@ function generateScript(): string {
  *   npx tsx scripts/export-models-dev.ts
  *
  * The script reads models from @llmgateway/models and generates TOML files
- * organized by provider subdirectory.
+ * in the models/ directory.
  */
 
 // See: https://github.com/theopenco/llmgateway/blob/main/scripts/export-models-dev.ts
@@ -226,16 +187,6 @@ function getModelFamily(model: ModelDefinition): string {
 	};
 
 	return familyMap[model.family] || model.family;
-}
-
-function getProviderSubdir(model: ModelDefinition): string {
-	// LLM Gateway native models go into llmgateway folder
-	if (LLMGATEWAY_MODELS.includes(model.id)) {
-		return "llmgateway";
-	}
-
-	// Map family to provider subdirectory
-	return FAMILY_TO_PROVIDER[model.family] || model.family;
 }
 
 function generateModelToml(model: ModelDefinition): string | null {
@@ -381,38 +332,18 @@ function main(): void {
 	copyFileSync(LOGO_SOURCE, join(OUTPUT_DIR, "logo.svg"));
 	console.log("Created logo.svg");
 
-	// Track models per provider subdirectory
-	const providerCounts: Record<string, number> = {};
-
-	// Write model files organized by provider subdirectory
+	// Write model files directly to models/
 	let modelCount = 0;
 	for (const model of models) {
 		const modelToml = generateModelToml(model);
 		if (modelToml) {
-			const providerSubdir = getProviderSubdir(model);
-			const providerModelsDir = join(MODELS_DIR, providerSubdir);
-
-			// Create provider subdirectory if it doesn't exist
-			if (!existsSync(providerModelsDir)) {
-				mkdirSync(providerModelsDir, { recursive: true });
-			}
-
 			const modelFilename = sanitizeFilename(model.id);
-			writeFileSync(join(providerModelsDir, `${modelFilename}.toml`), modelToml);
-
-			providerCounts[providerSubdir] = (providerCounts[providerSubdir] || 0) + 1;
+			writeFileSync(join(MODELS_DIR, `${modelFilename}.toml`), modelToml);
 			modelCount++;
 		}
 	}
 
-	// Print summary
-	console.log("\nModels by provider:");
-	const sortedProviders = Object.entries(providerCounts).sort((a, b) => b[1] - a[1]);
-	for (const [provider, count] of sortedProviders) {
-		console.log(`  ${provider}: ${count} models`);
-	}
-
-	console.log(`\nTotal: ${modelCount} models`);
+	console.log(`\nExported ${modelCount} models`);
 	console.log(`\nOutput written to: ${OUTPUT_DIR}/`);
 }
 
