@@ -928,7 +928,7 @@ export default function ChatPageClient({
 											/>
 										</div>
 									</div>
-									<div className="flex-1 min-h-0">
+									<div className="flex-1 min-h-0 h-full">
 										<ChatUI
 											messages={messages}
 											supportsImages={supportsImages}
@@ -955,6 +955,7 @@ export default function ChatPageClient({
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
+											floatingInput
 										/>
 									</div>
 								</div>
@@ -1262,7 +1263,7 @@ function ExtraChatPanel({
 					/>
 				</div>
 			</div>
-			<div className="flex-1 min-h-0">
+			<div className="flex-1 min-h-0 h-full">
 				<ChatUI
 					messages={messages}
 					supportsImages={supportsImages}
@@ -1288,6 +1289,7 @@ function ExtraChatPanel({
 					setWebSearchEnabled={setWebSearchEnabled}
 					isLoading={false}
 					error={null}
+					floatingInput
 				/>
 			</div>
 		</div>

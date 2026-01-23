@@ -585,14 +585,14 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10"
+					? "absolute bottom-0 left-0 right-0 z-10 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)]"
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
 			<div
 				className={
 					floatingInput
-						? "max-w-4xl mx-auto px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background"
+						? "max-w-4xl mx-auto bg-background border rounded-xl shadow-lg px-3 pb-2 pt-2"
 						: undefined
 				}
 			>
