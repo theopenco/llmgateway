@@ -274,10 +274,10 @@ function generateModelToml(model: ModelDefinition): string | null {
 	lines.push("[limit]");
 	const contextFormatted = modelData.limit.context.toLocaleString("en-US").replace(/,/g, "_");
 	lines.push(`context = ${contextFormatted}`);
-	if (modelData.limit.output) {
-		const outputFormatted = modelData.limit.output.toLocaleString("en-US").replace(/,/g, "_");
-		lines.push(`output = ${outputFormatted}`);
-	}
+	// output is required by models.dev schema, default to 16384 if not specified
+	const outputLimit = modelData.limit.output || 16384;
+	const outputFormatted = outputLimit.toLocaleString("en-US").replace(/,/g, "_");
+	lines.push(`output = ${outputFormatted}`);
 	lines.push("");
 
 	// Modalities section
