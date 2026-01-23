@@ -130,6 +130,7 @@ interface ChatUIProps {
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
+	floatingInput?: boolean;
 }
 
 const suggestions = [
@@ -395,6 +396,7 @@ export const ChatUI = ({
 	onUserMessage,
 	isLoading = false,
 	error = null,
+	floatingInput = false,
 }: ChatUIProps) => {
 	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 	const usesPixelDimensions =
@@ -580,180 +582,208 @@ export const ChatUI = ({
 
 	const inputArea = (
 		<div
-			ref={inputRef}
-			className="absolute bottom-0 left-0 right-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background z-10 max-w-4xl mx-auto"
+			ref={floatingInput ? inputRef : undefined}
+			className={
+				floatingInput
+					? "absolute bottom-0 left-0 right-0 z-10"
+					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
+			}
 		>
-			{error && (
-				<Alert variant="destructive" className="mb-4">
-					<AlertCircle className="h-4 w-4" />
-					<AlertDescription>{error}</AlertDescription>
-				</Alert>
-			)}
-			<PromptInput
-				accept={supportsImages ? "image/*" : undefined}
-				multiple
-				globalDrop
-				aria-disabled={isLoading || status === "streaming"}
-				onSubmit={(message) => {
-					void handlePromptSubmit(message.text ?? "", message.files);
-				}}
+			<div
+				className={
+					floatingInput
+						? "max-w-4xl mx-auto px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background"
+						: undefined
+				}
 			>
-				<PromptInputBody>
-					<PromptInputAttachments>
-						{(attachment) => <PromptInputAttachment data={attachment} />}
-					</PromptInputAttachments>
-					<PromptInputTextarea
-						ref={textareaRef}
-						value={text}
-						onChange={(e) => setText(e.currentTarget.value)}
-						placeholder="Message"
-					/>
-				</PromptInputBody>
-				<PromptInputToolbar>
-					<PromptInputTools>
-						<PromptInputActionMenu>
-							<PromptInputActionMenuTrigger />
-							<PromptInputActionMenuContent>
-								<PromptInputActionAddAttachments />
-							</PromptInputActionMenuContent>
-						</PromptInputActionMenu>
-						<PromptInputSpeechButton
-							onTranscriptionChange={setText}
-							textareaRef={textareaRef}
+				{error && (
+					<Alert variant="destructive" className="mb-4">
+						<AlertCircle className="h-4 w-4" />
+						<AlertDescription>{error}</AlertDescription>
+					</Alert>
+				)}
+				<PromptInput
+					accept={supportsImages ? "image/*" : undefined}
+					multiple
+					globalDrop
+					aria-disabled={isLoading || status === "streaming"}
+					onSubmit={(message) => {
+						void handlePromptSubmit(message.text ?? "", message.files);
+					}}
+				>
+					<PromptInputBody>
+						<PromptInputAttachments>
+							{(attachment) => <PromptInputAttachment data={attachment} />}
+						</PromptInputAttachments>
+						<PromptInputTextarea
+							ref={textareaRef}
+							value={text}
+							onChange={(e) => setText(e.currentTarget.value)}
+							placeholder="Message"
 						/>
-						{supportsWebSearch && (
-							<PromptInputButton
-								variant={webSearchEnabled ? "default" : "ghost"}
-								onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-							>
-								<GlobeIcon size={16} />
-							</PromptInputButton>
-						)}
-					</PromptInputTools>
-					<div className="flex items-center gap-2">
-						{supportsReasoning && (
-							<Select
-								value={reasoningEffort ? reasoningEffort : "off"}
-								onValueChange={(val) =>
-									setReasoningEffort(
-										val === "off"
-											? ""
-											: ((val as "minimal" | "low" | "medium" | "high") ?? ""),
-									)
-								}
-							>
-								<SelectTrigger size="sm" className="min-w-[120px]">
-									<Brain size={16} />
-									<SelectValue placeholder="Reasoning" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="off">Auto</SelectItem>
-									{selectedModel.includes("gpt-5") && (
-										<SelectItem value="minimal">Minimal</SelectItem>
-									)}
-									<SelectItem value="low">Low</SelectItem>
-									<SelectItem value="medium">Medium</SelectItem>
-									<SelectItem value="high">High</SelectItem>
-								</SelectContent>
-							</Select>
-						)}
-						{supportsImageGen && !usesPixelDimensions && (
-							<>
+					</PromptInputBody>
+					<PromptInputToolbar>
+						<PromptInputTools>
+							<PromptInputActionMenu>
+								<PromptInputActionMenuTrigger />
+								<PromptInputActionMenuContent>
+									<PromptInputActionAddAttachments />
+								</PromptInputActionMenuContent>
+							</PromptInputActionMenu>
+							<PromptInputSpeechButton
+								onTranscriptionChange={setText}
+								textareaRef={textareaRef}
+							/>
+							{supportsWebSearch && (
+								<PromptInputButton
+									variant={webSearchEnabled ? "default" : "ghost"}
+									onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+								>
+									<GlobeIcon size={16} />
+								</PromptInputButton>
+							)}
+						</PromptInputTools>
+						<div className="flex items-center gap-2">
+							{supportsReasoning && (
 								<Select
-									value={imageAspectRatio}
+									value={reasoningEffort ? reasoningEffort : "off"}
 									onValueChange={(val) =>
-										setImageAspectRatio(
-											val as
-												| "auto"
-												| "1:1"
-												| "9:16"
-												| "3:4"
-												| "4:3"
-												| "3:2"
-												| "2:3"
-												| "5:4"
-												| "4:5"
-												| "21:9",
+										setReasoningEffort(
+											val === "off"
+												? ""
+												: ((val as "minimal" | "low" | "medium" | "high") ??
+														""),
 										)
 									}
 								>
-									<SelectTrigger size="sm" className="min-w-[110px]">
-										<SelectValue placeholder="Aspect ratio" />
+									<SelectTrigger size="sm" className="min-w-[120px]">
+										<Brain size={16} />
+										<SelectValue placeholder="Reasoning" />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="auto">Auto</SelectItem>
-										<SelectItem value="1:1">1:1</SelectItem>
-										<SelectItem value="9:16">9:16</SelectItem>
-										<SelectItem value="3:4">3:4</SelectItem>
-										<SelectItem value="4:3">4:3</SelectItem>
-										<SelectItem value="3:2">3:2</SelectItem>
-										<SelectItem value="2:3">2:3</SelectItem>
-										<SelectItem value="5:4">5:4</SelectItem>
-										<SelectItem value="4:5">4:5</SelectItem>
-										<SelectItem value="21:9">21:9</SelectItem>
+										<SelectItem value="off">Auto</SelectItem>
+										{selectedModel.includes("gpt-5") && (
+											<SelectItem value="minimal">Minimal</SelectItem>
+										)}
+										<SelectItem value="low">Low</SelectItem>
+										<SelectItem value="medium">Medium</SelectItem>
+										<SelectItem value="high">High</SelectItem>
 									</SelectContent>
 								</Select>
+							)}
+							{supportsImageGen && !usesPixelDimensions && (
+								<>
+									<Select
+										value={imageAspectRatio}
+										onValueChange={(val) =>
+											setImageAspectRatio(
+												val as
+													| "auto"
+													| "1:1"
+													| "9:16"
+													| "3:4"
+													| "4:3"
+													| "3:2"
+													| "2:3"
+													| "5:4"
+													| "4:5"
+													| "21:9",
+											)
+										}
+									>
+										<SelectTrigger size="sm" className="min-w-[110px]">
+											<SelectValue placeholder="Aspect ratio" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="auto">Auto</SelectItem>
+											<SelectItem value="1:1">1:1</SelectItem>
+											<SelectItem value="9:16">9:16</SelectItem>
+											<SelectItem value="3:4">3:4</SelectItem>
+											<SelectItem value="4:3">4:3</SelectItem>
+											<SelectItem value="3:2">3:2</SelectItem>
+											<SelectItem value="2:3">2:3</SelectItem>
+											<SelectItem value="5:4">5:4</SelectItem>
+											<SelectItem value="4:5">4:5</SelectItem>
+											<SelectItem value="21:9">21:9</SelectItem>
+										</SelectContent>
+									</Select>
+									<Select
+										value={imageSize}
+										onValueChange={(val) =>
+											setImageSize(val as "1K" | "2K" | "4K")
+										}
+									>
+										<SelectTrigger size="sm" className="min-w-[80px]">
+											<SelectValue placeholder="Resolution" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="1K">1K</SelectItem>
+											<SelectItem value="2K">2K</SelectItem>
+											<SelectItem value="4K">4K</SelectItem>
+										</SelectContent>
+									</Select>
+								</>
+							)}
+							{supportsImageGen && usesPixelDimensions && (
 								<Select
-									value={imageSize}
-									onValueChange={(val) =>
-										setImageSize(val as "1K" | "2K" | "4K")
-									}
+									value={alibabaImageSize}
+									onValueChange={setAlibabaImageSize}
 								>
-									<SelectTrigger size="sm" className="min-w-[80px]">
-										<SelectValue placeholder="Resolution" />
+									<SelectTrigger size="sm" className="min-w-[130px]">
+										<SelectValue placeholder="Image Size" />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="1K">1K</SelectItem>
-										<SelectItem value="2K">2K</SelectItem>
-										<SelectItem value="4K">4K</SelectItem>
+										<SelectItem value="1024x1024">1024x1024</SelectItem>
+										<SelectItem value="720x1280">720x1280</SelectItem>
+										<SelectItem value="1280x720">1280x720</SelectItem>
+										<SelectItem value="1024x1536">1024x1536</SelectItem>
+										<SelectItem value="1536x1024">1536x1024</SelectItem>
+										<SelectItem value="2048x1024">2048x1024</SelectItem>
+										<SelectItem value="1024x2048">1024x2048</SelectItem>
 									</SelectContent>
 								</Select>
-							</>
-						)}
-						{supportsImageGen && usesPixelDimensions && (
-							<Select
-								value={alibabaImageSize}
-								onValueChange={setAlibabaImageSize}
-							>
-								<SelectTrigger size="sm" className="min-w-[130px]">
-									<SelectValue placeholder="Image Size" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="1024x1024">1024x1024</SelectItem>
-									<SelectItem value="720x1280">720x1280</SelectItem>
-									<SelectItem value="1280x720">1280x720</SelectItem>
-									<SelectItem value="1024x1536">1024x1536</SelectItem>
-									<SelectItem value="1536x1024">1536x1024</SelectItem>
-									<SelectItem value="2048x1024">2048x1024</SelectItem>
-									<SelectItem value="1024x2048">1024x2048</SelectItem>
-								</SelectContent>
-							</Select>
-						)}
-						{status === "streaming" ? (
-							<PromptInputButton onClick={() => stop()} variant="ghost">
-								Stop
-							</PromptInputButton>
-						) : null}
-						<PromptInputSubmit
-							status={status === "streaming" ? "streaming" : "ready"}
-							disabled={isLoading}
-						/>
-					</div>
-				</PromptInputToolbar>
-			</PromptInput>
+							)}
+							{status === "streaming" ? (
+								<PromptInputButton onClick={() => stop()} variant="ghost">
+									Stop
+								</PromptInputButton>
+							) : null}
+							<PromptInputSubmit
+								status={status === "streaming" ? "streaming" : "ready"}
+								disabled={isLoading}
+							/>
+						</div>
+					</PromptInputToolbar>
+				</PromptInput>
+			</div>
 		</div>
 	);
 
+	if (floatingInput) {
+		return (
+			<div className="relative flex flex-col h-full min-h-0">
+				<Conversation>
+					<ConversationContent
+						className="max-w-4xl mx-auto px-4"
+						style={{ paddingBottom: `${inputHeight + 16}px` }}
+					>
+						{messagesContent}
+					</ConversationContent>
+				</Conversation>
+				{inputArea}
+			</div>
+		);
+	}
+
 	return (
-		<div className="relative flex flex-col h-full min-h-0">
-			<Conversation>
-				<ConversationContent
-					className="max-w-4xl mx-auto px-4"
-					style={{ paddingBottom: `${inputHeight + 16}px` }}
-				>
-					{messagesContent}
-				</ConversationContent>
-			</Conversation>
+		<div className="flex flex-col h-full min-h-0">
+			<div className="flex flex-col flex-1 min-h-0">
+				<Conversation>
+					<ConversationContent className="px-4 pb-4">
+						{messagesContent}
+					</ConversationContent>
+				</Conversation>
+			</div>
 			{inputArea}
 		</div>
 	);
