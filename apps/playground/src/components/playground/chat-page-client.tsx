@@ -906,7 +906,7 @@ export default function ChatPageClient({
 							className={`grid h-full ${
 								!comparisonEnabled || extraPanelIds.length === 0
 									? "grid-cols-1 w-full"
-									: "gap-4 px-4 pb-4 " +
+									: "gap-4 p-4 " +
 										(extraPanelIds.length === 1
 											? "grid-cols-1 md:grid-cols-2"
 											: "grid-cols-1 md:grid-cols-3")
@@ -994,7 +994,7 @@ export default function ChatPageClient({
 								? extraPanelIds.map((panelId, index) => (
 										<div
 											key={panelId}
-											className="hidden md:flex flex-col min-h-0"
+											className="hidden md:flex flex-col h-full min-h-0"
 										>
 											<ExtraChatPanel
 												panelIndex={index + 2}
