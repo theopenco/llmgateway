@@ -52,8 +52,65 @@ export default async function FeaturePage({ params }: PageProps) {
 		? demoComponents[feature.demoComponent]
 		: null;
 
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Features",
+				item: "https://llmgateway.io/features",
+			},
+			{
+				"@type": "ListItem",
+				position: 3,
+				name: feature.title,
+				item: `https://llmgateway.io/features/${slug}`,
+			},
+		],
+	};
+
+	const featureSchema = {
+		"@context": "https://schema.org",
+		"@type": "WebPage",
+		name: feature.title,
+		description: feature.longDescription,
+		mainEntity: {
+			"@type": "SoftwareApplication",
+			name: `LLM Gateway - ${feature.title}`,
+			applicationCategory: "DeveloperApplication",
+			operatingSystem: "Web",
+			description: feature.longDescription,
+			offers: {
+				"@type": "Offer",
+				price: "0",
+				priceCurrency: "USD",
+			},
+			featureList: feature.benefits.map((b) => b.title),
+		},
+	};
+
 	return (
 		<>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(breadcrumbSchema),
+				}}
+			/>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(featureSchema),
+				}}
+			/>
 			<Navbar />
 			<div className="min-h-screen bg-background">
 				<div className="relative border-b border-zinc-200 dark:border-zinc-800 bg-gradient-to-b from-zinc-50 to-background dark:from-zinc-900/50 dark:to-background">

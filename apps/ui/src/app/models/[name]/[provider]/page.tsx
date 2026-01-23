@@ -91,8 +91,81 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const allProviderIds = modelDef.providers.map((p) => p.providerId);
 
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Models",
+				item: "https://llmgateway.io/models",
+			},
+			{
+				"@type": "ListItem",
+				position: 3,
+				name: modelDef.name || modelDef.id,
+				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
+			},
+			{
+				"@type": "ListItem",
+				position: 4,
+				name: providerInfo?.name || decodedProvider,
+				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
+			},
+		],
+	};
+
+	const productSchema = {
+		"@context": "https://schema.org",
+		"@type": "Product",
+		name: `${modelDef.name || modelDef.id} on ${providerInfo?.name || decodedProvider}`,
+		description:
+			modelDef.description ||
+			`Access ${modelDef.name || modelDef.id} via ${providerInfo?.name || decodedProvider} through LLM Gateway's unified API.`,
+		brand: {
+			"@type": "Brand",
+			name: providerInfo?.name || decodedProvider,
+		},
+		offers: {
+			"@type": "Offer",
+			priceCurrency: "USD",
+			price: providerMapping.inputPrice || 0,
+			priceSpecification: {
+				"@type": "UnitPriceSpecification",
+				price: providerMapping.inputPrice || 0,
+				priceCurrency: "USD",
+				unitText: "per 1M input tokens",
+			},
+			availability: "https://schema.org/InStock",
+			seller: {
+				"@type": "Organization",
+				name: "LLM Gateway",
+			},
+		},
+		category: "AI/ML API Service",
+	};
+
 	return (
 		<>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(breadcrumbSchema),
+				}}
+			/>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(productSchema),
+				}}
+			/>
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
