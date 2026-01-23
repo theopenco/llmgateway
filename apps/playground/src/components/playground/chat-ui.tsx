@@ -130,7 +130,6 @@ interface ChatUIProps {
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
-	floatingInput?: boolean;
 }
 
 const suggestions = [
@@ -396,7 +395,6 @@ export const ChatUI = ({
 	onUserMessage,
 	isLoading = false,
 	error = null,
-	floatingInput = false,
 }: ChatUIProps) => {
 	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 	const usesPixelDimensions =
@@ -564,13 +562,7 @@ export const ChatUI = ({
 		);
 
 	const inputArea = (
-		<div
-			className={
-				floatingInput
-					? "sticky bottom-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background/80 backdrop-blur-sm max-w-4xl mx-auto w-full"
-					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t max-w-4xl mx-auto w-full"
-			}
-		>
+		<div className="shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t max-w-4xl mx-auto w-full">
 			{error && (
 				<Alert variant="destructive" className="mb-4">
 					<AlertCircle className="h-4 w-4" />
@@ -731,19 +723,6 @@ export const ChatUI = ({
 			</PromptInput>
 		</div>
 	);
-
-	if (floatingInput) {
-		return (
-			<div className="flex flex-col h-full min-h-0">
-				<Conversation>
-					<ConversationContent className="max-w-4xl mx-auto px-4 pb-36">
-						{messagesContent}
-					</ConversationContent>
-					{inputArea}
-				</Conversation>
-			</div>
-		);
-	}
 
 	return (
 		<div className="flex flex-col h-full min-h-0">

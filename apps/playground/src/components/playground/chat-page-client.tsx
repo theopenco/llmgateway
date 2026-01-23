@@ -986,7 +986,6 @@ export default function ChatPageClient({
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
-										floatingInput
 									/>
 								</div>
 							)}
