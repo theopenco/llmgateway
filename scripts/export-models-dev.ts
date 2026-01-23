@@ -179,6 +179,7 @@ function getModelFamily(model: ModelDefinition): string {
 		zai: "glm",
 		nvidia: "nemotron",
 		minimax: "minimax",
+		llmgateway: "auto",
 	};
 
 	return familyMap[model.family] || model.family;
