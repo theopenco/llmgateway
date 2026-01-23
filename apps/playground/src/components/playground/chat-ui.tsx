@@ -1,6 +1,6 @@
 "use client";
 import { AlertCircle, RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
-import { useRef, useState, memo, useMemo } from "react";
+import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
@@ -406,6 +406,23 @@ export const ChatUI = ({
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const inputRef = useRef<HTMLDivElement | null>(null);
+	const [inputHeight, setInputHeight] = useState(0);
+
+	const updateInputHeight = useCallback(() => {
+		if (inputRef.current) {
+			setInputHeight(inputRef.current.offsetHeight);
+		}
+	}, []);
+
+	useEffect(() => {
+		updateInputHeight();
+		const observer = new ResizeObserver(updateInputHeight);
+		if (inputRef.current) {
+			observer.observe(inputRef.current);
+		}
+		return () => observer.disconnect();
+	}, [updateInputHeight]);
 	const handlePromptSubmit = async (
 		textContent: string,
 		files?: Array<{
@@ -562,7 +579,10 @@ export const ChatUI = ({
 		);
 
 	const inputArea = (
-		<div className="shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t max-w-4xl mx-auto w-full">
+		<div
+			ref={inputRef}
+			className="absolute bottom-0 left-0 right-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background/80 backdrop-blur-sm z-10 max-w-4xl mx-auto"
+		>
 			{error && (
 				<Alert variant="destructive" className="mb-4">
 					<AlertCircle className="h-4 w-4" />
@@ -725,14 +745,15 @@ export const ChatUI = ({
 	);
 
 	return (
-		<div className="flex flex-col h-full min-h-0">
-			<div className="flex flex-col flex-1 min-h-0">
-				<Conversation>
-					<ConversationContent className="max-w-4xl mx-auto px-4 pb-4">
-						{messagesContent}
-					</ConversationContent>
-				</Conversation>
-			</div>
+		<div className="relative flex flex-col h-full min-h-0">
+			<Conversation>
+				<ConversationContent
+					className="max-w-4xl mx-auto px-4"
+					style={{ paddingBottom: `${inputHeight + 16}px` }}
+				>
+					{messagesContent}
+				</ConversationContent>
+			</Conversation>
 			{inputArea}
 		</div>
 	);
