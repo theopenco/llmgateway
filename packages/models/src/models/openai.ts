@@ -37,6 +37,8 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deprecatedAt: new Date("2026-01-23"),
+				deactivatedAt: new Date("2026-03-31"),
 			},
 		],
 	},
