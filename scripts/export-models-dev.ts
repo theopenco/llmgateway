@@ -163,6 +163,7 @@ function isOpenWeights(modelId: string, family: string): boolean {
 }
 
 function getModelFamily(model: ModelDefinition): string {
+	// Map internal family names to models.dev enum values
 	const familyMap: Record<string, string> = {
 		openai: "gpt",
 		anthropic: "claude",
@@ -173,6 +174,11 @@ function getModelFamily(model: ModelDefinition): string {
 		alibaba: "qwen",
 		perplexity: "sonar",
 		xai: "grok",
+		moonshot: "kimi",
+		bytedance: "seed",
+		zai: "glm",
+		nvidia: "nemotron",
+		minimax: "minimax",
 	};
 
 	return familyMap[model.family] || model.family;
