@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, KeySquare, Github } from "lucide-react";
+import { Loader2, KeySquare, Github, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -38,6 +38,7 @@ export default function Login() {
 	const router = useRouter();
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
+	const [showPassword, setShowPassword] = useState(false);
 	const { signIn } = useAuth();
 
 	// Redirect to dashboard if already authenticated
@@ -168,12 +169,32 @@ export default function Login() {
 								<FormItem>
 									<FormLabel>Password</FormLabel>
 									<FormControl>
-										<Input
-											placeholder="••••••••"
-											type="password"
-											autoComplete="current-password webauthn"
-											{...field}
-										/>
+										<div className="relative">
+											<Input
+												placeholder="••••••••"
+												type={showPassword ? "text" : "password"}
+												autoComplete="current-password webauthn"
+												className="pr-10"
+												{...field}
+											/>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+												onClick={() => setShowPassword(!showPassword)}
+												tabIndex={-1}
+											>
+												{showPassword ? (
+													<EyeOff className="h-4 w-4 text-muted-foreground" />
+												) : (
+													<Eye className="h-4 w-4 text-muted-foreground" />
+												)}
+												<span className="sr-only">
+													{showPassword ? "Hide password" : "Show password"}
+												</span>
+											</Button>
+										</div>
 									</FormControl>
 									<FormMessage />
 								</FormItem>

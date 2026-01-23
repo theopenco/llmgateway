@@ -15,7 +15,6 @@ import { ApiKeyStep } from "./api-key-step";
 import { CreditsStep } from "./credits-step";
 import { PlanChoiceStep } from "./plan-choice-step";
 import { ProviderKeyStep } from "./provider-key-step";
-import { ReferralStep } from "./referral-step";
 import { WelcomeStep } from "./welcome-step";
 
 type FlowType = "credits" | "byok" | null;
@@ -24,11 +23,6 @@ const getSteps = (flowType: FlowType) => [
 	{
 		id: "welcome",
 		title: "Welcome",
-	},
-	{
-		id: "referral",
-		title: "How did you hear about us?",
-		optional: true,
 	},
 	{
 		id: "api-key",
@@ -65,8 +59,8 @@ export function OnboardingWizard() {
 	const STEPS = getSteps(flowType);
 
 	const handleStepChange = async (step: number) => {
-		// Special handling for plan choice step (now at index 3)
-		if (activeStep === 3) {
+		// Special handling for plan choice step (now at index 2)
+		if (activeStep === 2) {
 			if (!hasSelectedPlan) {
 				// Skip to dashboard if no plan selected
 				posthog.capture("onboarding_skipped", {
@@ -103,26 +97,25 @@ export function OnboardingWizard() {
 	const handleSelectCredits = () => {
 		setFlowType("credits");
 		setHasSelectedPlan(true);
-		setActiveStep(4);
+		setActiveStep(3);
 	};
 
 	const handleSelectBYOK = () => {
 		setFlowType("byok");
 		setHasSelectedPlan(true);
-		setActiveStep(4);
+		setActiveStep(3);
 	};
 
-	const handleReferralComplete = (source: string, details?: string) => {
+	const handleReferralSelected = (source: string, details?: string) => {
 		setReferralSource(source);
 		if (details) {
 			setReferralDetails(details);
 		}
-		setActiveStep(2); // Move to API Key step
 	};
 
 	// Special handling for PlanChoiceStep to pass callbacks
 	const renderCurrentStep = () => {
-		if (activeStep === 3) {
+		if (activeStep === 2) {
 			return (
 				<PlanChoiceStep
 					onSelectCredits={handleSelectCredits}
@@ -133,7 +126,7 @@ export function OnboardingWizard() {
 		}
 
 		// For credits step, wrap with Stripe Elements
-		if (activeStep === 4 && flowType === "credits") {
+		if (activeStep === 3 && flowType === "credits") {
 			return stripeLoading ? (
 				<div className="p-6 text-center">Loading payment form...</div>
 			) : (
@@ -144,20 +137,16 @@ export function OnboardingWizard() {
 		}
 
 		// For BYOK step
-		if (activeStep === 4 && flowType === "byok") {
+		if (activeStep === 3 && flowType === "byok") {
 			return <ProviderKeyStep />;
 		}
 
-		// For other steps
+		// Welcome step with integrated referral
 		if (activeStep === 0) {
-			return <WelcomeStep />;
+			return <WelcomeStep onReferralSelected={handleReferralSelected} />;
 		}
 
 		if (activeStep === 1) {
-			return <ReferralStep onComplete={handleReferralComplete} />;
-		}
-
-		if (activeStep === 2) {
 			return <ApiKeyStep />;
 		}
 
@@ -169,12 +158,12 @@ export function OnboardingWizard() {
 		return STEPS.map((step, index) => ({
 			...step,
 			// Make plan choice step show Skip when no selection
-			...(index === 3 &&
+			...(index === 2 &&
 				!hasSelectedPlan && {
 					customNextText: "Skip",
 				}),
 			// Remove optional status from credits step when payment is successful
-			...(index === 4 &&
+			...(index === 3 &&
 				flowType === "credits" &&
 				isPaymentSuccessful && {
 					optional: false,
@@ -192,7 +181,7 @@ export function OnboardingWizard() {
 						onStepChange={handleStepChange}
 						className="mb-6"
 						nextButtonDisabled={
-							activeStep === 4 && flowType === "credits" && !isPaymentSuccessful
+							activeStep === 3 && flowType === "credits" && !isPaymentSuccessful
 						}
 					>
 						{renderCurrentStep()}
