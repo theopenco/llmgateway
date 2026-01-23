@@ -163,6 +163,19 @@ function isOpenWeights(modelId: string, family: string): boolean {
 }
 
 function getModelFamily(model: ModelDefinition): string {
+	// Handle specific model patterns first
+	const modelId = model.id.toLowerCase();
+
+	// Gemma models should use "gemma" family, not "gemini"
+	if (modelId.includes("gemma")) {
+		return "gemma";
+	}
+
+	// GPT OSS models should use "gpt-oss" family, not "gpt"
+	if (modelId.includes("gpt-oss")) {
+		return "gpt-oss";
+	}
+
 	// Map internal family names to models.dev enum values
 	const familyMap: Record<string, string> = {
 		openai: "gpt",
