@@ -592,7 +592,7 @@ export const ChatUI = ({
 			<div
 				className={
 					floatingInput
-						? "max-w-4xl mx-auto bg-background border rounded-xl shadow-lg px-3 pb-2 pt-2"
+						? "max-w-4xl mx-auto px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 bg-background"
 						: undefined
 				}
 			>
