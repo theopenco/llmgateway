@@ -1,7 +1,6 @@
-import { allMigrations } from "content-collections";
-
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
+import { allMigrations } from "content-collections";
 
 export const HeroRSC = async ({
 	navbarOnly,
