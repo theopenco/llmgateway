@@ -27,6 +27,7 @@
 		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.2",
+		"@llmgateway/actions": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/instrumentation": "workspace:*",

@@ -2,22 +2,20 @@ import {
 	type ModelDefinition,
 	models,
 	type ProviderModelMapping,
-} from "./models.js";
+	type ProviderId,
+	type BaseMessage,
+	type FunctionParameter,
+	type OpenAIFunctionToolInput,
+	type OpenAIRequestBody,
+	type OpenAIResponsesRequestBody,
+	type OpenAIToolInput,
+	type ProviderRequestBody,
+	type ToolChoiceType,
+	type WebSearchTool,
+} from "@llmgateway/models";
+
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
-
-import type { ProviderId } from "./providers.js";
-import type {
-	BaseMessage,
-	FunctionParameter,
-	OpenAIFunctionToolInput,
-	OpenAIRequestBody,
-	OpenAIResponsesRequestBody,
-	OpenAIToolInput,
-	ProviderRequestBody,
-	ToolChoiceType,
-	WebSearchTool,
-} from "./types.js";
 
 /**
  * Type guard to check if a tool is a function tool

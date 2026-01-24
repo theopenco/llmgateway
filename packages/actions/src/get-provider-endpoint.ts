@@ -1,7 +1,11 @@
-import { models, type ProviderModelMapping } from "./models.js";
-import { getProviderEnvValue, getProviderEnvConfig } from "./provider.js";
+import {
+	models,
+	type ProviderModelMapping,
+	type ProviderId,
+	getProviderEnvValue,
+	getProviderEnvConfig,
+} from "@llmgateway/models";
 
-import type { ProviderId } from "./providers.js";
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 /**
