@@ -132,9 +132,7 @@ export function Faq() {
 								<ul className="list-disc pl-6 mt-2 space-y-1">
 									<li>
 										<strong>Credits – 5% fee:</strong> Pay‑as‑you‑go credits to
-										use any model; a flat 5% platform fee is applied to each
-										request, plus standard Stripe processing fees (2.9% + $0.35)
-										on purchases.
+										use any model with a flat 5% platform fee on purchases.
 									</li>
 									<li>
 										<strong>Bring Your Own Keys – 1% fee:</strong> Use your own

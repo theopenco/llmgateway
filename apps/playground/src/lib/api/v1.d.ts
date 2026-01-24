@@ -3023,10 +3023,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             baseAmount: number;
-                            stripeFee: number;
-                            internationalFee: number;
-                            planFee: number;
-                            totalFees: number;
+                            platformFee: number;
                             totalAmount: number;
                             bonusAmount?: number;
                             finalCreditAmount?: number;

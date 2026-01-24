@@ -13,7 +13,7 @@ const comparisonData = [
 			{
 				title: "Credits pricing",
 				description: "Pay-as-you-go with credits",
-				llmgateway: "5% fee + Stripe (2.9% + $0.35) on credit purchases",
+				llmgateway: "Flat 5% fee on credit purchases",
 				openrouter:
 					"5% fee + $0.35 per credit purchase; 5% fee still applies with own API key",
 			},
@@ -84,7 +84,7 @@ const comparisonData = [
 			{
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
-				llmgateway: "Pro+",
+				llmgateway: "Enterprise",
 				openrouter: false,
 			},
 		],

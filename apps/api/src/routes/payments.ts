@@ -97,7 +97,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 		metadata: {
 			organizationId,
 			baseAmount: amount.toString(),
-			totalFees: feeBreakdown.totalFees.toString(),
+			platformFee: feeBreakdown.platformFee.toString(),
 			userEmail: user.email,
 			userId: user.id,
 		},
@@ -511,15 +511,8 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
-	const stripePaymentMethod = await stripe.paymentMethods.retrieve(
-		paymentMethod.stripePaymentMethodId,
-	);
-
-	const cardCountry = stripePaymentMethod.card?.country || undefined;
-
 	const feeBreakdown = calculateFees({
 		amount,
-		cardCountry,
 	});
 
 	const paymentIntent = await stripe.paymentIntents.create({
@@ -533,7 +526,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		metadata: {
 			organizationId: userOrganization.organization.id,
 			baseAmount: amount.toString(),
-			totalFees: feeBreakdown.totalFees.toString(),
+			platformFee: feeBreakdown.platformFee.toString(),
 			userEmail: user.email,
 			userId: user.id,
 		},
@@ -570,10 +563,7 @@ const calculateFeesRoute = createRoute({
 				"application/json": {
 					schema: z.object({
 						baseAmount: z.number(),
-						stripeFee: z.number(),
-						internationalFee: z.number(),
-						planFee: z.number(),
-						totalFees: z.number(),
+						platformFee: z.number(),
 						totalAmount: z.number(),
 						bonusAmount: z.number().optional(),
 						finalCreditAmount: z.number().optional(),
@@ -597,10 +587,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
-	const {
-		amount,
-		paymentMethodId,
-	}: { amount: number; paymentMethodId?: string } = c.req.valid("json");
+	const { amount }: { amount: number } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -618,29 +605,8 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
-	let cardCountry: string | undefined;
-
-	if (paymentMethodId) {
-		const paymentMethod = await db.query.paymentMethod.findFirst({
-			where: {
-				id: paymentMethodId,
-				organizationId: userOrganization.organization.id,
-			},
-		});
-
-		if (paymentMethod) {
-			try {
-				const stripePaymentMethod = await stripe.paymentMethods.retrieve(
-					paymentMethod.stripePaymentMethodId,
-				);
-				cardCountry = stripePaymentMethod.card?.country || undefined;
-			} catch {}
-		}
-	}
-
 	const feeBreakdown = calculateFees({
 		amount,
-		cardCountry,
 	});
 
 	// Calculate bonus for first-time credit purchases

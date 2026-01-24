@@ -230,16 +230,9 @@ async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				const stripePaymentMethod = await stripe.paymentMethods.retrieve(
-					defaultPaymentMethod.stripePaymentMethodId,
-				);
-
-				const cardCountry = stripePaymentMethod.card?.country;
-
 				// Use centralized fee calculator
 				const feeBreakdown = calculateFees({
 					amount: topUpAmount,
-					cardCountry: cardCountry || undefined,
 				});
 
 				// Insert pending transaction before creating payment intent
@@ -275,7 +268,7 @@ async function processAutoTopUp(): Promise<void> {
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
-							totalFees: feeBreakdown.totalFees.toString(),
+							platformFee: feeBreakdown.platformFee.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
 					});
