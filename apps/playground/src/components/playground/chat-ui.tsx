@@ -1,6 +1,6 @@
 "use client";
 import { AlertCircle, RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
-import { useRef, useState, memo, useMemo } from "react";
+import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
@@ -130,6 +130,7 @@ interface ChatUIProps {
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
+	floatingInput?: boolean;
 }
 
 const suggestions = [
@@ -395,6 +396,7 @@ export const ChatUI = ({
 	onUserMessage,
 	isLoading = false,
 	error = null,
+	floatingInput = false,
 }: ChatUIProps) => {
 	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 	const usesPixelDimensions =
@@ -406,6 +408,23 @@ export const ChatUI = ({
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const inputRef = useRef<HTMLDivElement | null>(null);
+	const [inputHeight, setInputHeight] = useState(0);
+
+	const updateInputHeight = useCallback(() => {
+		if (inputRef.current) {
+			setInputHeight(inputRef.current.offsetHeight);
+		}
+	}, []);
+
+	useEffect(() => {
+		updateInputHeight();
+		const observer = new ResizeObserver(updateInputHeight);
+		if (inputRef.current) {
+			observer.observe(inputRef.current);
+		}
+		return () => observer.disconnect();
+	}, [updateInputHeight]);
 	const handlePromptSubmit = async (
 		textContent: string,
 		files?: Array<{
@@ -485,90 +504,98 @@ export const ChatUI = ({
 			);
 		}
 	};
-	return (
-		<div className="flex flex-col h-full min-h-0">
-			<div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
-				<Conversation>
-					<ConversationContent>
-						{isLoading && messages.length === 0 ? (
-							<div className="flex items-center justify-center h-full">
-								<Loader />
-							</div>
-						) : messages.length === 0 ? (
-							<div className="max-w-3xl mx-auto py-10">
-								<div className="mb-6 text-center">
-									<h2 className="text-3xl font-semibold tracking-tight">
-										How can I help you?
-									</h2>
-								</div>
-								<div className="mb-6 flex justify-center gap-2">
-									{Object.keys(heroSuggestionGroups).map((key) => (
-										<Button
-											key={key}
-											size="sm"
-											variant={activeGroup === key ? "default" : "secondary"}
-											onClick={() =>
-												setActiveGroup(key as keyof typeof heroSuggestionGroups)
-											}
-											className="rounded-full"
-										>
-											{key}
-										</Button>
-									))}
-								</div>
-								{activeGroup === "Image gen" && !supportsImageGen ? (
-									<div className="text-center text-sm text-muted-foreground py-8">
-										Please select a model that supports image generation to use
-										this feature.
-									</div>
-								) : (
-									<div className="space-y-2">
-										{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
-											<button
-												key={s}
-												type="button"
-												onClick={() => {
-													void handlePromptSubmit(s);
-												}}
-												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
-											>
-												{s}
-											</button>
-										))}
-									</div>
-								)}
-							</div>
-						) : (
-							messages.map((m, messageIndex) => {
-								const isLastMessage = messageIndex === messages.length - 1;
-
-								if (m.role === "assistant") {
-									return (
-										<AssistantMessage
-											key={m.id}
-											message={m}
-											isLastMessage={isLastMessage}
-											status={status}
-											regenerate={regenerate}
-										/>
-									);
-								} else {
-									return (
-										<UserMessage
-											key={m.id}
-											message={m}
-											isLastMessage={isLastMessage}
-											status={status}
-										/>
-									);
-								}
-							})
-						)}
-					</ConversationContent>
-				</Conversation>
+	const messagesContent =
+		isLoading && messages.length === 0 ? (
+			<div className="flex items-center justify-center h-full">
+				<Loader />
 			</div>
+		) : messages.length === 0 ? (
+			<div className="max-w-3xl mx-auto py-10">
+				<div className="mb-6 text-center">
+					<h2 className="text-3xl font-semibold tracking-tight">
+						How can I help you?
+					</h2>
+				</div>
+				<div className="mb-6 flex justify-center gap-2">
+					{Object.keys(heroSuggestionGroups).map((key) => (
+						<Button
+							key={key}
+							size="sm"
+							variant={activeGroup === key ? "default" : "secondary"}
+							onClick={() =>
+								setActiveGroup(key as keyof typeof heroSuggestionGroups)
+							}
+							className="rounded-full"
+						>
+							{key}
+						</Button>
+					))}
+				</div>
+				{activeGroup === "Image gen" && !supportsImageGen ? (
+					<div className="text-center text-sm text-muted-foreground py-8">
+						Please select a model that supports image generation to use this
+						feature.
+					</div>
+				) : (
+					<div className="space-y-2">
+						{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
+							<button
+								key={s}
+								type="button"
+								onClick={() => {
+									void handlePromptSubmit(s);
+								}}
+								className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+							>
+								{s}
+							</button>
+						))}
+					</div>
+				)}
+			</div>
+		) : (
+			messages.map((m, messageIndex) => {
+				const isLastMessage = messageIndex === messages.length - 1;
 
-			<div className="shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t">
+				if (m.role === "assistant") {
+					return (
+						<AssistantMessage
+							key={m.id}
+							message={m}
+							isLastMessage={isLastMessage}
+							status={status}
+							regenerate={regenerate}
+						/>
+					);
+				} else {
+					return (
+						<UserMessage
+							key={m.id}
+							message={m}
+							isLastMessage={isLastMessage}
+							status={status}
+						/>
+					);
+				}
+			})
+		);
+
+	const inputArea = (
+		<div
+			ref={floatingInput ? inputRef : undefined}
+			className={
+				floatingInput
+					? "absolute bottom-0 left-0 right-0 z-10 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)]"
+					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
+			}
+		>
+			<div
+				className={
+					floatingInput
+						? "max-w-4xl mx-auto px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 bg-background"
+						: undefined
+				}
+			>
 				{error && (
 					<Alert variant="destructive" className="mb-4">
 						<AlertCircle className="h-4 w-4" />
@@ -581,7 +608,6 @@ export const ChatUI = ({
 					globalDrop
 					aria-disabled={isLoading || status === "streaming"}
 					onSubmit={(message) => {
-						// Fire-and-forget so PromptInput can clear attachments immediately.
 						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
 				>
@@ -730,6 +756,35 @@ export const ChatUI = ({
 					</PromptInputToolbar>
 				</PromptInput>
 			</div>
+		</div>
+	);
+
+	if (floatingInput) {
+		return (
+			<div className="relative flex flex-col h-full min-h-0">
+				<Conversation>
+					<ConversationContent
+						className="max-w-4xl mx-auto px-4"
+						style={{ paddingBottom: `${inputHeight + 16}px` }}
+					>
+						{messagesContent}
+					</ConversationContent>
+				</Conversation>
+				{inputArea}
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex flex-col h-full min-h-0">
+			<div className="flex flex-col flex-1 min-h-0">
+				<Conversation>
+					<ConversationContent className="px-4 pb-4">
+						{messagesContent}
+					</ConversationContent>
+				</Conversation>
+			</div>
+			{inputArea}
 		</div>
 	);
 };

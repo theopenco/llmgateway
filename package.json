@@ -33,6 +33,9 @@
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "2.2.0",
+		"@semantic-release/exec": "^7.0.3",
+		"@semantic-release/git": "^10.0.1",
+		"@semantic-release/npm": "^12.0.1",
 		"@steebchen/commitlint-config": "^1.5.2",
 		"@steebchen/eslint-config": "^1.10.1",
 		"@steebchen/lint-base": "1.0.6",
@@ -52,6 +55,7 @@
 		"nodemon": "3.1.10",
 		"prettier": "^3.6.2",
 		"resolve-tspaths": "0.8.23",
+		"semantic-release": "^24.2.5",
 		"sort-package-json": "3.4.0",
 		"sql.js": "1.13.0",
 		"tsc-watch": "7.2.0",

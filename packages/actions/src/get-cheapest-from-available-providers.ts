@@ -1,7 +1,10 @@
-import { getProviderDefinition } from "./providers.js";
+import {
+	getProviderDefinition,
+	type ProviderModelMapping,
+	type AvailableModelProvider,
+	type ModelWithPricing,
+} from "@llmgateway/models";
 
-import type { ProviderModelMapping } from "./models.js";
-import type { AvailableModelProvider, ModelWithPricing } from "./types.js";
 import type { ProviderMetrics } from "@llmgateway/db";
 
 interface ProviderScore<T extends AvailableModelProvider> {

@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, KeySquare, Github } from "lucide-react";
+import { Loader2, KeySquare, Github, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -38,6 +38,7 @@ export default function Login() {
 	const router = useRouter();
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
+	const [showPassword, setShowPassword] = useState(false);
 	const { signIn } = useAuth();
 
 	// Redirect to dashboard if already authenticated
@@ -61,7 +62,22 @@ export default function Login() {
 
 	useEffect(() => {
 		if (window.PublicKeyCredential) {
-			void signIn.passkey({ autoFill: true });
+			signIn.passkey({ autoFill: true }).then((res) => {
+				if (res?.data) {
+					queryClient.clear();
+					posthog.capture("user_logged_in", { method: "passkey" });
+					router.push("/dashboard");
+				} else if (res?.error) {
+					// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
+					if (res.error.message?.toLowerCase().includes("cancelled")) {
+						return;
+					}
+					toast({
+						title: res.error.message || "Failed to sign in with passkey",
+						variant: "destructive",
+					});
+				}
+			});
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []); // Only run once on mount for autofill
@@ -168,12 +184,32 @@ export default function Login() {
 								<FormItem>
 									<FormLabel>Password</FormLabel>
 									<FormControl>
-										<Input
-											placeholder="••••••••"
-											type="password"
-											autoComplete="current-password webauthn"
-											{...field}
-										/>
+										<div className="relative">
+											<Input
+												placeholder="••••••••"
+												type={showPassword ? "text" : "password"}
+												autoComplete="current-password webauthn"
+												className="pr-10"
+												{...field}
+											/>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+												onClick={() => setShowPassword(!showPassword)}
+												tabIndex={-1}
+											>
+												{showPassword ? (
+													<EyeOff className="h-4 w-4 text-muted-foreground" />
+												) : (
+													<Eye className="h-4 w-4 text-muted-foreground" />
+												)}
+												<span className="sr-only">
+													{showPassword ? "Hide password" : "Show password"}
+												</span>
+											</Button>
+										</div>
 									</FormControl>
 									<FormMessage />
 								</FormItem>

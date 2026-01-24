@@ -1,7 +1,8 @@
 import { trace } from "@opentelemetry/api";
 
+import type { RoutingMetadata } from "@llmgateway/actions";
 import type { ApiKey, Project } from "@llmgateway/db";
-import type { OpenAIToolInput, RoutingMetadata } from "@llmgateway/models";
+import type { OpenAIToolInput } from "@llmgateway/models";
 
 export interface PluginResults {
 	responseHealing?: {

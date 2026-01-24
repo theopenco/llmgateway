@@ -1,5 +1,10 @@
+import {
+	type BaseMessage,
+	isImageUrlContent,
+	isTextContent,
+} from "@llmgateway/models";
+
 import { processImageUrl } from "./process-image-url.js";
-import { type BaseMessage, isImageUrlContent, isTextContent } from "./types.js";
 
 // Google-specific message format with all part types
 interface GooglePart {

@@ -1,0 +1,53 @@
+name: publish
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Collect versions
+        run: |
+          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.pnpm_version }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.nodejs_version }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Fix workspace dependencies
+        run: |
+          pnpm -r exec sed -i 's/"workspace:\*"/"*"/g' "package.json"
+
+      - name: Semantic Release (models)
+        working-directory: packages/models
+        run: pnpm semantic-release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

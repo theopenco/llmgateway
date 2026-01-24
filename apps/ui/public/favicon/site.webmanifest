@@ -1,6 +1,6 @@
 {
-	"name": "",
-	"short_name": "",
+	"name": "LLM Gateway",
+	"short_name": "LLM Gateway",
 	"icons": [
 		{
 			"src": "/favicon/android-chrome-192x192.png",

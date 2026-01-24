@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import {
+	getProviderDefinition,
+	models,
+	type ProviderModelMapping,
+	type BaseMessage,
+	type OpenAIRequestBody,
+} from "@llmgateway/models";
+
 import { getCheapestFromAvailableProviders } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
-import { models } from "./models.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import { getProviderDefinition } from "./providers.js";
-
-import type { ProviderModelMapping } from "./models.js";
-import type { BaseMessage, OpenAIRequestBody } from "./types.js";
 
 describe("Models", () => {
 	it("should not have duplicate model IDs", () => {

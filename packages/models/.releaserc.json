@@ -1,0 +1,39 @@
+{
+	"branches": ["main"],
+	"tagFormat": "@llmgateway/models@${version}",
+	"plugins": [
+		[
+			"@semantic-release/commit-analyzer",
+			{
+				"preset": "angular",
+				"releaseRules": [
+					{ "type": "feat", "release": "minor" },
+					{ "type": "fix", "release": "patch" },
+					{ "type": "perf", "release": "patch" },
+					{ "type": "refactor", "release": "patch" }
+				]
+			}
+		],
+		"@semantic-release/release-notes-generator",
+		[
+			"@semantic-release/npm",
+			{
+				"npmPublish": false,
+				"pkgRoot": "."
+			}
+		],
+		[
+			"@semantic-release/exec",
+			{
+				"publishCmd": "npm publish --provenance --access public"
+			}
+		],
+		[
+			"@semantic-release/git",
+			{
+				"assets": ["package.json"],
+				"message": "chore(release): ${nextRelease.gitTag} [skip ci]"
+			}
+		]
+	]
+}

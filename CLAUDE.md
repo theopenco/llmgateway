@@ -122,6 +122,16 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
 - Always sync schema with `pnpm run setup` after table/column changes
 
+### Creating New Packages
+
+When creating a new package in `packages/`, include these config files. Copy them from an existing package (e.g., `packages/models`) to ensure consistency:
+
+- `package.json` - Package configuration with build scripts
+- `tsconfig.json` - TypeScript configuration extending root
+- `.prettierignore` - Copy from existing package (ignores `dist` build output)
+- `.lintstagedrc.json` - Copy from existing package (lint-staged configuration)
+- `eslint.config.mjs` - Copy from existing package (ESLint configuration)
+
 ### Code Standards
 
 - Always use top-level `import`, never use require or dynamic imports

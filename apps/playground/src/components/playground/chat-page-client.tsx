@@ -903,12 +903,13 @@ export default function ChatPageClient({
 					) : null}
 					<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
 						<div
-							className={`grid h-full gap-4 px-4 pb-4 ${
+							className={`grid h-full ${
 								!comparisonEnabled || extraPanelIds.length === 0
-									? "grid-cols-1 mx-auto w-full md:max-w-4xl"
-									: extraPanelIds.length === 1
-										? "grid-cols-1 md:grid-cols-2"
-										: "grid-cols-1 md:grid-cols-3"
+									? "grid-cols-1 w-full"
+									: "gap-4 p-4 " +
+										(extraPanelIds.length === 1
+											? "grid-cols-1 md:grid-cols-2"
+											: "grid-cols-1 md:grid-cols-3")
 							}`}
 						>
 							{comparisonEnabled && extraPanelIds.length > 0 ? (
@@ -985,6 +986,7 @@ export default function ChatPageClient({
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
+										floatingInput
 									/>
 								</div>
 							)}
@@ -992,7 +994,7 @@ export default function ChatPageClient({
 								? extraPanelIds.map((panelId, index) => (
 										<div
 											key={panelId}
-											className="hidden md:flex flex-col min-h-0"
+											className="hidden md:flex flex-col h-full min-h-0"
 										>
 											<ExtraChatPanel
 												panelIndex={index + 2}

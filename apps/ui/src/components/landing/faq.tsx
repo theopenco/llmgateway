@@ -9,12 +9,54 @@ import {
 	AccordionItem,
 } from "@/lib/components/accordion";
 
+const faqData = [
+	{
+		question: "What makes LLM Gateway different from OpenRouter?",
+		answer:
+			"Unlike OpenRouter, LLM Gateway offers: Full self-hosting under an AGPLv3 license – run the gateway entirely on your infra. Deeper, real-time cost & latency analytics for every request. Reduced gateway fee (2.5% vs 5%) on the $50 Pro plan. Flexible enterprise add-ons (dedicated shard, custom SLAs).",
+	},
+	{
+		question: "What models do you support?",
+		answer:
+			"We support 180+ models across 60+ providers—including GPT-4o, Claude, Gemini, Llama, Mistral, and more. We add new releases within 48 hours of launch.",
+	},
+	{
+		question: "What is your uptime guarantee?",
+		answer:
+			"Our public status page posts real-time metrics. Managed Pro & Enterprise instances come with a 99.9% uptime SLA; self-host installations depend on your infrastructure.",
+	},
+	{
+		question: "How much does it cost?",
+		answer:
+			"Free plan: Pay-as-you-go credits with 5% platform fee plus Stripe fees. Pro plan ($50/month): Bring your own keys or use credits with just 2.5% gateway fee, includes premium analytics and priority support. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.",
+	},
+];
+
+const faqSchema = {
+	"@context": "https://schema.org",
+	"@type": "FAQPage",
+	mainEntity: faqData.map((item) => ({
+		"@type": "Question",
+		name: item.question,
+		acceptedAnswer: {
+			"@type": "Answer",
+			text: item.answer,
+		},
+	})),
+};
+
 export function Faq() {
 	return (
 		<section
 			className="w-full py-12 md:py-24 lg:py-32 bg-white dark:bg-black"
 			id="faq"
 		>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(faqSchema),
+				}}
+			/>
 			<div className="container mx-auto px-4 md:px-6">
 				{/* Heading */}
 				<div className="flex flex-col items-center justify-center space-y-4 text-center">

@@ -26,8 +26,82 @@ export default async function GuidePage({ params }: GuidePageProps) {
 		notFound();
 	}
 
+	const articleSchema = {
+		"@context": "https://schema.org",
+		"@type": "TechArticle",
+		headline: guide.title,
+		description: guide.description || "LLM Gateway integration guide",
+		datePublished: guide.date,
+		dateModified: guide.date,
+		author: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		publisher: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+			logo: {
+				"@type": "ImageObject",
+				url: "https://llmgateway.io/favicon/android-chrome-512x512.png",
+			},
+		},
+		mainEntityOfPage: {
+			"@type": "WebPage",
+			"@id": `https://llmgateway.io/guides/${slug}`,
+		},
+		...(guide.image && {
+			image: {
+				"@type": "ImageObject",
+				url: guide.image.src.startsWith("http")
+					? guide.image.src
+					: `https://llmgateway.io${guide.image.src}`,
+				width: guide.image.width,
+				height: guide.image.height,
+			},
+		}),
+	};
+
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Guides",
+				item: "https://llmgateway.io/guides",
+			},
+			{
+				"@type": "ListItem",
+				position: 3,
+				name: guide.title,
+				item: `https://llmgateway.io/guides/${slug}`,
+			},
+		],
+	};
+
 	return (
 		<>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(articleSchema),
+				}}
+			/>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(breadcrumbSchema),
+				}}
+			/>
 			<HeroRSC navbarOnly />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">

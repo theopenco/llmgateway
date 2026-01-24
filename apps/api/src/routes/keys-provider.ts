@@ -5,9 +5,10 @@ import { z } from "zod";
 import { maskToken } from "@/lib/maskToken.js";
 import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
+import { validateProviderKey } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers, validateProviderKey } from "@llmgateway/models";
+import { providers } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";

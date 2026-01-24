@@ -1,13 +1,17 @@
 import { logger } from "@llmgateway/logger";
+import {
+	models,
+	type ProviderModelMapping,
+	type ProviderId,
+	type BaseMessage,
+	type ProviderValidationResult,
+} from "@llmgateway/models";
 
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
-import { models, type ProviderModelMapping } from "./models.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
-import type { ProviderId } from "./providers.js";
-import type { BaseMessage, ProviderValidationResult } from "./types.js";
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 /**

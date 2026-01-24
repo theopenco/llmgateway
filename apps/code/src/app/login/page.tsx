@@ -74,7 +74,26 @@ function LoginForm() {
 
 	useEffect(() => {
 		if (window.PublicKeyCredential) {
-			void signIn.passkey({ autoFill: true });
+			signIn.passkey({ autoFill: true }).then((res) => {
+				if (res?.data) {
+					queryClient.clear();
+					if (posthogKey) {
+						posthog.capture("user_logged_in", { method: "passkey" });
+					}
+					router.push(returnUrl);
+				} else if (res?.error) {
+					// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
+					if (res.error.message?.toLowerCase().includes("cancelled")) {
+						return;
+					}
+					toast.error(res.error.message || "Failed to sign in with passkey", {
+						style: {
+							backgroundColor: "var(--destructive)",
+							color: "var(--destructive-foreground)",
+						},
+					});
+				}
+			});
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);

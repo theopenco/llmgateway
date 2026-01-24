@@ -1,7 +1,7 @@
 {
-	"name": "@llmgateway/models",
+	"name": "@llmgateway/actions",
 	"version": "0.0.1",
-	"private": false,
+	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
 	"exports": {
@@ -21,6 +21,10 @@
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check ."
 	},
-	"dependencies": {},
+	"dependencies": {
+		"@llmgateway/db": "workspace:*",
+		"@llmgateway/logger": "workspace:*",
+		"@llmgateway/models": "workspace:*"
+	},
 	"devDependencies": {}
 }

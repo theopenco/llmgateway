@@ -1,7 +1,8 @@
-import { models } from "./models.js";
-
-import type { ProviderModelMapping } from "./models.js";
-import type { ProviderId } from "./providers.js";
+import {
+	models,
+	type ProviderModelMapping,
+	type ProviderId,
+} from "@llmgateway/models";
 
 /**
  * Get the cheapest model for a given provider based on input + output pricing

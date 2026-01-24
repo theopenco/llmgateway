@@ -1439,7 +1439,8 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 												{provider.requestPrice !== null &&
 												provider.requestPrice !== undefined &&
 												parseFloat(provider.requestPrice) > 0 ? (
-													provider.discount ? (
+													provider.discount &&
+													parseFloat(provider.discount) > 0 ? (
 														<div className="flex flex-col justify-center items-center">
 															<span className="line-through text-muted-foreground text-xs">
 																${parseFloat(provider.requestPrice).toFixed(3)}

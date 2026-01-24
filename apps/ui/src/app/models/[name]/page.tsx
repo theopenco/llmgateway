@@ -86,8 +86,72 @@ export default async function ModelPage({ params }: PageProps) {
 		};
 	});
 
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Models",
+				item: "https://llmgateway.io/models",
+			},
+			{
+				"@type": "ListItem",
+				position: 3,
+				name: modelDef.name || modelDef.id,
+				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
+			},
+		],
+	};
+
+	const lowestInputPrice = Math.min(
+		...modelProviders
+			.filter((p) => p.inputPrice)
+			.map((p) => p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1)),
+	);
+
+	const productSchema = {
+		"@context": "https://schema.org",
+		"@type": "Product",
+		name: modelDef.name || modelDef.id,
+		description:
+			modelDef.description ||
+			`Access ${modelDef.name || modelDef.id} through LLM Gateway's unified API.`,
+		brand: {
+			"@type": "Brand",
+			name: modelDef.family || "LLM Gateway",
+		},
+		offers: {
+			"@type": "AggregateOffer",
+			priceCurrency: "USD",
+			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
+			offerCount: modelProviders.length,
+			availability: "https://schema.org/InStock",
+		},
+		category: "AI/ML API Service",
+	};
+
 	return (
 		<>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(breadcrumbSchema),
+				}}
+			/>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{
+					__html: JSON.stringify(productSchema),
+				}}
+			/>
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">

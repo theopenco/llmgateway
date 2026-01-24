@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { prepareRequestBody } from "./prepare-request-body.js";
 
-import type { AnthropicRequestBody } from "./types.js";
+import type { AnthropicRequestBody } from "@llmgateway/models";
 
 describe("prepareRequestBody - Anthropic", () => {
 	test("should extract system messages to system field for caching", async () => {
