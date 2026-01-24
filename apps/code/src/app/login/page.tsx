@@ -82,6 +82,10 @@ function LoginForm() {
 					}
 					router.push(returnUrl);
 				} else if (res?.error) {
+					// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
+					if (res.error.message?.toLowerCase().includes("cancelled")) {
+						return;
+					}
 					toast.error(res.error.message || "Failed to sign in with passkey", {
 						style: {
 							backgroundColor: "var(--destructive)",

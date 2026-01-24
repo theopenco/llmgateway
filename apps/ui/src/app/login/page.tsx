@@ -68,6 +68,10 @@ export default function Login() {
 					posthog.capture("user_logged_in", { method: "passkey" });
 					router.push("/dashboard");
 				} else if (res?.error) {
+					// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
+					if (res.error.message?.toLowerCase().includes("cancelled")) {
+						return;
+					}
 					toast({
 						title: res.error.message || "Failed to sign in with passkey",
 						variant: "destructive",
