@@ -5,6 +5,7 @@ import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 
+import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
@@ -534,6 +535,9 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 								ONBOARDING_COMPLETED: true,
 							}),
 						});
+
+						// Send Discord notification for new verified signup
+						await notifyUserSignup(user.email, user.name);
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
