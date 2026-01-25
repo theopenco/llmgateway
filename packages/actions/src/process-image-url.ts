@@ -21,7 +21,9 @@ function getImageSizeErrorMessage(
 		if (userPlan === "free") {
 			message += ` Upgrade to Pro plan for ${proLimitMB}MB image uploads.`;
 		} else if (userPlan === "pro") {
-			message += ` Contact us for Business or Enterprise plans with higher limits.`;
+			message += ` Contact us for Enterprise plans with higher limits.`;
+		} else if (userPlan === "enterprise") {
+			message += ` Contact us to increase your Enterprise plan limits.`;
 		} else {
 			// When plan is unknown, provide generic upgrade message
 			message += ` Upgrade your plan for higher limits (Pro: ${proLimitMB}MB).`;

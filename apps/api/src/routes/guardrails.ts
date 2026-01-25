@@ -548,8 +548,8 @@ const listViolations = createRoute({
 				.optional()
 				.transform((val) => (val ? parseInt(val, 10) : undefined))
 				.pipe(z.number().int().min(1).max(100).optional()),
-			startDate: z.string().optional(),
-			endDate: z.string().optional(),
+			startDate: z.string().datetime({ offset: true }).optional(),
+			endDate: z.string().datetime({ offset: true }).optional(),
 			actionTaken: z.string().optional(),
 			ruleId: z.string().optional(),
 		}),

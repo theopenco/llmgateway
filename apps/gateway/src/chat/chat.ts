@@ -920,12 +920,16 @@ chat.openapi(completions, async (c) => {
 		});
 
 		if (guardrailResult.blocked) {
-			// Log violations
+			// Log violations (don't let logging failures affect the request)
 			for (const violation of guardrailResult.violations) {
-				await logViolation(project.organizationId, violation, {
-					apiKeyId: apiKey.id,
-					model: requestedModel,
-				});
+				try {
+					await logViolation(project.organizationId, violation, {
+						apiKeyId: apiKey.id,
+						model: requestedModel,
+					});
+				} catch {
+					// Silently ignore logging failures
+				}
 			}
 
 			throw new HTTPException(400, {
@@ -953,10 +957,14 @@ chat.openapi(completions, async (c) => {
 		for (const violation of guardrailResult.violations.filter(
 			(v) => v.action !== "block",
 		)) {
-			await logViolation(project.organizationId, violation, {
-				apiKeyId: apiKey.id,
-				model: requestedModel,
-			});
+			try {
+				await logViolation(project.organizationId, violation, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
 		}
 	}
 

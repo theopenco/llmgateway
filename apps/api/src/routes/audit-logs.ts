@@ -50,11 +50,11 @@ const querySchema = z.object({
 			description: "Number of items to return (default: 50, max: 100)",
 			example: "50",
 		}),
-	startDate: z.string().optional().openapi({
-		description: "Filter logs created after this date (ISO string)",
+	startDate: z.string().datetime({ offset: true }).optional().openapi({
+		description: "Filter logs created after this date (ISO 8601 string)",
 	}),
-	endDate: z.string().optional().openapi({
-		description: "Filter logs created before this date (ISO string)",
+	endDate: z.string().datetime({ offset: true }).optional().openapi({
+		description: "Filter logs created before this date (ISO 8601 string)",
 	}),
 	action: z.string().optional().openapi({
 		description: "Filter logs by action type",

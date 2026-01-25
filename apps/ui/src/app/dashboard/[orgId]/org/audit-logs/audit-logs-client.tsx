@@ -114,9 +114,13 @@ export function AuditLogsClient() {
 	const [copiedId, setCopiedId] = useState<string | null>(null);
 
 	const copyToClipboard = useCallback(async (text: string) => {
-		await navigator.clipboard.writeText(text);
-		setCopiedId(text);
-		setTimeout(() => setCopiedId(null), 2000);
+		try {
+			await navigator.clipboard.writeText(text);
+			setCopiedId(text);
+			setTimeout(() => setCopiedId(null), 2000);
+		} catch {
+			// Clipboard write failed, silently ignore
+		}
 	}, []);
 
 	// Filters from URL query params
@@ -387,6 +391,11 @@ export function AuditLogsClient() {
 																	}
 																	className="p-1 rounded hover:bg-muted transition-colors"
 																	title="Copy to clipboard"
+																	aria-label={
+																		copiedId === log.resourceId
+																			? "Copied"
+																			: "Copy resource ID to clipboard"
+																	}
 																>
 																	{copiedId === log.resourceId ? (
 																		<Check className="h-3 w-3 text-green-500" />
@@ -481,6 +490,11 @@ export function AuditLogsClient() {
 																	}
 																	className="p-1 rounded hover:bg-muted transition-colors"
 																	title="Copy to clipboard"
+																	aria-label={
+																		copiedId === log.resourceId
+																			? "Copied"
+																			: "Copy resource ID to clipboard"
+																	}
 																>
 																	{copiedId === log.resourceId ? (
 																		<Check className="h-3.5 w-3.5 text-green-500" />

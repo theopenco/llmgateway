@@ -190,20 +190,23 @@ export function SecurityEventsClient() {
 		[fetchClient, organizationId, actionFilter, categoryFilter],
 	);
 
+	// Reset and refetch when filters or view permissions change
 	useEffect(() => {
 		if (canViewEvents) {
+			setViolations([]);
+			setNextCursor(null);
 			fetchStats();
 			fetchViolations();
 		} else {
 			setIsLoading(false);
 		}
-	}, [canViewEvents, fetchStats, fetchViolations]);
-
-	const handleFilterChange = () => {
-		setViolations([]);
-		setNextCursor(null);
-		fetchViolations();
-	};
+	}, [
+		canViewEvents,
+		fetchStats,
+		fetchViolations,
+		actionFilter,
+		categoryFilter,
+	]);
 
 	if (selectedOrganization?.plan !== "enterprise") {
 		return <ContactSalesCard />;
@@ -286,13 +289,7 @@ export function SecurityEventsClient() {
 							>
 								Action:
 							</label>
-							<Select
-								value={actionFilter}
-								onValueChange={(value) => {
-									setActionFilter(value);
-									handleFilterChange();
-								}}
-							>
+							<Select value={actionFilter} onValueChange={setActionFilter}>
 								<SelectTrigger id="action-filter" className="w-[140px]">
 									<SelectValue placeholder="All actions" />
 								</SelectTrigger>
@@ -311,13 +308,7 @@ export function SecurityEventsClient() {
 							>
 								Category:
 							</label>
-							<Select
-								value={categoryFilter}
-								onValueChange={(value) => {
-									setCategoryFilter(value);
-									handleFilterChange();
-								}}
-							>
+							<Select value={categoryFilter} onValueChange={setCategoryFilter}>
 								<SelectTrigger id="category-filter" className="w-[180px]">
 									<SelectValue placeholder="All categories" />
 								</SelectTrigger>

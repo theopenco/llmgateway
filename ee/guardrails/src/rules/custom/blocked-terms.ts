@@ -15,6 +15,11 @@ export function checkBlockedTerms(
 	const searchContent = config.caseSensitive ? content : content.toLowerCase();
 
 	for (const term of config.terms) {
+		// Skip empty or whitespace-only terms
+		if (!term || !term.trim()) {
+			continue;
+		}
+
 		const searchTerm = config.caseSensitive ? term : term.toLowerCase();
 
 		switch (config.matchType) {
