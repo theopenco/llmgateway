@@ -1,6 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
+import { Check, Copy } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 
@@ -110,6 +111,13 @@ export function AuditLogsClient() {
 	const [error, setError] = useState<string | null>(null);
 	const [nextCursor, setNextCursor] = useState<string | null>(null);
 	const [hasMore, setHasMore] = useState(false);
+	const [copiedId, setCopiedId] = useState<string | null>(null);
+
+	const copyToClipboard = useCallback(async (text: string) => {
+		await navigator.clipboard.writeText(text);
+		setCopiedId(text);
+		setTimeout(() => setCopiedId(null), 2000);
+	}, []);
 
 	// Filters from URL query params
 	const actionFilter = searchParams.get("action") || "";
@@ -367,9 +375,29 @@ export function AuditLogsClient() {
 														<Badge variant="outline" className="text-xs">
 															{formatResourceType(log.resourceType)}
 														</Badge>
-														<span className="font-mono text-xs">
-															{log.resourceId || "—"}
-														</span>
+														{log.resourceId ? (
+															<>
+																<span className="font-mono text-xs">
+																	{log.resourceId}
+																</span>
+																<button
+																	type="button"
+																	onClick={() =>
+																		copyToClipboard(log.resourceId!)
+																	}
+																	className="p-1 rounded hover:bg-muted transition-colors"
+																	title="Copy to clipboard"
+																>
+																	{copiedId === log.resourceId ? (
+																		<Check className="h-3 w-3 text-green-500" />
+																	) : (
+																		<Copy className="h-3 w-3 text-muted-foreground" />
+																	)}
+																</button>
+															</>
+														) : (
+															<span className="font-mono text-xs">—</span>
+														)}
 													</div>
 													{(log.metadata as { resourceName?: string })
 														?.resourceName && (
@@ -440,8 +468,32 @@ export function AuditLogsClient() {
 															{formatResourceType(log.resourceType)}
 														</Badge>
 													</td>
-													<td className="p-4 align-middle text-sm font-mono text-muted-foreground">
-														{log.resourceId || "—"}
+													<td className="p-4 align-middle">
+														{log.resourceId ? (
+															<div className="flex items-center gap-2">
+																<span className="text-sm font-mono text-muted-foreground">
+																	{log.resourceId}
+																</span>
+																<button
+																	type="button"
+																	onClick={() =>
+																		copyToClipboard(log.resourceId!)
+																	}
+																	className="p-1 rounded hover:bg-muted transition-colors"
+																	title="Copy to clipboard"
+																>
+																	{copiedId === log.resourceId ? (
+																		<Check className="h-3.5 w-3.5 text-green-500" />
+																	) : (
+																		<Copy className="h-3.5 w-3.5 text-muted-foreground" />
+																	)}
+																</button>
+															</div>
+														) : (
+															<span className="text-sm text-muted-foreground">
+																—
+															</span>
+														)}
 													</td>
 													<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
 														{(log.metadata as { resourceName?: string })
