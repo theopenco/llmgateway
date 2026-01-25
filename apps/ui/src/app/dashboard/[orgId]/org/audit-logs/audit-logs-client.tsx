@@ -367,13 +367,19 @@ export function AuditLogsClient() {
 														<Badge variant="outline" className="text-xs">
 															{formatResourceType(log.resourceType)}
 														</Badge>
-														<span className="truncate">
-															{(log.metadata as { resourceName?: string })
-																?.resourceName ||
-																log.resourceId ||
-																"—"}
+														<span className="font-mono text-xs">
+															{log.resourceId || "—"}
 														</span>
 													</div>
+													{(log.metadata as { resourceName?: string })
+														?.resourceName && (
+														<div className="text-sm text-muted-foreground truncate">
+															{
+																(log.metadata as { resourceName?: string })
+																	?.resourceName
+															}
+														</div>
+													)}
 												</div>
 											</CardContent>
 										</Card>
@@ -396,6 +402,9 @@ export function AuditLogsClient() {
 												</th>
 												<th className="p-4 text-left text-sm font-medium text-muted-foreground">
 													Resource
+												</th>
+												<th className="p-4 text-left text-sm font-medium text-muted-foreground">
+													Resource ID
 												</th>
 												<th className="p-4 text-left text-sm font-medium text-muted-foreground">
 													Details
@@ -431,18 +440,19 @@ export function AuditLogsClient() {
 															{formatResourceType(log.resourceType)}
 														</Badge>
 													</td>
+													<td className="p-4 align-middle text-sm font-mono text-muted-foreground">
+														{log.resourceId || "—"}
+													</td>
 													<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
 														{(log.metadata as { resourceName?: string })
-															?.resourceName ||
-															log.resourceId ||
-															"—"}
+															?.resourceName || "—"}
 													</td>
 												</tr>
 											))}
 											{auditLogs.length === 0 && (
 												<tr>
 													<td
-														colSpan={5}
+														colSpan={6}
 														className="p-8 text-center text-muted-foreground"
 													>
 														No audit logs found
