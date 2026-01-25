@@ -136,6 +136,22 @@ export function GuardrailsClient() {
 		selectedOrganization?.plan === "enterprise" &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
+	const defaultConfig: GuardrailConfig = {
+		id: "",
+		enabled: false,
+		systemRules: {
+			prompt_injection: { enabled: true, action: "block" },
+			jailbreak: { enabled: true, action: "block" },
+			pii_detection: { enabled: true, action: "redact" },
+			secrets: { enabled: true, action: "block" },
+			file_types: { enabled: true, action: "block" },
+			document_leakage: { enabled: false, action: "warn" },
+		},
+		maxFileSizeMb: 10,
+		allowedFileTypes: ["pdf", "txt", "md", "csv", "json", "xml"],
+		piiAction: "redact",
+	};
+
 	const fetchConfig = useCallback(async () => {
 		try {
 			setIsLoading(true);
@@ -148,6 +164,9 @@ export function GuardrailsClient() {
 
 			if (response.data) {
 				setConfig(response.data as unknown as GuardrailConfig);
+			} else {
+				// No config exists yet, use defaults
+				setConfig(defaultConfig);
 			}
 
 			const rulesResponse = await fetchClient.GET(
