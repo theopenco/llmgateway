@@ -1,8 +1,8 @@
 "use client";
 
 import { format } from "date-fns";
-import { useParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -89,6 +89,8 @@ function getActionBadgeVariant(
 
 export function AuditLogsClient() {
 	const params = useParams();
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const organizationId = params.orgId as string;
 	const fetchClient = useFetchClient();
 	const isMobile = useIsMobile();
@@ -109,11 +111,27 @@ export function AuditLogsClient() {
 	const [nextCursor, setNextCursor] = useState<string | null>(null);
 	const [hasMore, setHasMore] = useState(false);
 
-	// Filters
-	const [actionFilter, setActionFilter] = useState<string>("all");
-	const [resourceTypeFilter, setResourceTypeFilter] = useState<string>("all");
+	// Filters from URL query params
+	const actionFilter = searchParams.get("action") || "";
+	const resourceTypeFilter = searchParams.get("resourceType") || "";
 	const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(
 		null,
+	);
+
+	// Update URL query params
+	const updateFilters = useCallback(
+		(action: string, resourceType: string) => {
+			const params = new URLSearchParams();
+			if (action && action !== "all") {
+				params.set("action", action);
+			}
+			if (resourceType && resourceType !== "all") {
+				params.set("resourceType", resourceType);
+			}
+			const queryString = params.toString();
+			router.push(queryString ? `?${queryString}` : "?", { scroll: false });
+		},
+		[router],
 	);
 
 	// Check if user can view audit logs (enterprise plan + owner/admin)
@@ -140,74 +158,78 @@ export function AuditLogsClient() {
 	};
 
 	// Fetch audit logs with pagination
-	const fetchAuditLogs = async (cursor?: string) => {
-		try {
-			const isInitialLoad = !cursor;
-			if (isInitialLoad) {
-				setIsLoading(true);
-			} else {
-				setIsLoadingMore(true);
-			}
+	const fetchAuditLogs = useCallback(
+		async (cursor?: string) => {
+			try {
+				const isInitialLoad = !cursor;
+				if (isInitialLoad) {
+					setIsLoading(true);
+				} else {
+					setIsLoadingMore(true);
+				}
 
-			const queryParams: Record<string, string> = {};
-			if (cursor) {
-				queryParams.cursor = cursor;
-			}
-			if (actionFilter !== "all") {
-				queryParams.action = actionFilter;
-			}
-			if (resourceTypeFilter !== "all") {
-				queryParams.resourceType = resourceTypeFilter;
-			}
+				const queryParams: Record<string, string> = {};
+				if (cursor) {
+					queryParams.cursor = cursor;
+				}
+				if (actionFilter) {
+					queryParams.action = actionFilter;
+				}
+				if (resourceTypeFilter) {
+					queryParams.resourceType = resourceTypeFilter;
+				}
 
-			const response = await fetchClient.GET("/audit-logs/{organizationId}", {
-				params: {
-					path: { organizationId },
-					query: queryParams,
-				},
-			});
+				const response = await fetchClient.GET("/audit-logs/{organizationId}", {
+					params: {
+						path: { organizationId },
+						query: queryParams,
+					},
+				});
 
-			if (!response.data) {
+				if (!response.data) {
+					setError("Failed to load audit logs");
+					return;
+				}
+
+				const data = response.data as AuditLogsResponse;
+
+				if (isInitialLoad) {
+					setAuditLogs(data.auditLogs);
+				} else {
+					setAuditLogs((prev) => [...prev, ...data.auditLogs]);
+				}
+
+				setNextCursor(data.pagination.nextCursor);
+				setHasMore(data.pagination.hasMore);
+				setError(null);
+			} catch {
 				setError("Failed to load audit logs");
-				return;
+			} finally {
+				setIsLoading(false);
+				setIsLoadingMore(false);
 			}
+		},
+		[fetchClient, organizationId, actionFilter, resourceTypeFilter],
+	);
 
-			const data = response.data as AuditLogsResponse;
-
-			if (isInitialLoad) {
-				setAuditLogs(data.auditLogs);
-			} else {
-				setAuditLogs((prev) => [...prev, ...data.auditLogs]);
-			}
-
-			setNextCursor(data.pagination.nextCursor);
-			setHasMore(data.pagination.hasMore);
-			setError(null);
-		} catch {
-			setError("Failed to load audit logs");
-		} finally {
-			setIsLoading(false);
-			setIsLoadingMore(false);
-		}
-	};
-
-	// Initial load
+	// Fetch filter options on mount
 	useEffect(() => {
 		if (canViewAuditLogs) {
 			fetchFilterOptions();
-			fetchAuditLogs();
-		} else {
-			setIsLoading(false);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [canViewAuditLogs, organizationId]);
 
-	// Refetch when filters change
-	const handleFilterChange = () => {
-		setAuditLogs([]);
-		setNextCursor(null);
-		fetchAuditLogs();
-	};
+	// Fetch audit logs when filters change
+	useEffect(() => {
+		if (canViewAuditLogs) {
+			setAuditLogs([]);
+			setNextCursor(null);
+			fetchAuditLogs();
+		} else {
+			setIsLoading(false);
+		}
+	}, [canViewAuditLogs, fetchAuditLogs]);
 
 	// If not enterprise plan, show contact sales
 	if (selectedOrganization?.plan !== "enterprise") {
@@ -258,10 +280,9 @@ export function AuditLogsClient() {
 								Action:
 							</label>
 							<Select
-								value={actionFilter}
+								value={actionFilter || "all"}
 								onValueChange={(value) => {
-									setActionFilter(value);
-									handleFilterChange();
+									updateFilters(value, resourceTypeFilter);
 								}}
 							>
 								<SelectTrigger id="action-filter" className="w-[180px]">
@@ -285,10 +306,9 @@ export function AuditLogsClient() {
 								Resource:
 							</label>
 							<Select
-								value={resourceTypeFilter}
+								value={resourceTypeFilter || "all"}
 								onValueChange={(value) => {
-									setResourceTypeFilter(value);
-									handleFilterChange();
+									updateFilters(actionFilter, value);
 								}}
 							>
 								<SelectTrigger id="resource-filter" className="w-[180px]">
