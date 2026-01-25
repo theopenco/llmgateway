@@ -24,6 +24,7 @@
 		"@llmgateway/actions": "workspace:*",
 		"@llmgateway/audit": "workspace:*",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/guardrails": "workspace:*",
 		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",

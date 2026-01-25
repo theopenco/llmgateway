@@ -34,6 +34,18 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.auditLog.organizationId,
 		}),
+		guardrailConfig: r.one.guardrailConfig({
+			from: r.organization.id,
+			to: r.guardrailConfig.organizationId,
+		}),
+		guardrailRules: r.many.guardrailRule({
+			from: r.organization.id,
+			to: r.guardrailRule.organizationId,
+		}),
+		guardrailViolations: r.many.guardrailViolation({
+			from: r.organization.id,
+			to: r.guardrailViolation.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -148,6 +160,24 @@ export const relations = defineRelations(schema, (r) => ({
 		}),
 		organization: r.one.organization({
 			from: r.auditLog.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	guardrailConfig: {
+		organization: r.one.organization({
+			from: r.guardrailConfig.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	guardrailRule: {
+		organization: r.one.organization({
+			from: r.guardrailRule.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	guardrailViolation: {
+		organization: r.one.organization({
+			from: r.guardrailViolation.organizationId,
 			to: r.organization.id,
 		}),
 	},

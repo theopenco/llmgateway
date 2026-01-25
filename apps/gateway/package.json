@@ -30,6 +30,7 @@
 		"@llmgateway/actions": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/guardrails": "workspace:*",
 		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",

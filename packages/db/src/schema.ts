@@ -971,3 +971,159 @@ export const auditLog = pgTable(
 		index("audit_log_resource_type_idx").on(table.resourceType),
 	],
 );
+
+// Guardrails - Enterprise feature for content safety
+
+export type GuardrailAction = "block" | "redact" | "warn" | "allow";
+
+export interface SystemRuleConfig {
+	enabled: boolean;
+	action: GuardrailAction;
+}
+
+export interface SystemRulesConfig {
+	prompt_injection: SystemRuleConfig;
+	jailbreak: SystemRuleConfig;
+	pii_detection: SystemRuleConfig;
+	secrets: SystemRuleConfig;
+	file_types: SystemRuleConfig;
+	document_leakage: SystemRuleConfig;
+}
+
+export const defaultSystemRulesConfig: SystemRulesConfig = {
+	prompt_injection: { enabled: true, action: "block" },
+	jailbreak: { enabled: true, action: "block" },
+	pii_detection: { enabled: true, action: "redact" },
+	secrets: { enabled: true, action: "block" },
+	file_types: { enabled: true, action: "block" },
+	document_leakage: { enabled: false, action: "warn" },
+};
+
+export const defaultAllowedFileTypes = [
+	"image/jpeg",
+	"image/png",
+	"image/gif",
+	"image/webp",
+];
+
+export const guardrailActionsTaken = ["blocked", "redacted", "warned"] as const;
+
+export type GuardrailActionTaken = (typeof guardrailActionsTaken)[number];
+
+export const customRuleTypes = [
+	"blocked_terms",
+	"custom_regex",
+	"topic_restriction",
+] as const;
+
+export type CustomRuleType = (typeof customRuleTypes)[number];
+
+export interface BlockedTermsRuleConfig {
+	type: "blocked_terms";
+	terms: string[];
+	matchType: "exact" | "contains" | "regex";
+	caseSensitive: boolean;
+}
+
+export interface CustomRegexRuleConfig {
+	type: "custom_regex";
+	pattern: string;
+}
+
+export interface TopicRestrictionRuleConfig {
+	type: "topic_restriction";
+	blockedTopics: string[];
+	allowedTopics?: string[];
+}
+
+export type CustomRuleConfig =
+	| BlockedTermsRuleConfig
+	| CustomRegexRuleConfig
+	| TopicRestrictionRuleConfig;
+
+export const guardrailConfig = pgTable(
+	"guardrail_config",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" })
+			.unique(),
+		enabled: boolean().default(true).notNull(),
+		systemRules: jsonb("system_rules")
+			.$type<SystemRulesConfig>()
+			.default(defaultSystemRulesConfig),
+		maxFileSizeMb: integer("max_file_size_mb").default(10).notNull(),
+		allowedFileTypes: text("allowed_file_types")
+			.array()
+			.default(defaultAllowedFileTypes)
+			.notNull(),
+		piiAction: text("pii_action").$type<GuardrailAction>().default("redact"),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		index("guardrail_config_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const guardrailRule = pgTable(
+	"guardrail_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		type: text({ enum: customRuleTypes }).notNull(),
+		config: jsonb().$type<CustomRuleConfig>().notNull(),
+		priority: integer().default(100).notNull(),
+		enabled: boolean().default(true).notNull(),
+		action: text().$type<GuardrailAction>().default("block").notNull(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		index("guardrail_rule_organization_id_idx").on(table.organizationId),
+		index("guardrail_rule_priority_idx").on(table.priority),
+	],
+);
+
+export const guardrailViolation = pgTable(
+	"guardrail_violation",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		logId: text("log_id"),
+		ruleId: text("rule_id").notNull(),
+		ruleName: text("rule_name").notNull(),
+		category: text().notNull(),
+		actionTaken: text("action_taken", {
+			enum: guardrailActionsTaken,
+		}).notNull(),
+		matchedPattern: text("matched_pattern"),
+		matchedContent: text("matched_content"),
+		contentHash: text("content_hash"),
+		apiKeyId: text("api_key_id"),
+		model: text(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(table) => [
+		index("guardrail_violation_org_created_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("guardrail_violation_rule_created_idx").on(
+			table.ruleId,
+			table.createdAt,
+		),
+	],
+);
