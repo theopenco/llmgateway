@@ -7,8 +7,6 @@ date: 2026-01-20
 fromProvider: Vercel AI Gateway
 ---
 
-Using Vercel AI SDK with multiple providers means managing separate API keys and imports for each one. LLM Gateway gives you one provider that works with all models—plus response caching, per-request analytics, and automatic failover that Vercel's native providers don't offer.
-
 ## Quick Migration
 
 Swap your provider imports—your AI SDK code stays the same:
@@ -29,18 +27,6 @@ const { text } = await generateText({
   prompt: "Hello!"
 });
 ```
-
-## Why Teams Switch to LLM Gateway
-
-| Feature              | Vercel AI Gateway     | LLM Gateway                |
-| -------------------- | --------------------- | -------------------------- |
-| AI SDK integration   | Native (per-provider) | **One provider for all**   |
-| Response caching     | No                    | **Yes, automatic**         |
-| Cost analytics       | Limited               | **Per-request detail**     |
-| API key management   | Separate env var each | **One key, all providers** |
-| Smart routing        | No                    | **Auto failover**          |
-| Self-hosting         | No                    | **Yes (AGPLv3)**           |
-| Anthropic-compatible | No                    | **Yes (/v1/messages)**     |
 
 The key difference: one provider, one API key, all models—with caching and analytics built in.
 
@@ -233,15 +219,6 @@ const { text, toolResults } = await generateText({
   prompt: "What's the weather in San Francisco?",
 });
 ```
-
-## What Changes After Migration
-
-- **One import, all models** — No more separate `@ai-sdk/openai`, `@ai-sdk/anthropic` packages
-- **One API key** — Stop managing OPENAI_API_KEY, ANTHROPIC_API_KEY separately
-- **Response caching** — Identical requests hit cache automatically, cutting costs
-- **Per-request analytics** — See what each `generateText()` call costs in your dashboard
-- **Automatic failover** — If OpenAI goes down, we route to a backup provider
-- **Self-hosting option** — Run on your own infrastructure if you need full control
 
 ## Self-Hosting LLM Gateway
 
