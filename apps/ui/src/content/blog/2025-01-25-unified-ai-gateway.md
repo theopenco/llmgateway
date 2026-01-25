@@ -1,7 +1,7 @@
 ---
 id: blog-unified-ai-gateway
 slug: unified-ai-gateway
-date: 2025-01-25
+date: 2026-01-25
 title: "Beyond Proxies: Why Enterprises Need a Unified AI Gateway"
 summary: Learn why simple LLM proxies aren't enough and how a unified AI gateway delivers centralized access control, cost visibility, compliance, and security.
 categories: ["Product"]
