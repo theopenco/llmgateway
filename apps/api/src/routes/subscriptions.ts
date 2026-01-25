@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { ensureStripeCustomer } from "@/stripe.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -150,6 +151,16 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			});
 		}
 
+		await logAuditEvent({
+			organizationId: organization.id,
+			userId: user.id,
+			action: "subscription.create",
+			resourceType: "subscription",
+			metadata: {
+				billingCycle,
+			},
+		});
+
 		return c.json({
 			checkoutUrl: session.url,
 		});
@@ -225,6 +236,14 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 		// Cancel the subscription at the end of the current period
 		await stripe.subscriptions.update(organization.stripeSubscriptionId, {
 			cancel_at_period_end: true,
+		});
+
+		await logAuditEvent({
+			organizationId: organization.id,
+			userId: user.id,
+			action: "subscription.cancel",
+			resourceType: "subscription",
+			resourceId: organization.stripeSubscriptionId,
 		});
 
 		// let the webhook handler the rest to unify the logic
@@ -318,6 +337,14 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 		// Resume the subscription by setting cancel_at_period_end to false
 		await stripe.subscriptions.update(organization.stripeSubscriptionId, {
 			cancel_at_period_end: false,
+		});
+
+		await logAuditEvent({
+			organizationId: organization.id,
+			userId: user.id,
+			action: "subscription.resume",
+			resourceType: "subscription",
+			resourceId: organization.stripeSubscriptionId,
 		});
 
 		// let the webhook handler the rest to unify the logic
@@ -432,6 +459,14 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 			},
 		});
 
+		await logAuditEvent({
+			organizationId: organization.id,
+			userId: user.id,
+			action: "subscription.upgrade_yearly",
+			resourceType: "subscription",
+			resourceId: organization.stripeSubscriptionId,
+		});
+
 		return c.json({
 			success: true,
 		});
@@ -455,7 +490,7 @@ const getSubscriptionStatus = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						plan: z.enum(["free", "pro"]),
+						plan: z.enum(["free", "pro", "enterprise"]),
 						subscriptionId: z.string().nullable(),
 						planExpiresAt: z.string().nullable(),
 						subscriptionCancelled: z.boolean(),

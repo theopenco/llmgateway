@@ -33,7 +33,7 @@ interface ProjectModeSettingsProps {
 	initialData: ProjectModeSettingsData;
 	orgId: string;
 	projectId: string;
-	organizationPlan: "free" | "pro";
+	organizationPlan: "free" | "pro" | "enterprise";
 	projectName: string;
 }
 

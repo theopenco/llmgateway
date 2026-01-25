@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -22,7 +23,7 @@ const organizationSchema = z.object({
 	billingTaxId: z.string().nullable(),
 	billingNotes: z.string().nullable(),
 	credits: z.string(),
-	plan: z.enum(["free", "pro"]),
+	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -279,6 +280,15 @@ organization.openapi(createOrganization, async (c) => {
 		mode: "hybrid",
 	});
 
+	await logAuditEvent({
+		organizationId: newOrganization.id,
+		userId: user.id,
+		action: "organization.create",
+		resourceType: "organization",
+		resourceId: newOrganization.id,
+		metadata: { resourceName: name },
+	});
+
 	return c.json({
 		organization: newOrganization,
 	});
@@ -436,6 +446,81 @@ organization.openapi(updateOrganization, async (c) => {
 		.where(eq(tables.organization.id, id))
 		.returning();
 
+	// Build changes metadata for audit log
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	const oldOrg = userOrganization.organization!;
+	if (name !== undefined && name !== oldOrg.name) {
+		changes.name = { old: oldOrg.name, new: name };
+	}
+	if (billingEmail !== undefined && billingEmail !== oldOrg.billingEmail) {
+		changes.billingEmail = { old: oldOrg.billingEmail, new: billingEmail };
+	}
+	if (
+		billingCompany !== undefined &&
+		billingCompany !== oldOrg.billingCompany
+	) {
+		changes.billingCompany = {
+			old: oldOrg.billingCompany,
+			new: billingCompany,
+		};
+	}
+	if (
+		billingAddress !== undefined &&
+		billingAddress !== oldOrg.billingAddress
+	) {
+		changes.billingAddress = {
+			old: oldOrg.billingAddress,
+			new: billingAddress,
+		};
+	}
+	if (billingTaxId !== undefined && billingTaxId !== oldOrg.billingTaxId) {
+		changes.billingTaxId = { old: oldOrg.billingTaxId, new: billingTaxId };
+	}
+	if (billingNotes !== undefined && billingNotes !== oldOrg.billingNotes) {
+		changes.billingNotes = { old: oldOrg.billingNotes, new: billingNotes };
+	}
+	if (
+		retentionLevel !== undefined &&
+		retentionLevel !== oldOrg.retentionLevel
+	) {
+		changes.retentionLevel = {
+			old: oldOrg.retentionLevel,
+			new: retentionLevel,
+		};
+	}
+	if (
+		autoTopUpEnabled !== undefined &&
+		autoTopUpEnabled !== oldOrg.autoTopUpEnabled
+	) {
+		changes.autoTopUpEnabled = {
+			old: oldOrg.autoTopUpEnabled,
+			new: autoTopUpEnabled,
+		};
+	}
+	if (autoTopUpThreshold !== undefined) {
+		changes.autoTopUpThreshold = {
+			old: oldOrg.autoTopUpThreshold,
+			new: autoTopUpThreshold.toString(),
+		};
+	}
+	if (autoTopUpAmount !== undefined) {
+		changes.autoTopUpAmount = {
+			old: oldOrg.autoTopUpAmount,
+			new: autoTopUpAmount.toString(),
+		};
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: id,
+			userId: user.id,
+			action: "organization.update",
+			resourceType: "organization",
+			resourceId: id,
+			metadata: { changes },
+		});
+	}
+
 	return c.json({
 		message: "Organization updated successfully",
 		organization: updatedOrganization,
@@ -531,6 +616,15 @@ organization.openapi(deleteOrganization, async (c) => {
 			status: "deleted",
 		})
 		.where(eq(tables.organization.id, id));
+
+	await logAuditEvent({
+		organizationId: id,
+		userId: user.id,
+		action: "organization.delete",
+		resourceType: "organization",
+		resourceId: id,
+		metadata: { resourceName: userOrganization.organization?.name },
+	});
 
 	return c.json({
 		message: "Organization deleted successfully",

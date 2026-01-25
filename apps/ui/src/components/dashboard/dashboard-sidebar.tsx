@@ -141,6 +141,10 @@ const ORGANIZATION_SETTINGS = [
 		href: "org/team",
 		label: "Team",
 	},
+	{
+		href: "org/audit-logs",
+		label: "Audit Logs",
+	},
 ] as const;
 
 // TOOLS_RESOURCES will be created dynamically inside the component

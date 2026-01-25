@@ -126,7 +126,7 @@ export const organization = pgTable("organization", {
 	autoTopUpThreshold: decimal().default("10"),
 	autoTopUpAmount: decimal().default("10"),
 	plan: text({
-		enum: ["free", "pro"],
+		enum: ["free", "pro", "enterprise"],
 	})
 		.notNull()
 		.default("free"),
@@ -873,5 +873,101 @@ export const modelHistory = pgTable(
 		unique().on(table.modelId, table.minuteTimestamp),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
+	],
+);
+
+// Audit Log - Enterprise feature for tracking all API actions
+export const auditLogActions = [
+	// Organization
+	"organization.create",
+	"organization.update",
+	"organization.delete",
+	// Project
+	"project.create",
+	"project.update",
+	"project.delete",
+	// Team
+	"team_member.add",
+	"team_member.update",
+	"team_member.remove",
+	// API Key
+	"api_key.create",
+	"api_key.update_status",
+	"api_key.update_limit",
+	"api_key.delete",
+	"api_key.iam_rule.create",
+	"api_key.iam_rule.update",
+	"api_key.iam_rule.delete",
+	// Provider Key
+	"provider_key.create",
+	"provider_key.update",
+	"provider_key.delete",
+	// Subscription
+	"subscription.create",
+	"subscription.cancel",
+	"subscription.resume",
+	"subscription.upgrade_yearly",
+	// Payment
+	"payment.method.set_default",
+	"payment.method.delete",
+	"payment.credit_topup",
+	// Dev Plan
+	"dev_plan.subscribe",
+	"dev_plan.cancel",
+	"dev_plan.resume",
+	"dev_plan.change_tier",
+	"dev_plan.update_settings",
+] as const;
+
+export const auditLogResourceTypes = [
+	"organization",
+	"project",
+	"team_member",
+	"api_key",
+	"iam_rule",
+	"provider_key",
+	"subscription",
+	"payment_method",
+	"payment",
+	"dev_plan",
+] as const;
+
+export type AuditLogAction = (typeof auditLogActions)[number];
+export type AuditLogResourceType = (typeof auditLogResourceTypes)[number];
+
+export interface AuditLogMetadata {
+	changes?: Record<string, { old: unknown; new: unknown }>;
+	resourceName?: string;
+	targetUserId?: string;
+	targetUserEmail?: string;
+	ipAddress?: string;
+	userAgent?: string;
+	[key: string]: unknown;
+}
+
+export const auditLog = pgTable(
+	"audit_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		action: text({ enum: auditLogActions }).notNull(),
+		resourceType: text({ enum: auditLogResourceTypes }).notNull(),
+		resourceId: text(),
+		metadata: jsonb().$type<AuditLogMetadata>(),
+	},
+	(table) => [
+		index("audit_log_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("audit_log_user_id_idx").on(table.userId),
+		index("audit_log_action_idx").on(table.action),
+		index("audit_log_resource_type_idx").on(table.resourceType),
 	],
 );

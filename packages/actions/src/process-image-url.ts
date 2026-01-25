@@ -6,7 +6,7 @@ import { logger } from "@llmgateway/logger";
 function getImageSizeErrorMessage(
 	maxSizeMB: number,
 	actualSizeMB: number,
-	userPlan: "free" | "pro" | null,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): string {
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
@@ -38,7 +38,7 @@ export async function processImageUrl(
 	url: string,
 	isProd = false,
 	maxSizeMB = 20,
-	userPlan: "free" | "pro" | null = null,
+	userPlan: "free" | "pro" | "enterprise" | null = null,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.startsWith("data:")) {

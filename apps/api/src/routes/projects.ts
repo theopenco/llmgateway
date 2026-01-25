@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getUserOrganizationIds } from "@/utils/authorization.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -238,6 +239,44 @@ projects.openapi(updateProject, async (c) => {
 		.where(eq(tables.project.id, id))
 		.returning();
 
+	// Build changes metadata for audit log
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (name !== undefined && name !== project.name) {
+		changes.name = { old: project.name, new: name };
+	}
+	if (
+		cachingEnabled !== undefined &&
+		cachingEnabled !== project.cachingEnabled
+	) {
+		changes.cachingEnabled = {
+			old: project.cachingEnabled,
+			new: cachingEnabled,
+		};
+	}
+	if (
+		cacheDurationSeconds !== undefined &&
+		cacheDurationSeconds !== project.cacheDurationSeconds
+	) {
+		changes.cacheDurationSeconds = {
+			old: project.cacheDurationSeconds,
+			new: cacheDurationSeconds,
+		};
+	}
+	if (mode !== undefined && mode !== project.mode) {
+		changes.mode = { old: project.mode, new: mode };
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: project.organizationId,
+			userId: user.id,
+			action: "project.update",
+			resourceType: "project",
+			resourceId: id,
+			metadata: { changes, resourceName: project.name },
+		});
+	}
+
 	return c.json({
 		message: "Project settings updated successfully",
 		project: updatedProject,
@@ -367,6 +406,15 @@ projects.openapi(createProject, async (c) => {
 		})
 		.returning();
 
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "project.create",
+		resourceType: "project",
+		resourceId: newProject.id,
+		metadata: { resourceName: name, mode, cachingEnabled },
+	});
+
 	return c.json(
 		{
 			project: newProject,
@@ -473,6 +521,15 @@ projects.openapi(deleteProject, async (c) => {
 			status: "deleted",
 		})
 		.where(eq(tables.project.id, id));
+
+	await logAuditEvent({
+		organizationId: project.organizationId,
+		userId: user.id,
+		action: "project.delete",
+		resourceType: "project",
+		resourceId: id,
+		metadata: { resourceName: project.name },
+	});
 
 	return c.json({
 		message: "Project deleted successfully",

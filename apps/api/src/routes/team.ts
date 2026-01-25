@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -238,6 +239,19 @@ team.openapi(addMember, async (c) => {
 		})
 		.returning();
 
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.add",
+		resourceType: "team_member",
+		resourceId: newMember.id,
+		metadata: {
+			targetUserId: targetUser.id,
+			targetUserEmail: email,
+			role,
+		},
+	});
+
 	return c.json({
 		message: "Member added successfully",
 		member: {
@@ -402,6 +416,23 @@ team.openapi(updateMember, async (c) => {
 		.where(eq(tables.userOrganization.id, memberId))
 		.returning();
 
+	if (targetMember.role !== role) {
+		await logAuditEvent({
+			organizationId,
+			userId: authUser.id,
+			action: "team_member.update",
+			resourceType: "team_member",
+			resourceId: memberId,
+			metadata: {
+				targetUserId: targetMember.userId,
+				targetUserEmail: targetMember.user?.email,
+				changes: {
+					role: { old: targetMember.role, new: role },
+				},
+			},
+		});
+	}
+
 	return c.json({
 		message: "Member role updated successfully",
 		member: {
@@ -499,6 +530,15 @@ team.openapi(removeMember, async (c) => {
 				eq: organizationId,
 			},
 		},
+		with: {
+			user: {
+				columns: {
+					id: true,
+					email: true,
+					name: true,
+				},
+			},
+		},
 	});
 
 	if (!targetMember) {
@@ -535,6 +575,18 @@ team.openapi(removeMember, async (c) => {
 	await db
 		.delete(tables.userOrganization)
 		.where(eq(tables.userOrganization.id, memberId));
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.remove",
+		resourceType: "team_member",
+		resourceId: memberId,
+		metadata: {
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+		},
+	});
 
 	return c.json({
 		message: "Member removed successfully",

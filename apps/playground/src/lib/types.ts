@@ -68,7 +68,7 @@ export interface Organization {
 	updatedAt: string;
 	name: string;
 	credits: string;
-	plan: "free" | "pro";
+	plan: "free" | "pro" | "enterprise";
 	planExpiresAt: string | null;
 	retentionLevel: "retain" | "none";
 	status: "active" | "inactive" | "deleted" | null;

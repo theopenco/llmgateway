@@ -8,7 +8,7 @@ interface Organization {
 	id: string;
 	name: string;
 	credits: string;
-	plan: "free" | "pro";
+	plan: "free" | "pro" | "enterprise";
 }
 
 interface CreditsDisplayProps {

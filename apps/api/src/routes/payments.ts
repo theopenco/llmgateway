@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { ensureStripeCustomer } from "@/stripe.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { calculateFees } from "@llmgateway/shared";
 
@@ -345,6 +346,14 @@ payments.openapi(setDefaultPaymentMethod, async (c) => {
 		})
 		.where(eq(tables.paymentMethod.id, paymentMethodId));
 
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "payment.method.set_default",
+		resourceType: "payment_method",
+		resourceId: paymentMethodId,
+	});
+
 	return c.json({
 		success: true,
 	});
@@ -413,9 +422,29 @@ payments.openapi(deletePaymentMethod, async (c) => {
 		});
 	}
 
+	// Get card details before deleting for audit log
+	let cardLast4: string | undefined;
+	try {
+		const stripePaymentMethod = await stripe.paymentMethods.retrieve(
+			paymentMethod.stripePaymentMethodId,
+		);
+		cardLast4 = stripePaymentMethod.card?.last4;
+	} catch {}
+
 	await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
 
 	await db.delete(tables.paymentMethod).where(eq(tables.paymentMethod.id, id));
+
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "payment.method.delete",
+		resourceType: "payment_method",
+		resourceId: id,
+		metadata: {
+			cardLast4,
+		},
+	});
 
 	return c.json({
 		success: true,
@@ -546,6 +575,18 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			message: `Payment failed: ${paymentIntent.status}`,
 		});
 	}
+
+	await logAuditEvent({
+		organizationId: userOrganization.organization.id,
+		userId: user.id,
+		action: "payment.credit_topup",
+		resourceType: "payment",
+		resourceId: paymentIntent.id,
+		metadata: {
+			amount,
+			paymentMethodId,
+		},
+	});
 
 	return c.json({
 		success: true,
