@@ -419,10 +419,14 @@ export function GuardrailsClient() {
 				</CardHeader>
 			</Card>
 
-			{config?.enabled && (
-				<>
+			{config && (
+				<div
+					className={
+						config.enabled ? "" : "opacity-60 pointer-events-none select-none"
+					}
+				>
 					{/* System Rules */}
-					<Card>
+					<Card className="mb-6">
 						<CardHeader>
 							<CardTitle>System Rules</CardTitle>
 							<CardDescription>
@@ -441,6 +445,7 @@ export function GuardrailsClient() {
 										<div className="flex items-center gap-4">
 											<Switch
 												checked={ruleConfig?.enabled ?? false}
+												disabled={!config.enabled}
 												onCheckedChange={(enabled) =>
 													updateSystemRule(
 														rule.id as keyof SystemRulesConfig,
@@ -459,6 +464,7 @@ export function GuardrailsClient() {
 										{ruleConfig?.enabled && (
 											<Select
 												value={ruleConfig.action}
+												disabled={!config.enabled}
 												onValueChange={(value) =>
 													updateSystemRule(
 														rule.id as keyof SystemRulesConfig,
@@ -487,7 +493,7 @@ export function GuardrailsClient() {
 					</Card>
 
 					{/* File Restrictions */}
-					<Card>
+					<Card className="mb-6">
 						<CardHeader>
 							<CardTitle>File Restrictions</CardTitle>
 							<CardDescription>
@@ -500,6 +506,7 @@ export function GuardrailsClient() {
 								<Input
 									type="number"
 									value={config.maxFileSizeMb}
+									disabled={!config.enabled}
 									onChange={(e) =>
 										setConfig({
 											...config,
@@ -515,19 +522,21 @@ export function GuardrailsClient() {
 									{config.allowedFileTypes.map((type) => (
 										<Badge key={type} variant="secondary">
 											{type}
-											<button
-												onClick={() =>
-													setConfig({
-														...config,
-														allowedFileTypes: config.allowedFileTypes.filter(
-															(t) => t !== type,
-														),
-													})
-												}
-												className="ml-1 hover:text-destructive"
-											>
-												<X className="h-3 w-3" />
-											</button>
+											{config.enabled && (
+												<button
+													onClick={() =>
+														setConfig({
+															...config,
+															allowedFileTypes: config.allowedFileTypes.filter(
+																(t) => t !== type,
+															),
+														})
+													}
+													className="ml-1 hover:text-destructive"
+												>
+													<X className="h-3 w-3" />
+												</button>
+											)}
 										</Badge>
 									))}
 								</div>
@@ -536,6 +545,7 @@ export function GuardrailsClient() {
 										placeholder="Add file type (e.g., pdf)"
 										id="newFileType"
 										className="w-48"
+										disabled={!config.enabled}
 										onKeyDown={(e) => {
 											if (e.key === "Enter") {
 												const input = e.currentTarget;
@@ -568,14 +578,18 @@ export function GuardrailsClient() {
 										Create custom content filtering rules
 									</CardDescription>
 								</div>
-								<Button onClick={() => setShowAddRule(true)} variant="outline">
+								<Button
+									onClick={() => setShowAddRule(true)}
+									variant="outline"
+									disabled={!config.enabled}
+								>
 									<Plus className="h-4 w-4 mr-2" />
 									Add Rule
 								</Button>
 							</div>
 						</CardHeader>
 						<CardContent className="space-y-4">
-							{showAddRule && (
+							{showAddRule && config.enabled && (
 								<div className="p-4 border rounded-lg space-y-4 bg-muted/50">
 									<div className="flex items-center justify-between">
 										<h4 className="font-medium">New Rule</h4>
@@ -701,8 +715,10 @@ export function GuardrailsClient() {
 
 							{customRules.length === 0 && !showAddRule && (
 								<div className="text-center py-8 text-muted-foreground">
-									No custom rules configured. Click &quot;Add Rule&quot; to
-									create one.
+									No custom rules configured.
+									{config.enabled
+										? ' Click "Add Rule" to create one.'
+										: " Enable guardrails to add rules."}
 								</div>
 							)}
 
@@ -714,6 +730,7 @@ export function GuardrailsClient() {
 									<div className="flex items-center gap-4">
 										<Switch
 											checked={rule.enabled}
+											disabled={!config.enabled}
 											onCheckedChange={() => toggleRuleEnabled(rule)}
 										/>
 										<div>
@@ -732,6 +749,7 @@ export function GuardrailsClient() {
 										<Button
 											variant="ghost"
 											size="sm"
+											disabled={!config.enabled}
 											onClick={() => deleteCustomRule(rule.id)}
 											className="text-destructive hover:text-destructive"
 										>
@@ -742,7 +760,7 @@ export function GuardrailsClient() {
 							))}
 						</CardContent>
 					</Card>
-				</>
+				</div>
 			)}
 		</div>
 	);
