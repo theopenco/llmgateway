@@ -6,6 +6,7 @@ import { Card } from "@/lib/components/card";
 
 import {
 	AnthropicIcon,
+	ClawdbotIcon,
 	ClineIcon,
 	CursorIcon,
 	N8nIcon,
@@ -66,6 +67,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with OpenCode for AI-powered development workflows.",
 		href: "/guides/opencode",
 		icon: OpenCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Clawdbot",
+		description:
+			"Use LLM Gateway with Clawdbot for AI-powered Discord bot interactions.",
+		href: "/guides/clawdbot",
+		icon: ClawdbotIcon,
 		comingSoon: false,
 	},
 	{

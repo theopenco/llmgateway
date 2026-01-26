@@ -109,6 +109,52 @@ const VSCodeIcon = () => (
 	</svg>
 );
 
+// Clawdbot Icon
+const ClawdbotIcon = () => (
+	<svg
+		viewBox="0 0 120 120"
+		fill="none"
+		xmlns="http://www.w3.org/2000/svg"
+		width={100}
+		height={100}
+	>
+		<defs>
+			<linearGradient
+				id="clawdbot-og-gradient"
+				x1="0%"
+				y1="0%"
+				x2="100%"
+				y2="100%"
+			>
+				<stop offset="0%" stopColor="#FF7F6B" />
+				<stop offset="100%" stopColor="#CC5F4D" />
+			</linearGradient>
+		</defs>
+		<path
+			d="M60 10c-30 0-45 25-45 45s15 40 30 45v10h10v-10s5 2 10 0v10h10v-10c15-5 30-25 30-45S90 10 60 10"
+			fill="url(#clawdbot-og-gradient)"
+		/>
+		<path
+			d="M20 45C5 40 0 50 5 60s15 5 20-5c3-7 0-10-5-10"
+			fill="url(#clawdbot-og-gradient)"
+		/>
+		<path
+			d="M100 45c15-5 20 5 15 15s-15 5-20-5c-3-7 0-10 5-10"
+			fill="url(#clawdbot-og-gradient)"
+		/>
+		<path
+			d="M45 15Q35 5 30 8M75 15Q85 5 90 8"
+			stroke="#FF7F6B"
+			strokeWidth="2"
+			strokeLinecap="round"
+		/>
+		<circle cx="45" cy="35" r="6" fill="#1a1a1a" />
+		<circle cx="75" cy="35" r="6" fill="#1a1a1a" />
+		<circle cx="46" cy="34" r="2" fill="#00D9FF" />
+		<circle cx="76" cy="34" r="2" fill="#00D9FF" />
+	</svg>
+);
+
 // Map slugs to their icons
 function getIconForGuide(slug: string) {
 	const iconMap: Record<string, () => React.JSX.Element> = {
@@ -118,6 +164,7 @@ function getIconForGuide(slug: string) {
 		cline: ClineIcon,
 		n8n: N8nIcon,
 		vscode: VSCodeIcon,
+		clawdbot: ClawdbotIcon,
 	};
 
 	return iconMap[slug] || OpenCodeIcon; // Default to OpenCode icon
