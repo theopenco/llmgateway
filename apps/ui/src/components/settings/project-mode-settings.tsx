@@ -33,7 +33,7 @@ interface ProjectModeSettingsProps {
 	initialData: ProjectModeSettingsData;
 	orgId: string;
 	projectId: string;
-	organizationPlan: "free" | "pro";
+	organizationPlan: "free" | "pro" | "enterprise";
 	projectName: string;
 }
 
@@ -65,7 +65,8 @@ export function ProjectModeSettings({
 		},
 	});
 
-	const isProPlan = organizationPlan === "pro";
+	const isProPlan =
+		organizationPlan === "pro" || organizationPlan === "enterprise";
 
 	const onSubmit = async (data: ProjectModeFormData) => {
 		// Check if trying to set api-keys mode without pro plan (only if paid mode is enabled)

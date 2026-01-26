@@ -9,7 +9,7 @@ export interface FeeBreakdown {
 
 export interface FeeCalculationInput {
 	amount: number;
-	organizationPlan: "free" | "pro";
+	organizationPlan: "free" | "pro" | "enterprise";
 	cardCountry?: string;
 }
 
@@ -24,6 +24,7 @@ export function calculateFees(input: FeeCalculationInput): FeeBreakdown {
 
 	const isInternationalCard = cardCountry && cardCountry !== "US";
 
+	// Enterprise and Pro plans get the same fee structure
 	const planFeePercentage =
 		organizationPlan === "free"
 			? FREE_PLAN_FEE_PERCENTAGE

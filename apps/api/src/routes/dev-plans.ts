@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { ensureStripeCustomer } from "@/stripe.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -276,6 +277,16 @@ devPlans.openapi(subscribe, async (c) => {
 			});
 		}
 
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.subscribe",
+			resourceType: "dev_plan",
+			metadata: {
+				tier,
+			},
+		});
+
 		return c.json({
 			checkoutUrl: session.url,
 		});
@@ -347,6 +358,17 @@ devPlans.openapi(cancel, async (c) => {
 	try {
 		await stripe.subscriptions.update(personalOrg.devPlanStripeSubscriptionId, {
 			cancel_at_period_end: true,
+		});
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.cancel",
+			resourceType: "dev_plan",
+			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			metadata: {
+				tier: personalOrg.devPlan,
+			},
 		});
 
 		// Wait for webhook to process
@@ -434,6 +456,17 @@ devPlans.openapi(resume, async (c) => {
 
 		await stripe.subscriptions.update(personalOrg.devPlanStripeSubscriptionId, {
 			cancel_at_period_end: false,
+		});
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.resume",
+			resourceType: "dev_plan",
+			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			metadata: {
+				tier: personalOrg.devPlan,
+			},
 		});
 
 		// Wait for webhook to process
@@ -572,6 +605,19 @@ devPlans.openapi(changeTier, async (c) => {
 			type: isUpgrade ? "dev_plan_upgrade" : "dev_plan_downgrade",
 			description: `Changed from ${personalOrg.devPlan} to ${newTier} plan`,
 			status: "completed",
+		});
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.change_tier",
+			resourceType: "dev_plan",
+			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			metadata: {
+				changes: {
+					tier: { old: personalOrg.devPlan, new: newTier },
+				},
+			},
 		});
 
 		return c.json({
@@ -776,6 +822,27 @@ devPlans.openapi(updateSettings, async (c) => {
 			.update(tables.organization)
 			.set(updateData)
 			.where(eq(tables.organization.id, personalOrg.id));
+
+		const changes: Record<string, { old: unknown; new: unknown }> = {};
+		if (
+			devPlanAllowAllModels !== undefined &&
+			devPlanAllowAllModels !== personalOrg.devPlanAllowAllModels
+		) {
+			changes.devPlanAllowAllModels = {
+				old: personalOrg.devPlanAllowAllModels,
+				new: devPlanAllowAllModels,
+			};
+		}
+
+		if (Object.keys(changes).length > 0) {
+			await logAuditEvent({
+				organizationId: personalOrg.id,
+				userId: user.id,
+				action: "dev_plan.update_settings",
+				resourceType: "dev_plan",
+				metadata: { changes },
+			});
+		}
 	}
 
 	return c.json({

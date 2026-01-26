@@ -17,6 +17,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.apiKey.createdBy,
 		}),
+		auditLogs: r.many.auditLog({
+			from: r.user.id,
+			to: r.auditLog.userId,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
@@ -25,6 +29,22 @@ export const relations = defineRelations(schema, (r) => ({
 		referralsGiven: r.many.referral({
 			from: r.organization.id,
 			to: r.referral.referrerOrganizationId,
+		}),
+		auditLogs: r.many.auditLog({
+			from: r.organization.id,
+			to: r.auditLog.organizationId,
+		}),
+		guardrailConfig: r.one.guardrailConfig({
+			from: r.organization.id,
+			to: r.guardrailConfig.organizationId,
+		}),
+		guardrailRules: r.many.guardrailRule({
+			from: r.organization.id,
+			to: r.guardrailRule.organizationId,
+		}),
+		guardrailViolations: r.many.guardrailViolation({
+			from: r.organization.id,
+			to: r.guardrailViolation.organizationId,
 		}),
 	},
 	referral: {
@@ -131,6 +151,34 @@ export const relations = defineRelations(schema, (r) => ({
 		provider: r.one.provider({
 			from: r.modelProviderMapping.providerId,
 			to: r.provider.id,
+		}),
+	},
+	auditLog: {
+		user: r.one.user({
+			from: r.auditLog.userId,
+			to: r.user.id,
+		}),
+		organization: r.one.organization({
+			from: r.auditLog.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	guardrailConfig: {
+		organization: r.one.organization({
+			from: r.guardrailConfig.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	guardrailRule: {
+		organization: r.one.organization({
+			from: r.guardrailRule.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	guardrailViolation: {
+		organization: r.one.organization({
+			from: r.guardrailViolation.organizationId,
+			to: r.organization.id,
 		}),
 	},
 }));

@@ -33,6 +33,11 @@ import {
 	shortid,
 	type tables,
 } from "@llmgateway/db";
+import {
+	checkGuardrails,
+	logViolation,
+	applyRedactions,
+} from "@llmgateway/guardrails";
 import { logger } from "@llmgateway/logger";
 import {
 	type BaseMessage,
@@ -905,6 +910,63 @@ chat.openapi(completions, async (c) => {
 			},
 		},
 	});
+
+	// Run guardrails check for enterprise organizations
+	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
+	if (organization?.plan === "enterprise") {
+		guardrailResult = await checkGuardrails({
+			organizationId: project.organizationId,
+			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
+		});
+
+		if (guardrailResult.blocked) {
+			// Log violations (don't let logging failures affect the request)
+			for (const violation of guardrailResult.violations) {
+				try {
+					await logViolation(project.organizationId, violation, {
+						apiKeyId: apiKey.id,
+						model: requestedModel,
+					});
+				} catch {
+					// Silently ignore logging failures
+				}
+			}
+
+			throw new HTTPException(400, {
+				message: "Request blocked by content policy",
+				cause: {
+					type: "guardrail_violation",
+					code: "content_policy_violation",
+					violations: guardrailResult.violations.map((v) => ({
+						rule: v.ruleName,
+						category: v.category,
+					})),
+				},
+			});
+		}
+
+		// Apply redactions if any
+		if (guardrailResult.redactions.length > 0) {
+			messages = applyRedactions(
+				messages as Parameters<typeof applyRedactions>[0],
+				guardrailResult.redactions,
+			) as typeof messages;
+		}
+
+		// Log non-blocking violations (redact/warn)
+		for (const violation of guardrailResult.violations.filter(
+			(v) => v.action !== "block",
+		)) {
+			try {
+				await logViolation(project.organizationId, violation, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+		}
+	}
 
 	// Validate coding model restriction for dev plan personal orgs
 	// This check must happen BEFORE capability checks to give the right error message

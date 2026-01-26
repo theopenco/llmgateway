@@ -43,7 +43,7 @@ export async function transformGoogleMessages(
 	messages: BaseMessage[],
 	isProd = false,
 	maxImageSizeMB = 20,
-	userPlan: "free" | "pro" | null = null,
+	userPlan: "free" | "pro" | "enterprise" | null = null,
 	// Map of tool_call IDs to their thought signatures (retrieved from cache at gateway level)
 	thoughtSignatureCache?: Map<string, string>,
 ): Promise<GoogleMessageExtended[]> {

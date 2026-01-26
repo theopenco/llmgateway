@@ -6,6 +6,7 @@ import { maskToken } from "@/lib/maskToken.js";
 import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { providers } from "@llmgateway/models";
@@ -258,6 +259,18 @@ keysProvider.openapi(create, async (c) => {
 		})
 		.returning();
 
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "provider_key.create",
+		resourceType: "provider_key",
+		resourceId: providerKey.id,
+		metadata: {
+			provider,
+			hasCustomBaseUrl: !!baseUrl,
+		},
+	});
+
 	return c.json({
 		providerKey: {
 			...providerKey,
@@ -407,6 +420,17 @@ keysProvider.openapi(deleteKey, async (c) => {
 		})
 		.where(eq(tables.providerKey.id, id));
 
+	await logAuditEvent({
+		organizationId: providerKey.organizationId,
+		userId: user.id,
+		action: "provider_key.delete",
+		resourceType: "provider_key",
+		resourceId: id,
+		metadata: {
+			provider: providerKey.provider,
+		},
+	});
+
 	return c.json({
 		message: "Provider key deleted successfully",
 	});
@@ -508,6 +532,22 @@ keysProvider.openapi(updateStatus, async (c) => {
 		})
 		.where(eq(tables.providerKey.id, id))
 		.returning();
+
+	if (providerKey.status !== status) {
+		await logAuditEvent({
+			organizationId: providerKey.organizationId,
+			userId: user.id,
+			action: "provider_key.update",
+			resourceType: "provider_key",
+			resourceId: id,
+			metadata: {
+				provider: providerKey.provider,
+				changes: {
+					status: { old: providerKey.status, new: status },
+				},
+			},
+		});
+	}
 
 	return c.json({
 		message: `Provider key status updated to ${status}`,

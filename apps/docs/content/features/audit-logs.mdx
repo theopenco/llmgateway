@@ -1,0 +1,92 @@
+---
+title: Audit Logs
+description: Track all organization activity with comprehensive audit logs
+icon: ClipboardList
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Audit Logs
+
+Audit logs provide complete visibility into all actions within your organization. Track who did what, when, and to which resource.
+
+<Callout type="info">
+	Audit logs are available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise) for organization owners and admins.
+</Callout>
+
+## What's Tracked
+
+Every significant action is logged with detailed metadata:
+
+| Field             | Description                                              |
+| ----------------- | -------------------------------------------------------- |
+| **Timestamp**     | When the action occurred                                 |
+| **User**          | Who performed the action (name and email)                |
+| **Action**        | What was done (e.g., `api_key.create`, `project.update`) |
+| **Resource Type** | Category of the affected resource                        |
+| **Resource ID**   | Unique identifier of the affected resource               |
+| **Details**       | Additional context like resource names or changed fields |
+
+## Tracked Actions
+
+### Organization Management
+
+- `organization.update` — Organization settings changed
+- `organization.delete` — Organization deleted
+
+### Project Management
+
+- `project.create` — New project created
+- `project.update` — Project settings changed
+- `project.delete` — Project deleted
+
+### Team Management
+
+- `team_member.add` — New member invited
+- `team_member.update` — Member role changed
+- `team_member.remove` — Member removed
+
+### API Key Management
+
+- `api_key.create` — New API key created
+- `api_key.update_status` — API key enabled/disabled
+- `api_key.update_limit` — Usage limit changed
+- `api_key.delete` — API key deleted
+- `api_key.iam_rule.create` — IAM rule added
+- `api_key.iam_rule.update` — IAM rule modified
+- `api_key.iam_rule.delete` — IAM rule removed
+
+### Provider Key Management
+
+- `provider_key.create` — Provider key added
+- `provider_key.update` — Provider key status changed
+- `provider_key.delete` — Provider key removed
+
+### Billing Events
+
+- `subscription.create` — Subscription started
+- `subscription.cancel` — Subscription cancelled
+- `subscription.resume` — Subscription resumed
+- `payment.credit_topup` — Credits purchased
+
+## Filtering and Search
+
+Filter logs by:
+
+- **Action** — Specific action type
+- **Resource Type** — Category of resource
+- **User** — Who performed the action
+- **Date Range** — Time period
+
+## Data Retention
+
+Audit logs are retained for **90 days** on the Enterprise plan.
+
+## Access Control
+
+Only organization **owners** and **admins** can view audit logs. This ensures sensitive activity data is only visible to authorized personnel.
+
+## Get Started
+
+Audit logs are an Enterprise feature. [Contact us](https://llmgateway.io/enterprise) to enable Enterprise for your organization.

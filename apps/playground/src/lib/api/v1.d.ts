@@ -2172,7 +2172,7 @@ export interface paths {
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
                                 retentionLevel: "retain" | "none";
@@ -2231,7 +2231,7 @@ export interface paths {
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
                                 retentionLevel: "retain" | "none";
@@ -2418,7 +2418,7 @@ export interface paths {
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
                                 retentionLevel: "retain" | "none";
@@ -3576,7 +3576,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             /** @enum {string} */
-                            plan: "free" | "pro";
+                            plan: "free" | "pro" | "enterprise";
                             subscriptionId: string | null;
                             planExpiresAt: string | null;
                             subscriptionCancelled: boolean;
@@ -3895,6 +3895,865 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/audit-logs/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: string;
+                    startDate?: string;
+                    endDate?: string;
+                    action?: string;
+                    resourceType?: string;
+                    userId?: string;
+                };
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Audit logs for the organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Array of audit log entries */
+                            auditLogs: {
+                                id: string;
+                                createdAt: string;
+                                organizationId: string;
+                                userId: string;
+                                /** @enum {string} */
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                /** @enum {string} */
+                                resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
+                                resourceId: string | null;
+                                metadata?: unknown;
+                                user?: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            }[];
+                            /** @description Pagination metadata */
+                            pagination: {
+                                /** @description Cursor to use for the next page of results, null if no more results */
+                                nextCursor: string | null;
+                                /** @description Whether there are more results available */
+                                hasMore: boolean;
+                                /** @description Number of items requested per page */
+                                limit: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit-logs/{organizationId}/filters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Filter options for audit logs */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Available action types */
+                            actions: string[];
+                            /** @description Available resource types */
+                            resourceTypes: string[];
+                            /** @description Users who have performed actions */
+                            users: {
+                                id: string;
+                                email: string;
+                                name: string | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/config/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Guardrail configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            enabled: boolean;
+                            systemRules: {
+                                prompt_injection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                jailbreak: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                pii_detection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                secrets: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                file_types: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                document_leakage: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                            } | null;
+                            maxFileSizeMb: number;
+                            allowedFileTypes: string[];
+                            /** @enum {string|null} */
+                            piiAction: "block" | "redact" | "warn" | "allow" | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                        systemRules?: {
+                            prompt_injection: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            jailbreak: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            pii_detection: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            secrets: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            file_types: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            document_leakage: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                        };
+                        maxFileSizeMb?: number;
+                        allowedFileTypes?: string[];
+                        /** @enum {string} */
+                        piiAction?: "block" | "redact" | "warn" | "allow";
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated guardrail configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            enabled: boolean;
+                            systemRules: {
+                                prompt_injection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                jailbreak: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                pii_detection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                secrets: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                file_types: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                document_leakage: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                            } | null;
+                            maxFileSizeMb: number;
+                            allowedFileTypes: string[];
+                            /** @enum {string|null} */
+                            piiAction: "block" | "redact" | "warn" | "allow" | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/config/{organizationId}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reset guardrail configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            enabled: boolean;
+                            systemRules: {
+                                prompt_injection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                jailbreak: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                pii_detection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                secrets: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                file_types: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                document_leakage: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                            } | null;
+                            maxFileSizeMb: number;
+                            allowedFileTypes: string[];
+                            /** @enum {string|null} */
+                            piiAction: "block" | "redact" | "warn" | "allow" | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/rules/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of custom guardrail rules */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                organizationId: string;
+                                name: string;
+                                /** @enum {string} */
+                                type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                                config: {
+                                    /** @enum {string} */
+                                    type: "blocked_terms";
+                                    terms: string[];
+                                    /** @enum {string} */
+                                    matchType: "exact" | "contains" | "regex";
+                                    caseSensitive: boolean;
+                                } | {
+                                    /** @enum {string} */
+                                    type: "custom_regex";
+                                    pattern: string;
+                                } | {
+                                    /** @enum {string} */
+                                    type: "topic_restriction";
+                                    blockedTopics: string[];
+                                    allowedTopics?: string[];
+                                };
+                                priority: number;
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        /** @enum {string} */
+                        type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                        config: {
+                            /** @enum {string} */
+                            type: "blocked_terms";
+                            terms: string[];
+                            /** @enum {string} */
+                            matchType: "exact" | "contains" | "regex";
+                            caseSensitive: boolean;
+                        } | {
+                            /** @enum {string} */
+                            type: "custom_regex";
+                            pattern: string;
+                        } | {
+                            /** @enum {string} */
+                            type: "topic_restriction";
+                            blockedTopics: string[];
+                            allowedTopics?: string[];
+                        };
+                        priority?: number;
+                        enabled?: boolean;
+                        /** @enum {string} */
+                        action?: "block" | "redact" | "warn" | "allow";
+                    };
+                };
+            };
+            responses: {
+                /** @description Created custom rule */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            name: string;
+                            /** @enum {string} */
+                            type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                            config: {
+                                /** @enum {string} */
+                                type: "blocked_terms";
+                                terms: string[];
+                                /** @enum {string} */
+                                matchType: "exact" | "contains" | "regex";
+                                caseSensitive: boolean;
+                            } | {
+                                /** @enum {string} */
+                                type: "custom_regex";
+                                pattern: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "topic_restriction";
+                                blockedTopics: string[];
+                                allowedTopics?: string[];
+                            };
+                            priority: number;
+                            enabled: boolean;
+                            /** @enum {string} */
+                            action: "block" | "redact" | "warn" | "allow";
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/rules/{organizationId}/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Rule deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        config?: {
+                            /** @enum {string} */
+                            type: "blocked_terms";
+                            terms: string[];
+                            /** @enum {string} */
+                            matchType: "exact" | "contains" | "regex";
+                            caseSensitive: boolean;
+                        } | {
+                            /** @enum {string} */
+                            type: "custom_regex";
+                            pattern: string;
+                        } | {
+                            /** @enum {string} */
+                            type: "topic_restriction";
+                            blockedTopics: string[];
+                            allowedTopics?: string[];
+                        };
+                        priority?: number;
+                        enabled?: boolean;
+                        /** @enum {string} */
+                        action?: "block" | "redact" | "warn" | "allow";
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated custom rule */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            name: string;
+                            /** @enum {string} */
+                            type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                            config: {
+                                /** @enum {string} */
+                                type: "blocked_terms";
+                                terms: string[];
+                                /** @enum {string} */
+                                matchType: "exact" | "contains" | "regex";
+                                caseSensitive: boolean;
+                            } | {
+                                /** @enum {string} */
+                                type: "custom_regex";
+                                pattern: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "topic_restriction";
+                                blockedTopics: string[];
+                                allowedTopics?: string[];
+                            };
+                            priority: number;
+                            enabled: boolean;
+                            /** @enum {string} */
+                            action: "block" | "redact" | "warn" | "allow";
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/guardrails/violations/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: string;
+                    startDate?: string;
+                    endDate?: string;
+                    actionTaken?: string;
+                    ruleId?: string;
+                };
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of guardrail violations */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            violations: {
+                                id: string;
+                                organizationId: string;
+                                logId: string | null;
+                                ruleId: string;
+                                ruleName: string;
+                                category: string;
+                                /** @enum {string} */
+                                actionTaken: "blocked" | "redacted" | "warned";
+                                matchedPattern: string | null;
+                                matchedContent: string | null;
+                                contentHash: string | null;
+                                apiKeyId: string | null;
+                                model: string | null;
+                                createdAt: string;
+                            }[];
+                            pagination: {
+                                nextCursor: string | null;
+                                hasMore: boolean;
+                                limit: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/stats/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    days?: string;
+                };
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Violation statistics */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            blocked: number;
+                            redacted: number;
+                            warned: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/test/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        content: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Test result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            passed: boolean;
+                            blocked: boolean;
+                            violations: {
+                                ruleId: string;
+                                ruleName: string;
+                                category: string;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                                matchedPattern?: string;
+                                matchedContent?: string;
+                            }[];
+                            rulesChecked: number;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/system-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of system rules */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                name: string;
+                                category: string;
+                                defaultEnabled: boolean;
+                                /** @enum {string} */
+                                defaultAction: "block" | "redact" | "warn" | "allow";
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }

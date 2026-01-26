@@ -21,7 +21,7 @@ import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 
 interface SubscriptionStatus {
-	plan: "free" | "pro";
+	plan: "free" | "pro" | "enterprise";
 	subscriptionId: string | null;
 	planExpiresAt: string | null;
 	subscriptionCancelled: boolean;

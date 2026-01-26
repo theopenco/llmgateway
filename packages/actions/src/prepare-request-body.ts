@@ -382,7 +382,7 @@ export async function prepareRequestBody(
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
-	userPlan: "free" | "pro" | null = null,
+	userPlan: "free" | "pro" | "enterprise" | null = null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 	image_config?: {
 		aspect_ratio?: string;
