@@ -8,6 +8,7 @@ import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { stripe } from "./routes/payments.js";
+import { notifyCreditsPurchased } from "./utils/discord.js";
 import {
 	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
@@ -688,6 +689,17 @@ async function handlePaymentIntentSucceeded(
 			organization: organizationId,
 		},
 	});
+
+	// Send Discord notification for credit purchase
+	const userEmail = metadata?.userEmail;
+	if (userEmail) {
+		const user = await db.query.user.findFirst({
+			where: {
+				email: { eq: userEmail },
+			},
+		});
+		await notifyCreditsPurchased(userEmail, user?.name, creditAmount);
+	}
 
 	logger.info(
 		`Added ${creditAmount} credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,

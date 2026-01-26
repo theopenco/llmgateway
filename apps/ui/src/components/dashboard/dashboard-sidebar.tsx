@@ -17,6 +17,7 @@ import {
 	MoonIcon,
 	Settings,
 	Shield,
+	ShieldAlert,
 	SunIcon,
 	User as UserIcon,
 	X,
@@ -140,6 +141,10 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/team",
 		label: "Team",
+	},
+	{
+		href: "org/audit-logs",
+		label: "Audit Logs",
 	},
 ] as const;
 
@@ -324,6 +329,46 @@ function OrganizationSection({
 						>
 							<KeyRound className="h-4 w-4" />
 							<span>Provider Keys</span>
+						</Link>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<Link
+							href={buildOrgUrl("org/guardrails")}
+							className={cn(
+								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+								isActive("org/guardrails")
+									? "bg-primary/10 text-primary"
+									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
+							)}
+							onClick={() => {
+								if (isMobile) {
+									toggleSidebar();
+								}
+							}}
+							prefetch={true}
+						>
+							<Shield className="h-4 w-4" />
+							<span>Guardrails</span>
+						</Link>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<Link
+							href={buildOrgUrl("org/security-events")}
+							className={cn(
+								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+								isActive("org/security-events")
+									? "bg-primary/10 text-primary"
+									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
+							)}
+							onClick={() => {
+								if (isMobile) {
+									toggleSidebar();
+								}
+							}}
+							prefetch={true}
+						>
+							<ShieldAlert className="h-4 w-4" />
+							<span>Security Events</span>
 						</Link>
 					</SidebarMenuItem>
 					<SidebarMenuItem>

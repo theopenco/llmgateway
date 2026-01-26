@@ -1,9 +1,7 @@
 packages:
   - apps/*
   - packages/*
-
-catalog:
-  better-auth: 1.3.30
+  - ee/*
 
 ignoredBuiltDependencies:
   - protobufjs

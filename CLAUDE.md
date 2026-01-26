@@ -121,6 +121,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
 - For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
 - Always sync schema with `pnpm run setup` after table/column changes
+- Never write migrations manually, only edit generated migration files if specifically asked
+- When resolving migration conflicts, never resolve them manually. Instead, run `git restore --source=origin/main packages/db/migrations/` to reset them and then run `pnpm migrations` to regenerate migrations automatically
 
 ### Creating New Packages
 
@@ -137,6 +139,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
+- When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works

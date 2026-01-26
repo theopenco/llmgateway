@@ -139,6 +139,24 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<Link
+										href="/templates"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch
+									>
+										Templates
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/agents"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch
+									>
+										Agents
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/blog"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>

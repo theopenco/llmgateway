@@ -92,6 +92,7 @@ interface ChatUIProps {
 		| "auto"
 		| "1:1"
 		| "9:16"
+		| "16:9"
 		| "3:4"
 		| "4:3"
 		| "3:2"
@@ -104,6 +105,7 @@ interface ChatUIProps {
 			| "auto"
 			| "1:1"
 			| "9:16"
+			| "16:9"
 			| "3:4"
 			| "4:3"
 			| "3:2"
@@ -681,6 +683,7 @@ export const ChatUI = ({
 													| "auto"
 													| "1:1"
 													| "9:16"
+													| "16:9"
 													| "3:4"
 													| "4:3"
 													| "3:2"
@@ -698,6 +701,7 @@ export const ChatUI = ({
 											<SelectItem value="auto">Auto</SelectItem>
 											<SelectItem value="1:1">1:1</SelectItem>
 											<SelectItem value="9:16">9:16</SelectItem>
+											<SelectItem value="16:9">16:9</SelectItem>
 											<SelectItem value="3:4">3:4</SelectItem>
 											<SelectItem value="4:3">4:3</SelectItem>
 											<SelectItem value="3:2">3:2</SelectItem>

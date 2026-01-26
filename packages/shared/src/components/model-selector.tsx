@@ -785,9 +785,9 @@ export function ModelSelector({
 													<Checkbox
 														id="show-root"
 														checked={filters.showOnlyRoot}
-														onCheckedChange={(
-															checked: boolean | "indeterminate" | undefined,
-														) => updateFilter("showOnlyRoot", checked)}
+														onCheckedChange={(checked) =>
+															updateFilter("showOnlyRoot", checked)
+														}
 													/>
 													<Label
 														htmlFor="show-root"
@@ -926,9 +926,9 @@ export function ModelSelector({
 														<Checkbox
 															id="hide-unstable"
 															checked={filters.hideUnstable}
-															onCheckedChange={(
-																checked: boolean | "indeterminate" | undefined,
-															) => updateFilter("hideUnstable", checked)}
+															onCheckedChange={(checked) =>
+																updateFilter("hideUnstable", checked)
+															}
 														/>
 														<Label
 															htmlFor="hide-unstable"

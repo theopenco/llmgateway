@@ -87,6 +87,59 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Insert enterprise user
+	await upsert(tables.user, {
+		id: "enterprise-user-id",
+		name: "Enterprise User",
+		email: "enterprise@example.com",
+		emailVerified: true,
+	});
+
+	// Insert enterprise account
+	await upsert(tables.account, {
+		id: "enterprise-account-id",
+		providerId: "credential",
+		accountId: "enterprise-account-id",
+		password:
+			"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
+		userId: "enterprise-user-id",
+	});
+
+	// Insert enterprise organization
+	await upsert(tables.organization, {
+		id: "enterprise-org-id",
+		name: "Enterprise Organization",
+		billingEmail: "enterprise@example.com",
+		credits: 1000,
+		retentionLevel: "retain",
+		plan: "enterprise",
+	});
+
+	// Insert enterprise user organization relationship
+	await upsert(tables.userOrganization, {
+		id: "enterprise-user-org-id",
+		userId: "enterprise-user-id",
+		organizationId: "enterprise-org-id",
+		role: "owner",
+	});
+
+	// Insert enterprise project
+	await upsert(tables.project, {
+		id: "enterprise-project-id",
+		name: "Enterprise Project",
+		organizationId: "enterprise-org-id",
+		mode: "hybrid",
+	});
+
+	// Insert enterprise API key
+	await upsert(tables.apiKey, {
+		id: "enterprise-api-key-id",
+		token: "test-enterprise",
+		projectId: "enterprise-project-id",
+		description: "Enterprise API Key",
+		createdBy: "enterprise-user-id",
+	});
+
 	// Insert logs
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 

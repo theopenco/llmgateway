@@ -4,9 +4,11 @@ import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
 import admin from "./admin.js";
+import { auditLogs } from "./audit-logs.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
 import { devPlans } from "./dev-plans.js";
+import { guardrails } from "./guardrails.js";
 import keysApi from "./keys-api.js";
 import keysProvider from "./keys-provider.js";
 import { logs } from "./logs.js";
@@ -56,3 +58,5 @@ routes.route("/chat", chat);
 routes.route("/chats", chats);
 routes.route("/subscriptions", subscriptions);
 routes.route("/dev-plans", devPlans);
+routes.route("/audit-logs", auditLogs);
+routes.route("/guardrails", guardrails);

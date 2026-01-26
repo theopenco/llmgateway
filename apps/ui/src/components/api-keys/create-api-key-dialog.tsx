@@ -156,11 +156,7 @@ export function CreateApiKeyDialog({
 									<Checkbox
 										id="limit-checkbox"
 										checked={limitChecked}
-										onCheckedChange={(v) => {
-											if (v !== "indeterminate") {
-												setLimitChecked(v);
-											}
-										}}
+										onCheckedChange={(v) => setLimitChecked(v)}
 									/>
 									<Label htmlFor="limit-checkbox">
 										Set API Key Usage Limit

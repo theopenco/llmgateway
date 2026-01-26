@@ -94,6 +94,8 @@ export const Navbar = ({
 	const resourcesItems = [
 		{ name: "Blog", href: "/blog" },
 		{ name: "Providers", href: "/providers" },
+		{ name: "Templates", href: "/templates" },
+		{ name: "Agents", href: "/agents" },
 		{ name: "Changelog", href: "/changelog" },
 		{ name: "Referral Program", href: "/referrals" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
@@ -120,6 +122,16 @@ export const Navbar = ({
 			description:
 				"Guides, API reference, and examples to get you shipping fast.",
 			external: true,
+		},
+		{
+			title: "Templates",
+			href: "/templates",
+			description: "Production-ready templates for AI applications.",
+		},
+		{
+			title: "Agents",
+			href: "/agents",
+			description: "Pre-built AI agents with tool calling capabilities.",
 		},
 		{
 			title: "Guides",

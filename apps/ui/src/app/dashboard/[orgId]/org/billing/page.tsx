@@ -32,10 +32,10 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 		<div className="flex flex-col">
 			<PaymentStatusHandler paymentStatus={paymentStatus} />
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<div className="flex items-center justify-between">
-					<h2 className="text-3xl font-bold tracking-tight">Billing</h2>
-				</div>
-				<div className="space-y-6">
+				<div className="max-w-3xl mx-auto space-y-6">
+					<div className="flex items-center justify-between">
+						<h2 className="text-3xl font-bold tracking-tight">Billing</h2>
+					</div>
 					<Card>
 						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
 							<div className="space-y-1.5">
@@ -75,17 +75,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 						</CardContent>
 					</Card>
 
-					<Card>
-						<CardHeader>
-							<CardTitle>Auto Top-up</CardTitle>
-							<CardDescription>
-								Configure automatic credit top-up settings
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<AutoTopUpSettings />
-						</CardContent>
-					</Card>
+					<AutoTopUpSettings />
 				</div>
 			</div>
 		</div>

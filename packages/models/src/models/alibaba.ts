@@ -461,6 +461,28 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3-vl-8b-instruct",
+		name: "Qwen3 VL 8B Instruct",
+		description: "Vision-language Qwen 3 model, 8B size.",
+		family: "alibaba",
+		releasedAt: new Date("2025-10-14"),
+		providers: [
+			{
+				providerId: "novita",
+				modelName: "qwen/qwen3-vl-8b-instruct",
+				inputPrice: 0.08 / 1e6,
+				outputPrice: 0.5 / 1e6,
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 8192,
+				streaming: true,
+				vision: true,
+				tools: false,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "qwen3-coder-480b-a35b-instruct",
 		name: "Qwen3 Coder 480B A35B Instruct",
 		description: "Code-specialized Qwen 3 MoE, 480B size.",

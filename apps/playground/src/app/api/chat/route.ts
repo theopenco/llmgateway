@@ -20,6 +20,7 @@ interface ChatRequestBody {
 			| "auto"
 			| "1:1"
 			| "9:16"
+			| "16:9"
 			| "3:4"
 			| "4:3"
 			| "3:2"
