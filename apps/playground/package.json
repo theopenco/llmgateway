@@ -18,7 +18,6 @@
 	"dependencies": {
 		"@ai-sdk/mcp": "1.0.5",
 		"@ai-sdk/react": "3.0.29",
-		"@better-auth/passkey": "1.4.17",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/ai-sdk-provider": "3.0.0",
 		"@llmgateway/models": "workspace:*",
@@ -46,7 +45,7 @@
 		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.4.17",
+		"better-auth": "1.3.30",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
