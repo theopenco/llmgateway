@@ -58,6 +58,7 @@ export async function notifyUserSignup(
 	email: string,
 	name: string | null | undefined,
 	authMethod?: string,
+	orgId?: string,
 ): Promise<void> {
 	const displayName = name || "Unknown";
 	const method = authMethod || "Unknown";
@@ -81,6 +82,11 @@ export async function notifyUserSignup(
 					{
 						name: "Auth Method",
 						value: method,
+						inline: true,
+					},
+					{
+						name: "Org ID",
+						value: orgId || "Unknown",
 						inline: true,
 					},
 				],

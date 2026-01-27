@@ -540,8 +540,22 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 							onboarding_completed: dbUser?.onboardingCompleted ?? false,
 						});
 
+						// Find the user's organization
+						const userOrg = await db.query.userOrganization.findFirst({
+							where: {
+								userId: {
+									eq: user.id,
+								},
+							},
+						});
+
 						// Send Discord notification for new verified signup
-						await notifyUserSignup(user.email, user.name, "Email");
+						await notifyUserSignup(
+							user.email,
+							user.name,
+							"Email",
+							userOrg?.organizationId,
+						);
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
@@ -715,7 +729,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 				}
 
 				// Perform all DB operations in a single transaction for atomicity
-				await db.transaction(async (tx) => {
+				const newOrgId = await db.transaction(async (tx) => {
 					// For self-hosted installations, automatically verify the user's email
 					if (!isHosted) {
 						await tx
@@ -795,6 +809,8 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 							});
 						}
 					}
+
+					return organization.id;
 				});
 
 				// Check if this is a social login by querying the account table
@@ -818,6 +834,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 							newSession.user.email,
 							newSession.user.name,
 							providerName,
+							newOrgId,
 						);
 
 						await createResendContact(
