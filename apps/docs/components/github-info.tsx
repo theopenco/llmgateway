@@ -9,8 +9,8 @@ async function getRepoStarsAndForks(
 	repo: string,
 	token?: string,
 ): Promise<{
-	stars: number;
-	forks: number;
+	stars: number | null;
+	forks: number | null;
 }> {
 	const endpoint = `https://api.github.com/repos/${owner}/${repo}`;
 	const headers = new Headers({
@@ -21,24 +21,26 @@ async function getRepoStarsAndForks(
 		headers.set("Authorization", `Bearer ${token}`);
 	}
 
-	const response = await fetch(endpoint, {
-		headers,
-		next: {
-			revalidate: 60,
-		},
-	});
+	try {
+		const response = await fetch(endpoint, {
+			headers,
+			next: {
+				revalidate: 60,
+			},
+		});
 
-	if (!response.ok) {
-		const message = await response.text();
+		if (!response.ok) {
+			return { stars: null, forks: null };
+		}
 
-		throw new Error(`Failed to fetch repository data: ${message}`);
+		const data = await response.json();
+		return {
+			stars: data.stargazers_count,
+			forks: data.forks_count,
+		};
+	} catch {
+		return { stars: null, forks: null };
 	}
-
-	const data = await response.json();
-	return {
-		stars: data.stargazers_count,
-		forks: data.forks_count,
-	};
 }
 
 export async function GithubInfo({
@@ -52,7 +54,6 @@ export async function GithubInfo({
 	token?: string;
 }) {
 	const { stars } = await getRepoStarsAndForks(owner, repo, token);
-	const humanizedStars = humanizeNumber(stars);
 
 	return (
 		<a
@@ -72,10 +73,12 @@ export async function GithubInfo({
 				</svg>
 				{owner}/{repo}
 			</p>
-			<p className="flex text-xs items-center gap-1 text-fd-muted-foreground">
-				<Star className="size-3" />
-				{humanizedStars}
-			</p>
+			{stars !== null && (
+				<p className="flex text-xs items-center gap-1 text-fd-muted-foreground">
+					<Star className="size-3" />
+					{humanizeNumber(stars)}
+				</p>
+			)}
 		</a>
 	);
 }
