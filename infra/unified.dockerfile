@@ -83,6 +83,7 @@ RUN cat .tool-versions | cut -d' ' -f1 | grep "^[^\#]" | xargs -i asdf plugin ad
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY --parents packages/*/package.json .
 COPY --parents apps/*/package.json .
+COPY --parents ee/*/package.json .
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
