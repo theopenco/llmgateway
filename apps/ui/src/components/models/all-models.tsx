@@ -214,9 +214,7 @@ const ModelTableRow = React.memo(
 									)}
 								</button>
 							) : (
-								<div className="p-0.5 flex items-center justify-center w-5 h-5">
-									<div className="w-2 h-2 rounded-full bg-emerald-500" />
-								</div>
+								<div className="w-5 h-5" />
 							)}
 							{ProviderIcon ? (
 								<ProviderIcon className="w-4 h-4" />

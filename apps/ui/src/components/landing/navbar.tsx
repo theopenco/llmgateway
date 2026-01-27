@@ -92,11 +92,22 @@ export const Navbar = ({
 		{ name: "Models", href: "/models" },
 	];
 
-	const productsItems = [
-		{ name: "AI Gateway", href: "/#gateway" },
-		{ name: "Observability", href: "/#observability" },
-		{ name: "Chat Playground", href: config.playgroundUrl ?? "" },
-		{ name: "Guardrails", href: `${config.docsUrl ?? ""}/features/guardrails` },
+	const productsItems: Array<{
+		name: string;
+		href: string;
+		external?: boolean;
+	}> = [
+		{ name: "AI Gateway", href: "/features/unified-api-interface" },
+		{ name: "Observability", href: "/features/performance-monitoring" },
+		{
+			name: "Chat Playground",
+			href: config.playgroundUrl ?? "",
+			external: true,
+		},
+		{
+			name: "Guardrails",
+			href: "/features/guardrails",
+		},
 		{ name: "Integrations", href: "/guides" },
 	];
 
@@ -144,7 +155,6 @@ export const Navbar = ({
 			icon: ShieldCheck,
 			gradient:
 				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
-			external: true,
 		},
 		{
 			title: "Integrations",
@@ -157,7 +167,11 @@ export const Navbar = ({
 		},
 	];
 
-	const resourcesItems = [
+	const resourcesItems: Array<{
+		name: string;
+		href: string;
+		external?: boolean;
+	}> = [
 		{ name: "Blog", href: "/blog" },
 		{ name: "Providers", href: "/providers" },
 		{ name: "Templates", href: "/templates" },
@@ -167,7 +181,11 @@ export const Navbar = ({
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Model Timeline", href: "/timeline" },
 		{ name: "Compare", href: "/models/compare" },
-		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
+		{
+			name: "Contact Us",
+			href: "mailto:contact@llmgateway.io",
+			external: true,
+		},
 	];
 
 	const resourcesLinks: Array<{
@@ -459,13 +477,24 @@ export const Navbar = ({
 											>
 												{productsItems.map((item, index) => (
 													<li key={index}>
-														<Link
-															href={item.href as Route}
-															className="text-muted-foreground hover:text-accent-foreground block duration-150"
-															prefetch={true}
-														>
-															{item.name}
-														</Link>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
 													</li>
 												))}
 											</ul>
@@ -497,13 +526,24 @@ export const Navbar = ({
 											>
 												{resourcesItems.map((item, index) => (
 													<li key={index}>
-														<Link
-															href={item.href as Route}
-															className="text-muted-foreground hover:text-accent-foreground block duration-150"
-															prefetch={true}
-														>
-															{item.name}
-														</Link>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
 													</li>
 												))}
 											</ul>

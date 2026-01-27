@@ -31,6 +31,22 @@ interface ModelWithProviders extends ApiModel {
 	}>;
 }
 
+const getStabilityClassName = (stability?: StabilityLevel | null): string => {
+	const level = stability || "stable";
+	switch (level) {
+		case "stable":
+			return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+		case "experimental":
+			return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+		case "unstable":
+			return "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20";
+		case "beta":
+			return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+		default:
+			return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+	}
+};
+
 export function ProviderModelCard({
 	model,
 	shouldShowStabilityWarning,
@@ -140,7 +156,9 @@ export function ProviderModelCard({
 							<div className="text-xs text-muted-foreground mb-1">
 								Stability
 							</div>
-							<Badge className="text-xs px-2 py-0.5 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+							<Badge
+								className={`text-xs px-2 py-0.5 font-semibold border ${getStabilityClassName(provider.stability)}`}
+							>
 								{provider.stability || "STABLE"}
 							</Badge>
 						</div>
