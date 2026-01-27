@@ -84,6 +84,7 @@ const schema = z.object({
 			responseText: z.string(),
 		})
 		.nullable(),
+	trace_id: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -588,6 +589,7 @@ export async function batchProcessLogs(): Promise<void> {
 					reasoning_tokens: log.reasoningTokens,
 					cached_tokens: log.cachedTokens,
 					error_details: log.errorDetails,
+					trace_id: log.traceId,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -641,6 +643,7 @@ export async function batchProcessLogs(): Promise<void> {
 					reasoningTokens: row.reasoning_tokens,
 					cachedTokens: row.cached_tokens,
 					errorDetails: row.error_details,
+					traceId: row.trace_id,
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
