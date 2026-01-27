@@ -474,14 +474,6 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 			defaultCookieAttributes: {
 				domain: cookieDomain,
 			},
-			cookies: {
-				state: {
-					attributes: {
-						sameSite: "none",
-						secure: true,
-					},
-				},
-			},
 		},
 		session: {
 			cookieCache: {
@@ -515,11 +507,6 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 				passkey: tables.passkey,
 			},
 		}),
-		account: {
-			// Use cookie-based state storage for OAuth to ensure state cookie
-			// is available during callback validation (fixes 302 error in v1.4.4+)
-			storeStateStrategy: "cookie",
-		},
 		socialProviders: {
 			github: {
 				clientId: process.env.GITHUB_CLIENT_ID!,
