@@ -541,7 +541,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						});
 
 						// Send Discord notification for new verified signup
-						await notifyUserSignup(user.email, user.name);
+						await notifyUserSignup(user.email, user.name, "Email");
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
@@ -797,13 +797,34 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 					}
 				});
 
-				// Check if this is a social login (user has emailVerified but no email verification sent)
-				// In this case, we should add them to Resend
-				if (isHosted && newSession.user.emailVerified) {
-					await createResendContact(
-						newSession.user.email,
-						newSession.user.name || undefined,
-					);
+				// Check if this is a social login by querying the account table
+				// For OAuth signups, we need to send notifications and create Resend contacts
+				if (isHosted) {
+					const account = await db.query.account.findFirst({
+						where: {
+							userId: {
+								eq: userId,
+							},
+						},
+					});
+
+					// If provider is not "credential", it's an OAuth signup
+					if (account && account.providerId !== "credential") {
+						const providerName =
+							account.providerId.charAt(0).toUpperCase() +
+							account.providerId.slice(1);
+
+						await notifyUserSignup(
+							newSession.user.email,
+							newSession.user.name,
+							providerName,
+						);
+
+						await createResendContact(
+							newSession.user.email,
+							newSession.user.name || undefined,
+						);
+					}
 				}
 			}),
 		},
