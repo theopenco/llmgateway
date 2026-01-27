@@ -418,19 +418,18 @@ export default function ChatPageClient({
 			return;
 		}
 
-		// Update the selected model when loading a chat
-		if (currentChatData.chat?.model) {
-			setSelectedModel(currentChatData.chat.model);
-		}
-
-		// Update the web search state when loading a chat
-		if (currentChatData.chat?.webSearch !== undefined) {
-			setWebSearchEnabled(currentChatData.chat.webSearch);
-		}
-
 		setMessages((prev) => {
 			// Load messages if empty (URL change clears messages first)
 			if (prev.length === 0) {
+				// Only update the selected model when first loading a chat
+				if (currentChatData.chat?.model) {
+					setSelectedModel(currentChatData.chat.model);
+				}
+
+				// Only update the web search state when first loading a chat
+				if (currentChatData.chat?.webSearch !== undefined) {
+					setWebSearchEnabled(currentChatData.chat.webSearch);
+				}
 				return currentChatData.messages.map((msg) => {
 					const parts: any[] = [];
 
