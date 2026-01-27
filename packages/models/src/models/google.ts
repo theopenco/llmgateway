@@ -334,6 +334,7 @@ export const googleModels = [
 			{
 				discount: 0.2,
 				providerId: "google-vertex",
+				deactivatedAt: new Date("2026-01-27"),
 				modelName: "gemini-2.5-flash-preview-09-2025",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
