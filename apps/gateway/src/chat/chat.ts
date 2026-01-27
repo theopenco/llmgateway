@@ -1569,59 +1569,64 @@ chat.openapi(completions, async (c) => {
 							5,
 						);
 
-						const cheapestResult = getCheapestFromAvailableProviders(
-							availableModelProviders,
-							modelWithPricing,
-							{ metricsMap: allMetricsMap, isStreaming: stream },
+						// Filter to only providers with better uptime than the original
+						// to avoid falling back to worse providers
+						const betterUptimeProviders = availableModelProviders.filter(
+							(p) => {
+								const providerMetrics = allMetricsMap.get(
+									`${modelWithPricing.id}:${p.providerId}`,
+								);
+								// If no metrics, assume the provider is healthy (100% uptime)
+								// If has metrics, only include if uptime is better than original
+								return (
+									!providerMetrics || providerMetrics.uptime > metrics.uptime
+								);
+							},
 						);
 
-						// Get price info for the original requested provider to include in scores
-						const originalProviderInfo = modelInfo.providers.find(
-							(p) => p.providerId === requestedProvider,
-						);
-						const originalProviderPrice = originalProviderInfo
-							? (originalProviderInfo.inputPrice ?? 0) +
-								(originalProviderInfo.outputPrice ?? 0)
-							: 0;
+						// Only proceed with fallback if there are providers with better uptime
+						// Otherwise stick with the original provider
+						if (betterUptimeProviders.length > 0) {
+							const cheapestResult = getCheapestFromAvailableProviders(
+								betterUptimeProviders,
+								modelWithPricing,
+								{ metricsMap: allMetricsMap, isStreaming: stream },
+							);
 
-						// Create score entry for the original requested provider
-						const originalProviderScore = {
-							providerId: requestedProvider,
-							score: -1, // Negative score indicates this provider was skipped due to low uptime
-							price: originalProviderPrice,
-							uptime: metrics.uptime,
-							latency: metrics.averageLatency,
-							throughput: metrics.throughput,
-						};
+							// Get price info for the original requested provider to include in scores
+							const originalProviderInfo = modelInfo.providers.find(
+								(p) => p.providerId === requestedProvider,
+							);
+							const originalProviderPrice = originalProviderInfo
+								? (originalProviderInfo.inputPrice ?? 0) +
+									(originalProviderInfo.outputPrice ?? 0)
+								: 0;
 
-						if (cheapestResult) {
-							usedProvider = cheapestResult.provider.providerId;
-							usedModel = cheapestResult.provider.modelName;
-							routingMetadata = {
-								...cheapestResult.metadata,
-								selectionReason: "low-uptime-fallback",
-								originalProvider: requestedProvider,
-								originalProviderUptime: metrics.uptime,
-								// Add the original provider's score to the scores array
-								providerScores: [
-									originalProviderScore,
-									...cheapestResult.metadata.providerScores,
-								],
+							// Create score entry for the original requested provider
+							const originalProviderScore = {
+								providerId: requestedProvider,
+								score: -1, // Negative score indicates this provider was skipped due to low uptime
+								price: originalProviderPrice,
+								uptime: metrics.uptime,
+								latency: metrics.averageLatency,
+								throughput: metrics.throughput,
 							};
-						} else {
-							// Use first available provider as fallback
-							usedProvider = availableModelProviders[0].providerId;
-							usedModel = availableModelProviders[0].modelName;
-							routingMetadata = {
-								availableProviders: availableModelProviders.map(
-									(p) => p.providerId,
-								),
-								selectedProvider: usedProvider,
-								selectionReason: "low-uptime-fallback",
-								providerScores: [originalProviderScore],
-								originalProvider: requestedProvider,
-								originalProviderUptime: metrics.uptime,
-							};
+
+							if (cheapestResult) {
+								usedProvider = cheapestResult.provider.providerId;
+								usedModel = cheapestResult.provider.modelName;
+								routingMetadata = {
+									...cheapestResult.metadata,
+									selectionReason: "low-uptime-fallback",
+									originalProvider: requestedProvider,
+									originalProviderUptime: metrics.uptime,
+									// Add the original provider's score to the scores array
+									providerScores: [
+										originalProviderScore,
+										...cheapestResult.metadata.providerScores,
+									],
+								};
+							}
 						}
 					}
 				}
