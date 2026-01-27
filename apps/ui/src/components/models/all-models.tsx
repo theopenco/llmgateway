@@ -690,12 +690,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			return true;
 		});
 
-		// Apply sorting - default to createdAt descending (newest first)
+		// Apply sorting - default to releasedAt descending (newest first)
 		return [...filteredModels].sort((a, b) => {
-			// Default sorting by createdAt when no sort field selected
+			// Default sorting by releasedAt when no sort field selected
 			if (!sortField) {
-				const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-				const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+				const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+				const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
 				return bDate - aDate; // Descending (newest first)
 			}
 
@@ -824,16 +824,14 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		// Sort flattened rows
 		return rows.sort((a, b) => {
 			if (!sortField) {
-				// Default: sort by provider name, then model name
-				const providerCompare = (
-					a.providerInfo?.name || a.provider.providerId
-				).localeCompare(b.providerInfo?.name || b.provider.providerId);
-				if (providerCompare !== 0) {
-					return providerCompare;
-				}
-				return (a.model.name || a.model.id).localeCompare(
-					b.model.name || b.model.id,
-				);
+				// Default: sort by releasedAt descending (newest first)
+				const aDate = a.model.releasedAt
+					? new Date(a.model.releasedAt).getTime()
+					: 0;
+				const bDate = b.model.releasedAt
+					? new Date(b.model.releasedAt).getTime()
+					: 0;
+				return bDate - aDate;
 			}
 
 			let aValue: string | number;
