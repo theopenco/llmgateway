@@ -221,6 +221,13 @@ export function transformStreamingToOpenai(
 					usage: data.usage || null,
 				};
 			} else {
+				logger.warn("[streaming] Unrecognized Anthropic chunk", {
+					provider: usedProvider,
+					model: usedModel,
+					type: data.type,
+					deltaType: data.delta?.type,
+					dataKeys: Object.keys(data),
+				});
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -421,6 +428,23 @@ export function transformStreamingToOpenai(
 				parts.forEach((part, partIndex) => {
 					const sig: string | undefined =
 						part.thoughtSignature || part.thought_signature;
+
+					// Check for unrecognized part types
+					const isKnownPartType =
+						typeof part.text === "string" ||
+						part.functionCall ||
+						part.inlineData ||
+						part.thoughtSignature ||
+						part.thought_signature;
+
+					if (!isKnownPartType) {
+						logger.warn("[streaming] Unrecognized Google part type", {
+							provider: usedProvider,
+							model: usedModel,
+							partIndex,
+							partKeys: Object.keys(part),
+						});
+					}
 
 					if (part.functionCall) {
 						const callIndex = toolCalls.length;
@@ -856,6 +880,12 @@ export function transformStreamingToOpenai(
 					}
 
 					default:
+						logger.warn("[streaming] Unrecognized OpenAI event type", {
+							provider: usedProvider,
+							model: usedModel,
+							eventType: data.type,
+							dataKeys: Object.keys(data),
+						});
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -1032,6 +1062,12 @@ export function transformStreamingToOpenai(
 					},
 				};
 			} else {
+				logger.warn("[streaming] Unrecognized AWS Bedrock event type", {
+					provider: usedProvider,
+					model: usedModel,
+					eventType,
+					dataKeys: Object.keys(data),
+				});
 				transformedData = null;
 			}
 			break;
@@ -1052,6 +1088,11 @@ export function transformStreamingToOpenai(
 		}
 
 		default: {
+			logger.warn("[streaming] Unknown provider using OpenAI fallback", {
+				provider: usedProvider,
+				model: usedModel,
+				dataKeys: Object.keys(data),
+			});
 			transformedData = transformOpenaiStreaming(data, usedModel);
 			break;
 		}
