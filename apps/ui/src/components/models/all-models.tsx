@@ -199,7 +199,7 @@ const ModelTableRow = React.memo(
 					{/* Provider Column */}
 					<TableCell className="font-medium">
 						<div className="flex items-center gap-2">
-							{row.hasAdditionalPricing && (
+							{row.hasAdditionalPricing ? (
 								<button
 									onClick={(e) => {
 										e.stopPropagation();
@@ -213,6 +213,10 @@ const ModelTableRow = React.memo(
 										<ChevronRight className="h-4 w-4 text-muted-foreground" />
 									)}
 								</button>
+							) : (
+								<div className="p-0.5 flex items-center justify-center w-5 h-5">
+									<div className="w-2 h-2 rounded-full bg-emerald-500" />
+								</div>
 							)}
 							{ProviderIcon ? (
 								<ProviderIcon className="w-4 h-4" />
