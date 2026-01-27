@@ -596,6 +596,17 @@ export function transformStreamingToOpenai(
 					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
+				logger.warn("[streaming] Google chunk with no content", {
+					provider: usedProvider,
+					model: usedModel,
+					hasCandidates: hasCandidatesArray,
+					candidatesCount: candidates.length,
+					firstCandidateKeys: firstCandidate ? Object.keys(firstCandidate) : [],
+					hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
+					partsCount: firstCandidate?.content?.parts?.length ?? 0,
+					hasUsageMetadata: !!data.usageMetadata,
+					dataKeys: Object.keys(data),
+				});
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
