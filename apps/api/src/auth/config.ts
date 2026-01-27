@@ -361,10 +361,11 @@ async function createResendContact(
 		const firstName = name?.split(" ")[0];
 		const lastName = name?.split(" ").slice(1).join(" ");
 
-		const properties: Record<string, string> = {};
+		const properties: Record<string, string | number | null> = {};
 		if (attributes) {
 			for (const [key, value] of Object.entries(attributes)) {
-				properties[key] = String(value);
+				// Resend expects string | number | null, so convert booleans to strings
+				properties[key] = typeof value === "boolean" ? String(value) : value;
 			}
 		}
 
@@ -387,7 +388,7 @@ async function createResendContact(
 			throw new Error(`Resend API error: ${error.message}`);
 		}
 
-		logger.info("Successfully created/updated Resend contact", {
+		logger.info("Successfully created Resend contact", {
 			email,
 			contactId: data?.id,
 		});
@@ -419,10 +420,11 @@ export async function updateResendContact(
 		const firstName = options?.name?.split(" ")[0];
 		const lastName = options?.name?.split(" ").slice(1).join(" ");
 
-		const properties: Record<string, string> = {};
+		const properties: Record<string, string | number | null> = {};
 		if (options?.attributes) {
 			for (const [key, value] of Object.entries(options.attributes)) {
-				properties[key] = String(value);
+				// Resend expects string | number | null, so convert booleans to strings
+				properties[key] = typeof value === "boolean" ? String(value) : value;
 			}
 		}
 
