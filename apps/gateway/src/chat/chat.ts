@@ -1595,34 +1595,34 @@ chat.openapi(completions, async (c) => {
 						};
 
 						if (cheapestResult) {
-							usedProvider = cheapestResult.provider.providerId;
-							usedModel = cheapestResult.provider.modelName;
-							routingMetadata = {
-								...cheapestResult.metadata,
-								selectionReason: "low-uptime-fallback",
-								originalProvider: requestedProvider,
-								originalProviderUptime: metrics.uptime,
-								// Add the original provider's score to the scores array
-								providerScores: [
-									originalProviderScore,
-									...cheapestResult.metadata.providerScores,
-								],
-							};
-						} else {
-							// Use first available provider as fallback
-							usedProvider = availableModelProviders[0].providerId;
-							usedModel = availableModelProviders[0].modelName;
-							routingMetadata = {
-								availableProviders: availableModelProviders.map(
-									(p) => p.providerId,
-								),
-								selectedProvider: usedProvider,
-								selectionReason: "low-uptime-fallback",
-								providerScores: [originalProviderScore],
-								originalProvider: requestedProvider,
-								originalProviderUptime: metrics.uptime,
-							};
+							// Check if the fallback provider has better uptime than the original
+							// If no metrics exist for the fallback, assume it's 100% (no data = assume good)
+							const fallbackMetrics = allMetricsMap.get(
+								`${modelWithPricing.id}:${cheapestResult.provider.providerId}`,
+							);
+							const fallbackUptime = fallbackMetrics?.uptime ?? 100;
+
+							// Only fall back if the alternative has better uptime
+							// This prevents falling back to a provider that's equally bad or worse
+							if (fallbackUptime > metrics.uptime) {
+								usedProvider = cheapestResult.provider.providerId;
+								usedModel = cheapestResult.provider.modelName;
+								routingMetadata = {
+									...cheapestResult.metadata,
+									selectionReason: "low-uptime-fallback",
+									originalProvider: requestedProvider,
+									originalProviderUptime: metrics.uptime,
+									// Add the original provider's score to the scores array
+									providerScores: [
+										originalProviderScore,
+										...cheapestResult.metadata.providerScores,
+									],
+								};
+							}
+							// If fallback is not better, don't change usedProvider (keep original)
 						}
+						// Note: removed the else branch - if no good fallback exists,
+						// we keep the original provider instead of blindly using first available
 					}
 				}
 			}
