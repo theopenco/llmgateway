@@ -1080,17 +1080,16 @@ export async function startWorker() {
 	shouldStop = false;
 	logger.info("Starting worker application...");
 
-	// Initialize providers and models sync
-	void syncProvidersAndModels()
-		.then(() => {
-			logger.info("Initial sync completed");
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during initial sync",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
+	// Initialize providers and models sync - must complete before other stats syncs
+	try {
+		await syncProvidersAndModels();
+		logger.info("Initial sync completed");
+	} catch (error) {
+		logger.error(
+			"Error during initial sync",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
 
 	void backfillHistoryIfNeeded()
 		.then(() => {
