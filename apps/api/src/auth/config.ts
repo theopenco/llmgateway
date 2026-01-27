@@ -540,22 +540,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 							onboarding_completed: dbUser?.onboardingCompleted ?? false,
 						});
 
-						// Find the user's organization
-						const userOrg = await db.query.userOrganization.findFirst({
-							where: {
-								userId: {
-									eq: user.id,
-								},
-							},
-						});
-
-						// Send Discord notification for new verified signup
-						await notifyUserSignup(
-							user.email,
-							user.name,
-							"Email",
-							userOrg?.organizationId,
-						);
+						// Note: Discord notification is sent from hooks.after where the org is guaranteed to exist
 					},
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
@@ -813,8 +798,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 					return organization.id;
 				});
 
-				// Check if this is a social login by querying the account table
-				// For OAuth signups, we need to send notifications and create Resend contacts
+				// Send notifications for new signups (both OAuth and email verification)
 				if (isHosted) {
 					const account = await db.query.account.findFirst({
 						where: {
@@ -824,23 +808,33 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						},
 					});
 
-					// If provider is not "credential", it's an OAuth signup
-					if (account && account.providerId !== "credential") {
-						const providerName =
-							account.providerId.charAt(0).toUpperCase() +
-							account.providerId.slice(1);
+					if (account) {
+						if (account.providerId !== "credential") {
+							// OAuth signup
+							const providerName =
+								account.providerId.charAt(0).toUpperCase() +
+								account.providerId.slice(1);
 
-						await notifyUserSignup(
-							newSession.user.email,
-							newSession.user.name,
-							providerName,
-							newOrgId,
-						);
+							await notifyUserSignup(
+								newSession.user.email,
+								newSession.user.name,
+								providerName,
+								newOrgId,
+							);
 
-						await createResendContact(
-							newSession.user.email,
-							newSession.user.name || undefined,
-						);
+							await createResendContact(
+								newSession.user.email,
+								newSession.user.name || undefined,
+							);
+						} else {
+							// Email signup (after email verification)
+							await notifyUserSignup(
+								newSession.user.email,
+								newSession.user.name,
+								"Email",
+								newOrgId,
+							);
+						}
 					}
 				}
 			}),
