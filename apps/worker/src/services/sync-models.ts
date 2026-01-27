@@ -68,17 +68,18 @@ export async function syncProvidersAndModels() {
 				})
 				.onConflictDoUpdate({
 					target: model.id,
+					// Use explicit defaults for notNull fields when not defined
 					set: {
 						name: modelDef.name,
-						aliases: "aliases" in modelDef ? modelDef.aliases : undefined,
+						aliases: "aliases" in modelDef ? modelDef.aliases : [],
 						description:
-							"description" in modelDef ? modelDef.description : undefined,
+							"description" in modelDef ? modelDef.description : "(empty)",
 						family: modelDef.family,
-						free: "free" in modelDef ? modelDef.free : undefined,
-						output: "output" in modelDef ? modelDef.output : undefined,
-						stability: "stability" in modelDef ? modelDef.stability : undefined,
+						free: "free" in modelDef ? modelDef.free : false,
+						output: "output" in modelDef ? modelDef.output : ["text"],
+						stability: "stability" in modelDef ? modelDef.stability : "stable",
 						releasedAt:
-							"releasedAt" in modelDef ? modelDef.releasedAt : undefined,
+							"releasedAt" in modelDef ? modelDef.releasedAt : new Date(),
 						updatedAt: new Date(),
 					},
 				});
@@ -98,6 +99,8 @@ export async function syncProvidersAndModels() {
 					const existingMapping = mappings[0];
 
 					if (existingMapping) {
+						// Use null (not undefined) for missing fields to ensure DB is updated
+						// undefined in Drizzle means "don't update", null means "set to NULL"
 						await database
 							.update(modelProviderMapping)
 							.set({
@@ -105,68 +108,70 @@ export async function syncProvidersAndModels() {
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
 										? mapping.inputPrice.toString()
-										: undefined,
+										: null,
 								outputPrice:
 									"outputPrice" in mapping && mapping.outputPrice !== undefined
 										? mapping.outputPrice.toString()
-										: undefined,
+										: null,
 								cachedInputPrice:
 									"cachedInputPrice" in mapping &&
 									mapping.cachedInputPrice !== undefined
 										? mapping.cachedInputPrice.toString()
-										: undefined,
+										: null,
 								imageInputPrice:
 									"imageInputPrice" in mapping &&
 									mapping.imageInputPrice !== undefined
 										? mapping.imageInputPrice.toString()
-										: undefined,
+										: null,
 								requestPrice:
 									"requestPrice" in mapping &&
 									mapping.requestPrice !== undefined
 										? mapping.requestPrice.toString()
-										: undefined,
+										: null,
 								contextSize:
-									"contextSize" in mapping ? mapping.contextSize : undefined,
-								maxOutput:
-									"maxOutput" in mapping ? mapping.maxOutput : undefined,
+									"contextSize" in mapping ? mapping.contextSize : null,
+								maxOutput: "maxOutput" in mapping ? mapping.maxOutput : null,
 								streaming: mapping.streaming === false ? false : true,
-								vision: "vision" in mapping ? mapping.vision : undefined,
-								reasoning:
-									"reasoning" in mapping ? mapping.reasoning : undefined,
+								vision: "vision" in mapping ? mapping.vision : null,
+								reasoning: "reasoning" in mapping ? mapping.reasoning : null,
 								reasoningOutput:
 									"reasoningOutput" in mapping
-										? (mapping.reasoningOutput as string | undefined)
-										: undefined,
-								tools: "tools" in mapping ? mapping.tools : undefined,
+										? (mapping.reasoningOutput as string | null)
+										: null,
+								tools: "tools" in mapping ? mapping.tools : null,
+								// NotNull boolean fields - use explicit defaults when not defined
 								jsonOutput:
-									"jsonOutput" in mapping ? mapping.jsonOutput : undefined,
+									"jsonOutput" in mapping ? mapping.jsonOutput : false,
 								jsonOutputSchema:
 									"jsonOutputSchema" in mapping
 										? mapping.jsonOutputSchema
-										: undefined,
-								webSearch:
-									"webSearch" in mapping ? mapping.webSearch : undefined,
+										: false,
+								webSearch: "webSearch" in mapping ? mapping.webSearch : false,
+								// NotNull decimal field - use explicit default
 								discount:
 									"discount" in mapping && mapping.discount !== undefined
 										? mapping.discount.toString()
-										: undefined,
+										: "0",
+								// NotNull enum field - use explicit default
 								stability:
-									"stability" in mapping ? mapping.stability : undefined,
+									"stability" in mapping ? mapping.stability : "stable",
 								supportedParameters:
 									"supportedParameters" in mapping
-										? (mapping.supportedParameters as string[] | undefined)
-										: undefined,
+										? (mapping.supportedParameters as string[] | null)
+										: null,
 								test:
 									"test" in mapping
-										? (mapping.test as "skip" | "only" | undefined)
-										: undefined,
+										? (mapping.test as "skip" | "only" | null)
+										: null,
 								status: "active",
 								deprecatedAt:
-									"deprecatedAt" in mapping ? mapping.deprecatedAt : undefined,
+									"deprecatedAt" in mapping
+										? (mapping.deprecatedAt ?? null)
+										: null,
 								deactivatedAt:
 									"deactivatedAt" in mapping
-										? mapping.deactivatedAt
-										: undefined,
+										? (mapping.deactivatedAt ?? null)
+										: null,
 								updatedAt: new Date(),
 							})
 							.where(eq(modelProviderMapping.id, existingMapping.id));
