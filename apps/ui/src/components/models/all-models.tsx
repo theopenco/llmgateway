@@ -2,6 +2,8 @@
 
 import {
 	Check,
+	ChevronDown,
+	ChevronRight,
 	Code,
 	Copy,
 	Eye,
@@ -16,9 +18,7 @@ import {
 	ArrowUpDown,
 	ArrowUp,
 	ArrowDown,
-	Play,
 	ImagePlus,
-	AlertTriangle,
 	ExternalLink,
 	Percent,
 	Scale,
@@ -36,12 +36,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
 import Footer from "@/components/landing/footer";
-import { ModelCodeExampleDialog } from "@/components/models/model-code-example-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import {
 	Select,
@@ -58,14 +56,9 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/lib/components/table";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/lib/components/tooltip";
-import { useAppConfig } from "@/lib/config";
-import { cn, formatContextSize } from "@/lib/utils";
+import { Toggle } from "@/lib/components/toggle";
+import { TooltipProvider } from "@/lib/components/tooltip";
+import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -92,17 +85,256 @@ interface AllModelsProps {
 }
 
 type SortField =
+	| "provider"
 	| "name"
-	| "providers"
-	| "contextSize"
 	| "inputPrice"
 	| "outputPrice"
-	| "cachedInputPrice"
-	| "requestPrice";
+	| "cachedInputPrice";
 type SortDirection = "asc" | "desc";
 
+// Capability icon type
+interface CapabilityIcon {
+	icon: React.ComponentType<{ className?: string }>;
+	label: string;
+	color: string;
+}
+
+// Flattened row structure for table view
+interface FlattenedModelRow {
+	model: ApiModel;
+	provider: ApiModelProviderMapping;
+	providerInfo: ApiProvider;
+	hasAdditionalPricing: boolean;
+	rowKey: string;
+	capabilities: CapabilityIcon[];
+	ProviderIcon: React.ComponentType<{ className?: string }> | null;
+}
+
+// Helper to compute capabilities (moved outside component for performance)
+function computeCapabilities(
+	provider: ApiModelProviderMapping,
+	model: ApiModel,
+): CapabilityIcon[] {
+	const capabilities: CapabilityIcon[] = [];
+	if (provider.streaming) {
+		capabilities.push({
+			icon: Zap,
+			label: "Streaming",
+			color: "text-blue-500",
+		});
+	}
+	if (provider.vision) {
+		capabilities.push({ icon: Eye, label: "Vision", color: "text-green-500" });
+	}
+	if (provider.tools) {
+		capabilities.push({
+			icon: Wrench,
+			label: "Tools",
+			color: "text-purple-500",
+		});
+	}
+	if (provider.reasoning) {
+		capabilities.push({
+			icon: MessageSquare,
+			label: "Reasoning",
+			color: "text-orange-500",
+		});
+	}
+	if (provider.jsonOutput) {
+		capabilities.push({
+			icon: Braces,
+			label: "JSON Output",
+			color: "text-cyan-500",
+		});
+	}
+	if (provider.jsonOutputSchema) {
+		capabilities.push({
+			icon: FileJson2,
+			label: "Structured JSON",
+			color: "text-teal-500",
+		});
+	}
+	if (model?.output?.includes("image")) {
+		capabilities.push({
+			icon: ImagePlus,
+			label: "Image Generation",
+			color: "text-pink-500",
+		});
+	}
+	if (provider.webSearch) {
+		capabilities.push({
+			icon: Globe,
+			label: "Web Search",
+			color: "text-sky-500",
+		});
+	}
+	return capabilities;
+}
+
+// Memoized table row component for performance
+const ModelTableRow = React.memo(
+	({
+		row,
+		isExpanded,
+		copiedModel,
+		onToggleExpand,
+		onCopy,
+		onNavigate,
+	}: {
+		row: FlattenedModelRow;
+		isExpanded: boolean;
+		copiedModel: string | null;
+		onToggleExpand: () => void;
+		onCopy: (text: string, e: React.MouseEvent) => void;
+		onNavigate: () => void;
+	}) => {
+		const { ProviderIcon } = row;
+
+		return (
+			<>
+				<TableRow
+					className="cursor-pointer hover:bg-muted/50 transition-colors"
+					onClick={onNavigate}
+				>
+					{/* Provider Column */}
+					<TableCell className="font-medium">
+						<div className="flex items-center gap-2">
+							{row.hasAdditionalPricing ? (
+								<button
+									onClick={(e) => {
+										e.stopPropagation();
+										onToggleExpand();
+									}}
+									className="p-0.5 hover:bg-muted rounded"
+								>
+									{isExpanded ? (
+										<ChevronDown className="h-4 w-4 text-muted-foreground" />
+									) : (
+										<ChevronRight className="h-4 w-4 text-muted-foreground" />
+									)}
+								</button>
+							) : (
+								<div className="w-5 h-5" />
+							)}
+							{ProviderIcon ? (
+								<ProviderIcon className="w-4 h-4" />
+							) : (
+								<div
+									className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
+									style={{
+										backgroundColor: row.providerInfo?.color || "#6b7280",
+									}}
+								>
+									{(row.providerInfo?.name || row.provider.providerId)
+										.charAt(0)
+										.toUpperCase()}
+								</div>
+							)}
+							<span className="text-sm">
+								{row.providerInfo?.name || row.provider.providerId}
+							</span>
+							<ExternalLink className="h-3 w-3 text-muted-foreground" />
+						</div>
+					</TableCell>
+
+					{/* Model ID Column */}
+					<TableCell>
+						<div className="flex items-center gap-2">
+							<span className="font-medium text-sm">{row.model.id}</span>
+							<button
+								onClick={(e) => onCopy(row.model.id, e)}
+								className="p-1 hover:bg-muted rounded transition-colors"
+								title={
+									copiedModel === row.model.id ? "Copied!" : "Copy model ID"
+								}
+							>
+								{copiedModel === row.model.id ? (
+									<Check className="h-3 w-3 text-green-500" />
+								) : (
+									<Copy className="h-3 w-3 text-muted-foreground" />
+								)}
+							</button>
+							<ExternalLink className="h-3 w-3 text-muted-foreground" />
+						</div>
+					</TableCell>
+
+					{/* Input Price Column */}
+					<TableCell className="text-right font-mono text-sm">
+						{row.provider.inputPrice !== null &&
+						row.provider.inputPrice !== undefined
+							? `$${(parseFloat(row.provider.inputPrice) * 1e6).toFixed(2)}`
+							: "—"}
+					</TableCell>
+
+					{/* Output Price Column */}
+					<TableCell className="text-right font-mono text-sm">
+						{row.provider.outputPrice !== null &&
+						row.provider.outputPrice !== undefined
+							? `$${(parseFloat(row.provider.outputPrice) * 1e6).toFixed(2)}`
+							: "—"}
+					</TableCell>
+
+					{/* Cache Read Price Column */}
+					<TableCell className="text-right font-mono text-sm">
+						{row.provider.cachedInputPrice !== null &&
+						row.provider.cachedInputPrice !== undefined
+							? `$${(parseFloat(row.provider.cachedInputPrice) * 1e6).toFixed(2)}`
+							: "—"}
+					</TableCell>
+
+					{/* Features Column */}
+					<TableCell className="text-center">
+						<div className="flex justify-center gap-1">
+							{row.capabilities
+								.slice(0, 4)
+								.map(({ icon: Icon, label, color }) => (
+									<div key={label} className="p-0.5" title={label}>
+										<Icon className={`h-4 w-4 ${color}`} />
+									</div>
+								))}
+						</div>
+					</TableCell>
+				</TableRow>
+
+				{/* Expanded row for additional pricing */}
+				{isExpanded && row.hasAdditionalPricing && (
+					<TableRow className="bg-muted/30">
+						<TableCell colSpan={6} className="py-3">
+							<div className="pl-8">
+								<div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+									Additional Pricing
+								</div>
+								<div className="flex gap-3">
+									{row.provider.webSearch && (
+										<Badge
+											variant="outline"
+											className="text-sm px-3 py-1.5 bg-background"
+										>
+											<Globe className="h-4 w-4 mr-2 text-purple-500" />
+											Web Search
+										</Badge>
+									)}
+									{row.provider.requestPrice &&
+										parseFloat(row.provider.requestPrice) > 0 && (
+											<Badge
+												variant="outline"
+												className="text-sm px-3 py-1.5 bg-background"
+											>
+												Per Request $
+												{parseFloat(row.provider.requestPrice).toFixed(3)}
+											</Badge>
+										)}
+								</div>
+							</div>
+						</TableCell>
+					</TableRow>
+				)}
+			</>
+		);
+	},
+);
+
 export function AllModels({ children, models, providers }: AllModelsProps) {
-	const config = useAppConfig();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const isMobile = useIsMobile();
@@ -120,6 +352,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		}
 	}, [isMobile, searchParams, viewMode]);
 
+	const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	// Search and filter states
@@ -470,22 +703,22 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			let bValue: any;
 
 			switch (sortField) {
+				case "provider":
+					// For grid view, sort by first provider name
+					aValue = (
+						a.providerDetails[0]?.providerInfo?.name ||
+						a.providerDetails[0]?.provider.providerId ||
+						""
+					).toLowerCase();
+					bValue = (
+						b.providerDetails[0]?.providerInfo?.name ||
+						b.providerDetails[0]?.provider.providerId ||
+						""
+					).toLowerCase();
+					break;
 				case "name":
 					aValue = (a.name || a.id).toLowerCase();
 					bValue = (b.name || b.id).toLowerCase();
-					break;
-				case "providers":
-					aValue = a.providerDetails.length;
-					bValue = b.providerDetails.length;
-					break;
-				case "contextSize":
-					// Get the max context size among all providers for this model
-					aValue = Math.max(
-						...a.providerDetails.map((p) => p.provider.contextSize || 0),
-					);
-					bValue = Math.max(
-						...b.providerDetails.map((p) => p.provider.contextSize || 0),
-					);
 					break;
 				case "inputPrice": {
 					// Get the min input price among all providers for this model
@@ -539,22 +772,6 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 							: Infinity;
 					break;
 				}
-				case "requestPrice": {
-					// Get the min request price among all providers for this model
-					const aRequestPrices = a.providerDetails
-						.map((p) => p.provider.requestPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bRequestPrices = b.providerDetails
-						.map((p) => p.provider.requestPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aRequestPrices.length > 0 ? Math.min(...aRequestPrices) : Infinity;
-					bValue =
-						bRequestPrices.length > 0 ? Math.min(...bRequestPrices) : Infinity;
-					break;
-				}
 				default:
 					return 0;
 			}
@@ -579,6 +796,142 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		return uniqueProviders.size;
 	}, [modelsWithProviders]);
 
+	// Flattened rows for table view (one row per provider-model combination)
+	// Pre-compute capabilities and provider icons for performance
+	const flattenedRows: FlattenedModelRow[] = useMemo(() => {
+		const rows: FlattenedModelRow[] = [];
+
+		for (const model of modelsWithProviders) {
+			for (const { provider, providerInfo } of model.providerDetails) {
+				const hasAdditionalPricing =
+					provider.webSearch ||
+					(provider.requestPrice !== null &&
+						provider.requestPrice !== undefined &&
+						parseFloat(provider.requestPrice) > 0);
+
+				rows.push({
+					model,
+					provider,
+					providerInfo,
+					hasAdditionalPricing,
+					rowKey: `${provider.providerId}-${model.id}`,
+					capabilities: computeCapabilities(provider, model),
+					ProviderIcon: getProviderIcon(provider.providerId),
+				});
+			}
+		}
+
+		// Sort flattened rows
+		return rows.sort((a, b) => {
+			if (!sortField) {
+				// Default: sort by provider name, then model name
+				const providerCompare = (
+					a.providerInfo?.name || a.provider.providerId
+				).localeCompare(b.providerInfo?.name || b.provider.providerId);
+				if (providerCompare !== 0) {
+					return providerCompare;
+				}
+				return (a.model.name || a.model.id).localeCompare(
+					b.model.name || b.model.id,
+				);
+			}
+
+			let aValue: string | number;
+			let bValue: string | number;
+
+			switch (sortField) {
+				case "provider":
+					aValue = (
+						a.providerInfo?.name || a.provider.providerId
+					).toLowerCase();
+					bValue = (
+						b.providerInfo?.name || b.provider.providerId
+					).toLowerCase();
+					break;
+				case "name":
+					aValue = (a.model.name || a.model.id).toLowerCase();
+					bValue = (b.model.name || b.model.id).toLowerCase();
+					break;
+				case "inputPrice": {
+					const aPrice = a.provider.inputPrice;
+					const bPrice = b.provider.inputPrice;
+					aValue =
+						aPrice !== null && aPrice !== undefined
+							? parseFloat(aPrice)
+							: Infinity;
+					bValue =
+						bPrice !== null && bPrice !== undefined
+							? parseFloat(bPrice)
+							: Infinity;
+					break;
+				}
+				case "outputPrice": {
+					const aPrice = a.provider.outputPrice;
+					const bPrice = b.provider.outputPrice;
+					aValue =
+						aPrice !== null && aPrice !== undefined
+							? parseFloat(aPrice)
+							: Infinity;
+					bValue =
+						bPrice !== null && bPrice !== undefined
+							? parseFloat(bPrice)
+							: Infinity;
+					break;
+				}
+				case "cachedInputPrice": {
+					const aPrice = a.provider.cachedInputPrice;
+					const bPrice = b.provider.cachedInputPrice;
+					aValue =
+						aPrice !== null && aPrice !== undefined
+							? parseFloat(aPrice)
+							: Infinity;
+					bValue =
+						bPrice !== null && bPrice !== undefined
+							? parseFloat(bPrice)
+							: Infinity;
+					break;
+				}
+				default:
+					return 0;
+			}
+
+			if (aValue < bValue) {
+				return sortDirection === "asc" ? -1 : 1;
+			}
+			if (aValue > bValue) {
+				return sortDirection === "asc" ? 1 : -1;
+			}
+			return 0;
+		});
+	}, [modelsWithProviders, sortField, sortDirection]);
+
+	// Toggle expanded row
+	const toggleRowExpanded = useCallback((rowKey: string) => {
+		setExpandedRows((prev) => {
+			const next = new Set(prev);
+			if (next.has(rowKey)) {
+				next.delete(rowKey);
+			} else {
+				next.add(rowKey);
+			}
+			return next;
+		});
+	}, []);
+
+	const copyToClipboard = useCallback(
+		async (text: string, e: React.MouseEvent) => {
+			e.stopPropagation();
+			try {
+				await navigator.clipboard.writeText(text);
+				setCopiedModel(text);
+				setTimeout(() => setCopiedModel(null), 2000);
+			} catch (err) {
+				console.error("Failed to copy text:", err);
+			}
+		},
+		[],
+	);
+
 	const handleSort = (field: SortField) => {
 		if (sortField === field) {
 			const newDir: SortDirection = sortDirection === "asc" ? "desc" : "asc";
@@ -602,31 +955,6 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		);
 	};
 
-	const getStabilityBadgeProps = (stability?: StabilityLevel | null) => {
-		switch (stability) {
-			case "beta":
-				return {
-					variant: "secondary" as const,
-					color: "text-blue-600",
-					label: "BETA",
-				};
-			case "unstable":
-				return {
-					variant: "destructive" as const,
-					color: "text-red-600",
-					label: "UNSTABLE",
-				};
-			case "experimental":
-				return {
-					variant: "destructive" as const,
-					color: "text-orange-600",
-					label: "EXPERIMENTAL",
-				};
-			default:
-				return null;
-		}
-	};
-
 	const shouldShowStabilityWarning = (
 		stability?: StabilityLevel | null,
 	): boolean => {
@@ -635,27 +963,6 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			stability !== undefined &&
 			["unstable", "experimental"].includes(stability)
 		);
-	};
-
-	const hasProviderStabilityWarning = (
-		provider: ApiModelProviderMapping,
-	): boolean => {
-		const providerStability = provider.stability;
-		return (
-			providerStability !== null &&
-			providerStability !== undefined &&
-			["unstable", "experimental"].includes(providerStability)
-		);
-	};
-
-	const copyToClipboard = async (text: string) => {
-		try {
-			await navigator.clipboard.writeText(text);
-			setCopiedModel(text);
-			setTimeout(() => setCopiedModel(null), 2000);
-		} catch (err) {
-			console.error("Failed to copy text:", err);
-		}
 	};
 
 	const formatPrice = (
@@ -883,7 +1190,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 					{/* Capabilities */}
 					<div className="space-y-3">
 						<h3 className="font-medium text-sm">Capabilities</h3>
-						<div className="space-y-2">
+						<div className="flex flex-wrap gap-2">
 							{[
 								{
 									key: "streaming",
@@ -911,25 +1218,25 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 								},
 								{
 									key: "jsonOutput",
-									label: "JSON Output",
+									label: "JSON",
 									icon: Braces,
 									color: "text-cyan-500",
 								},
 								{
 									key: "jsonOutputSchema",
-									label: "Structured JSON Output",
+									label: "Structured JSON",
 									icon: FileJson2,
 									color: "text-teal-500",
 								},
 								{
 									key: "imageGeneration",
-									label: "Image Generation",
+									label: "Image Gen",
 									icon: ImagePlus,
 									color: "text-pink-500",
 								},
 								{
 									key: "webSearch",
-									label: "Native Web Search",
+									label: "Web Search",
 									icon: Globe,
 									color: "text-sky-500",
 								},
@@ -946,39 +1253,32 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 									color: "text-red-500",
 								},
 							].map(({ key, label, icon: Icon, color }) => (
-								<div
+								<Toggle
 									key={`${key}-${label}`}
-									className="flex items-center space-x-2"
+									variant="outline"
+									size="sm"
+									pressed={
+										filters.capabilities[
+											key as keyof typeof filters.capabilities
+										]
+									}
+									onPressedChange={(pressed) => {
+										setFilters((prev) => ({
+											...prev,
+											capabilities: {
+												...prev.capabilities,
+												[key]: pressed,
+											},
+										}));
+										updateUrlWithFilters({
+											[key]: pressed ? "true" : undefined,
+										});
+									}}
+									className="gap-1.5"
 								>
-									<Checkbox
-										id={key}
-										checked={
-											filters.capabilities[
-												key as keyof typeof filters.capabilities
-											]
-										}
-										onCheckedChange={(checked) => {
-											const isChecked = checked === true;
-											setFilters((prev) => ({
-												...prev,
-												capabilities: {
-													...prev.capabilities,
-													[key]: isChecked,
-												},
-											}));
-											updateUrlWithFilters({
-												[key]: isChecked ? "true" : undefined,
-											});
-										}}
-									/>
-									<label
-										htmlFor={key}
-										className="flex items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-									>
-										<Icon className={`h-4 w-4 ${color}`} />
-										{label}
-									</label>
-								</div>
+									<Icon className={`h-3.5 w-3.5 ${color}`} />
+									<span className="text-xs">{label}</span>
+								</Toggle>
 							))}
 						</div>
 					</div>
@@ -1128,439 +1428,80 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 
 	const renderTableView = () => (
 		<div className="rounded-md border">
-			<div className="relative w-full overflow-x-auto sm:overflow-x-scroll">
-				<Table className="min-w-[700px] sm:min-w-0">
+			<div className="relative w-full overflow-x-auto">
+				<Table>
 					<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
 						<TableRow>
-							<TableHead className="w-[250px] bg-background/95 backdrop-blur-sm border-b">
+							<TableHead className="w-[180px] bg-background/95 backdrop-blur-sm border-b">
+								<Button
+									variant="ghost"
+									onClick={() => handleSort("provider")}
+									className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
+								>
+									Provider
+									{getSortIcon("provider")}
+								</Button>
+							</TableHead>
+							<TableHead className="w-[280px] bg-background/95 backdrop-blur-sm border-b">
 								<Button
 									variant="ghost"
 									onClick={() => handleSort("name")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
+									className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
 								>
-									Model
+									Model ID
 									{getSortIcon("name")}
 								</Button>
 							</TableHead>
-							<TableHead className="bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("providers")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start"
-								>
-									Providers
-									{getSortIcon("providers")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("contextSize")}
-									className="h-auto p-0 font-semibold hover:bg-transparent"
-								>
-									Context Size
-									{getSortIcon("contextSize")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
 								<Button
 									variant="ghost"
 									onClick={() => handleSort("inputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent"
+									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 								>
-									Input Price
+									Input $/M
 									{getSortIcon("inputPrice")}
 								</Button>
 							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("cachedInputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent"
-								>
-									Cached Input Price
-									{getSortIcon("cachedInputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
 								<Button
 									variant="ghost"
 									onClick={() => handleSort("outputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent"
+									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 								>
-									Output Price
+									Output $/M
 									{getSortIcon("outputPrice")}
 								</Button>
 							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
+							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
 								<Button
 									variant="ghost"
-									onClick={() => handleSort("requestPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent"
+									onClick={() => handleSort("cachedInputPrice")}
+									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 								>
-									Request Price
-									{getSortIcon("requestPrice")}
+									Cache Read $/M
+									{getSortIcon("cachedInputPrice")}
 								</Button>
 							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
-								Native Web Search
-							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
-								Capabilities
-							</TableHead>
-							<TableHead className="text-center">Stability</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b">
-								Actions
+							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b uppercase text-xs tracking-wider font-semibold">
+								Features
 							</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{modelsWithProviders.map((model) => (
-							<TableRow
-								key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
-								className="cursor-pointer hover:bg-muted/50 transition-colors"
-								onClick={() =>
-									router.push(`/models/${encodeURIComponent(model.id)}`)
+						{flattenedRows.map((row) => (
+							<ModelTableRow
+								key={row.rowKey}
+								row={row}
+								isExpanded={expandedRows.has(row.rowKey)}
+								copiedModel={copiedModel}
+								onToggleExpand={() => toggleRowExpanded(row.rowKey)}
+								onCopy={copyToClipboard}
+								onNavigate={() =>
+									router.push(
+										`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+									)
 								}
-							>
-								<TableCell className="font-medium">
-									<div className="space-y-1">
-										<div className="font-semibold text-sm flex items-center gap-2">
-											<div className="truncate max-w-[150px]">
-												{model.name || model.id}
-											</div>
-											{shouldShowStabilityWarning(model.stability) && (
-												<AlertTriangle className="h-4 w-4 text-orange-500" />
-											)}
-											{model.free &&
-												!model.providerDetails.some(
-													(p) =>
-														p.provider.requestPrice &&
-														parseFloat(p.provider.requestPrice) > 0,
-												) && (
-													<Badge
-														variant="secondary"
-														className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200"
-													>
-														<Gift className="h-3 w-3 mr-1" />
-														Free
-													</Badge>
-												)}
-										</div>
-										<div className="text-xs text-muted-foreground">
-											Family:{" "}
-											<Badge variant="outline" className="text-xs">
-												{model.family}
-											</Badge>
-										</div>
-										<div className="flex items-center gap-1">
-											<code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate max-w-[150px]">
-												{model.id}
-											</code>
-											<div className="flex items-center gap-1">
-												<Button
-													variant="ghost"
-													size="sm"
-													className="h-5 w-5 p-0"
-													onClick={(e) => {
-														e.stopPropagation();
-														copyToClipboard(model.id);
-													}}
-													title="Copy root model ID"
-												>
-													{copiedModel === model.id ? (
-														<Check className="h-3 w-3 text-green-600" />
-													) : (
-														<Copy className="h-3 w-3" />
-													)}
-												</Button>
-												<div
-													onClick={(e) => e.stopPropagation()}
-													onMouseDown={(e) => e.stopPropagation()}
-												>
-													<ModelCodeExampleDialog modelId={model.id} />
-												</div>
-											</div>
-										</div>
-									</div>
-								</TableCell>
-
-								<TableCell>
-									<div className="flex flex-col flex-wrap gap-2">
-										{model.providerDetails.map(({ provider, providerInfo }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="flex items-center gap-1"
-											>
-												<div className="w-5 h-5 flex items-center justify-center">
-													{(() => {
-														const ProviderIcon = getProviderIcon(
-															provider.providerId,
-														);
-														return ProviderIcon ? (
-															<ProviderIcon className="w-4 h-4" />
-														) : (
-															<div
-																className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
-																style={{
-																	backgroundColor:
-																		providerInfo?.color || "#6b7280",
-																}}
-															>
-																{(providerInfo?.name || provider.providerId)
-																	.charAt(0)
-																	.toUpperCase()}
-															</div>
-														);
-													})()}
-												</div>
-												<Badge
-													variant="secondary"
-													className="text-xs"
-													style={{
-														borderColor: providerInfo?.color ?? undefined,
-													}}
-												>
-													{providerInfo?.name || provider.providerId}
-												</Badge>
-												{hasProviderStabilityWarning(provider) && (
-													<AlertTriangle className="h-3 w-3 text-orange-500" />
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm"
-											>
-												{provider.contextSize
-													? formatContextSize(provider.contextSize)
-													: "—"}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{typeof formatPrice(
-													provider.inputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(provider.inputPrice, provider.discount) +
-													"/M"
-												) : (
-													<div className="flex gap-1 flex-row justify-center">
-														{formatPrice(
-															provider.inputPrice,
-															provider.discount,
-														)}
-														<span className="text-muted-foreground">/M</span>
-													</div>
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{typeof formatPrice(
-													provider.cachedInputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(
-														provider.cachedInputPrice,
-														provider.discount,
-													) + "/M"
-												) : (
-													<div className="flex gap-1 flex-row justify-center">
-														{formatPrice(
-															provider.cachedInputPrice,
-															provider.discount,
-														)}
-														<span className="text-muted-foreground">/M</span>
-													</div>
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{typeof formatPrice(
-													provider.outputPrice,
-													provider.discount,
-												) === "string" ? (
-													formatPrice(provider.outputPrice, provider.discount) +
-													"/M"
-												) : (
-													<div className="flex gap-1 flex-row justify-center">
-														{formatPrice(
-															provider.outputPrice,
-															provider.discount,
-														)}
-														<span className="text-muted-foreground">/M</span>
-													</div>
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{provider.requestPrice !== null &&
-												provider.requestPrice !== undefined &&
-												parseFloat(provider.requestPrice) > 0 ? (
-													provider.discount &&
-													parseFloat(provider.discount) > 0 ? (
-														<div className="flex flex-col justify-center items-center">
-															<span className="line-through text-muted-foreground text-xs">
-																${parseFloat(provider.requestPrice).toFixed(3)}
-															</span>
-															<span className="text-green-600 font-semibold">
-																$
-																{(
-																	parseFloat(provider.requestPrice) *
-																	(1 - parseFloat(provider.discount))
-																).toFixed(3)}
-															</span>
-															<span className="text-muted-foreground text-xs">
-																/req
-															</span>
-														</div>
-													) : (
-														<>
-															${parseFloat(provider.requestPrice).toFixed(3)}
-															<span className="text-muted-foreground text-xs ml-1">
-																/req
-															</span>
-														</>
-													)
-												) : (
-													"—"
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-1">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="text-sm font-mono"
-											>
-												{provider.webSearch ? "Supported" : "—"}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									<div className="space-y-2">
-										{model.providerDetails.map(({ provider }) => (
-											<div
-												key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-												className="flex justify-center gap-1"
-											>
-												{getCapabilityIcons(provider, model).map(
-													({ icon: Icon, label, color }) => (
-														<Tooltip key={`${label}-${model.id}`}>
-															<TooltipTrigger asChild>
-																<div
-																	className="cursor-help focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm p-0.5 -m-0.5"
-																	tabIndex={0}
-																	role="button"
-																	aria-label={`Model capability: ${label}`}
-																>
-																	<Icon className={`h-4 w-4 ${color}`} />
-																</div>
-															</TooltipTrigger>
-															<TooltipContent
-																className="bg-popover text-popover-foreground border border-border shadow-md"
-																side="top"
-																align="center"
-																avoidCollisions={true}
-															>
-																<p>{label}</p>
-															</TooltipContent>
-														</Tooltip>
-													),
-												)}
-											</div>
-										))}
-									</div>
-								</TableCell>
-
-								<TableCell className="text-center">
-									{(() => {
-										const stabilityProps = getStabilityBadgeProps(
-											model.stability,
-										);
-										return stabilityProps ? (
-											<Badge
-												variant={stabilityProps.variant}
-												className="text-xs px-2 py-1"
-											>
-												{stabilityProps.label}
-											</Badge>
-										) : (
-											<Badge variant="outline" className="text-xs px-2 py-1">
-												STABLE
-											</Badge>
-										);
-									})()}
-								</TableCell>
-
-								<TableCell className="text-center">
-									<Button
-										variant="outline"
-										size="sm"
-										className="h-8 gap-2"
-										title={`Try ${model.name || model.id} in playground`}
-										onClick={(e) => e.stopPropagation()}
-										asChild
-									>
-										<a
-											href={`${config.playgroundUrl}?model=${encodeURIComponent(`${model.providerDetails[0]?.provider.providerId}/${model.id}`)}`}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											<Play className="h-3 w-3" />
-											Try it
-										</a>
-									</Button>
-								</TableCell>
-							</TableRow>
+							/>
 						))}
 					</TableBody>
 				</Table>
