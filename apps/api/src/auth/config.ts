@@ -401,9 +401,12 @@ async function createResendContact(
 	}
 }
 
-export async function updateResendContactAttributes(
+export async function updateResendContact(
 	email: string,
-	attributes: Record<string, string | number | boolean>,
+	options?: {
+		name?: string | null;
+		attributes?: Record<string, string | number | boolean>;
+	},
 ): Promise<void> {
 	const client = getResendClient();
 
@@ -413,42 +416,48 @@ export async function updateResendContactAttributes(
 	}
 
 	try {
+		const firstName = options?.name?.split(" ")[0];
+		const lastName = options?.name?.split(" ").slice(1).join(" ");
+
 		const properties: Record<string, string> = {};
-		for (const [key, value] of Object.entries(attributes)) {
-			properties[key] = String(value);
+		if (options?.attributes) {
+			for (const [key, value] of Object.entries(options.attributes)) {
+				properties[key] = String(value);
+			}
 		}
 
-		logger.debug("Attempting to update Resend contact attributes", {
+		logger.debug("Attempting to update Resend contact", {
 			email,
+			firstName,
+			lastName,
 			properties,
 		});
 
 		const { data, error } = await client.contacts.update({
 			email,
+			...(firstName && { firstName }),
+			...(lastName && { lastName }),
 			...(Object.keys(properties).length > 0 && { properties }),
 		});
 
 		if (error) {
 			if (error.message?.includes("not found")) {
-				logger.warn("Resend contact not found, skipping attribute update", {
+				logger.warn("Resend contact not found, skipping update", {
 					email,
-					properties,
 				});
 				return;
 			}
 			throw new Error(`Resend API error: ${error.message}`);
 		}
 
-		logger.info("Successfully updated Resend contact attributes", {
+		logger.info("Successfully updated Resend contact", {
 			email,
 			contactId: data?.id,
-			properties,
 		});
 	} catch (error) {
-		logger.error("Failed to update Resend contact attributes", {
+		logger.error("Failed to update Resend contact", {
 			...(error instanceof Error ? { err: error } : { error }),
 			email,
-			attributes,
 		});
 	}
 }

@@ -2,10 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {
-	apiAuth as auth,
-	updateResendContactAttributes,
-} from "@/auth/config.js";
+import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
@@ -219,6 +216,11 @@ user.openapi(updateUser, async (c) => {
 		})
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
+
+	// Sync name to Resend if email is verified (contact exists in Resend)
+	if (updatedUser.emailVerified && updateData.name !== undefined) {
+		await updateResendContact(updatedUser.email, { name: updateData.name });
+	}
 
 	const isAdmin = isAdminEmail(updatedUser.email);
 
@@ -468,8 +470,8 @@ user.openapi(completeOnboarding, async (c) => {
 
 	// Update Resend contact if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified) {
-		await updateResendContactAttributes(updatedUser.email, {
-			onboarding_completed: true,
+		await updateResendContact(updatedUser.email, {
+			attributes: { onboarding_completed: true },
 		});
 	}
 
