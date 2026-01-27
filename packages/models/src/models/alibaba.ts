@@ -285,7 +285,7 @@ export const alibabaModels = [
 				requestPrice: 0,
 				contextSize: 131072,
 				maxOutput: 32768,
-				reasoning: true,
+				reasoning: false,
 				streaming: true,
 				vision: false,
 				tools: true,
