@@ -472,6 +472,14 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 			defaultCookieAttributes: {
 				domain: cookieDomain,
 			},
+			cookies: {
+				state: {
+					attributes: {
+						sameSite: "none",
+						secure: true,
+					},
+				},
+			},
 		},
 		session: {
 			cookieCache: {
