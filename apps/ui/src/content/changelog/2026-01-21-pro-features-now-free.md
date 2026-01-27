@@ -3,56 +3,53 @@ id: "35"
 slug: "pro-features-now-free"
 date: "2026-01-21"
 title: "Pro Features Now Free for Everyone"
-summary: "All Pro plan features are now available on the Free plan. BYOK, Team Management, Advanced Analytics, and 30-day data retention are now included for all users."
+summary: "We're simplifying our pricing. All Pro plan features are now free for everyone — BYOK, team management, 30-day data retention, and more."
+image: "/changelog/pro-features-free.jpeg"
 ---
 
-## All Pro Features Now Free
+## Simpler Pricing, More Value
 
-We're making all features that were previously exclusive to the Pro plan available to everyone on the Free plan.
+We're retiring the Pro plan and making all its features available to everyone for free. No more complicated tiers — just straightforward, transparent pricing.
 
-### What's Now Included for Free
+### What's Now Free for Everyone
 
 **Bring Your Own Keys (BYOK)**
 
-Use your own provider API keys from OpenAI, Anthropic, Google, and more. A small 1% platform fee applies to track usage and provide analytics.
+Use your own API keys from OpenAI, Anthropic, Google, and 60+ other providers. Pay providers directly with just a 1% tracking fee from us.
 
 **Team Management**
 
-Invite team members and manage permissions. Collaborate with your team on projects and share API keys across your organization.
+Invite up to 5 team members and manage roles and permissions. Need more seats? Just reach out.
+
+**Extended Limits**
+
+- 20 API keys per project (up from 5)
+- 10 projects per organization (up from 3)
+- 30-day data retention (up from 3 days)
 
 **Advanced Analytics**
 
-Full access to usage analytics, cost breakdowns, and insights. Monitor your LLM usage across all providers in one dashboard.
+Full access to real-time cost and latency analytics. Monitor usage across all providers in one dashboard.
 
-**30-Day Data Retention**
+**Auto-routing & Caching**
 
-Extended log retention for all users. Review your request history and debug issues with ease.
+Automatic provider routing for optimal performance. Prompt caching for faster responses and lower costs.
 
-**Auto-routing & Vendor Selection**
+### New Simplified Pricing
 
-Automatic provider routing for optimal performance and cost. Let the gateway choose the best provider for each request.
+**Credits**: Flat 5% platform fee — no hidden processing fees
 
-**Budgets & Spend Controls**
+**BYOK**: 1% tracking fee when using your own API keys
 
-Set spending limits and budgets. Control your LLM costs across projects and API keys.
-
-**Prompt Caching**
-
-Cache prompts for faster responses. Reduce latency and costs with intelligent caching.
-
-**Higher Rate Limits**
-
-20 requests per minute for free models (up from 5). Paid models have no rate limits.
-
-### Simplified Pricing
-
-**Platform Fee**: 5% on credit usage for all users
-
-**BYOK Fee**: 1% fee when using your own API keys (you pay providers directly)
+That's it. Simple and transparent.
 
 ### For Existing Pro Subscribers
 
-Your subscription will continue until the end of your billing period. After that, you'll automatically have access to all the same features on the Free plan at no cost.
+Your subscription will be cancelled automatically. All your features stay exactly the same — they're just free now.
+
+### Need More?
+
+For custom SLAs, dedicated infrastructure, higher limits, or priority support, our Enterprise plan has you covered. Contact us at contact@llmgateway.io.
 
 ---
 
