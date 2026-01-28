@@ -240,7 +240,13 @@ const ModelTableRow = React.memo(
 					{/* Model ID Column */}
 					<TableCell>
 						<div className="flex items-center gap-2">
-							<span className="font-medium text-sm">{row.model.id}</span>
+							<Link
+								href={`/models/${encodeURIComponent(row.model.id)}`}
+								onClick={(e) => e.stopPropagation()}
+								className="font-medium text-sm hover:text-primary hover:underline"
+							>
+								{row.model.id}
+							</Link>
 							<button
 								onClick={(e) => onCopy(row.model.id, e)}
 								className="p-1 hover:bg-muted rounded transition-colors"
@@ -254,7 +260,6 @@ const ModelTableRow = React.memo(
 									<Copy className="h-3 w-3 text-muted-foreground" />
 								)}
 							</button>
-							<ExternalLink className="h-3 w-3 text-muted-foreground" />
 						</div>
 					</TableCell>
 
