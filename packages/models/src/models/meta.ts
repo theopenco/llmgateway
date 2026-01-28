@@ -380,7 +380,7 @@ export const metaModels = [
 		name: "Llama 3 8B Instruct",
 		description: "Llama 3 8B instruction-following model.",
 		family: "meta",
-		releasedAt: new Date("2024-04-18"),
+		releasedAt: new Date("2025-04-03"),
 		providers: [
 			{
 				providerId: "novita",
@@ -424,7 +424,7 @@ export const metaModels = [
 		name: "Llama 3.2 3B Instruct",
 		description: "Compact Llama 3.2 3B for efficient inference.",
 		family: "meta",
-		releasedAt: new Date("2024-09-25"),
+		releasedAt: new Date("2024-09-18"),
 		providers: [
 			{
 				providerId: "novita",

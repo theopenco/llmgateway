@@ -538,7 +538,7 @@ export const alibabaModels = [
 		name: "Qwen3 VL 235B A22B Instruct",
 		description: "Vision-language Qwen 3 MoE model, 235B size.",
 		family: "alibaba",
-		releasedAt: new Date("2025-07-21"),
+		releasedAt: new Date("2025-09-23"),
 		providers: [
 			{
 				providerId: "novita",
@@ -560,7 +560,7 @@ export const alibabaModels = [
 		name: "Qwen3 VL 235B A22B Thinking",
 		description: "Vision-language Qwen 3 MoE with reasoning capabilities.",
 		family: "alibaba",
-		releasedAt: new Date("2025-07-25"),
+		releasedAt: new Date("2025-09-24"),
 		providers: [
 			{
 				providerId: "novita",
@@ -878,7 +878,7 @@ export const alibabaModels = [
 		name: "Qwen3 VL 30B A3B Instruct",
 		description: "Vision-language Qwen 3 MoE model, 30B size.",
 		family: "alibaba",
-		releasedAt: new Date("2025-07-21"),
+		releasedAt: new Date("2025-10-05"),
 		providers: [
 			{
 				providerId: "novita",
@@ -900,7 +900,7 @@ export const alibabaModels = [
 		name: "Qwen3 VL 30B A3B Thinking",
 		description: "Vision-language Qwen 3 MoE with reasoning capabilities.",
 		family: "alibaba",
-		releasedAt: new Date("2025-07-25"),
+		releasedAt: new Date("2025-10-11"),
 		providers: [
 			{
 				providerId: "novita",

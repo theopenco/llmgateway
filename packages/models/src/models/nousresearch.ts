@@ -29,7 +29,7 @@ export const nousresearchModels = [
 		name: "Hermes 2 Pro Llama 3 8B",
 		description: "Nous Research Hermes 2 Pro based on Llama 3 8B.",
 		family: "nousresearch",
-		releasedAt: new Date("2024-04-22"),
+		releasedAt: new Date("2024-05-27"),
 		providers: [
 			{
 				providerId: "novita",
