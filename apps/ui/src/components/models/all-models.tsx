@@ -240,7 +240,13 @@ const ModelTableRow = React.memo(
 					{/* Model ID Column */}
 					<TableCell>
 						<div className="flex items-center gap-2">
-							<span className="font-medium text-sm">{row.model.id}</span>
+							<Link
+								href={`/models/${encodeURIComponent(row.model.id)}`}
+								onClick={(e) => e.stopPropagation()}
+								className="font-medium text-sm hover:text-primary hover:underline"
+							>
+								{row.model.id}
+							</Link>
 							<button
 								onClick={(e) => onCopy(row.model.id, e)}
 								className="p-1 hover:bg-muted rounded transition-colors"
@@ -254,7 +260,6 @@ const ModelTableRow = React.memo(
 									<Copy className="h-3 w-3 text-muted-foreground" />
 								)}
 							</button>
-							<ExternalLink className="h-3 w-3 text-muted-foreground" />
 						</div>
 					</TableCell>
 
@@ -412,18 +417,47 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		[router, searchParams],
 	);
 
-	// Calculate total counts
-	const totalModelCount = models.length;
-	const totalProviderCount = providers.length;
+	// Calculate total counts (excluding deprecated models)
+	const { totalModelCount, totalProviderCount } = useMemo(() => {
+		const now = new Date();
+
+		// Count models that have at least one non-deprecated mapping
+		const nonDeprecatedModelCount = models.filter((model) =>
+			model.mappings.some(
+				(mapping) =>
+					!mapping.deprecatedAt || new Date(mapping.deprecatedAt) > now,
+			),
+		).length;
+
+		return {
+			totalModelCount: nonDeprecatedModelCount,
+			totalProviderCount: providers.length,
+		};
+	}, [models, providers]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
-		const baseModels = models.map((model) => ({
-			...model,
-			providerDetails: model.mappings.map((mapping) => ({
-				provider: mapping,
-				providerInfo: providers.find((p) => p.id === mapping.providerId)!,
-			})),
-		}));
+		const now = new Date();
+
+		const baseModels = models
+			.map((model) => {
+				// Filter out deprecated provider mappings
+				const nonDeprecatedMappings = model.mappings.filter((mapping) => {
+					if (!mapping.deprecatedAt) {
+						return true;
+					}
+					return new Date(mapping.deprecatedAt) > now;
+				});
+
+				return {
+					...model,
+					providerDetails: nonDeprecatedMappings.map((mapping) => ({
+						provider: mapping,
+						providerInfo: providers.find((p) => p.id === mapping.providerId)!,
+					})),
+				};
+			})
+			// Filter out models with no non-deprecated provider mappings
+			.filter((model) => model.providerDetails.length > 0);
 
 		const filteredModels = baseModels.filter((model) => {
 			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
@@ -690,12 +724,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			return true;
 		});
 
-		// Apply sorting - default to createdAt descending (newest first)
+		// Apply sorting - default to releasedAt descending (newest first)
 		return [...filteredModels].sort((a, b) => {
-			// Default sorting by createdAt when no sort field selected
+			// Default sorting by releasedAt when no sort field selected
 			if (!sortField) {
-				const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-				const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+				const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+				const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
 				return bDate - aDate; // Descending (newest first)
 			}
 
@@ -824,16 +858,14 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		// Sort flattened rows
 		return rows.sort((a, b) => {
 			if (!sortField) {
-				// Default: sort by provider name, then model name
-				const providerCompare = (
-					a.providerInfo?.name || a.provider.providerId
-				).localeCompare(b.providerInfo?.name || b.provider.providerId);
-				if (providerCompare !== 0) {
-					return providerCompare;
-				}
-				return (a.model.name || a.model.id).localeCompare(
-					b.model.name || b.model.id,
-				);
+				// Default: sort by releasedAt descending (newest first)
+				const aDate = a.model.releasedAt
+					? new Date(a.model.releasedAt).getTime()
+					: 0;
+				const bDate = b.model.releasedAt
+					? new Date(b.model.releasedAt).getTime()
+					: 0;
+				return bDate - aDate;
 			}
 
 			let aValue: string | number;

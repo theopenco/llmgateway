@@ -116,6 +116,11 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			)!;
 
 			return convertToApiModel(model, currentProviderMapping, providerInfo);
+		})
+		.sort((a, b) => {
+			const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+			const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+			return bDate - aDate; // Descending (newest first)
 		});
 
 	return (
