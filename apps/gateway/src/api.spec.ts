@@ -691,6 +691,53 @@ describe("test", () => {
 		});
 	});
 
+	test("Deactivated provider falls back to active provider", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Create provider key for google-ai-studio with mock server URL as baseUrl
+		// google-vertex is deactivated for gemini-2.5-flash-preview-09-2025 as of 2026-01-27
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-google",
+			token: "google-test-key",
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// Request explicitly with google-vertex (which is deactivated)
+		// Should fall back to google-ai-studio
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "google-vertex/gemini-2.5-flash-preview-09-2025",
+				messages: [
+					{
+						role: "user",
+						content: "Hello with deactivated provider!",
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("choices.[0].message.content");
+		// Verify it routed to google-ai-studio, not google-vertex
+		expect(json.metadata.used_provider).toBe("google-ai-studio");
+		// The requested provider should be cleared since it was deactivated
+		expect(json.metadata.requested_provider).toBeNull();
+	});
+
 	test("Using custom headers requires Pro plan in hosted/paid mode", async () => {
 		// Downgrade org to free
 		await db

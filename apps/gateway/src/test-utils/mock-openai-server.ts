@@ -134,6 +134,57 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	return c.json(response);
 });
 
+// Handle Google AI Studio generateContent endpoint (Gemini models)
+mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
+	const body = await c.req.json();
+
+	// Check if this request should trigger an error response
+	const shouldError = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_ERROR"),
+		),
+	);
+
+	if (shouldError) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
+
+	// Get the user's message
+	const userMessage =
+		body.contents?.find?.((c: any) => c.role === "user")?.parts?.[0]?.text ||
+		"";
+
+	// Return Google AI Studio format response
+	return c.json({
+		candidates: [
+			{
+				content: {
+					parts: [
+						{
+							text: `Hello! I received your message: "${userMessage}". This is a mock Google AI response.`,
+						},
+					],
+					role: "model",
+				},
+				finishReason: "STOP",
+				index: 0,
+			},
+		],
+		usageMetadata: {
+			promptTokenCount: 10,
+			candidatesTokenCount: 20,
+			totalTokenCount: 30,
+		},
+	});
+});
+
 let server: any = null;
 
 export function startMockServer(port = 3001): string {

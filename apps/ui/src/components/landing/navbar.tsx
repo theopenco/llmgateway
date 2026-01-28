@@ -1,6 +1,16 @@
 "use client";
 
-import { ChevronDown, Github, Menu, X } from "lucide-react";
+import {
+	Activity,
+	ChevronDown,
+	Github,
+	Menu,
+	MessagesSquare,
+	Network,
+	Puzzle,
+	ShieldCheck,
+	X,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -82,16 +92,86 @@ export const Navbar = ({
 		{ name: "Models", href: "/models" },
 	];
 
-	const chatItem: { name: string; href: string; external?: boolean } = {
-		name: "Chat",
-		href:
-			process.env.NODE_ENV === "development"
-				? "http://localhost:3003"
-				: "https://chat.llmgateway.io",
-		external: true,
-	};
+	const productsItems: Array<{
+		name: string;
+		href: string;
+		external?: boolean;
+	}> = [
+		{ name: "AI Gateway", href: "/features/unified-api-interface" },
+		{ name: "Observability", href: "/features/performance-monitoring" },
+		{
+			name: "Chat Playground",
+			href: config.playgroundUrl ?? "",
+			external: true,
+		},
+		{
+			name: "Guardrails",
+			href: "/features/guardrails",
+		},
+		{ name: "Integrations", href: "/guides" },
+	];
 
-	const resourcesItems = [
+	const productsLinks: Array<{
+		title: string;
+		href: string;
+		description: string;
+		icon: React.ElementType;
+		gradient: string;
+		external?: boolean;
+	}> = [
+		{
+			title: "AI Gateway",
+			href: "/features/unified-api-interface",
+			description:
+				"Route requests to 200+ LLMs through a single, unified API endpoint.",
+			icon: Network,
+			gradient:
+				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
+		},
+		{
+			title: "Observability",
+			href: "/features/performance-monitoring",
+			description:
+				"Monitor usage, costs, and latency with real-time analytics dashboards.",
+			icon: Activity,
+			gradient:
+				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
+		},
+		{
+			title: "Chat Playground",
+			href: config.playgroundUrl ?? "#",
+			description:
+				"Test prompts and compare model responses side by side, instantly.",
+			icon: MessagesSquare,
+			gradient:
+				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
+			external: true,
+		},
+		{
+			title: "Guardrails",
+			href: `/features/guardrails`,
+			description:
+				"Protect your AI with content moderation and safety filters.",
+			icon: ShieldCheck,
+			gradient:
+				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
+		},
+		{
+			title: "Integrations",
+			href: "/guides",
+			description:
+				"Connect seamlessly with popular frameworks, SDKs, and tools.",
+			icon: Puzzle,
+			gradient:
+				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
+		},
+	];
+
+	const resourcesItems: Array<{
+		name: string;
+		href: string;
+		external?: boolean;
+	}> = [
 		{ name: "Blog", href: "/blog" },
 		{ name: "Providers", href: "/providers" },
 		{ name: "Templates", href: "/templates" },
@@ -99,10 +179,13 @@ export const Navbar = ({
 		{ name: "Changelog", href: "/changelog" },
 		{ name: "Referral Program", href: "/referrals" },
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
-		{ name: "Guides", href: "/guides" },
 		{ name: "Model Timeline", href: "/timeline" },
 		{ name: "Compare", href: "/models/compare" },
-		{ name: "Contact Us", href: "mailto:contact@llmgateway.io" },
+		{
+			name: "Contact Us",
+			href: "mailto:contact@llmgateway.io",
+			external: true,
+		},
 	];
 
 	const resourcesLinks: Array<{
@@ -112,16 +195,9 @@ export const Navbar = ({
 		external?: boolean;
 	}> = [
 		{
-			title: "Blog",
-			href: "/blog",
-			description: "Product updates, tutorials, benchmarks, and announcements.",
-		},
-		{
-			title: "Docs",
-			href: config.docsUrl ?? "#",
-			description:
-				"Guides, API reference, and examples to get you shipping fast.",
-			external: true,
+			title: "Compare",
+			href: "/models/compare",
+			description: "Compare models side by side",
 		},
 		{
 			title: "Templates",
@@ -133,15 +209,11 @@ export const Navbar = ({
 			href: "/agents",
 			description: "Pre-built AI agents with tool calling capabilities.",
 		},
+
 		{
-			title: "Guides",
-			href: "/guides",
-			description: "Step-by-step tutorials and best practices.",
-		},
-		{
-			title: "Compare",
-			href: "/models/compare",
-			description: "Compare models side by side",
+			title: "Blog",
+			href: "/blog",
+			description: "Product updates, tutorials, benchmarks, and announcements.",
 		},
 		{
 			title: "Changelog",
@@ -167,6 +239,7 @@ export const Navbar = ({
 
 	const [menuState, setMenuState] = useState(false);
 	const [isScrolled, setIsScrolled] = useState(false);
+	const [isMobileProductsOpen, setIsMobileProductsOpen] = useState(false);
 	const [isMobileResourcesOpen, setIsMobileResourcesOpen] = useState(false);
 
 	useEffect(() => {
@@ -185,9 +258,9 @@ export const Navbar = ({
 			>
 				<div
 					className={cn(
-						"mt-2 mx-auto max-w-7xl px-6 transition-all duration-300",
+						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",
 						isScrolled &&
-							"bg-background/50 max-w-7xl rounded-2xl border backdrop-blur-lg lg:px-5",
+							"bg-background/50 max-w-[1400px] rounded-2xl border backdrop-blur-lg lg:px-5",
 					)}
 				>
 					<div className="relative flex flex-wrap items-center justify-between gap-6 py-3 lg:gap-0 lg:py-4">
@@ -234,7 +307,6 @@ export const Navbar = ({
 											</NavigationMenuLink>
 										</NavigationMenuItem>
 									))}
-
 									<NavigationMenuItem>
 										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
 											Resources
@@ -273,18 +345,82 @@ export const Navbar = ({
 									</NavigationMenuItem>
 
 									<NavigationMenuItem>
-										<NavigationMenuLink asChild>
-											<a
-												href={chatItem.href}
-												target={chatItem.external ? "_blank" : undefined}
-												rel={
-													chatItem.external ? "noopener noreferrer" : undefined
-												}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-											>
-												{chatItem.name}
-											</a>
-										</NavigationMenuLink>
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+											Products
+										</NavigationMenuTrigger>
+										<NavigationMenuContent>
+											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
+												{productsLinks.map((product) => {
+													const IconComponent = product.icon;
+													const linkClassName = cn(
+														"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
+														product.gradient,
+														"hover:shadow-lg focus:shadow-md",
+													);
+
+													return (
+														<li key={product.title}>
+															<NavigationMenuLink asChild>
+																{product.external ? (
+																	<a
+																		href={product.href}
+																		target="_blank"
+																		rel="noopener noreferrer"
+																		className={linkClassName}
+																	>
+																		<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
+																			<IconComponent
+																				className={cn(
+																					"h-4 w-4 text-muted-foreground transition-colors",
+																					product.gradient
+																						.split(" ")
+																						.slice(-2)
+																						.join(" "),
+																				)}
+																			/>
+																		</div>
+																		<div className="space-y-0.5">
+																			<div className="text-sm font-medium leading-none">
+																				{product.title}
+																			</div>
+																			<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+																				{product.description}
+																			</p>
+																		</div>
+																	</a>
+																) : (
+																	<Link
+																		href={product.href as Route}
+																		prefetch={true}
+																		className={linkClassName}
+																	>
+																		<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
+																			<IconComponent
+																				className={cn(
+																					"h-4 w-4 text-muted-foreground transition-colors",
+																					product.gradient
+																						.split(" ")
+																						.slice(-2)
+																						.join(" "),
+																				)}
+																			/>
+																		</div>
+																		<div className="space-y-0.5">
+																			<div className="text-sm font-medium leading-none">
+																				{product.title}
+																			</div>
+																			<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+																				{product.description}
+																			</p>
+																		</div>
+																	</Link>
+																)}
+															</NavigationMenuLink>
+														</li>
+													);
+												})}
+											</ul>
+										</NavigationMenuContent>
 									</NavigationMenuItem>
 								</NavigationMenuList>
 							</NavigationMenu>
@@ -316,17 +452,53 @@ export const Navbar = ({
 										</li>
 									))}
 
-									<li>
-										<a
-											href={chatItem.href}
-											target={chatItem.external ? "_blank" : undefined}
-											rel={
-												chatItem.external ? "noopener noreferrer" : undefined
-											}
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+									<li className="space-y-2">
+										<button
+											type="button"
+											onClick={() => setIsMobileProductsOpen((prev) => !prev)}
+											className="flex w-full items-center justify-between gap-2 text-left"
+											aria-expanded={isMobileProductsOpen}
+											aria-controls="mobile-products-menu"
 										>
-											{chatItem.name}
-										</a>
+											<span className="text-muted-foreground text-sm font-medium">
+												Products
+											</span>
+											<ChevronDown
+												className={cn(
+													"h-4 w-4 text-muted-foreground transition-transform duration-200",
+													isMobileProductsOpen && "rotate-180",
+												)}
+											/>
+										</button>
+										{isMobileProductsOpen ? (
+											<ul
+												id="mobile-products-menu"
+												className="space-y-3 pl-4 pt-1"
+											>
+												{productsItems.map((item, index) => (
+													<li key={index}>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
+													</li>
+												))}
+											</ul>
+										) : null}
 									</li>
 
 									<li className="space-y-2">
@@ -354,13 +526,24 @@ export const Navbar = ({
 											>
 												{resourcesItems.map((item, index) => (
 													<li key={index}>
-														<Link
-															href={item.href as Route}
-															className="text-muted-foreground hover:text-accent-foreground block duration-150"
-															prefetch={true}
-														>
-															{item.name}
-														</Link>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block duration-150"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
 													</li>
 												))}
 											</ul>

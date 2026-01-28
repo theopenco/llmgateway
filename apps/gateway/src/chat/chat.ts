@@ -811,6 +811,9 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Save original providers list (including deactivated) for routing metadata display
+	const allModelProviders = modelInfo.providers;
+
 	// Filter out deactivated provider mappings
 	const now = new Date();
 	const activeProviders = modelInfo.providers.filter(
@@ -833,6 +836,18 @@ chat.openapi(completions, async (c) => {
 		...modelInfo,
 		providers: activeProviders,
 	};
+
+	// If a specific provider was requested but is now deactivated, clear it
+	// so routing logic will pick another active provider
+	if (
+		requestedProvider &&
+		requestedProvider !== "llmgateway" &&
+		requestedProvider !== "custom" &&
+		!activeProviders.some((p) => p.providerId === requestedProvider)
+	) {
+		// The requested provider was deactivated, routing will select another
+		requestedProvider = undefined;
+	}
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -1766,44 +1781,45 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		// Get price info for the selected provider
-		const selectedProviderInfo = modelInfo.providers.find(
-			(p) => p.providerId === usedProvider,
-		);
-		const price = selectedProviderInfo
-			? (selectedProviderInfo.inputPrice ?? 0) +
-				(selectedProviderInfo.outputPrice ?? 0)
-			: 0;
-
-		// Fetch metrics for the selected provider to include in routing metadata
-		// This provides visibility into uptime/latency/throughput even for direct provider selection
+		// Fetch metrics for all providers (including deactivated) to include in routing metadata
+		// This provides visibility into uptime/latency/throughput for all providers
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		let providerMetrics:
-			| { uptime: number; averageLatency: number; throughput: number }
-			| undefined;
+		let metricsMap: Map<
+			string,
+			{ uptime: number; averageLatency: number; throughput: number }
+		> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
-			const directMetricsMap = await getProviderMetricsForCombinations(
-				[{ modelId: baseModelId, providerId: usedProvider }],
+			const metricsCombinations = allModelProviders.map((p) => ({
+				modelId: baseModelId,
+				providerId: p.providerId,
+			}));
+			metricsMap = await getProviderMetricsForCombinations(
+				metricsCombinations,
 				5,
 			);
-			providerMetrics = directMetricsMap.get(`${baseModelId}:${usedProvider}`);
 		}
 
+		// Build provider scores for all providers (including deactivated) with default values for missing metrics
+		const allProviderScores = allModelProviders.map((p) => {
+			const metrics = metricsMap.get(`${baseModelId}:${p.providerId}`);
+			const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
+			const isSelected = p.providerId === usedProvider;
+			return {
+				providerId: p.providerId,
+				score: isSelected ? 1 : 0,
+				price,
+				uptime: metrics?.uptime ?? 0,
+				latency: metrics?.averageLatency ?? 0,
+				throughput: metrics?.throughput ?? 0,
+			};
+		});
+
 		routingMetadata = {
-			availableProviders: [usedProvider],
+			availableProviders: allModelProviders.map((p) => p.providerId),
 			selectedProvider: usedProvider,
 			selectionReason,
-			providerScores: [
-				{
-					providerId: usedProvider,
-					score: 1,
-					price,
-					uptime: providerMetrics?.uptime,
-					latency: providerMetrics?.averageLatency,
-					throughput: providerMetrics?.throughput,
-				},
-			],
+			providerScores: allProviderScores,
 			...(noFallback ? { noFallback: true } : {}),
 		};
 	}
