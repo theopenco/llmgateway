@@ -6,7 +6,7 @@ export const minimaxModels = [
 		name: "MiniMax M2",
 		description: "MiniMax M2 model with reasoning and tool support.",
 		family: "minimax",
-		releasedAt: new Date("2025-10-23"),
+		releasedAt: new Date("2025-10-27"),
 		providers: [
 			{
 				providerId: "minimax",
