@@ -31,7 +31,7 @@
 		"@opentelemetry/resources": "2.1.0",
 		"@opentelemetry/sdk-node": "0.205.0",
 		"@opentelemetry/sdk-trace-base": "2.2.0",
-		"hono": "^4.11.4"
+		"hono": "^4.11.7"
 	},
 	"devDependencies": {}
 }
