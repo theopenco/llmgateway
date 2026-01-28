@@ -417,18 +417,47 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		[router, searchParams],
 	);
 
-	// Calculate total counts
-	const totalModelCount = models.length;
-	const totalProviderCount = providers.length;
+	// Calculate total counts (excluding deprecated models)
+	const { totalModelCount, totalProviderCount } = useMemo(() => {
+		const now = new Date();
+
+		// Count models that have at least one non-deprecated mapping
+		const nonDeprecatedModelCount = models.filter((model) =>
+			model.mappings.some(
+				(mapping) =>
+					!mapping.deprecatedAt || new Date(mapping.deprecatedAt) > now,
+			),
+		).length;
+
+		return {
+			totalModelCount: nonDeprecatedModelCount,
+			totalProviderCount: providers.length,
+		};
+	}, [models, providers]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
-		const baseModels = models.map((model) => ({
-			...model,
-			providerDetails: model.mappings.map((mapping) => ({
-				provider: mapping,
-				providerInfo: providers.find((p) => p.id === mapping.providerId)!,
-			})),
-		}));
+		const now = new Date();
+
+		const baseModels = models
+			.map((model) => {
+				// Filter out deprecated provider mappings
+				const nonDeprecatedMappings = model.mappings.filter((mapping) => {
+					if (!mapping.deprecatedAt) {
+						return true;
+					}
+					return new Date(mapping.deprecatedAt) > now;
+				});
+
+				return {
+					...model,
+					providerDetails: nonDeprecatedMappings.map((mapping) => ({
+						provider: mapping,
+						providerInfo: providers.find((p) => p.id === mapping.providerId)!,
+					})),
+				};
+			})
+			// Filter out models with no non-deprecated provider mappings
+			.filter((model) => model.providerDetails.length > 0);
 
 		const filteredModels = baseModels.filter((model) => {
 			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
