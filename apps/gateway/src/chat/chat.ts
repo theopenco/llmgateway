@@ -3247,6 +3247,13 @@ chat.openapi(completions, async (c) => {
 						chunk = new TextDecoder().decode(value);
 					}
 
+					// Warn on large chunks (1MB+)
+					if (chunk.length > 1024 * 1024) {
+						logger.warn(
+							`Large chunk received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB`,
+						);
+					}
+
 					buffer += chunk;
 					// Collect raw upstream data for logging only in debug mode and within size limit
 					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
@@ -3255,11 +3262,54 @@ chat.openapi(completions, async (c) => {
 
 					// Check buffer size to prevent memory exhaustion
 					if (buffer.length > MAX_BUFFER_SIZE) {
-						logger.warn(
-							`Buffer size exceeded ${MAX_BUFFER_SIZE / 1024 / 1024}MB, clearing buffer to prevent memory exhaustion`,
+						const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
+						logger.error(
+							`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
 						);
-						buffer = "";
-						continue;
+
+						// Send error to client
+						try {
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+										type: "gateway_error",
+										param: null,
+										code: "buffer_overflow",
+									},
+								}),
+								id: String(eventId++),
+							});
+							await stream.writeSSE({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send buffer overflow error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+
+						// Set error for logging
+						streamingError = {
+							message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+							type: "buffer_overflow",
+							code: "buffer_overflow",
+							details: {
+								bufferSize: buffer.length,
+								maxBufferSize: MAX_BUFFER_SIZE,
+								provider: usedProvider,
+								model: usedModel,
+							},
+						};
+
+						break;
 					}
 
 					// Process SSE events from buffer
