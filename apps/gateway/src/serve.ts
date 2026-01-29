@@ -12,8 +12,14 @@ import { app } from "./app.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
+import type { Server } from "node:http";
 
 const port = Number(process.env.PORT) || 4001;
+
+// GCP Load Balancer has a fixed 600s keepalive timeout. Node.js default is 5s.
+// If Node closes the connection first, the LB sends requests on stale connections → 502.
+// Default to 620s (above GCP's 600s) to ensure the LB closes first.
+const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
 let sdk: NodeSDK | null = null;
 
@@ -39,15 +45,41 @@ async function startServer() {
 
 let isShuttingDown = false;
 
+// Grace period for in-flight requests to complete before force closing (default 120s)
+const shutdownGracePeriodMs =
+	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
+
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
-		server.close((error) => {
+		const httpServer = server as Server;
+
+		// server.close() stops accepting new connections but waits for ALL connections
+		// to close, including idle keep-alive connections (which could wait 620s!)
+		httpServer.close((error) => {
+			clearTimeout(timeout);
+			clearInterval(drainInterval);
 			if (error) {
 				reject(error);
 			} else {
 				resolve();
 			}
 		});
+
+		// Periodically close idle keep-alive connections so server.close() can complete
+		// This is safe because it only closes connections without active requests
+		const drainInterval = setInterval(() => {
+			httpServer.closeIdleConnections();
+		}, 100);
+
+		// Force close all connections after grace period expires
+		const timeout = setTimeout(() => {
+			logger.warn(
+				"Graceful shutdown timeout reached, forcing close of remaining connections",
+				{ gracePeriodMs: shutdownGracePeriodMs },
+			);
+			clearInterval(drainInterval);
+			httpServer.closeAllConnections();
+		}, shutdownGracePeriodMs);
 	});
 };
 
@@ -94,6 +126,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 // Start the server
 startServer()
 	.then((server) => {
+		(server as Server).keepAliveTimeout = keepAliveTimeoutS * 1000;
+		(server as Server).headersTimeout = (keepAliveTimeoutS + 1) * 1000;
+
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 

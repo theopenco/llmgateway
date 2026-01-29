@@ -370,6 +370,9 @@ chat.openapi(completions, async (c) => {
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
+	// Maximum buffer size for streaming responses (configurable via env var, default 50MB)
+	const MAX_BUFFER_SIZE =
+		(Number(process.env.MAX_STREAMING_BUFFER_MB) || 50) * 1024 * 1024;
 
 	c.header("x-request-id", requestId);
 
@@ -2420,6 +2423,16 @@ chat.openapi(completions, async (c) => {
 			}> = [];
 			const streamStartTime = Date.now();
 
+			// SSE keepalive to prevent proxy/load balancer timeouts
+			// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+			const KEEPALIVE_INTERVAL_MS = 15000;
+			const keepaliveInterval = setInterval(() => {
+				stream.write(": ping\n\n").catch(() => {
+					// Stream likely closed, cleanup will happen via abort handler or finally
+				});
+			}, KEEPALIVE_INTERVAL_MS);
+			const clearKeepalive = () => clearInterval(keepaliveInterval);
+
 			// Timing tracking variables
 			let timeToFirstToken: number | null = null;
 			let timeToFirstReasoningToken: number | null = null;
@@ -2455,6 +2468,7 @@ chat.openapi(completions, async (c) => {
 			const controller = new AbortController();
 			// Set up a listener for the request being aborted
 			const onAbort = () => {
+				clearKeepalive();
 				if (requestCanBeCanceled) {
 					canceled = true;
 					controller.abort();
@@ -2632,6 +2646,7 @@ chat.openapi(completions, async (c) => {
 						data: "[DONE]",
 						id: String(eventId++),
 					});
+					clearKeepalive();
 					return;
 				} else if (error instanceof Error) {
 					// Handle fetch errors (timeout, connection failures, etc.)
@@ -2736,6 +2751,7 @@ chat.openapi(completions, async (c) => {
 						data: "[DONE]",
 						id: String(eventId++),
 					});
+					clearKeepalive();
 					return;
 				} else {
 					throw error;
@@ -2882,6 +2898,7 @@ chat.openapi(completions, async (c) => {
 					);
 				}
 
+				clearKeepalive();
 				return;
 			}
 
@@ -2903,6 +2920,7 @@ chat.openapi(completions, async (c) => {
 					data: "[DONE]",
 					id: String(eventId++),
 				});
+				clearKeepalive();
 				return;
 			}
 
@@ -2923,7 +2941,6 @@ chat.openapi(completions, async (c) => {
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
-			// const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
 			try {
@@ -2958,20 +2975,70 @@ chat.openapi(completions, async (c) => {
 						chunk = new TextDecoder().decode(value);
 					}
 
+					// Log error on large chunks (1MB+) - should almost never happen
+					if (chunk.length > 1024 * 1024) {
+						logger.error(
+							`Large chunk received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB`,
+						);
+					}
+
 					buffer += chunk;
 					// Collect raw upstream data for logging only in debug mode and within size limit
 					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
 						rawUpstreamData += chunk;
 					}
 
-					// // Check buffer size to prevent memory exhaustion
-					// if (buffer.length > MAX_BUFFER_SIZE) {
-					// 	logger.warn(
-					// 		"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
-					// 	);
-					// 	buffer = "";
-					// 	continue;
-					// }
+					// Check buffer size to prevent memory exhaustion
+					if (buffer.length > MAX_BUFFER_SIZE) {
+						const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
+						logger.error(
+							`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
+						);
+
+						// Send error to client
+						try {
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+										type: "gateway_error",
+										param: null,
+										code: "buffer_overflow",
+									},
+								}),
+								id: String(eventId++),
+							});
+							await stream.writeSSE({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send buffer overflow error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+
+						// Set error for logging
+						streamingError = {
+							message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+							type: "buffer_overflow",
+							code: "buffer_overflow",
+							details: {
+								bufferSize: buffer.length,
+								maxBufferSize: MAX_BUFFER_SIZE,
+								provider: usedProvider,
+								model: usedModel,
+							},
+						};
+
+						break;
+					}
 
 					// Process SSE events from buffer
 					let processedLength = 0;
@@ -3750,6 +3817,8 @@ chat.openapi(completions, async (c) => {
 					};
 				}
 			} finally {
+				// Clean up the reader to prevent file descriptor leaks
+				await reader.cancel();
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 
@@ -3835,9 +3904,23 @@ chat.openapi(completions, async (c) => {
 				// Check if the response finished successfully but has no content, tokens, or tool calls
 				// This indicates an empty response which should be marked as an error
 				// Do this check BEFORE sending usage chunks to ensure proper event ordering
+				// Exclude content_filter responses as they are intentionally empty (blocked by provider)
+				// For Google, check for original finish reasons that indicate content filtering
+				// These include both finishReason values and promptFeedback.blockReason values
+				const isGoogleContentFilterStreaming =
+					(usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex") &&
+					(finishReason === "SAFETY" ||
+						finishReason === "PROHIBITED_CONTENT" ||
+						finishReason === "RECITATION" ||
+						finishReason === "BLOCKLIST" ||
+						finishReason === "SPII" ||
+						finishReason === "OTHER");
 				const hasEmptyResponse =
 					!streamingError &&
 					finishReason &&
+					finishReason !== "content_filter" &&
+					!isGoogleContentFilterStreaming &&
 					(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 					(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 					(!fullContent || fullContent.trim() === "") &&
@@ -3979,6 +4062,10 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 				}
+
+				// Clean up keepalive before any potentially-throwing operations (insertLog, etc.)
+				// clearInterval is idempotent so calling it multiple times is safe
+				clearKeepalive();
 
 				// Check if we should bill cancelled requests
 				const billCancelledRequests = shouldBillCancelledRequests();
@@ -4852,13 +4939,15 @@ chat.openapi(completions, async (c) => {
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
 	// Exclude content_filter responses as they are intentionally empty (blocked by provider)
 	// For Google, check for original finish reasons that indicate content filtering
+	// These include both finishReason values and promptFeedback.blockReason values
 	const isGoogleContentFilter =
 		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
 		(finishReason === "SAFETY" ||
 			finishReason === "PROHIBITED_CONTENT" ||
 			finishReason === "RECITATION" ||
 			finishReason === "BLOCKLIST" ||
-			finishReason === "SPII");
+			finishReason === "SPII" ||
+			finishReason === "OTHER");
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "content_filter" &&

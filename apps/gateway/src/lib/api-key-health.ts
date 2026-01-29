@@ -1,6 +1,10 @@
 /**
  * In-memory API key health tracking for uptime-aware routing
  * Tracks consecutive errors per API key and temporarily blacklists unhealthy keys
+ *
+ * Note: Health tracking is separate from error classification (get-finish-reason-from-error.ts).
+ * While 401/403 errors are classified as "gateway_error" for logging purposes,
+ * they are still tracked here for uptime routing to permanently blacklist invalid keys.
  */
 
 export interface KeyHealth {

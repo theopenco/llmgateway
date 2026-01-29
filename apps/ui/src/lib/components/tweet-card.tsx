@@ -266,15 +266,18 @@ export const TweetCard = async ({
 }: TweetProps & {
 	className?: string;
 }) => {
-	const tweet = id
-		? await getTweet(id).catch((err) => {
-				if (onError) {
-					onError(err);
-				} else {
-					console.error(err);
-				}
-			})
-		: undefined;
+	let tweet: Tweet | undefined;
+
+	try {
+		tweet = id ? await getTweet(id) : undefined;
+	} catch (err) {
+		if (onError) {
+			onError(err);
+		} else {
+			console.error("Failed to fetch tweet:", err);
+		}
+		tweet = undefined;
+	}
 
 	if (!tweet) {
 		const NotFound = components?.TweetNotFound || TweetNotFound;
