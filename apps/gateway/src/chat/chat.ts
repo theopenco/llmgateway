@@ -3092,7 +3092,12 @@ chat.openapi(completions, async (c) => {
 
 				// Report key health for environment-based tokens
 				if (envVarName !== undefined) {
-					reportKeyError(envVarName, configIndex, res.status);
+					reportKeyError(
+						envVarName,
+						configIndex,
+						res.status,
+						errorResponseText,
+					);
 				}
 
 				return;
@@ -4814,7 +4819,7 @@ chat.openapi(completions, async (c) => {
 
 		// Report key health for environment-based tokens
 		if (envVarName !== undefined) {
-			reportKeyError(envVarName, configIndex, res.status);
+			reportKeyError(envVarName, configIndex, res.status, errorResponseText);
 		}
 
 		// Use the already determined finish reason for response logic
