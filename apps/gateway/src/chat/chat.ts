@@ -4122,9 +4122,23 @@ chat.openapi(completions, async (c) => {
 				// Check if the response finished successfully but has no content, tokens, or tool calls
 				// This indicates an empty response which should be marked as an error
 				// Do this check BEFORE sending usage chunks to ensure proper event ordering
+				// Exclude content_filter responses as they are intentionally empty (blocked by provider)
+				// For Google, check for original finish reasons that indicate content filtering
+				// These include both finishReason values and promptFeedback.blockReason values
+				const isGoogleContentFilterStreaming =
+					(usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex") &&
+					(finishReason === "SAFETY" ||
+						finishReason === "PROHIBITED_CONTENT" ||
+						finishReason === "RECITATION" ||
+						finishReason === "BLOCKLIST" ||
+						finishReason === "SPII" ||
+						finishReason === "OTHER");
 				const hasEmptyResponse =
 					!streamingError &&
 					finishReason &&
+					finishReason !== "content_filter" &&
+					!isGoogleContentFilterStreaming &&
 					(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 					(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 					(!fullContent || fullContent.trim() === "") &&
@@ -5139,13 +5153,15 @@ chat.openapi(completions, async (c) => {
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
 	// Exclude content_filter responses as they are intentionally empty (blocked by provider)
 	// For Google, check for original finish reasons that indicate content filtering
+	// These include both finishReason values and promptFeedback.blockReason values
 	const isGoogleContentFilter =
 		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
 		(finishReason === "SAFETY" ||
 			finishReason === "PROHIBITED_CONTENT" ||
 			finishReason === "RECITATION" ||
 			finishReason === "BLOCKLIST" ||
-			finishReason === "SPII");
+			finishReason === "SPII" ||
+			finishReason === "OTHER");
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "content_filter" &&
