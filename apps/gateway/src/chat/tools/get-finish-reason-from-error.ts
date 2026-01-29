@@ -38,6 +38,11 @@ export function getFinishReasonFromError(
 		return "client_error";
 	}
 
+	// Provider API key not found - treat as upstream error for health/uptime purposes
+	if (errorText?.includes("API Key not found. Please pass a valid API key.")) {
+		return "upstream_error";
+	}
+
 	// Check for specific client validation errors from providers
 	if (statusCode === 400 && errorText) {
 		// OpenAI JSON format validation error

@@ -81,16 +81,6 @@ gpt-oss-20b-free
 - **Context Window**: 128,000 tokens
 - **Capabilities**: Streaming, JSON output
 
-### GPT-4.1 (Free)
-
-```bash
-gpt-4.1-free
-```
-
-- **Cost**: $0.00 input/output tokens
-- **Context Window**: 128,000 tokens
-- **Capabilities**: Streaming, JSON output
-
 ## 🚀 Getting Started
 
 **Auto-Routing**: These models are automatically available in our routing system - no configuration needed.

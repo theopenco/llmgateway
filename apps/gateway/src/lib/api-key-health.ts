@@ -31,6 +31,13 @@ const BLACKLIST_DURATION_MS = 30 * 1000; // 30 seconds
 const PERMANENT_ERROR_CODES = [401, 403];
 
 /**
+ * Error messages that indicate permanent key issues
+ */
+const PERMANENT_ERROR_MESSAGES = [
+	"API Key not found. Please pass a valid API key.",
+];
+
+/**
  * Get the health key identifier for a specific API key
  */
 function getHealthKey(envVarName: string, keyIndex: number): string {
@@ -85,11 +92,13 @@ export function reportKeySuccess(envVarName: string, keyIndex: number): void {
  * Report an error for an API key
  * Increments consecutive errors and may blacklist the key
  * @param statusCode The HTTP status code of the error (optional)
+ * @param errorText The error message text (optional)
  */
 export function reportKeyError(
 	envVarName: string,
 	keyIndex: number,
 	statusCode?: number,
+	errorText?: string,
 ): void {
 	const healthKey = getHealthKey(envVarName, keyIndex);
 	let health = keyHealthMap.get(healthKey);
@@ -103,8 +112,17 @@ export function reportKeyError(
 		keyHealthMap.set(healthKey, health);
 	}
 
-	// Check for permanent auth errors
+	// Check for permanent auth errors by status code
 	if (statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) {
+		health.permanentlyBlacklisted = true;
+		return;
+	}
+
+	// Check for permanent auth errors by error message
+	if (
+		errorText &&
+		PERMANENT_ERROR_MESSAGES.some((msg) => errorText.includes(msg))
+	) {
 		health.permanentlyBlacklisted = true;
 		return;
 	}

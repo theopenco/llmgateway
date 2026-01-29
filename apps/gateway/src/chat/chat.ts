@@ -28,15 +28,15 @@ import {
 import {
 	cdb as db,
 	getProviderMetricsForCombinations,
-	isCachingEnabled,
 	type InferSelectModel,
+	isCachingEnabled,
 	shortid,
 	type tables,
 } from "@llmgateway/db";
 import {
+	applyRedactions,
 	checkGuardrails,
 	logViolation,
-	applyRedactions,
 } from "@llmgateway/guardrails";
 import { logger } from "@llmgateway/logger";
 import {
@@ -651,7 +651,9 @@ chat.openapi(completions, async (c) => {
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
-		c.req.header("x-debug") === "true" || process.env.NODE_ENV !== "production";
+		c.req.header("x-debug") === "true" ||
+		process.env.FORCE_DEBUG_MODE === "true" ||
+		process.env.NODE_ENV !== "production";
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
@@ -3159,7 +3161,12 @@ chat.openapi(completions, async (c) => {
 
 				// Report key health for environment-based tokens
 				if (envVarName !== undefined) {
-					reportKeyError(envVarName, configIndex, res.status);
+					reportKeyError(
+						envVarName,
+						configIndex,
+						res.status,
+						errorResponseText,
+					);
 				}
 
 				return;
@@ -4124,6 +4131,20 @@ chat.openapi(completions, async (c) => {
 					(!streamingToolCalls || streamingToolCalls.length === 0);
 
 				if (hasEmptyResponse) {
+					logger.warn("[streaming] Empty response detected", {
+						provider: usedProvider,
+						model: usedModel,
+						finishReason,
+						calculatedCompletionTokens,
+						calculatedReasoningTokens,
+						fullContentLength: fullContent?.length ?? 0,
+						fullContentTrimmed: fullContent?.trim()?.length ?? 0,
+						streamingToolCallsCount: streamingToolCalls?.length ?? 0,
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+					});
 					const errorMessage =
 						"Response finished successfully but returned no content or tool calls";
 					streamingError = errorMessage;
@@ -4871,7 +4892,7 @@ chat.openapi(completions, async (c) => {
 
 		// Report key health for environment-based tokens
 		if (envVarName !== undefined) {
-			reportKeyError(envVarName, configIndex, res.status);
+			reportKeyError(envVarName, configIndex, res.status, errorResponseText);
 		}
 
 		// Use the already determined finish reason for response logic
