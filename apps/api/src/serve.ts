@@ -68,15 +68,41 @@ async function startServer() {
 
 let isShuttingDown = false;
 
+// Grace period for in-flight requests to complete before force closing (default 120s)
+const shutdownGracePeriodMs =
+	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
+
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
-		server.close((error) => {
+		const httpServer = server as Server;
+
+		// server.close() stops accepting new connections but waits for ALL connections
+		// to close, including idle keep-alive connections (which could wait 60s!)
+		httpServer.close((error) => {
+			clearTimeout(timeout);
+			clearInterval(drainInterval);
 			if (error) {
 				reject(error);
 			} else {
 				resolve();
 			}
 		});
+
+		// Periodically close idle keep-alive connections so server.close() can complete
+		// This is safe because it only closes connections without active requests
+		const drainInterval = setInterval(() => {
+			httpServer.closeIdleConnections();
+		}, 100);
+
+		// Force close all connections after grace period expires
+		const timeout = setTimeout(() => {
+			logger.warn(
+				"Graceful shutdown timeout reached, forcing close of remaining connections",
+				{ gracePeriodMs: shutdownGracePeriodMs },
+			);
+			clearInterval(drainInterval);
+			httpServer.closeAllConnections();
+		}, shutdownGracePeriodMs);
 	});
 };
 
