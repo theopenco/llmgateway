@@ -9,6 +9,7 @@ import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -2722,17 +2723,116 @@ chat.openapi(completions, async (c) => {
 						: "structured-outputs-2025-11-13";
 				}
 
+				// Create a combined signal for both timeout and cancellation
+				const fetchSignal = createCombinedSignal(
+					requestCanBeCanceled ? controller : undefined,
+				);
+
 				res = await fetch(url, {
 					method: "POST",
 					headers,
 					body: JSON.stringify(requestBody),
-					signal: requestCanBeCanceled ? controller.signal : undefined,
+					signal: fetchSignal,
 				});
 			} catch (error) {
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 
-				if (error instanceof Error && error.name === "AbortError") {
+				// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
+				if (isTimeoutError(error)) {
+					// Handle timeout error
+					const errorMessage =
+						error instanceof Error ? error.message : "Request timeout";
+					logger.warn("Upstream request timeout", {
+						error: errorMessage,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+
+					// Log the timeout error in the database
+					const timeoutPluginIds = plugins?.map((p) => p.id) || [];
+
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						null, // No response for timeout error
+						requestBody,
+						null, // No upstream response for timeout error
+						timeoutPluginIds,
+						undefined, // No plugin results for error case
+					);
+
+					await insertLog({
+						...baseLogEntry,
+						duration: Date.now() - startTime,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: true,
+						canceled: false,
+						errorDetails: {
+							statusCode: 0,
+							statusText: "TimeoutError",
+							responseText: errorMessage,
+						},
+						cachedInputCost: null,
+						requestCost: null,
+						webSearchCost: null,
+						discount: null,
+						dataStorageCost: "0",
+						cached: false,
+						toolResults: null,
+					});
+
+					await stream.writeSSE({
+						event: "error",
+						data: JSON.stringify({
+							error: {
+								message: `Upstream provider timeout: ${errorMessage}`,
+								type: "upstream_timeout",
+								code: "timeout",
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				} else if (error instanceof Error && error.name === "AbortError") {
 					// Log the canceled request
 					// Extract plugin IDs for logging (canceled request)
 					const canceledPluginIds = plugins?.map((p) => p.id) || [];
@@ -4540,17 +4640,27 @@ chat.openapi(completions, async (c) => {
 				: "structured-outputs-2025-11-13";
 		}
 
+		// Create a combined signal for both timeout and cancellation
+		const fetchSignal = createCombinedSignal(
+			requestCanBeCanceled ? controller : undefined,
+		);
+
 		res = await fetch(url, {
 			method: "POST",
 			headers,
 			body: JSON.stringify(requestBody),
-			signal: requestCanBeCanceled ? controller.signal : undefined,
+			signal: fetchSignal,
 		});
 	} catch (error) {
-		if (error instanceof Error && error.name === "AbortError") {
+		// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
+		if (isTimeoutError(error)) {
+			// Capture timeout as a fetch error for logging
+			fetchError =
+				error instanceof Error ? error : new Error("Request timeout");
+		} else if (error instanceof Error && error.name === "AbortError") {
 			canceled = true;
 		} else if (error instanceof Error) {
-			// Capture fetch errors (timeout, connection failures, etc.)
+			// Capture fetch errors (connection failures, etc.)
 			fetchError = error;
 		} else {
 			throw error;
