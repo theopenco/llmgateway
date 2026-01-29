@@ -1,5 +1,3 @@
-import { allMigrations } from "content-collections";
-
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
 
