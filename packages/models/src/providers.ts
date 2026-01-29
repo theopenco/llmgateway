@@ -457,6 +457,22 @@ export const providers = [
 		website: "https://www.byteplus.com/en/product/modelark",
 		announcement: null,
 	},
+	{
+		id: "minimax",
+		name: "MiniMax",
+		description:
+			"MiniMax's large language models with advanced reasoning and coding capabilities",
+		env: {
+			required: {
+				apiKey: "LLM_MINIMAX_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#7C3AED",
+		website: "https://minimax.io",
+		announcement: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
