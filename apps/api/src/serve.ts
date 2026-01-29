@@ -16,6 +16,11 @@ import {
 } from "./lib/beacon.js";
 
 import type { NodeSDK } from "@opentelemetry/sdk-node";
+import type { Server } from "node:http";
+
+// Increase keepAliveTimeout from Node.js default of 5s to reduce 502 errors
+// from GCP Load Balancer reusing stale connections.
+const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
 
 let sdk: NodeSDK | null = null;
 
@@ -119,6 +124,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 // Start the server
 startServer()
 	.then((server) => {
+		(server as Server).keepAliveTimeout = keepAliveTimeoutS * 1000;
+		(server as Server).headersTimeout = (keepAliveTimeoutS + 1) * 1000;
+
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
