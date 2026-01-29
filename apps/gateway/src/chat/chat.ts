@@ -75,6 +75,57 @@ import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import type { ImageObject } from "./tools/types.js";
 import type { ServerTypes } from "@/vars.js";
 
+// Pre-compiled regex patterns to avoid recompilation per request
+const IMAGE_URL_PATTERN = /https:\/\/[^\s]+/gi;
+const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
+
+/**
+ * Quick heuristic to check if a string might be complete JSON.
+ * Returns false if brackets are definitely unbalanced (avoiding expensive JSON.parse).
+ * Returns true if it might be valid (still needs JSON.parse to confirm).
+ * This is a performance optimization for SSE parsing where we do many validity checks.
+ */
+function mightBeCompleteJson(str: string): boolean {
+	const trimmed = str.trim();
+	if (trimmed.length === 0) {
+		return false;
+	}
+
+	const firstChar = trimmed[0];
+	const lastChar = trimmed[trimmed.length - 1];
+
+	// Quick check: must start with { or [ and end with } or ]
+	if (firstChar === "{") {
+		if (lastChar !== "}") {
+			return false;
+		}
+	} else if (firstChar === "[") {
+		if (lastChar !== "]") {
+			return false;
+		}
+	} else {
+		// Not a JSON object or array
+		return false;
+	}
+
+	// Quick bracket count (doesn't account for strings, but catches obvious imbalances)
+	let braces = 0;
+	let brackets = 0;
+	for (const c of trimmed) {
+		if (c === "{") {
+			braces++;
+		} else if (c === "}") {
+			braces--;
+		} else if (c === "[") {
+			brackets++;
+		} else if (c === "]") {
+			brackets--;
+		}
+	}
+
+	return braces === 0 && brackets === 0;
+}
+
 /**
  * Checks if a model is truly free (has free flag AND no per-request pricing)
  */
@@ -577,7 +628,6 @@ chat.openapi(completions, async (c) => {
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
 	let inputImageCount = 0;
 	if (modelInput === "gemini-3-pro-image-preview") {
-		const imageUrlPattern = /https:\/\/[^\s]+/gi;
 		for (const message of messages) {
 			if (Array.isArray(message.content)) {
 				for (const part of message.content) {
@@ -596,8 +646,10 @@ chat.openapi(completions, async (c) => {
 						"text" in part &&
 						typeof part.text === "string"
 					) {
-						// Count image URLs in text content
-						const matches = part.text.match(imageUrlPattern);
+						// Count image URLs in text content using pre-compiled pattern
+						// Reset lastIndex since global flag maintains state
+						IMAGE_URL_PATTERN.lastIndex = 0;
+						const matches = part.text.match(IMAGE_URL_PATTERN);
 						if (matches) {
 							inputImageCount += matches.length;
 						}
@@ -1299,6 +1351,7 @@ chat.openapi(completions, async (c) => {
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
+		const now = new Date(); // Cache current time for deprecation checks
 
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
@@ -1320,7 +1373,7 @@ chat.openapi(completions, async (c) => {
 				// Skip deprecated provider mappings
 				if (
 					(provider as ProviderModelMapping).deprecatedAt &&
-					new Date() > (provider as ProviderModelMapping).deprecatedAt!
+					now > (provider as ProviderModelMapping).deprecatedAt!
 				) {
 					return false;
 				}
@@ -3478,11 +3531,20 @@ chat.openapi(completions, async (c) => {
 								const jsonCandidate = betweenEvents
 									.slice(0, firstNewline)
 									.trim();
-								try {
-									JSON.parse(jsonCandidate);
+								// Quick heuristic check before expensive JSON.parse
+								let isValidJson = false;
+								if (mightBeCompleteJson(jsonCandidate)) {
+									try {
+										JSON.parse(jsonCandidate);
+										isValidJson = true;
+									} catch {
+										// JSON is not complete
+									}
+								}
+								if (isValidJson) {
 									// JSON is valid - end at first newline to exclude SSE fields
 									eventEnd = dataIndex + 6 + firstNewline;
-								} catch {
+								} else {
 									// JSON is not complete, use the full segment to next data event
 									eventEnd = nextEventIndex;
 								}
@@ -3503,11 +3565,20 @@ chat.openapi(completions, async (c) => {
 								const jsonCandidate = bufferCopy
 									.slice(eventStartPos, newlinePos)
 									.trim();
-								try {
-									JSON.parse(jsonCandidate);
+								// Quick heuristic check before expensive JSON.parse
+								let isValidJson = false;
+								if (mightBeCompleteJson(jsonCandidate)) {
+									try {
+										JSON.parse(jsonCandidate);
+										isValidJson = true;
+									} catch {
+										// JSON is not complete
+									}
+								}
+								if (isValidJson) {
 									// JSON is valid - this newline marks the end of our data
 									eventEnd = newlinePos;
-								} catch {
+								} else {
 									// JSON is not valid, check if there's more content after the newline
 									if (newlinePos + 1 >= bufferCopy.length) {
 										// Newline is at the end of buffer - event is incomplete
@@ -3518,21 +3589,43 @@ chat.openapi(completions, async (c) => {
 										const restOfBuffer = bufferCopy.slice(newlinePos + 1);
 
 										// Check for SSE field patterns (event:, id:, retry:, etc.)
-										// Handle both single and double newlines before checking for SSE fields
-										const trimmedRest = restOfBuffer.replace(/^\n+/, ""); // Remove leading newlines
+										// Skip leading newlines efficiently without creating new strings
+										let trimStart = 0;
+										while (
+											trimStart < restOfBuffer.length &&
+											restOfBuffer[trimStart] === "\n"
+										) {
+											trimStart++;
+										}
+
 										if (
 											restOfBuffer.startsWith("\n") || // Empty line - end of event
-											restOfBuffer.startsWith("data: ") || // Next data field
-											trimmedRest.startsWith("event:") || // Event field (after newlines)
-											trimmedRest.startsWith("id:") || // ID field (after newlines)
-											trimmedRest.startsWith("retry:") || // Retry field (after newlines)
-											trimmedRest.match(/^[a-zA-Z_-]+:\s*/) // Generic SSE field pattern (after newlines, allow no space)
+											restOfBuffer.startsWith("data: ") // Next data field
 										) {
 											// This is the end of our data event
 											eventEnd = newlinePos;
+										} else if (trimStart > 0) {
+											// Had leading newlines - check for SSE fields after them
+											const afterNewlines = restOfBuffer.substring(trimStart);
+											if (
+												afterNewlines.startsWith("event:") ||
+												afterNewlines.startsWith("id:") ||
+												afterNewlines.startsWith("retry:") ||
+												SSE_FIELD_PATTERN.test(afterNewlines)
+											) {
+												eventEnd = newlinePos;
+											} else {
+												// Content continues on next line - use full buffer
+												eventEnd = bufferCopy.length;
+											}
 										} else {
-											// Content continues on next line - use full buffer
-											eventEnd = bufferCopy.length;
+											// No leading newlines - check SSE field directly
+											if (SSE_FIELD_PATTERN.test(restOfBuffer)) {
+												eventEnd = newlinePos;
+											} else {
+												// Content continues on next line - use full buffer
+												eventEnd = bufferCopy.length;
+											}
 										}
 									}
 								}
@@ -3541,13 +3634,19 @@ chat.openapi(completions, async (c) => {
 								// Try to detect if we have a complete JSON object
 								const eventDataCandidate = bufferCopy.slice(eventStartPos);
 								if (eventDataCandidate.length > 0) {
-									// Try to validate if this looks like complete JSON
-									try {
-										JSON.parse(eventDataCandidate.trim());
-										// If we can parse it, it's complete
-										eventEnd = bufferCopy.length;
-									} catch {
-										// JSON parsing failed - event is incomplete
+									// Quick heuristic check before expensive JSON.parse
+									const trimmedCandidate = eventDataCandidate.trim();
+									if (mightBeCompleteJson(trimmedCandidate)) {
+										try {
+											JSON.parse(trimmedCandidate);
+											// If we can parse it, it's complete
+											eventEnd = bufferCopy.length;
+										} catch {
+											// JSON parsing failed - event is incomplete
+											break;
+										}
+									} else {
+										// Heuristic says incomplete - don't bother parsing
 										break;
 									}
 								} else {
