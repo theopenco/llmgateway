@@ -652,7 +652,7 @@ chat.openapi(completions, async (c) => {
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
 		c.req.header("x-debug") === "true" ||
-		process.env.FORCE_DEBUG_MODE ||
+		process.env.FORCE_DEBUG_MODE === "true" ||
 		process.env.NODE_ENV !== "production";
 
 	// Constants for raw data logging
