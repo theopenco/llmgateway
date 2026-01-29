@@ -2638,6 +2638,16 @@ chat.openapi(completions, async (c) => {
 			}> = [];
 			const streamStartTime = Date.now();
 
+			// SSE keepalive to prevent proxy/load balancer timeouts
+			// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+			const KEEPALIVE_INTERVAL_MS = 15000;
+			const keepaliveInterval = setInterval(() => {
+				stream.write(": ping\n\n").catch(() => {
+					// Stream likely closed, cleanup will happen via abort handler or finally
+				});
+			}, KEEPALIVE_INTERVAL_MS);
+			const clearKeepalive = () => clearInterval(keepaliveInterval);
+
 			// Timing tracking variables
 			let timeToFirstToken: number | null = null;
 			let timeToFirstReasoningToken: number | null = null;
@@ -2673,6 +2683,7 @@ chat.openapi(completions, async (c) => {
 			const controller = new AbortController();
 			// Set up a listener for the request being aborted
 			const onAbort = () => {
+				clearKeepalive();
 				if (requestCanBeCanceled) {
 					canceled = true;
 					controller.abort();
@@ -2850,6 +2861,7 @@ chat.openapi(completions, async (c) => {
 						data: "[DONE]",
 						id: String(eventId++),
 					});
+					clearKeepalive();
 					return;
 				} else if (error instanceof Error) {
 					// Handle fetch errors (timeout, connection failures, etc.)
@@ -2954,6 +2966,7 @@ chat.openapi(completions, async (c) => {
 						data: "[DONE]",
 						id: String(eventId++),
 					});
+					clearKeepalive();
 					return;
 				} else {
 					throw error;
@@ -3100,6 +3113,7 @@ chat.openapi(completions, async (c) => {
 					);
 				}
 
+				clearKeepalive();
 				return;
 			}
 
@@ -3121,6 +3135,7 @@ chat.openapi(completions, async (c) => {
 					data: "[DONE]",
 					id: String(eventId++),
 				});
+				clearKeepalive();
 				return;
 			}
 
@@ -4209,6 +4224,10 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 				}
+
+				// Clean up keepalive before any potentially-throwing operations (insertLog, etc.)
+				// clearInterval is idempotent so calling it multiple times is safe
+				clearKeepalive();
 
 				// Check if we should bill cancelled requests
 				const billCancelledRequests = shouldBillCancelledRequests();
