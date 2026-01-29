@@ -4051,6 +4051,20 @@ chat.openapi(completions, async (c) => {
 					(!streamingToolCalls || streamingToolCalls.length === 0);
 
 				if (hasEmptyResponse) {
+					logger.warn("[streaming] Empty response detected", {
+						provider: usedProvider,
+						model: usedModel,
+						finishReason,
+						calculatedCompletionTokens,
+						calculatedReasoningTokens,
+						fullContentLength: fullContent?.length ?? 0,
+						fullContentTrimmed: fullContent?.trim()?.length ?? 0,
+						streamingToolCallsCount: streamingToolCalls?.length ?? 0,
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+					});
 					const errorMessage =
 						"Response finished successfully but returned no content or tool calls";
 					streamingError = errorMessage;
