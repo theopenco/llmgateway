@@ -1,6 +1,5 @@
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
-import { allMigrations } from "content-collections";
 
 export const HeroRSC = async ({
 	navbarOnly,
@@ -9,6 +8,7 @@ export const HeroRSC = async ({
 	navbarOnly?: boolean;
 	sticky?: boolean;
 }) => {
+	const { allMigrations } = await import("content-collections");
 	const migrations = navbarOnly
 		? []
 		: allMigrations.map((m) => ({
