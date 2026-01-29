@@ -3247,9 +3247,9 @@ chat.openapi(completions, async (c) => {
 						chunk = new TextDecoder().decode(value);
 					}
 
-					// Warn on large chunks (1MB+)
+					// Log error on large chunks (1MB+) - should almost never happen
 					if (chunk.length > 1024 * 1024) {
-						logger.warn(
+						logger.error(
 							`Large chunk received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB`,
 						);
 					}
