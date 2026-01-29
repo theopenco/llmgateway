@@ -4819,6 +4819,7 @@ export interface operations {
                                 jsonOutput: boolean | null;
                                 jsonOutputSchema: boolean | null;
                                 webSearch: boolean | null;
+                                webSearchPrice: string | null;
                                 discount: string | null;
                                 /** @enum {string|null} */
                                 stability: "stable" | "beta" | "unstable" | "experimental" | null;
