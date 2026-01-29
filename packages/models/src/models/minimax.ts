@@ -53,7 +53,6 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				stability: "unstable",
 				modelName: "MiniMax-M2.1",
 				inputPrice: 0.27 / 1e6,
 				outputPrice: 1.1 / 1e6,

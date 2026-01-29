@@ -4037,6 +4037,8 @@ chat.openapi(completions, async (c) => {
 					};
 				}
 			} finally {
+				// Clean up the reader to prevent file descriptor leaks
+				await reader.cancel();
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 

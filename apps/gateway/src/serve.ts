@@ -12,8 +12,14 @@ import { app } from "./app.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
+import type { Server } from "node:http";
 
 const port = Number(process.env.PORT) || 4001;
+
+// GCP Load Balancer has a fixed 600s keepalive timeout. Node.js default is 5s.
+// If Node closes the connection first, the LB sends requests on stale connections → 502.
+// Default to 620s (above GCP's 600s) to ensure the LB closes first.
+const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
 let sdk: NodeSDK | null = null;
 
@@ -94,6 +100,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 // Start the server
 startServer()
 	.then((server) => {
+		(server as Server).keepAliveTimeout = keepAliveTimeoutS * 1000;
+		(server as Server).headersTimeout = (keepAliveTimeoutS + 1) * 1000;
+
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
