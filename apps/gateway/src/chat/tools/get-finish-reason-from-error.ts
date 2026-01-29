@@ -3,6 +3,7 @@
  * 5xx status codes indicate upstream provider errors
  * 429 status codes indicate upstream rate limiting (treated as upstream error)
  * 404 status codes indicate model/endpoint not found at provider (treated as upstream error)
+ * 401/403 status codes indicate authentication/authorization issues at provider (treated as upstream error)
  * Other 4xx status codes indicate client/gateway errors
  * Special client errors (like JSON format validation) are classified as client_error
  */
@@ -24,6 +25,11 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// 401 from upstream provider indicates invalid/expired API key at provider
+	if (statusCode === 401) {
+		return "upstream_error";
+	}
+
 	// 403 from upstream provider indicates authentication/authorization issue at provider
 	if (statusCode === 403) {
 		return "upstream_error";
@@ -36,6 +42,11 @@ export function getFinishReasonFromError(
 		)
 	) {
 		return "client_error";
+	}
+
+	// Provider API key not found - treat as upstream error for health/uptime purposes
+	if (errorText?.includes("API Key not found. Please pass a valid API key.")) {
+		return "upstream_error";
 	}
 
 	// Check for specific client validation errors from providers

@@ -117,6 +117,9 @@ export function getProviderEndpoint(
 			case "bytedance":
 				url = "https://ark.ap-southeast.bytepluses.com/api/v3";
 				break;
+			case "minimax":
+				url = "https://api.minimax.io";
+				break;
 			case "aws-bedrock":
 				url =
 					getProviderEnvValue(
@@ -317,6 +320,7 @@ export function getProviderEndpoint(
 		case "routeway":
 		case "nanogpt":
 		case "canopywave":
+		case "minimax":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

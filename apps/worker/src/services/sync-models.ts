@@ -147,6 +147,11 @@ export async function syncProvidersAndModels() {
 										? mapping.jsonOutputSchema
 										: false,
 								webSearch: "webSearch" in mapping ? mapping.webSearch : false,
+								webSearchPrice:
+									"webSearchPrice" in mapping &&
+									mapping.webSearchPrice !== undefined
+										? mapping.webSearchPrice.toString()
+										: null,
 								// NotNull decimal field - use explicit default
 								discount:
 									"discount" in mapping && mapping.discount !== undefined
@@ -220,6 +225,11 @@ export async function syncProvidersAndModels() {
 									? mapping.jsonOutputSchema
 									: undefined,
 							webSearch: "webSearch" in mapping ? mapping.webSearch : undefined,
+							webSearchPrice:
+								"webSearchPrice" in mapping &&
+								mapping.webSearchPrice !== undefined
+									? mapping.webSearchPrice.toString()
+									: undefined,
 							discount:
 								"discount" in mapping && mapping.discount !== undefined
 									? mapping.discount.toString()

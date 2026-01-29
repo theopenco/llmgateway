@@ -317,6 +317,9 @@ const ModelTableRow = React.memo(
 										>
 											<Globe className="h-4 w-4 mr-2 text-purple-500" />
 											Web Search
+											{row.provider.webSearchPrice &&
+												parseFloat(row.provider.webSearchPrice) > 0 &&
+												` $${parseFloat(row.provider.webSearchPrice).toFixed(3)}/search`}
 										</Badge>
 									)}
 									{row.provider.requestPrice &&
