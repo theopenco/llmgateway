@@ -127,19 +127,27 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 startServer()
 	.then((server) => {
 		(server as Server).keepAliveTimeout = keepAliveTimeoutS * 1000;
-		(server as Server).headersTimeout = (keepAliveTimeoutS + 1) * 1000;
+		// headersTimeout must be greater than keepAliveTimeout
+		// Using +5s margin to account for processing time and avoid race conditions
+		(server as Server).headersTimeout = (keepAliveTimeoutS + 5) * 1000;
 
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
+		// Handle uncaught errors gracefully - allow in-flight requests to complete
+		// before exiting. This prevents 502s for all concurrent requests when
+		// a single request causes an unhandled error.
 		process.on("uncaughtException", (error) => {
-			logger.fatal("Uncaught exception", error);
-			process.exit(1);
+			logger.fatal("Uncaught exception, initiating graceful shutdown", error);
+			gracefulShutdown("uncaughtException", server);
 		});
 
 		process.on("unhandledRejection", (reason, promise) => {
-			logger.fatal("Unhandled rejection", { promise, reason });
-			process.exit(1);
+			logger.fatal("Unhandled rejection, initiating graceful shutdown", {
+				promise,
+				reason,
+			});
+			gracefulShutdown("unhandledRejection", server);
 		});
 	})
 	.catch((error) => {
