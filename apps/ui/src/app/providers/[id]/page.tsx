@@ -80,6 +80,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					jsonOutput: map.jsonOutput ?? null,
 					jsonOutputSchema: map.jsonOutputSchema ?? null,
 					webSearch: map.webSearch ?? null,
+					webSearchPrice: map.webSearchPrice?.toString() ?? null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,

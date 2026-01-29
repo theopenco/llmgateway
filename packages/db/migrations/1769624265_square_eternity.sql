@@ -1,0 +1,1 @@
+ALTER TABLE "model_provider_mapping" ADD COLUMN "web_search_price" numeric;
