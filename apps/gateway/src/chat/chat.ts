@@ -28,15 +28,15 @@ import {
 import {
 	cdb as db,
 	getProviderMetricsForCombinations,
-	isCachingEnabled,
 	type InferSelectModel,
+	isCachingEnabled,
 	shortid,
 	type tables,
 } from "@llmgateway/db";
 import {
+	applyRedactions,
 	checkGuardrails,
 	logViolation,
-	applyRedactions,
 } from "@llmgateway/guardrails";
 import { logger } from "@llmgateway/logger";
 import {
@@ -651,7 +651,9 @@ chat.openapi(completions, async (c) => {
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
-		c.req.header("x-debug") === "true" || process.env.NODE_ENV !== "production";
+		c.req.header("x-debug") === "true" ||
+		process.env.FORCE_DEBUG_MODE ||
+		process.env.NODE_ENV !== "production";
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
