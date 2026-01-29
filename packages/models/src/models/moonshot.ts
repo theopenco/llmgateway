@@ -192,7 +192,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				modelName: "kimi-k2.5-0127",
+				modelName: "kimi-k2.5",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 3.0 / 1e6,
 				cachedInputPrice: 0.1 / 1e6,

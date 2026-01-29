@@ -2637,6 +2637,38 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// For Moonshot provider, enrich assistant messages with cached reasoning_content
+	// This is needed for multi-turn tool call conversations with thinking models
+	// Moonshot requires reasoning_content in assistant messages with tool_calls
+	if (usedProvider === "moonshot") {
+		const { redisClient } = await import("@llmgateway/cache");
+		for (const message of messages) {
+			if (
+				message.role === "assistant" &&
+				message.tool_calls &&
+				Array.isArray(message.tool_calls) &&
+				message.tool_calls.length > 0 &&
+				!(message as any).reasoning_content // Only add if not already present
+			) {
+				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
+				const firstToolCall = message.tool_calls[0];
+				if (firstToolCall?.id) {
+					try {
+						const cachedReasoningContent = await redisClient.get(
+							`reasoning_content:${firstToolCall.id}`,
+						);
+						if (cachedReasoningContent) {
+							// Add reasoning_content to the message for Moonshot
+							(message as any).reasoning_content = cachedReasoningContent;
+						}
+					} catch {
+						// Silently fail - reasoning_content caching is optional
+					}
+				}
+			}
+		}
+	}
+
 	const requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
