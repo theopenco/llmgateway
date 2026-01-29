@@ -657,6 +657,9 @@ chat.openapi(completions, async (c) => {
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
+	// Maximum buffer size for streaming responses (configurable via env var, default 50MB)
+	const MAX_BUFFER_SIZE =
+		(Number(process.env.MAX_STREAMING_BUFFER_MB) || 50) * 1024 * 1024;
 
 	c.header("x-request-id", requestId);
 
@@ -3210,7 +3213,6 @@ chat.openapi(completions, async (c) => {
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
-			// const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
 			try {
@@ -3251,14 +3253,14 @@ chat.openapi(completions, async (c) => {
 						rawUpstreamData += chunk;
 					}
 
-					// // Check buffer size to prevent memory exhaustion
-					// if (buffer.length > MAX_BUFFER_SIZE) {
-					// 	logger.warn(
-					// 		"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
-					// 	);
-					// 	buffer = "";
-					// 	continue;
-					// }
+					// Check buffer size to prevent memory exhaustion
+					if (buffer.length > MAX_BUFFER_SIZE) {
+						logger.warn(
+							`Buffer size exceeded ${MAX_BUFFER_SIZE / 1024 / 1024}MB, clearing buffer to prevent memory exhaustion`,
+						);
+						buffer = "";
+						continue;
+					}
 
 					// Process SSE events from buffer
 					let processedLength = 0;
