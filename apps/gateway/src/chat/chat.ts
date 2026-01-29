@@ -657,6 +657,9 @@ chat.openapi(completions, async (c) => {
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
+	// Maximum buffer size for streaming responses (configurable via env var, default 50MB)
+	const MAX_BUFFER_SIZE =
+		(Number(process.env.MAX_STREAMING_BUFFER_MB) || 50) * 1024 * 1024;
 
 	c.header("x-request-id", requestId);
 
@@ -3156,7 +3159,6 @@ chat.openapi(completions, async (c) => {
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
-			// const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
 			try {
@@ -3191,20 +3193,70 @@ chat.openapi(completions, async (c) => {
 						chunk = new TextDecoder().decode(value);
 					}
 
+					// Log error on large chunks (1MB+) - should almost never happen
+					if (chunk.length > 1024 * 1024) {
+						logger.error(
+							`Large chunk received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB`,
+						);
+					}
+
 					buffer += chunk;
 					// Collect raw upstream data for logging only in debug mode and within size limit
 					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
 						rawUpstreamData += chunk;
 					}
 
-					// // Check buffer size to prevent memory exhaustion
-					// if (buffer.length > MAX_BUFFER_SIZE) {
-					// 	logger.warn(
-					// 		"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
-					// 	);
-					// 	buffer = "";
-					// 	continue;
-					// }
+					// Check buffer size to prevent memory exhaustion
+					if (buffer.length > MAX_BUFFER_SIZE) {
+						const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
+						logger.error(
+							`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
+						);
+
+						// Send error to client
+						try {
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+										type: "gateway_error",
+										param: null,
+										code: "buffer_overflow",
+									},
+								}),
+								id: String(eventId++),
+							});
+							await stream.writeSSE({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send buffer overflow error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+
+						// Set error for logging
+						streamingError = {
+							message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+							type: "buffer_overflow",
+							code: "buffer_overflow",
+							details: {
+								bufferSize: buffer.length,
+								maxBufferSize: MAX_BUFFER_SIZE,
+								provider: usedProvider,
+								model: usedModel,
+							},
+						};
+
+						break;
+					}
 
 					// Process SSE events from buffer
 					let processedLength = 0;
