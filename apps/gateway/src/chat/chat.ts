@@ -4296,6 +4296,10 @@ chat.openapi(completions, async (c) => {
 					}
 				}
 
+				// Clean up keepalive before any potentially-throwing operations (insertLog, etc.)
+				// clearInterval is idempotent so calling it multiple times is safe
+				clearKeepalive();
+
 				// Check if we should bill cancelled requests
 				const billCancelledRequests = shouldBillCancelledRequests();
 
@@ -4512,9 +4516,6 @@ chat.openapi(completions, async (c) => {
 					}
 				}
 			}
-
-			// Clean up keepalive on normal completion
-			clearKeepalive();
 		});
 	}
 
