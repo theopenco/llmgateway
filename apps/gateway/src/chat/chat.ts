@@ -45,7 +45,6 @@ import {
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasProviderEnvironmentToken,
-	type Model,
 	type ModelDefinition,
 	models,
 	type Provider,
@@ -70,7 +69,9 @@ import { getProviderEnv } from "./tools/get-provider-env.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
+import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
@@ -440,185 +441,19 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
-	let requestedModel: Model = modelInput as Model;
-	let requestedProvider: Provider | undefined;
-	let customProviderName: string | undefined;
+	// Parse model input to resolve model, provider, and custom provider name
+	const parseResult = parseModelInput(modelInput);
+	const requestedModel = parseResult.requestedModel;
+	const customProviderName = parseResult.customProviderName;
 
-	// check if there is an exact model match
-	if (modelInput === "auto" || modelInput === "custom") {
-		requestedProvider = "llmgateway";
-		requestedModel = modelInput as Model;
-	} else if (modelInput.includes("/")) {
-		const split = modelInput.split("/");
-		const providerCandidate = split[0];
-
-		// Check if the provider exists
-		const knownProvider = providers.find((p) => p.id === providerCandidate);
-		if (!knownProvider) {
-			// This might be a custom provider name - we'll validate against the database later
-			// For now, assume it's a potential custom provider
-			customProviderName = providerCandidate;
-			requestedProvider = "custom";
-		} else {
-			requestedProvider = providerCandidate as Provider;
-		}
-		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
-		const modelName = split.slice(1).join("/");
-
-		// For custom providers, we don't need to validate the model name
-		// since they can use any OpenAI-compatible model name
-		if (requestedProvider === "custom") {
-			requestedModel = modelName as Model;
-		} else {
-			// First try to find by base model name
-			let modelDef = models.find((m) => m.id === modelName);
-
-			if (!modelDef) {
-				modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.modelName === modelName && p.providerId === requestedProvider,
-					),
-				);
-			}
-
-			if (!modelDef) {
-				throw new HTTPException(400, {
-					message: `Requested model ${modelName} not supported`,
-				});
-			}
-
-			if (!modelDef.providers.some((p) => p.providerId === requestedProvider)) {
-				throw new HTTPException(400, {
-					message: `Provider ${requestedProvider} does not support model ${modelName}`,
-				});
-			}
-
-			// Use the provider-specific model name if available
-			const providerMapping = modelDef.providers.find(
-				(p) => p.providerId === requestedProvider,
-			);
-			if (providerMapping) {
-				requestedModel = providerMapping.modelName as Model;
-			} else {
-				requestedModel = modelName as Model;
-			}
-		}
-	} else if (models.find((m) => m.id === modelInput)) {
-		requestedModel = modelInput as Model;
-	} else if (
-		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
-	) {
-		const model = models.find((m) =>
-			m.providers.find((p) => p.modelName === modelInput),
-		);
-		const provider = model?.providers.find((p) => p.modelName === modelInput);
-
-		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
-		});
-	} else {
-		throw new HTTPException(400, {
-			message: `Requested model ${modelInput} not supported`,
-		});
-	}
-
-	if (
-		requestedProvider &&
-		requestedProvider !== "custom" &&
-		!providers.find((p) => p.id === requestedProvider)
-	) {
-		throw new HTTPException(400, {
-			message: `Requested provider ${requestedProvider} not supported`,
-		});
-	}
-
-	let modelInfo;
-
-	if (requestedProvider === "custom") {
-		// For custom providers, we create a mock model info that treats it as an OpenAI model
-		modelInfo = {
-			model: requestedModel,
-			providers: [
-				{
-					providerId: "custom" as const,
-					modelName: requestedModel,
-					inputPrice: 0,
-					outputPrice: 0,
-					contextSize: 8192,
-					maxOutput: 4096,
-					streaming: true,
-					vision: false,
-					jsonOutput: true,
-				},
-			],
-		};
-	} else {
-		// First try to find by model ID
-		modelInfo = models.find((m) => m.id === requestedModel);
-
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
-		if (!modelInfo) {
-			if (requestedProvider) {
-				modelInfo = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.modelName === requestedModel &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				modelInfo = models.find((m) =>
-					m.providers.find((p) => p.modelName === requestedModel),
-				);
-			}
-		}
-
-		if (!modelInfo) {
-			throw new HTTPException(400, {
-				message: `Unsupported model: ${requestedModel}`,
-			});
-		}
-	}
-
-	// Save original providers list (including deactivated) for routing metadata display
-	const allModelProviders = modelInfo.providers;
-
-	// Filter out deactivated provider mappings
-	const now = new Date();
-	const activeProviders = modelInfo.providers.filter(
-		(provider) =>
-			!(
-				(provider as ProviderModelMapping).deactivatedAt &&
-				now > (provider as ProviderModelMapping).deactivatedAt!
-			),
+	// Resolve model info and filter deactivated providers
+	const modelInfoResult = resolveModelInfo(
+		requestedModel,
+		parseResult.requestedProvider,
 	);
-
-	// Check if all providers are deactivated
-	if (activeProviders.length === 0) {
-		throw new HTTPException(410, {
-			message: `Model ${requestedModel} has been deactivated and is no longer available`,
-		});
-	}
-
-	// Update modelInfo to only include active providers
-	modelInfo = {
-		...modelInfo,
-		providers: activeProviders,
-	};
-
-	// If a specific provider was requested but is now deactivated, clear it
-	// so routing logic will pick another active provider
-	if (
-		requestedProvider &&
-		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom" &&
-		!activeProviders.some((p) => p.providerId === requestedProvider)
-	) {
-		// The requested provider was deactivated, routing will select another
-		requestedProvider = undefined;
-	}
+	let modelInfo = modelInfoResult.modelInfo;
+	const allModelProviders = modelInfoResult.allModelProviders;
+	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -895,7 +730,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	let usedProvider = requestedProvider;
-	let usedModel = requestedModel;
+	let usedModel: string = requestedModel;
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation

@@ -3,7 +3,6 @@ import { encode, encodeChat } from "gpt-tokenizer";
 
 import { logger } from "@llmgateway/logger";
 import {
-	type Model,
 	type ModelDefinition,
 	models,
 	type PricingTier,
@@ -81,7 +80,7 @@ function getPricingForTokenCount(
  * from the fullOutput parameter if provided
  */
 export function calculateCosts(
-	model: Model,
+	model: string,
 	provider: string,
 	promptTokens: number | null,
 	completionTokens: number | null,
