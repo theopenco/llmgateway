@@ -228,7 +228,7 @@ export const metaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				jsonOutput: false,
 			},
 		],
 	},
