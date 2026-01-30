@@ -57,6 +57,7 @@ import {
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
+import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
@@ -69,6 +70,8 @@ import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.j
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
+import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
@@ -78,78 +81,8 @@ import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-// Pre-compiled regex patterns to avoid recompilation per request
-const IMAGE_URL_PATTERN = /https:\/\/[^\s]+/gi;
+// Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
-
-/**
- * Quick heuristic to check if a string might be complete JSON.
- * Returns false if brackets are definitely unbalanced (avoiding expensive JSON.parse).
- * Returns true if it might be valid (still needs JSON.parse to confirm).
- * This is a performance optimization for SSE parsing where we do many validity checks.
- */
-function mightBeCompleteJson(str: string): boolean {
-	const trimmed = str.trim();
-	if (trimmed.length === 0) {
-		return false;
-	}
-
-	const firstChar = trimmed[0];
-	const lastChar = trimmed[trimmed.length - 1];
-
-	// Quick check: must start with { or [ and end with } or ]
-	if (firstChar === "{") {
-		if (lastChar !== "}") {
-			return false;
-		}
-	} else if (firstChar === "[") {
-		if (lastChar !== "]") {
-			return false;
-		}
-	} else {
-		// Not a JSON object or array
-		return false;
-	}
-
-	// Quick bracket count (doesn't account for strings, but catches obvious imbalances)
-	let braces = 0;
-	let brackets = 0;
-	for (const c of trimmed) {
-		if (c === "{") {
-			braces++;
-		} else if (c === "}") {
-			braces--;
-		} else if (c === "[") {
-			brackets++;
-		} else if (c === "]") {
-			brackets--;
-		}
-	}
-
-	return braces === 0 && brackets === 0;
-}
-
-/**
- * Checks if any messages contain images (image_url or image type content)
- * Used to filter providers that don't support vision
- */
-function messagesContainImages(messages: BaseMessage[]): boolean {
-	for (const message of messages) {
-		if (Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					(part.type === "image_url" || part.type === "image")
-				) {
-					return true;
-				}
-			}
-		}
-	}
-	return false;
-}
 
 export const chat = new OpenAPIHono<ServerTypes>();
 
@@ -339,38 +272,10 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	let inputImageCount = 0;
-	if (modelInput === "gemini-3-pro-image-preview") {
-		for (const message of messages) {
-			if (Array.isArray(message.content)) {
-				for (const part of message.content) {
-					if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "image_url"
-					) {
-						inputImageCount++;
-					} else if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "text" &&
-						"text" in part &&
-						typeof part.text === "string"
-					) {
-						// Count image URLs in text content using pre-compiled pattern
-						// Reset lastIndex since global flag maintains state
-						IMAGE_URL_PATTERN.lastIndex = 0;
-						const matches = part.text.match(IMAGE_URL_PATTERN);
-						if (matches) {
-							inputImageCount += matches.length;
-						}
-					}
-				}
-			}
-		}
-	}
+	const inputImageCount =
+		modelInput === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
