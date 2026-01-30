@@ -372,8 +372,42 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
+	const reasoning_object_effort = validationResult.data.reasoning?.effort;
+	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
+
+	// Validate that reasoning_effort and reasoning.effort are not both specified
+	if (
+		validationResult.data.reasoning_effort !== undefined &&
+		reasoning_object_effort !== undefined
+	) {
+		return c.json(
+			{
+				error: {
+					message:
+						"Cannot specify both reasoning_effort and reasoning.effort. Use one or the other.",
+					type: "invalid_request_error",
+					code: "invalid_request",
+				},
+			},
+			400,
+		);
+	}
+
 	// Extract reasoning_effort as mutable variable for auto-routing modification
-	let reasoning_effort = validationResult.data.reasoning_effort;
+	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort
+	// Map "xhigh" to "high" and "none" to undefined for internal processing
+	let reasoning_effort = (() => {
+		const effort =
+			reasoning_object_effort ?? validationResult.data.reasoning_effort;
+		if (effort === "none") {
+			return undefined;
+		}
+		if (effort === "xhigh") {
+			return "high" as const;
+		}
+		return effort;
+	})();
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -844,6 +878,47 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Check if reasoning.max_tokens is specified but model doesn't support it
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		reasoning_max_tokens !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		// Filter providers by requestedProvider if specified
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		// Check if any provider for this model supports reasoning.max_tokens
+		const supportsReasoningMaxTokens = providersToCheck.some(
+			(provider) =>
+				(provider as ProviderModelMapping).supportsReasoningMaxTokens === true,
+		);
+
+		if (!supportsReasoningMaxTokens) {
+			logger.error(
+				`reasoning.max_tokens specified for model that doesn't support it: ${requestedModel}`,
+				{
+					requestedModel,
+					requestedProvider,
+					reasoning_max_tokens,
+					modelProviders: modelInfo.providers.map((p) => ({
+						providerId: p.providerId,
+						supportsReasoningMaxTokens: (p as ProviderModelMapping)
+							.supportsReasoningMaxTokens,
+					})),
+				},
+			);
+
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support reasoning.max_tokens. Remove the reasoning.max_tokens parameter or use a model that supports explicit reasoning token budgets (Anthropic or Google thinking models).`,
+			});
+		}
+	}
+
 	// Check if tools are specified but model doesn't support them
 	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
 	if (
@@ -1107,6 +1182,14 @@ chat.openapi(completions, async (c) => {
 				if (
 					reasoning_effort !== undefined &&
 					(provider as ProviderModelMapping).reasoning !== true
+				) {
+					return false;
+				}
+
+				// Check reasoning.max_tokens support if specified
+				if (
+					reasoning_max_tokens !== undefined &&
+					(provider as ProviderModelMapping).supportsReasoningMaxTokens !== true
 				) {
 					return false;
 				}
@@ -2430,6 +2513,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		isImageGeneration,
 		webSearchTool,
+		reasoning_max_tokens,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody

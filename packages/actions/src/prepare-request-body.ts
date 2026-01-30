@@ -393,6 +393,7 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 	webSearchTool?: WebSearchTool,
+	reasoning_max_tokens?: number,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
@@ -788,9 +789,15 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice;
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
+			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
 				if (!supportsReasoning) {
 					return 0;
+				}
+				// If explicit reasoning_max_tokens is provided, use it
+				if (reasoning_max_tokens !== undefined) {
+					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
+					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 				}
 				if (!reasoning_effort) {
 					return 0;
@@ -952,8 +959,8 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort is specified
-			if (supportsReasoning && reasoning_effort) {
+			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
 				requestBody.thinking = {
 					type: "enabled",
 					budget_tokens: thinkingBudget,
@@ -1313,8 +1320,13 @@ export async function prepareRequestBody(
 					includeThoughts: true,
 				};
 
-				// Map reasoning_effort to thinking_budget
-				if (reasoning_effort !== undefined) {
+				// Use reasoning_max_tokens if provided, otherwise map reasoning_effort to thinking_budget
+				if (reasoning_max_tokens !== undefined) {
+					// Google's thinkingBudget: just use the provided value directly
+					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
+					requestBody.generationConfig.thinkingConfig.thinkingBudget =
+						reasoning_max_tokens;
+				} else if (reasoning_effort !== undefined) {
 					const getThinkingBudget = (effort: string) => {
 						switch (effort) {
 							case "minimal":
