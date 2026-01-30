@@ -603,6 +603,13 @@
       "when": 1769624265351,
       "tag": "1769624265_square_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "8",
+      "when": 1769778347107,
+      "tag": "1769778347_red_rocket_racer",
+      "breakpoints": true
     }
   ]
 }
