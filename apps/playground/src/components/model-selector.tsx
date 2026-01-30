@@ -1208,7 +1208,8 @@ export function ModelSelector({
 														aggregate.maxOutput !== undefined;
 
 													const hasImagePricing =
-														aggregate.minRequestPrice !== undefined ||
+														(aggregate.minRequestPrice !== undefined &&
+															aggregate.minRequestPrice > 0) ||
 														aggregate.minImageInputPrice !== undefined ||
 														aggregate.minImageOutputPrice !== undefined;
 
@@ -1281,19 +1282,21 @@ export function ModelSelector({
 															{hasImagePricing && (
 																<div className="pt-2">
 																	<div className="grid grid-cols-2 gap-3">
-																		{aggregate.minRequestPrice !==
-																			undefined && (
-																			<div className="space-y-1">
-																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																					Per Request
-																				</span>
-																				<p className="text-xs font-mono">
-																					$
-																					{aggregate.minRequestPrice.toFixed(3)}
-																					/req
-																				</p>
-																			</div>
-																		)}
+																		{aggregate.minRequestPrice !== undefined &&
+																			aggregate.minRequestPrice > 0 && (
+																				<div className="space-y-1">
+																					<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																						Per Request
+																					</span>
+																					<p className="text-xs font-mono">
+																						$
+																						{aggregate.minRequestPrice.toFixed(
+																							3,
+																						)}
+																						/req
+																					</p>
+																				</div>
+																			)}
 																		{aggregate.minImageInputPrice !==
 																			undefined && (
 																			<div className="space-y-1">
@@ -1486,39 +1489,41 @@ export function ModelSelector({
 														previewEntry.mapping?.imageInputPrice) && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
-																{previewEntry.mapping?.requestPrice !==
-																	undefined && (
-																	<div className="space-y-1">
-																		<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																			Per Request
-																		</span>
-																		<p className="text-xs font-mono">
-																			{(() => {
-																				const price = getMappingPriceInfo(
-																					previewEntry.mapping,
-																					"request",
-																				);
-																				if (
-																					price.original &&
-																					price.discounted &&
-																					price.original !== price.discounted
-																				) {
-																					return (
-																						<>
-																							<span className="line-through text-muted-foreground">
-																								{price.original}
-																							</span>{" "}
-																							<span className="text-green-500">
-																								{price.discounted}
-																							</span>
-																						</>
+																{previewEntry.mapping?.requestPrice &&
+																	parseFloat(
+																		previewEntry.mapping.requestPrice,
+																	) > 0 && (
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Per Request
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const price = getMappingPriceInfo(
+																						previewEntry.mapping,
+																						"request",
 																					);
-																				}
-																				return price.label;
-																			})()}
-																		</p>
-																	</div>
-																)}
+																					if (
+																						price.original &&
+																						price.discounted &&
+																						price.original !== price.discounted
+																					) {
+																						return (
+																							<>
+																								<span className="line-through text-muted-foreground">
+																									{price.original}
+																								</span>{" "}
+																								<span className="text-green-500">
+																									{price.discounted}
+																								</span>
+																							</>
+																						);
+																					}
+																					return price.label;
+																				})()}
+																			</p>
+																		</div>
+																	)}
 																{previewEntry.mapping?.imageInputPrice !==
 																	undefined && (
 																	<div className="space-y-1">
@@ -1677,7 +1682,8 @@ export function ModelSelector({
 												aggregate.maxOutput !== undefined;
 
 											const hasImagePricing =
-												aggregate.minRequestPrice !== undefined ||
+												(aggregate.minRequestPrice !== undefined &&
+													aggregate.minRequestPrice > 0) ||
 												aggregate.minImageInputPrice !== undefined ||
 												aggregate.minImageOutputPrice !== undefined;
 
@@ -1747,17 +1753,18 @@ export function ModelSelector({
 													{hasImagePricing && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
-																{aggregate.minRequestPrice !== undefined && (
-																	<div className="space-y-1">
-																		<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																			Per Request
-																		</span>
-																		<p className="text-sm font-mono">
-																			${aggregate.minRequestPrice.toFixed(3)}
-																			/req
-																		</p>
-																	</div>
-																)}
+																{aggregate.minRequestPrice !== undefined &&
+																	aggregate.minRequestPrice > 0 && (
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Per Request
+																			</span>
+																			<p className="text-sm font-mono">
+																				${aggregate.minRequestPrice.toFixed(3)}
+																				/req
+																			</p>
+																		</div>
+																	)}
 																{aggregate.minImageInputPrice !== undefined && (
 																	<div className="space-y-1">
 																		<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -1946,39 +1953,40 @@ export function ModelSelector({
 														Image Pricing
 													</span>
 													<div className="grid grid-cols-2 gap-3">
-														{selectedDetails.mapping?.requestPrice !==
-															undefined && (
-															<div className="space-y-1">
-																<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																	Per Request
-																</span>
-																<p className="text-sm font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			selectedDetails.mapping,
-																			"request",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
+														{selectedDetails.mapping?.requestPrice &&
+															parseFloat(selectedDetails.mapping.requestPrice) >
+																0 && (
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Per Request
+																	</span>
+																	<p className="text-sm font-mono">
+																		{(() => {
+																			const price = getMappingPriceInfo(
+																				selectedDetails.mapping,
+																				"request",
 																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
-															</div>
-														)}
+																			if (
+																				price.original &&
+																				price.discounted &&
+																				price.original !== price.discounted
+																			) {
+																				return (
+																					<>
+																						<span className="line-through text-muted-foreground">
+																							{price.original}
+																						</span>{" "}
+																						<span className="text-green-500">
+																							{price.discounted}
+																						</span>
+																					</>
+																				);
+																			}
+																			return price.label;
+																		})()}
+																	</p>
+																</div>
+															)}
 														{selectedDetails.mapping?.imageInputPrice !==
 															undefined && (
 															<div className="space-y-1">
