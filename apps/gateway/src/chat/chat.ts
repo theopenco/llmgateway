@@ -9,6 +9,7 @@ import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -54,7 +55,11 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 
+import { completionsRequestSchema } from "./schemas/completions.js";
+import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
+import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
+import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
@@ -64,6 +69,9 @@ import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
+import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
+import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
@@ -71,322 +79,12 @@ import { transformStreamingToOpenai } from "./tools/transform-streaming-to-opena
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
-import type { ImageObject } from "./tools/types.js";
 import type { ServerTypes } from "@/vars.js";
 
-/**
- * Checks if a model is truly free (has free flag AND no per-request pricing)
- */
-function isModelTrulyFree(modelInfo: ModelDefinition): boolean {
-	if (!modelInfo.free) {
-		return false;
-	}
-	// Check if any provider has a per-request cost
-	return !modelInfo.providers.some((p) => p.requestPrice && p.requestPrice > 0);
-}
-
-/**
- * Estimates tokens from content length using simple division
- */
-export function estimateTokensFromContent(content: string): number {
-	return Math.max(1, Math.round(content.length / 4));
-}
-
-/**
- * Converts external image URLs to base64 data URLs
- * Used for providers like Alibaba that return external URLs instead of base64
- */
-async function convertImagesToBase64(
-	images: ImageObject[],
-): Promise<ImageObject[]> {
-	return await Promise.all(
-		images.map(async (image): Promise<ImageObject> => {
-			const url = image.image_url.url;
-			// Skip if already a data URL
-			if (url.startsWith("data:")) {
-				return image;
-			}
-
-			try {
-				const response = await fetch(url);
-				if (!response.ok) {
-					logger.warn("Failed to fetch image for base64 conversion", {
-						url,
-						status: response.status,
-					});
-					return image;
-				}
-
-				const contentType = response.headers.get("content-type") || "image/png";
-				const arrayBuffer = await response.arrayBuffer();
-				const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-				return {
-					type: "image_url",
-					image_url: {
-						url: `data:${contentType};base64,${base64}`,
-					},
-				};
-			} catch (error) {
-				logger.warn("Error converting image to base64", {
-					url,
-					error: error instanceof Error ? error.message : String(error),
-				});
-				return image;
-			}
-		}),
-	);
-}
-
-/**
- * Checks if any messages contain images (image_url or image type content)
- * Used to filter providers that don't support vision
- */
-function messagesContainImages(messages: BaseMessage[]): boolean {
-	for (const message of messages) {
-		if (Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					(part.type === "image_url" || part.type === "image")
-				) {
-					return true;
-				}
-			}
-		}
-	}
-	return false;
-}
+// Pre-compiled regex pattern to avoid recompilation per request
+const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 
 export const chat = new OpenAPIHono<ServerTypes>();
-
-const completionsRequestSchema = z.object({
-	model: z.string().openapi({
-		example: "gpt-5",
-	}),
-	messages: z.array(
-		z.object({
-			role: z.string().openapi({
-				example: "user",
-			}),
-			content: z.union([
-				z.string().openapi({
-					example: "Hello!",
-				}),
-				z.array(
-					z.union([
-						z.object({
-							type: z.literal("text"),
-							text: z.string(),
-						}),
-						z.object({
-							type: z.literal("image_url"),
-							image_url: z.object({
-								url: z.string(),
-								detail: z.enum(["low", "high", "auto"]).optional(),
-							}),
-						}),
-					]),
-				),
-			]),
-			name: z.string().optional(),
-			tool_call_id: z.string().optional(),
-			tool_calls: z
-				.array(
-					z.object({
-						id: z.string(),
-						type: z.literal("function"),
-						function: z.object({
-							name: z.string(),
-							arguments: z.string(),
-						}),
-					}),
-				)
-				.optional()
-				.openapi({
-					description:
-						"A list of tool calls generated by the model in this message.",
-					example: [
-						{
-							id: "call_abc123",
-							type: "function",
-							function: {
-								name: "get_current_weather",
-								arguments: '{"location": "Boston, MA"}',
-							},
-						},
-					],
-				}),
-		}),
-	),
-	temperature: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.7,
-		}),
-	max_tokens: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 1000,
-		}),
-	top_p: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.9,
-		}),
-	frequency_penalty: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.0,
-		}),
-	presence_penalty: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.0,
-		}),
-	response_format: z
-		.union([
-			z.object({
-				type: z.enum(["text", "json_object"]).openapi({
-					example: "json_object",
-				}),
-			}),
-			z.object({
-				type: z.literal("json_schema"),
-				json_schema: z.object({
-					name: z.string(),
-					description: z.string().optional(),
-					schema: z.record(z.any()),
-					strict: z.boolean().optional(),
-				}),
-			}),
-		])
-		.optional(),
-	stream: z.boolean().optional().default(false),
-	tools: z
-		.array(
-			z.union([
-				z.object({
-					type: z.literal("function"),
-					function: z.object({
-						name: z.string(),
-						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
-					}),
-				}),
-				z.object({
-					type: z.literal("web_search"),
-					user_location: z
-						.object({
-							city: z.string().optional(),
-							region: z.string().optional(),
-							country: z.string().optional(),
-							timezone: z.string().optional(),
-						})
-						.optional(),
-					search_context_size: z.enum(["low", "medium", "high"]).optional(),
-					max_uses: z.number().optional(),
-				}),
-			]),
-		)
-		.optional(),
-	tool_choice: z
-		.union([
-			z.literal("auto"),
-			z.literal("none"),
-			z.literal("required"),
-			z.object({
-				type: z.literal("function"),
-				function: z.object({
-					name: z.string(),
-				}),
-			}),
-		])
-		.optional(),
-	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high"])
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			description: "Controls the reasoning effort for reasoning-capable models",
-			example: "medium",
-		}),
-	effort: z
-		.enum(["low", "medium", "high"])
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			description:
-				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
-			example: "medium",
-		}),
-	free_models_only: z.boolean().optional().default(false).openapi({
-		description:
-			"When used with auto routing, only route to free models (models with zero input and output pricing)",
-		example: false,
-	}),
-	no_reasoning: z.boolean().optional().default(false).openapi({
-		description:
-			"When used with auto routing, exclude reasoning models from selection",
-		example: false,
-	}),
-	// Z.ai specific parameter - not documented in OpenAPI
-	sensitive_word_check: z
-		.object({
-			status: z.enum(["DISABLE", "ENABLE"]),
-		})
-		.optional(),
-	// Image generation config (Google and Alibaba)
-	image_config: z
-		.object({
-			aspect_ratio: z.string().optional(),
-			image_size: z.string().optional(),
-			n: z.number().optional(),
-			seed: z.number().optional(),
-		})
-		.optional(),
-	// Web search enablement
-	web_search: z.boolean().optional().default(false).openapi({
-		description:
-			"Enable native web search for models that support it. When enabled, the model can search the web for real-time information.",
-		example: true,
-	}),
-	// Plugins configuration
-	plugins: z
-		.array(
-			z.object({
-				id: z.enum(["response-healing"]).openapi({
-					description: "Plugin identifier",
-					example: "response-healing",
-				}),
-			}),
-		)
-		.optional()
-		.openapi({
-			description:
-				"Plugins to enable for this request. Currently supported: response-healing (automatically repairs malformed JSON responses when using response_format)",
-			example: [{ id: "response-healing" }],
-		}),
-});
 
 const completions = createRoute({
 	operationId: "v1_chat_completions",
@@ -574,37 +272,10 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	let inputImageCount = 0;
-	if (modelInput === "gemini-3-pro-image-preview") {
-		const imageUrlPattern = /https:\/\/[^\s]+/gi;
-		for (const message of messages) {
-			if (Array.isArray(message.content)) {
-				for (const part of message.content) {
-					if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "image_url"
-					) {
-						inputImageCount++;
-					} else if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "text" &&
-						"text" in part &&
-						typeof part.text === "string"
-					) {
-						// Count image URLs in text content
-						const matches = part.text.match(imageUrlPattern);
-						if (matches) {
-							inputImageCount += matches.length;
-						}
-					}
-				}
-			}
-		}
-	}
+	const inputImageCount =
+		modelInput === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
@@ -657,6 +328,9 @@ chat.openapi(completions, async (c) => {
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
+	// Maximum buffer size for streaming responses (configurable via env var, default 50MB)
+	const MAX_BUFFER_SIZE =
+		(Number(process.env.MAX_STREAMING_BUFFER_MB) || 50) * 1024 * 1024;
 
 	c.header("x-request-id", requestId);
 
@@ -1295,6 +969,7 @@ chat.openapi(completions, async (c) => {
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
+		const now = new Date(); // Cache current time for deprecation checks
 
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
@@ -1316,7 +991,7 @@ chat.openapi(completions, async (c) => {
 				// Skip deprecated provider mappings
 				if (
 					(provider as ProviderModelMapping).deprecatedAt &&
-					new Date() > (provider as ProviderModelMapping).deprecatedAt!
+					now > (provider as ProviderModelMapping).deprecatedAt!
 				) {
 					return false;
 				}
@@ -2707,6 +2382,16 @@ chat.openapi(completions, async (c) => {
 			}> = [];
 			const streamStartTime = Date.now();
 
+			// SSE keepalive to prevent proxy/load balancer timeouts
+			// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+			const KEEPALIVE_INTERVAL_MS = 15000;
+			const keepaliveInterval = setInterval(() => {
+				stream.write(": ping\n\n").catch(() => {
+					// Stream likely closed, cleanup will happen via abort handler or finally
+				});
+			}, KEEPALIVE_INTERVAL_MS);
+			const clearKeepalive = () => clearInterval(keepaliveInterval);
+
 			// Timing tracking variables
 			let timeToFirstToken: number | null = null;
 			let timeToFirstReasoningToken: number | null = null;
@@ -2742,6 +2427,7 @@ chat.openapi(completions, async (c) => {
 			const controller = new AbortController();
 			// Set up a listener for the request being aborted
 			const onAbort = () => {
+				clearKeepalive();
 				if (requestCanBeCanceled) {
 					canceled = true;
 					controller.abort();
@@ -2777,17 +2463,116 @@ chat.openapi(completions, async (c) => {
 						: "structured-outputs-2025-11-13";
 				}
 
+				// Create a combined signal for both timeout and cancellation
+				const fetchSignal = createCombinedSignal(
+					requestCanBeCanceled ? controller : undefined,
+				);
+
 				res = await fetch(url, {
 					method: "POST",
 					headers,
 					body: JSON.stringify(requestBody),
-					signal: requestCanBeCanceled ? controller.signal : undefined,
+					signal: fetchSignal,
 				});
 			} catch (error) {
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 
-				if (error instanceof Error && error.name === "AbortError") {
+				// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
+				if (isTimeoutError(error)) {
+					// Handle timeout error
+					const errorMessage =
+						error instanceof Error ? error.message : "Request timeout";
+					logger.warn("Upstream request timeout", {
+						error: errorMessage,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+
+					// Log the timeout error in the database
+					const timeoutPluginIds = plugins?.map((p) => p.id) || [];
+
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						null, // No response for timeout error
+						requestBody,
+						null, // No upstream response for timeout error
+						timeoutPluginIds,
+						undefined, // No plugin results for error case
+					);
+
+					await insertLog({
+						...baseLogEntry,
+						duration: Date.now() - startTime,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: true,
+						canceled: false,
+						errorDetails: {
+							statusCode: 0,
+							statusText: "TimeoutError",
+							responseText: errorMessage,
+						},
+						cachedInputCost: null,
+						requestCost: null,
+						webSearchCost: null,
+						discount: null,
+						dataStorageCost: "0",
+						cached: false,
+						toolResults: null,
+					});
+
+					await stream.writeSSE({
+						event: "error",
+						data: JSON.stringify({
+							error: {
+								message: `Upstream provider timeout: ${errorMessage}`,
+								type: "upstream_timeout",
+								code: "timeout",
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				} else if (error instanceof Error && error.name === "AbortError") {
 					// Log the canceled request
 					// Extract plugin IDs for logging (canceled request)
 					const canceledPluginIds = plugins?.map((p) => p.id) || [];
@@ -2919,6 +2704,7 @@ chat.openapi(completions, async (c) => {
 						data: "[DONE]",
 						id: String(eventId++),
 					});
+					clearKeepalive();
 					return;
 				} else if (error instanceof Error) {
 					// Handle fetch errors (timeout, connection failures, etc.)
@@ -3023,6 +2809,7 @@ chat.openapi(completions, async (c) => {
 						data: "[DONE]",
 						id: String(eventId++),
 					});
+					clearKeepalive();
 					return;
 				} else {
 					throw error;
@@ -3169,6 +2956,7 @@ chat.openapi(completions, async (c) => {
 					);
 				}
 
+				clearKeepalive();
 				return;
 			}
 
@@ -3190,6 +2978,7 @@ chat.openapi(completions, async (c) => {
 					data: "[DONE]",
 					id: String(eventId++),
 				});
+				clearKeepalive();
 				return;
 			}
 
@@ -3210,7 +2999,6 @@ chat.openapi(completions, async (c) => {
 			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 			let rawUpstreamData = ""; // Raw data received from upstream provider
-			// const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
 			try {
@@ -3245,20 +3033,70 @@ chat.openapi(completions, async (c) => {
 						chunk = new TextDecoder().decode(value);
 					}
 
+					// Log error on large chunks (1MB+) - should almost never happen
+					if (chunk.length > 1024 * 1024) {
+						logger.error(
+							`Large chunk received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB`,
+						);
+					}
+
 					buffer += chunk;
 					// Collect raw upstream data for logging only in debug mode and within size limit
 					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
 						rawUpstreamData += chunk;
 					}
 
-					// // Check buffer size to prevent memory exhaustion
-					// if (buffer.length > MAX_BUFFER_SIZE) {
-					// 	logger.warn(
-					// 		"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
-					// 	);
-					// 	buffer = "";
-					// 	continue;
-					// }
+					// Check buffer size to prevent memory exhaustion
+					if (buffer.length > MAX_BUFFER_SIZE) {
+						const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
+						logger.error(
+							`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
+						);
+
+						// Send error to client
+						try {
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+										type: "gateway_error",
+										param: null,
+										code: "buffer_overflow",
+									},
+								}),
+								id: String(eventId++),
+							});
+							await stream.writeSSE({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send buffer overflow error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+
+						// Set error for logging
+						streamingError = {
+							message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+							type: "buffer_overflow",
+							code: "buffer_overflow",
+							details: {
+								bufferSize: buffer.length,
+								maxBufferSize: MAX_BUFFER_SIZE,
+								provider: usedProvider,
+								model: usedModel,
+							},
+						};
+
+						break;
+					}
 
 					// Process SSE events from buffer
 					let processedLength = 0;
@@ -3311,11 +3149,20 @@ chat.openapi(completions, async (c) => {
 								const jsonCandidate = betweenEvents
 									.slice(0, firstNewline)
 									.trim();
-								try {
-									JSON.parse(jsonCandidate);
+								// Quick heuristic check before expensive JSON.parse
+								let isValidJson = false;
+								if (mightBeCompleteJson(jsonCandidate)) {
+									try {
+										JSON.parse(jsonCandidate);
+										isValidJson = true;
+									} catch {
+										// JSON is not complete
+									}
+								}
+								if (isValidJson) {
 									// JSON is valid - end at first newline to exclude SSE fields
 									eventEnd = dataIndex + 6 + firstNewline;
-								} catch {
+								} else {
 									// JSON is not complete, use the full segment to next data event
 									eventEnd = nextEventIndex;
 								}
@@ -3336,11 +3183,20 @@ chat.openapi(completions, async (c) => {
 								const jsonCandidate = bufferCopy
 									.slice(eventStartPos, newlinePos)
 									.trim();
-								try {
-									JSON.parse(jsonCandidate);
+								// Quick heuristic check before expensive JSON.parse
+								let isValidJson = false;
+								if (mightBeCompleteJson(jsonCandidate)) {
+									try {
+										JSON.parse(jsonCandidate);
+										isValidJson = true;
+									} catch {
+										// JSON is not complete
+									}
+								}
+								if (isValidJson) {
 									// JSON is valid - this newline marks the end of our data
 									eventEnd = newlinePos;
-								} catch {
+								} else {
 									// JSON is not valid, check if there's more content after the newline
 									if (newlinePos + 1 >= bufferCopy.length) {
 										// Newline is at the end of buffer - event is incomplete
@@ -3351,21 +3207,43 @@ chat.openapi(completions, async (c) => {
 										const restOfBuffer = bufferCopy.slice(newlinePos + 1);
 
 										// Check for SSE field patterns (event:, id:, retry:, etc.)
-										// Handle both single and double newlines before checking for SSE fields
-										const trimmedRest = restOfBuffer.replace(/^\n+/, ""); // Remove leading newlines
+										// Skip leading newlines efficiently without creating new strings
+										let trimStart = 0;
+										while (
+											trimStart < restOfBuffer.length &&
+											restOfBuffer[trimStart] === "\n"
+										) {
+											trimStart++;
+										}
+
 										if (
 											restOfBuffer.startsWith("\n") || // Empty line - end of event
-											restOfBuffer.startsWith("data: ") || // Next data field
-											trimmedRest.startsWith("event:") || // Event field (after newlines)
-											trimmedRest.startsWith("id:") || // ID field (after newlines)
-											trimmedRest.startsWith("retry:") || // Retry field (after newlines)
-											trimmedRest.match(/^[a-zA-Z_-]+:\s*/) // Generic SSE field pattern (after newlines, allow no space)
+											restOfBuffer.startsWith("data: ") // Next data field
 										) {
 											// This is the end of our data event
 											eventEnd = newlinePos;
+										} else if (trimStart > 0) {
+											// Had leading newlines - check for SSE fields after them
+											const afterNewlines = restOfBuffer.substring(trimStart);
+											if (
+												afterNewlines.startsWith("event:") ||
+												afterNewlines.startsWith("id:") ||
+												afterNewlines.startsWith("retry:") ||
+												SSE_FIELD_PATTERN.test(afterNewlines)
+											) {
+												eventEnd = newlinePos;
+											} else {
+												// Content continues on next line - use full buffer
+												eventEnd = bufferCopy.length;
+											}
 										} else {
-											// Content continues on next line - use full buffer
-											eventEnd = bufferCopy.length;
+											// No leading newlines - check SSE field directly
+											if (SSE_FIELD_PATTERN.test(restOfBuffer)) {
+												eventEnd = newlinePos;
+											} else {
+												// Content continues on next line - use full buffer
+												eventEnd = bufferCopy.length;
+											}
 										}
 									}
 								}
@@ -3374,13 +3252,19 @@ chat.openapi(completions, async (c) => {
 								// Try to detect if we have a complete JSON object
 								const eventDataCandidate = bufferCopy.slice(eventStartPos);
 								if (eventDataCandidate.length > 0) {
-									// Try to validate if this looks like complete JSON
-									try {
-										JSON.parse(eventDataCandidate.trim());
-										// If we can parse it, it's complete
-										eventEnd = bufferCopy.length;
-									} catch {
-										// JSON parsing failed - event is incomplete
+									// Quick heuristic check before expensive JSON.parse
+									const trimmedCandidate = eventDataCandidate.trim();
+									if (mightBeCompleteJson(trimmedCandidate)) {
+										try {
+											JSON.parse(trimmedCandidate);
+											// If we can parse it, it's complete
+											eventEnd = bufferCopy.length;
+										} catch {
+											// JSON parsing failed - event is incomplete
+											break;
+										}
+									} else {
+										// Heuristic says incomplete - don't bother parsing
 										break;
 									}
 								} else {
@@ -4037,6 +3921,8 @@ chat.openapi(completions, async (c) => {
 					};
 				}
 			} finally {
+				// Clean up the reader to prevent file descriptor leaks
+				await reader.cancel();
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 
@@ -4280,6 +4166,10 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 				}
+
+				// Clean up keepalive before any potentially-throwing operations (insertLog, etc.)
+				// clearInterval is idempotent so calling it multiple times is safe
+				clearKeepalive();
 
 				// Check if we should bill cancelled requests
 				const billCancelledRequests = shouldBillCancelledRequests();
@@ -4540,17 +4430,27 @@ chat.openapi(completions, async (c) => {
 				: "structured-outputs-2025-11-13";
 		}
 
+		// Create a combined signal for both timeout and cancellation
+		const fetchSignal = createCombinedSignal(
+			requestCanBeCanceled ? controller : undefined,
+		);
+
 		res = await fetch(url, {
 			method: "POST",
 			headers,
 			body: JSON.stringify(requestBody),
-			signal: requestCanBeCanceled ? controller.signal : undefined,
+			signal: fetchSignal,
 		});
 	} catch (error) {
-		if (error instanceof Error && error.name === "AbortError") {
+		// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
+		if (isTimeoutError(error)) {
+			// Capture timeout as a fetch error for logging
+			fetchError =
+				error instanceof Error ? error : new Error("Request timeout");
+		} else if (error instanceof Error && error.name === "AbortError") {
 			canceled = true;
 		} else if (error instanceof Error) {
-			// Capture fetch errors (timeout, connection failures, etc.)
+			// Capture fetch errors (connection failures, etc.)
 			fetchError = error;
 		} else {
 			throw error;

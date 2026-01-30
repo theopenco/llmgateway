@@ -208,7 +208,9 @@ app.openapi(root, async (c) => {
 		? skip.split(",").map((s) => s.trim().toLowerCase())
 		: [];
 
-	const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 5000;
+	// Health check timeout - allow more time under load for DB/Redis connections
+	// 15 seconds default to prevent false failures during traffic spikes
+	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
 
 	const healthChecker = new HealthChecker({
 		redisClient,

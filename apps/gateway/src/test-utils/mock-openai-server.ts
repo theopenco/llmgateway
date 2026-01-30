@@ -39,6 +39,26 @@ const sampleErrorResponse = {
 	},
 };
 
+// Helper to extract delay from message content (e.g., "TRIGGER_TIMEOUT_500" -> 500ms)
+function extractTimeoutDelay(content: string): number | null {
+	const match = content.match(/TRIGGER_TIMEOUT_(\d+)/);
+	if (match) {
+		return parseInt(match[1], 10);
+	}
+	if (content.includes("TRIGGER_TIMEOUT")) {
+		// Default to 5 seconds if no specific delay is provided
+		return 5000;
+	}
+	return null;
+}
+
+// Helper to delay response
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
@@ -101,14 +121,20 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		return c.json(sampleErrorResponse);
 	}
 
+	// Get the user's message to include in the response
+	const userMessage =
+		body.messages.find((msg: any) => msg.role === "user")?.content || "";
+
+	// Check if this request should trigger a timeout (delay response)
+	const timeoutDelay = extractTimeoutDelay(userMessage);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+
 	// Check if this request should trigger zero tokens response
 	const shouldReturnZeroTokens = body.messages.some(
 		(msg: any) => msg.role === "user" && msg.content.includes("ZERO_TOKENS"),
 	);
-
-	// Get the user's message to include in the response
-	const userMessage =
-		body.messages.find((msg: any) => msg.role === "user")?.content || "";
 
 	// Create a custom response that includes the user's message
 	const response = {

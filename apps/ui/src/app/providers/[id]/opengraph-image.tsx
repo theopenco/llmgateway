@@ -4,7 +4,10 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getProviderIcon,
+	MinimaxIconStatic,
+} from "@llmgateway/shared/components";
 
 export const size = {
 	width: 1200,
@@ -49,7 +52,10 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 			);
 		}
 
-		const ProviderIcon = getProviderIcon(provider.id);
+		const ProviderIcon =
+			provider.id === "minimax"
+				? MinimaxIconStatic
+				: getProviderIcon(provider.id);
 
 		// Count how many models this provider offers
 		const supportedModels = modelDefinitions.filter((model) =>
