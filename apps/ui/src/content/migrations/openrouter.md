@@ -46,11 +46,11 @@ const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
   method: "POST",
   headers: {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
   },
   body: JSON.stringify({
     model: "openai/gpt-5.2",
-    messages: [{ role: "user", content: "Hello!" }]
+    messages: [{ role: "user", content: "Hello!" }],
   }),
 });
 
@@ -59,11 +59,11 @@ const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
   method: "POST",
   headers: {
     Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
   },
   body: JSON.stringify({
     model: "gpt-5.2",
-    messages: [{ role: "user", content: "Hello!" }]
+    messages: [{ role: "user", content: "Hello!" }],
   }),
 });
 ```
@@ -76,13 +76,13 @@ import OpenAI from "openai";
 // Before (OpenRouter)
 const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY
+  apiKey: process.env.OPENROUTER_API_KEY,
 });
 
 // After (LLM Gateway)
 const client = new OpenAI({
   baseURL: "https://api.llmgateway.io/v1",
-  apiKey: process.env.LLM_GATEWAY_API_KEY
+  apiKey: process.env.LLM_GATEWAY_API_KEY,
 });
 
 // Usage remains the same
