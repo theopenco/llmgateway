@@ -12,6 +12,257 @@ import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal
 
 export const maxDuration = 300; // 5 minutes
 
+/**
+ * SSRF Protection: Validate MCP server URLs to prevent Server-Side Request Forgery
+ * Blocks private/local addresses and validates against allowlist if configured
+ */
+function validateMcpServerUrl(urlString: string): {
+	valid: boolean;
+	error?: string;
+	url?: URL;
+} {
+	let url: URL;
+	try {
+		url = new URL(urlString);
+	} catch {
+		return { valid: false, error: "Invalid URL format" };
+	}
+
+	// Only allow HTTP(S) protocols
+	if (!["http:", "https:"].includes(url.protocol)) {
+		return {
+			valid: false,
+			error: `Invalid protocol: ${url.protocol}. Only HTTP(S) allowed.`,
+		};
+	}
+
+	const hostname = url.hostname.toLowerCase();
+
+	// Block localhost and common local hostnames
+	const blockedHostnames = [
+		"localhost",
+		"127.0.0.1",
+		"0.0.0.0",
+		"[::1]",
+		"::1",
+		"local",
+		"internal",
+		"intranet",
+		"corp",
+		"private",
+	];
+
+	if (
+		blockedHostnames.includes(hostname) ||
+		hostname.endsWith(".local") ||
+		hostname.endsWith(".localhost") ||
+		hostname.endsWith(".internal")
+	) {
+		return {
+			valid: false,
+			error: `Blocked hostname: ${hostname}. Local/internal addresses not allowed.`,
+		};
+	}
+
+	// Check if hostname is an IP address and validate against private ranges
+	const ipValidation = validateIpAddress(hostname);
+	if (ipValidation.isIp && !ipValidation.isPublic) {
+		return {
+			valid: false,
+			error: `Blocked IP address: ${hostname}. Private/reserved IP ranges not allowed.`,
+		};
+	}
+
+	// Optional: Check against allowlist if configured
+	const allowedHosts = process.env.MCP_ALLOWED_HOSTS?.split(",").map((h) =>
+		h.trim().toLowerCase(),
+	);
+	if (allowedHosts && allowedHosts.length > 0) {
+		const isAllowed = allowedHosts.some(
+			(allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`),
+		);
+		if (!isAllowed) {
+			return {
+				valid: false,
+				error: `Hostname ${hostname} not in allowlist`,
+			};
+		}
+	}
+
+	return { valid: true, url };
+}
+
+/**
+ * Validate if a string is an IP address and check if it's in private/reserved ranges
+ */
+function validateIpAddress(hostname: string): {
+	isIp: boolean;
+	isPublic: boolean;
+} {
+	// IPv4 pattern
+	const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+	const ipv4Match = hostname.match(ipv4Pattern);
+
+	if (ipv4Match) {
+		const octets = ipv4Match.slice(1, 5).map(Number);
+
+		// Validate octet ranges
+		if (octets.some((o) => o > 255)) {
+			return { isIp: true, isPublic: false };
+		}
+
+		const [a, b, c] = octets;
+
+		// Check private/reserved IPv4 ranges
+		const isPrivate =
+			a === 0 || // 0.0.0.0/8 - Current network
+			a === 10 || // 10.0.0.0/8 - Private
+			(a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 - Carrier-grade NAT
+			a === 127 || // 127.0.0.0/8 - Loopback
+			(a === 169 && b === 254) || // 169.254.0.0/16 - Link-local
+			(a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 - Private
+			(a === 192 && b === 0 && c === 0) || // 192.0.0.0/24 - IETF Protocol
+			(a === 192 && b === 0 && c === 2) || // 192.0.2.0/24 - TEST-NET-1
+			(a === 192 && b === 88 && c === 99) || // 192.88.99.0/24 - 6to4 relay
+			(a === 192 && b === 168) || // 192.168.0.0/16 - Private
+			(a === 198 && b >= 18 && b <= 19) || // 198.18.0.0/15 - Benchmark
+			(a === 198 && b === 51 && c === 100) || // 198.51.100.0/24 - TEST-NET-2
+			(a === 203 && b === 0 && c === 113) || // 203.0.113.0/24 - TEST-NET-3
+			a >= 224; // 224.0.0.0+ - Multicast and reserved
+
+		return { isIp: true, isPublic: !isPrivate };
+	}
+
+	// IPv6 pattern (simplified - handles bracketed and non-bracketed)
+	const ipv6Hostname = hostname.replace(/^\[|\]$/g, "");
+	if (ipv6Hostname.includes(":")) {
+		// Check common private/reserved IPv6 patterns
+		const lowerIpv6 = ipv6Hostname.toLowerCase();
+		const isPrivate =
+			lowerIpv6 === "::1" || // Loopback
+			lowerIpv6 === "::" || // Unspecified
+			lowerIpv6.startsWith("fc") || // fc00::/7 - Unique local
+			lowerIpv6.startsWith("fd") || // fc00::/7 - Unique local
+			lowerIpv6.startsWith("fe80") || // fe80::/10 - Link-local
+			lowerIpv6.startsWith("::ffff:127.") || // IPv4-mapped loopback
+			lowerIpv6.startsWith("::ffff:10.") || // IPv4-mapped private
+			lowerIpv6.startsWith("::ffff:192.168.") || // IPv4-mapped private
+			lowerIpv6.startsWith("::ffff:172."); // IPv4-mapped private (partial check)
+
+		return { isIp: true, isPublic: !isPrivate };
+	}
+
+	return { isIp: false, isPublic: true };
+}
+
+/**
+ * Debug logging utilities with PII redaction
+ * Only logs when ENABLE_DEBUG_LOGS environment variable is set
+ */
+const isDebugEnabled = process.env.ENABLE_DEBUG_LOGS === "true";
+
+/**
+ * Redact potentially sensitive information from log messages
+ * Removes API keys, tokens, user content, and other PII
+ */
+function redactPII(input: unknown): unknown {
+	if (input === null || input === undefined) {
+		return input;
+	}
+
+	if (typeof input === "string") {
+		// Redact API keys and tokens (common patterns)
+		let redacted = input
+			.replace(/Bearer\s+[A-Za-z0-9_-]+/gi, "Bearer [REDACTED]")
+			.replace(
+				/api[_-]?key[=:]\s*["']?[A-Za-z0-9_-]+["']?/gi,
+				"api_key=[REDACTED]",
+			)
+			.replace(/sk-[A-Za-z0-9_-]+/g, "sk-[REDACTED]")
+			.replace(/key-[A-Za-z0-9_-]+/g, "key-[REDACTED]");
+
+		// Truncate long strings that might contain user content
+		if (redacted.length > 200) {
+			redacted = redacted.slice(0, 200) + "...[TRUNCATED]";
+		}
+
+		return redacted;
+	}
+
+	if (input instanceof Error) {
+		return {
+			name: input.name,
+			message: redactPII(input.message),
+			stack: undefined, // Don't log stack traces which may contain sensitive paths
+		};
+	}
+
+	if (Array.isArray(input)) {
+		return input.slice(0, 5).map(redactPII); // Limit array length
+	}
+
+	if (typeof input === "object") {
+		const redacted: Record<string, unknown> = {};
+		const sensitiveKeys = [
+			"apiKey",
+			"api_key",
+			"authorization",
+			"token",
+			"password",
+			"secret",
+			"content",
+			"text",
+			"arguments",
+			"args",
+		];
+
+		for (const [key, value] of Object.entries(input)) {
+			if (sensitiveKeys.some((k) => key.toLowerCase().includes(k))) {
+				redacted[key] = "[REDACTED]";
+			} else {
+				redacted[key] = redactPII(value);
+			}
+		}
+		return redacted;
+	}
+
+	return input;
+}
+
+/**
+ * Debug logger that only logs when enabled and applies PII redaction
+ * Console usage is intentional here as this is the centralized logging utility
+ */
+
+const debugLogger = {
+	debug: (message: string, ...args: unknown[]) => {
+		if (isDebugEnabled) {
+			console.debug(
+				`[MCP Debug] ${redactPII(message)}`,
+				...args.map(redactPII),
+			);
+		}
+	},
+	info: (message: string, ...args: unknown[]) => {
+		if (isDebugEnabled) {
+			console.info(`[MCP Info] ${redactPII(message)}`, ...args.map(redactPII));
+		}
+	},
+	warn: (message: string, ...args: unknown[]) => {
+		if (isDebugEnabled) {
+			console.warn(`[MCP Warn] ${redactPII(message)}`, ...args.map(redactPII));
+		}
+	},
+	error: (message: string, ...args: unknown[]) => {
+		if (isDebugEnabled) {
+			console.error(
+				`[MCP Error] ${redactPII(message)}`,
+				...args.map(redactPII),
+			);
+		}
+	},
+};
+
 interface McpServerConfig {
 	id: string;
 	name: string;
@@ -133,9 +384,18 @@ export async function POST(req: Request) {
 		// Create MCP clients for each enabled server (with timeout)
 		for (const server of enabledMcpServers) {
 			try {
+				// SSRF Protection: Validate URL before creating transport
+				const urlValidation = validateMcpServerUrl(server.url);
+				if (!urlValidation.valid) {
+					debugLogger.error(
+						`SSRF Protection: Blocked MCP server "${server.name}": ${urlValidation.error}`,
+					);
+					continue; // Skip this server
+				}
+
 				// Use the official MCP SDK transport for better compatibility
 				const transport = new StreamableHTTPClientTransport(
-					new URL(server.url),
+					urlValidation.url!,
 					{
 						requestInit: {
 							headers: server.apiKey
@@ -159,8 +419,8 @@ export async function POST(req: Request) {
 				const client = await Promise.race([clientPromise, timeoutPromise]);
 				mcpClients.push({ client, name: server.name });
 			} catch (error) {
-				console.error(
-					`Failed to connect to MCP server "${server.name}":`,
+				debugLogger.error(
+					`Failed to connect to MCP server "${server.name}"`,
 					error,
 				);
 				// Continue with other servers
@@ -287,7 +547,10 @@ export async function POST(req: Request) {
 					}
 				}
 			} catch (error) {
-				console.error(`Failed to get tools from MCP server "${name}":`, error);
+				debugLogger.error(
+					`Failed to get tools from MCP server "${name}"`,
+					error,
+				);
 			}
 		}
 
@@ -304,7 +567,7 @@ export async function POST(req: Request) {
 					try {
 						await client.close();
 					} catch (error) {
-						console.error("Failed to close MCP client:", error);
+						debugLogger.error("Failed to close MCP client", error);
 					}
 				}
 			},
@@ -320,7 +583,7 @@ export async function POST(req: Request) {
 			try {
 				await client.close();
 			} catch (closeError) {
-				console.error("Failed to close MCP client:", closeError);
+				debugLogger.error("Failed to close MCP client", closeError);
 			}
 		}
 

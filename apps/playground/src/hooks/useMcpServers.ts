@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 export interface McpServer {
 	id: string;
@@ -15,6 +16,7 @@ const MCP_SERVERS_KEY = "llmgateway_mcp_servers";
 export function useMcpServers() {
 	const [servers, setServers] = useState<McpServer[]>([]);
 	const [isLoaded, setIsLoaded] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
 	// Load from localStorage on mount
 	useEffect(() => {
@@ -27,8 +29,11 @@ export function useMcpServers() {
 						setServers(parsed);
 					}
 				}
-			} catch (e) {
-				console.error("Failed to load MCP servers from localStorage:", e);
+				setError(null);
+			} catch {
+				const errorMsg = "Failed to load MCP servers configuration";
+				setError(errorMsg);
+				toast.error(errorMsg);
 			}
 			setIsLoaded(true);
 		}
@@ -39,8 +44,11 @@ export function useMcpServers() {
 		if (isLoaded && typeof window !== "undefined") {
 			try {
 				localStorage.setItem(MCP_SERVERS_KEY, JSON.stringify(servers));
-			} catch (e) {
-				console.error("Failed to save MCP servers to localStorage:", e);
+				setError(null);
+			} catch {
+				const errorMsg = "Failed to save MCP servers configuration";
+				setError(errorMsg);
+				toast.error(errorMsg);
 			}
 		}
 	}, [servers, isLoaded]);
@@ -84,6 +92,7 @@ export function useMcpServers() {
 	return {
 		servers,
 		isLoaded,
+		error,
 		addServer,
 		updateServer,
 		removeServer,

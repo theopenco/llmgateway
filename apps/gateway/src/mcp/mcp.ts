@@ -443,10 +443,32 @@ async function processMcpRequest(
 			}
 
 			case "tools/call": {
+				// Validate request.params exists and has a valid name
+				if (!request.params || typeof request.params !== "object") {
+					return {
+						jsonrpc: "2.0",
+						id: request.id,
+						error: {
+							code: -32602,
+							message: "Invalid params: request.params is required",
+						},
+					};
+				}
 				const params = request.params as {
-					name: string;
+					name?: string;
 					arguments?: Record<string, unknown>;
 				};
+				if (!params.name || typeof params.name !== "string") {
+					return {
+						jsonrpc: "2.0",
+						id: request.id,
+						error: {
+							code: -32602,
+							message:
+								"Invalid params: 'name' is required and must be a string",
+						},
+					};
+				}
 				const result = await client.callTool({
 					name: params.name,
 					arguments: params.arguments || {},
@@ -478,7 +500,6 @@ async function processMcpRequest(
 		}
 	} finally {
 		await client.close();
-		await server.close();
 	}
 }
 
@@ -577,6 +598,23 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			});
 		}
 
+		// Validate session ownership: if session exists with different apiKey, reject
+		const existingConnection = sseConnections.get(sessionId);
+		if (existingConnection && existingConnection.apiKey !== apiKey) {
+			return c.json(
+				{
+					jsonrpc: "2.0",
+					error: {
+						code: -32001,
+						message:
+							"Session belongs to a different API key. Use a new session.",
+					},
+					id: null,
+				},
+				403,
+			);
+		}
+
 		// Build absolute URL for the endpoint event
 		const requestUrl = new URL(c.req.url);
 		const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
@@ -585,7 +623,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		// SSE endpoint for server-to-client messages
 		const stream = new ReadableStream({
 			start(controller) {
-				// Store the connection
+				// Store the connection with apiKey for ownership validation
 				sseConnections.set(sessionId!, { controller, apiKey });
 
 				// Send initial endpoint event with the absolute URL
@@ -611,6 +649,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
+		const server = createMcpServer(apiKey);
 		try {
 			const body = await c.req.json();
 			logger.debug("MCP POST request body", {
@@ -618,10 +657,35 @@ export async function mcpHandler(c: Context): Promise<Response> {
 					? body.map((r: JsonRpcRequest) => r.method)
 					: (body as JsonRpcRequest).method,
 			});
-			const server = createMcpServer(apiKey);
 
 			// Check if there's an active SSE connection for this session
 			const sseConnection = sseConnections.get(sessionId);
+
+			// Validate session ownership: only use SSE connection if apiKey matches
+			// This prevents cross-apiKey message delivery
+			const validSseConnection =
+				sseConnection && sseConnection.apiKey === apiKey ? sseConnection : null;
+
+			// If client provided a sessionId that belongs to a different apiKey, reject
+			if (sseConnection && sseConnection.apiKey !== apiKey) {
+				logger.warn("Session ownership mismatch", {
+					sessionId,
+					requestApiKey: apiKey.slice(0, 8) + "...",
+					sessionApiKey: sseConnection.apiKey.slice(0, 8) + "...",
+				});
+				return c.json(
+					{
+						jsonrpc: "2.0",
+						error: {
+							code: -32001,
+							message:
+								"Session belongs to a different API key. Use a new session.",
+						},
+						id: null,
+					},
+					403,
+				);
+			}
 
 			// Handle batch requests
 			if (Array.isArray(body)) {
@@ -631,9 +695,9 @@ export async function mcpHandler(c: Context): Promise<Response> {
 					const response = await processMcpRequest(server, request);
 					responses.push(response);
 
-					// If SSE connection exists, also send via SSE
-					if (sseConnection) {
-						sendSseEvent(sseConnection.controller, "message", response);
+					// If valid SSE connection exists (same apiKey), also send via SSE
+					if (validSseConnection) {
+						sendSseEvent(validSseConnection.controller, "message", response);
 					}
 				}
 
@@ -645,9 +709,9 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			// Handle single request
 			const response = await processMcpRequest(server, body as JsonRpcRequest);
 
-			// If SSE connection exists, also send via SSE
-			if (sseConnection) {
-				sendSseEvent(sseConnection.controller, "message", response);
+			// If valid SSE connection exists (same apiKey), also send via SSE
+			if (validSseConnection) {
+				sendSseEvent(validSseConnection.controller, "message", response);
 			}
 
 			return c.json(response, 200, {
@@ -669,6 +733,8 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				},
 				500,
 			);
+		} finally {
+			await server.close();
 		}
 	}
 
@@ -884,6 +950,33 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 				{
 					error: "invalid_grant",
 					error_description: "Invalid or expired authorization code",
+				},
+				400,
+			);
+		}
+
+		// Check TTL: reject if code has expired (10 minutes)
+		const codeAgeMs = Date.now() - authCodeData.createdAt;
+		const maxCodeAgeMs = 10 * 60 * 1000; // 10 minutes
+		if (codeAgeMs > maxCodeAgeMs) {
+			// Delete expired code to prevent replay attempts
+			authCodes.delete(code);
+			return c.json(
+				{
+					error: "invalid_grant",
+					error_description: "Authorization code has expired",
+				},
+				400,
+			);
+		}
+
+		// Verify client identity: the requesting client must match the original client
+		if (clientId && clientId !== authCodeData.clientId) {
+			return c.json(
+				{
+					error: "invalid_grant",
+					error_description:
+						"Client ID does not match the original authorization request",
 				},
 				400,
 			);
