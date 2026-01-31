@@ -562,27 +562,25 @@ chat.openapi(completions, async (c) => {
 		plugins,
 	} = validationResult.data;
 
-	// Debug: Log tools received from the AI SDK
-	if (tools && tools.length > 0) {
-		logger.info("=== TOOLS RECEIVED BY GATEWAY ===");
-		logger.info(`Number of tools: ${tools.length}`);
-		for (const t of tools) {
-			const tool = t as any;
-			logger.info(`Tool: ${tool.function?.name || "unknown"}`, {
-				hasFunction: !!tool.function,
-				hasParameters: !!tool.function?.parameters,
-				parametersPreview: tool.function?.parameters
-					? JSON.stringify(tool.function.parameters).slice(0, 500)
-					: "none",
-			});
+	// Debug: Log tools received from the AI SDK (development only)
+	if (process.env.NODE_ENV !== "production" && tools && tools.length > 0) {
+		logger.debug("Tools received by gateway", { count: tools.length });
+		for (const tool of tools) {
+			if (tool.type === "function") {
+				logger.debug(`Function tool: ${tool.function?.name || "unknown"}`, {
+					hasParameters: !!tool.function?.parameters,
+					parametersPreview: tool.function?.parameters
+						? JSON.stringify(tool.function.parameters).slice(0, 500)
+						: "none",
+				});
+			} else if (tool.type === "web_search") {
+				logger.debug("Web search tool configured");
+			}
 		}
 	}
 
 	// If web_search parameter is true, automatically add the web_search tool
-	if (
-		web_search &&
-		(!tools || !tools.some((t: any) => t.type === "web_search"))
-	) {
+	if (web_search && (!tools || !tools.some((t) => t.type === "web_search"))) {
 		tools = tools || [];
 		tools.push({
 			type: "web_search" as const,
