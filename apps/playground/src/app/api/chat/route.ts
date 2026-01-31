@@ -71,16 +71,12 @@ function isMcpTextContent(value: unknown): value is McpTextContent {
 
 /**
  * MCP Tool type from client.tools() return value
+ * The execute function is typed loosely to accommodate different MCP tool implementations
  */
 interface McpToolDefinition {
 	description?: string;
-	execute: (args: Record<string, unknown>) => Promise<unknown>;
+	execute: (...args: unknown[]) => Promise<unknown> | unknown;
 }
-
-/**
- * AI SDK CoreTool type - the return type of the tool() factory
- */
-type CoreTool = ReturnType<typeof tool>;
 
 /**
  * SSRF Protection: Validate MCP server URLs to prevent Server-Side Request Forgery
@@ -498,7 +494,8 @@ export async function POST(req: Request) {
 		}
 
 		// Collect tools from all MCP clients and create typed wrappers
-		const allTools: Record<string, CoreTool> = {};
+		// Type assertion needed to allow heterogeneous tool schemas in a single record
+		const allTools: Record<string, ReturnType<typeof tool<any, any>>> = {};
 
 		// Helper to extract text from MCP result format using type guards
 		const extractMcpResult = (result: unknown): string => {
