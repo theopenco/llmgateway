@@ -34,6 +34,27 @@ import type {
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 
+/**
+ * Minimal interface for tool parts from AI SDK v6 (tool-{toolName} pattern)
+ */
+interface ToolPart {
+	type: string;
+	[key: string]: unknown;
+}
+
+/**
+ * Type guard to check if an object is a ToolPart (type starts with "tool-")
+ */
+function isToolPart(obj: unknown): obj is ToolPart {
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		"type" in obj &&
+		typeof (obj as ToolPart).type === "string" &&
+		(obj as ToolPart).type.startsWith("tool-")
+	);
+}
+
 interface ChatPageClientProps {
 	models: ApiModel[];
 	providers: ApiProvider[];
@@ -232,9 +253,7 @@ export default function ChatPageClient({
 				const images = [...imageUrlParts, ...fileParts];
 
 				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
-				const toolParts = (message.parts as any[]).filter(
-					(p: any) => typeof p.type === "string" && p.type.startsWith("tool-"),
-				);
+				const toolParts = message.parts.filter(isToolPart);
 
 				const bodyToSave = {
 					role: "assistant" as const,

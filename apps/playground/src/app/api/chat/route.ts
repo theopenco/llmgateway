@@ -13,6 +13,76 @@ import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal
 export const maxDuration = 300; // 5 minutes
 
 /**
+ * MCP Content Types - Based on MCP SDK CallToolResult content types
+ */
+interface McpTextContent {
+	type: "text";
+	text: string;
+}
+
+interface McpImageContent {
+	type: "image";
+	data: string;
+	mimeType: string;
+}
+
+interface McpResourceContent {
+	type: "resource";
+	resource: {
+		uri: string;
+		text?: string;
+		blob?: string;
+		mimeType?: string;
+	};
+}
+
+type McpContent = McpTextContent | McpImageContent | McpResourceContent;
+
+interface McpCallToolResult {
+	content: McpContent[];
+	isError?: boolean;
+}
+
+/**
+ * Type guard to check if a value is an MCP CallToolResult
+ */
+function isMcpCallToolResult(value: unknown): value is McpCallToolResult {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"content" in value &&
+		Array.isArray((value as McpCallToolResult).content)
+	);
+}
+
+/**
+ * Type guard to check if an MCP content item is text content
+ */
+function isMcpTextContent(value: unknown): value is McpTextContent {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"type" in value &&
+		(value as McpTextContent).type === "text" &&
+		"text" in value &&
+		typeof (value as McpTextContent).text === "string"
+	);
+}
+
+/**
+ * MCP Tool type from client.tools() return value
+ */
+interface McpToolDefinition {
+	description?: string;
+	execute: (args: Record<string, unknown>) => Promise<unknown>;
+}
+
+/**
+ * AI SDK CoreTool type - the return type of the tool() factory
+ */
+type CoreTool = ReturnType<typeof tool>;
+
+/**
  * SSRF Protection: Validate MCP server URLs to prevent Server-Side Request Forgery
  * Blocks private/local addresses and validates against allowlist if configured
  */
@@ -428,19 +498,14 @@ export async function POST(req: Request) {
 		}
 
 		// Collect tools from all MCP clients and create typed wrappers
-		const allTools: Record<string, any> = {};
+		const allTools: Record<string, CoreTool> = {};
 
-		// Helper to extract text from MCP result format
-		const extractMcpResult = (result: any): string => {
-			if (
-				result &&
-				typeof result === "object" &&
-				"content" in result &&
-				Array.isArray(result.content)
-			) {
+		// Helper to extract text from MCP result format using type guards
+		const extractMcpResult = (result: unknown): string => {
+			if (isMcpCallToolResult(result)) {
 				const textParts = result.content
-					.filter((c: any) => c.type === "text")
-					.map((c: any) => c.text);
+					.filter(isMcpTextContent)
+					.map((c) => c.text);
 				return textParts.join("\n");
 			}
 			return typeof result === "string" ? result : JSON.stringify(result);
@@ -453,7 +518,8 @@ export async function POST(req: Request) {
 				for (const [toolName, mcpTool] of Object.entries(mcpTools)) {
 					const prefixedName =
 						mcpClients.length > 1 ? `${name}_${toolName}` : toolName;
-					const originalTool = mcpTool as any;
+					// Cast to McpToolDefinition - the MCP client returns tools with description and execute
+					const originalTool = mcpTool as McpToolDefinition;
 
 					// Create typed tool wrappers with explicit schemas
 					// This ensures the LLM knows exactly what parameters are required
@@ -577,7 +643,7 @@ export async function POST(req: Request) {
 			sendReasoning: true,
 			sendSources: true,
 		});
-	} catch (error: any) {
+	} catch (error: unknown) {
 		// Clean up MCP clients on error
 		for (const { client } of mcpClients) {
 			try {
@@ -587,9 +653,16 @@ export async function POST(req: Request) {
 			}
 		}
 
-		const message = error.message || "LLM Gateway request failed";
-		const status = error.status || 500;
-		return new Response(JSON.stringify({ error: message, details: error }), {
+		const message =
+			error instanceof Error ? error.message : "LLM Gateway request failed";
+		const status =
+			typeof error === "object" &&
+			error !== null &&
+			"status" in error &&
+			typeof (error as { status: unknown }).status === "number"
+				? (error as { status: number }).status
+				: 500;
+		return new Response(JSON.stringify({ error: message }), {
 			status,
 		});
 	}

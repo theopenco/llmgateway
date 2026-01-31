@@ -382,6 +382,55 @@ interface JsonRpcResponse {
 	};
 }
 
+// Zod schemas for JSON-RPC request validation
+const jsonRpcRequestSchema = z.object({
+	jsonrpc: z.literal("2.0"),
+	id: z.union([z.string(), z.number(), z.null()]),
+	method: z.string().min(1),
+	params: z.unknown().optional(),
+});
+
+const jsonRpcBatchRequestSchema = z.array(jsonRpcRequestSchema).min(1);
+
+const jsonRpcPayloadSchema = z.union([
+	jsonRpcRequestSchema,
+	jsonRpcBatchRequestSchema,
+]);
+
+/**
+ * Validate JSON-RPC request payload and return typed result or error response
+ */
+function validateJsonRpcPayload(body: unknown):
+	| {
+			success: true;
+			data: JsonRpcRequest | JsonRpcRequest[];
+	  }
+	| {
+			success: false;
+			error: JsonRpcResponse;
+	  } {
+	const result = jsonRpcPayloadSchema.safeParse(body);
+	if (!result.success) {
+		// JSON-RPC error code -32600 = Invalid Request
+		return {
+			success: false,
+			error: {
+				jsonrpc: "2.0",
+				id: null,
+				error: {
+					code: -32600,
+					message: "Invalid Request",
+					data: result.error.issues.map((issue) => ({
+						path: issue.path.join("."),
+						message: issue.message,
+					})),
+				},
+			},
+		};
+	}
+	return { success: true, data: result.data };
+}
+
 /**
  * Process MCP request using in-memory transport
  */
@@ -651,11 +700,19 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	if (method === "POST") {
 		const server = createMcpServer(apiKey);
 		try {
-			const body = await c.req.json();
+			const rawBody = await c.req.json();
+
+			// Validate JSON-RPC payload structure
+			const validation = validateJsonRpcPayload(rawBody);
+			if (!validation.success) {
+				return c.json(validation.error, 400, {
+					"mcp-session-id": sessionId,
+				});
+			}
+
+			const body = validation.data;
 			logger.debug("MCP POST request body", {
-				method: Array.isArray(body)
-					? body.map((r: JsonRpcRequest) => r.method)
-					: (body as JsonRpcRequest).method,
+				method: Array.isArray(body) ? body.map((r) => r.method) : body.method,
 			});
 
 			// Check if there's an active SSE connection for this session
@@ -707,7 +764,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			}
 
 			// Handle single request
-			const response = await processMcpRequest(server, body as JsonRpcRequest);
+			const response = await processMcpRequest(server, body);
 
 			// If valid SSE connection exists (same apiKey), also send via SSE
 			if (validSseConnection) {
@@ -718,6 +775,29 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				"mcp-session-id": sessionId,
 			});
 		} catch (error) {
+			// Check if this is a JSON parse error (-32700 Parse error)
+			const isParseError =
+				error instanceof SyntaxError ||
+				(error instanceof Error &&
+					error.message.toLowerCase().includes("json"));
+
+			if (isParseError) {
+				logger.warn("MCP JSON parse error", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return c.json(
+					{
+						jsonrpc: "2.0",
+						error: {
+							code: -32700,
+							message: "Parse error: Invalid JSON",
+						},
+						id: null,
+					},
+					400,
+				);
+			}
+
 			logger.error(
 				"MCP request error",
 				error instanceof Error ? error : new Error(String(error)),
@@ -805,6 +885,47 @@ async function oauthAuthorizeHandler(c: Context): Promise<Response> {
 		);
 	}
 
+	// Validate redirect_uri against registered client
+	// This MUST happen before generating any auth code to prevent code leakage
+	const registeredClient = getRegisteredClient(clientId);
+	if (!registeredClient) {
+		// Client not registered - reject the request
+		// Do NOT redirect to the unverified redirect_uri
+		return c.json(
+			{
+				error: "invalid_client",
+				error_description:
+					"Client not registered. Please register the client first via /oauth/register",
+			},
+			401,
+		);
+	}
+
+	if (registeredClient.redirectUris.length === 0) {
+		// No redirect URIs registered - reject
+		return c.json(
+			{
+				error: "invalid_request",
+				error_description:
+					"No redirect URIs registered for this client. Register redirect_uris via /oauth/register",
+			},
+			400,
+		);
+	}
+
+	if (!isValidRedirectUri(redirectUri, registeredClient.redirectUris)) {
+		// redirect_uri does not match any registered URI - reject
+		// Do NOT redirect to the invalid URI or generate any code
+		return c.json(
+			{
+				error: "invalid_redirect_uri",
+				error_description:
+					"The redirect_uri does not match any registered redirect URI for this client",
+			},
+			400,
+		);
+	}
+
 	// For MCP OAuth, the client_id is the API key
 	// Generate an authorization code that encodes the API key
 	const authCode = Buffer.from(
@@ -852,6 +973,74 @@ const authCodes = new Map<
 		createdAt: number;
 	}
 >();
+
+// Store registered OAuth clients with their allowed redirect URIs
+interface RegisteredClient {
+	clientId: string;
+	clientName: string;
+	redirectUris: string[];
+	createdAt: number;
+}
+
+const registeredClients = new Map<string, RegisteredClient>();
+
+/**
+ * Validate redirect_uri against registered URIs for a client
+ * Supports loopback addresses (127.0.0.1, [::1], localhost) with any port for native apps (RFC 8252)
+ */
+function isValidRedirectUri(
+	redirectUri: string,
+	registeredUris: string[],
+): boolean {
+	// Parse the redirect URI
+	let parsedUri: URL;
+	try {
+		parsedUri = new URL(redirectUri);
+	} catch {
+		return false;
+	}
+
+	// Check for loopback addresses (RFC 8252 Section 7.3)
+	// Native apps can use any port on loopback addresses
+	const isLoopback =
+		parsedUri.hostname === "127.0.0.1" ||
+		parsedUri.hostname === "[::1]" ||
+		parsedUri.hostname === "localhost";
+
+	if (isLoopback && parsedUri.protocol === "http:") {
+		// For loopback, check if any registered URI matches the loopback pattern (ignoring port)
+		for (const registered of registeredUris) {
+			try {
+				const parsedRegistered = new URL(registered);
+				const registeredIsLoopback =
+					parsedRegistered.hostname === "127.0.0.1" ||
+					parsedRegistered.hostname === "[::1]" ||
+					parsedRegistered.hostname === "localhost";
+
+				if (
+					registeredIsLoopback &&
+					parsedRegistered.protocol === parsedUri.protocol &&
+					parsedRegistered.pathname === parsedUri.pathname
+				) {
+					// Loopback match - port can differ per RFC 8252
+					return true;
+				}
+			} catch {
+				continue;
+			}
+		}
+	}
+
+	// For non-loopback URIs, require exact match
+	return registeredUris.includes(redirectUri);
+}
+
+/**
+ * Get a registered client by client_id
+ */
+function getRegisteredClient(clientId: string): RegisteredClient | undefined {
+	return registeredClients.get(clientId);
+}
 
 /**
  * Verify PKCE code_verifier against code_challenge
@@ -1094,13 +1283,56 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 			);
 		}
 
+		// Validate redirect_uris if provided
+		const validatedRedirectUris: string[] = [];
+		if (Array.isArray(redirectUris)) {
+			for (const uri of redirectUris) {
+				if (typeof uri !== "string") {
+					continue;
+				}
+				try {
+					const parsedUri = new URL(uri);
+					// Only allow http for loopback, https for everything else
+					const isLoopback =
+						parsedUri.hostname === "127.0.0.1" ||
+						parsedUri.hostname === "[::1]" ||
+						parsedUri.hostname === "localhost";
+
+					if (isLoopback && parsedUri.protocol === "http:") {
+						validatedRedirectUris.push(uri);
+					} else if (parsedUri.protocol === "https:") {
+						validatedRedirectUris.push(uri);
+					}
+					// Skip invalid URIs (non-https, non-loopback)
+				} catch {
+					// Skip invalid URIs
+				}
+			}
+		}
+
+		// Store the client registration
+		registeredClients.set(apiKey, {
+			clientId: apiKey,
+			clientName,
+			redirectUris: validatedRedirectUris,
+			createdAt: Date.now(),
+		});
+
+		// Clean up old client registrations (older than 30 days)
+		const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+		for (const [id, client] of registeredClients.entries()) {
+			if (client.createdAt < thirtyDaysAgo) {
+				registeredClients.delete(id);
+			}
+		}
+
 		// Return registration response with API key as client_id
 		return c.json(
 			{
 				client_id: apiKey,
 				client_secret: apiKey, // Same as client_id for our simplified flow
 				client_name: clientName,
-				redirect_uris: redirectUris,
+				redirect_uris: validatedRedirectUris,
 				grant_types: ["authorization_code", "client_credentials"],
 				response_types: ["code"],
 				token_endpoint_auth_method: "client_secret_basic",

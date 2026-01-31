@@ -175,6 +175,8 @@ export function McpServersDialog({
 											size="icon"
 											className="h-7 w-7"
 											onClick={() => handleStartEdit(server)}
+											aria-label="Edit server"
+											title="Edit server"
 										>
 											<PencilIcon className="h-3.5 w-3.5" />
 										</Button>
@@ -183,6 +185,8 @@ export function McpServersDialog({
 											size="icon"
 											className="text-destructive h-7 w-7"
 											onClick={() => handleDelete(server.id)}
+											aria-label="Delete server"
+											title="Delete server"
 										>
 											<TrashIcon className="h-3.5 w-3.5" />
 										</Button>
@@ -230,6 +234,10 @@ export function McpServersDialog({
 										size="icon"
 										className="absolute top-1/2 right-1 h-7 w-7 -translate-y-1/2"
 										onClick={() => toggleApiKeyVisibility("form")}
+										aria-label={
+											showApiKey["form"] ? "Hide API key" : "Show API key"
+										}
+										title={showApiKey["form"] ? "Hide API key" : "Show API key"}
 									>
 										{showApiKey["form"] ? (
 											<EyeOffIcon className="h-4 w-4" />
