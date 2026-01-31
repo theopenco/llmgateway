@@ -176,7 +176,7 @@ function createMcpServer(apiKey: string): McpServer {
 			try {
 				const includeDeactivated = input.include_deactivated || false;
 				const excludeDeprecated = input.exclude_deprecated || false;
-				const limit = input.limit || 20;
+				const limit = input.limit ?? 20;
 				const familyFilter = input.family?.toLowerCase();
 				const currentDate = new Date();
 
