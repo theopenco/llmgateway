@@ -18,6 +18,7 @@ import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { responses } from "./responses/responses.js";
@@ -77,17 +78,29 @@ app.use(
 			"http://localhost:3005",
 			"http://localhost:3006",
 		],
-		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
+		allowHeaders: [
+			"Content-Type",
+			"Authorization",
+			"Cache-Control",
+			"x-api-key",
+			"mcp-session-id",
+		],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
-		exposeHeaders: ["Content-Length"],
+		exposeHeaders: ["Content-Length", "mcp-session-id"],
 		maxAge: 600,
 		credentials: true,
 	}),
 );
 
 // Middleware to check for application/json content type on POST requests
+// Excludes /mcp endpoint which handles its own content type validation
+// Excludes /oauth endpoints which accept form-urlencoded or JSON
 app.use("*", async (c, next) => {
-	if (c.req.method === "POST") {
+	if (
+		c.req.method === "POST" &&
+		!c.req.path.startsWith("/mcp") &&
+		!c.req.path.startsWith("/oauth")
+	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {
 			throw new HTTPException(415, {
@@ -234,6 +247,13 @@ v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 
 app.route("/v1", v1);
+
+// MCP endpoint - Model Context Protocol server
+app.all("/mcp", mcpHandler);
+
+// Register MCP OAuth routes for Claude Code authentication workaround
+// This adds OAuth endpoints at /.well-known/oauth-authorization-server and /oauth/*
+registerMcpOAuthRoutes(app);
 
 app.doc("/json", config);
 

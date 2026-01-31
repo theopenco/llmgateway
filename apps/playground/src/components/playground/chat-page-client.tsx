@@ -21,6 +21,7 @@ import {
 	useDataChat,
 	useDeleteChat,
 } from "@/hooks/useChats";
+import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -97,6 +98,16 @@ export default function ChatPageClient({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
+	// MCP servers management
+	const {
+		servers: mcpServers,
+		addServer: addMcpServer,
+		updateServer: updateMcpServer,
+		removeServer: removeMcpServer,
+		toggleServer: toggleMcpServer,
+		getEnabledServers: getEnabledMcpServers,
+	} = useMcpServers();
+
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("chat");
 	const [currentChatId, setCurrentChatId] = useState<string | null>(
@@ -135,6 +146,21 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
+
+				// Debug: Log the full message structure
+				console.log("=== onFinish message ===");
+				console.log("Message ID:", message.id);
+				console.log("Message role:", message.role);
+				console.log("Message parts count:", message.parts?.length || 0);
+				if (message.parts) {
+					for (const part of message.parts) {
+						console.log("Part:", {
+							type: part.type,
+							hasText: "text" in part ? !!part.text : false,
+							keys: Object.keys(part),
+						});
+					}
+				}
 
 				// Wait for chatId to be available (handleUserMessage might still be running)
 				let chatId = chatIdRef.current;
@@ -220,9 +246,9 @@ export default function ChatPageClient({
 
 				const images = [...imageUrlParts, ...fileParts];
 
-				// Extract tool parts (AI SDK dynamic tool UI parts)
+				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
 				const toolParts = (message.parts as any[]).filter(
-					(p: any) => p.type === "dynamic-tool",
+					(p: any) => typeof p.type === "string" && p.type.startsWith("tool-"),
 				);
 
 				const bodyToSave = {
@@ -363,6 +389,9 @@ export default function ChatPageClient({
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
 
+			// Get enabled MCP servers
+			const enabledMcpServers = getEnabledMcpServers();
+
 			const mergedOptions = {
 				...options,
 				headers: {
@@ -375,6 +404,9 @@ export default function ChatPageClient({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
+						: {}),
+					...(enabledMcpServers.length > 0
+						? { mcp_servers: enabledMcpServers }
 						: {}),
 				},
 			};
@@ -391,6 +423,7 @@ export default function ChatPageClient({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
+			getEnabledMcpServers,
 		],
 	);
 
@@ -840,6 +873,11 @@ export default function ChatPageClient({
 							showGlobalModelSelector={
 								!(comparisonEnabled && extraPanelIds.length > 0)
 							}
+							mcpServers={mcpServers}
+							onAddMcpServer={addMcpServer}
+							onUpdateMcpServer={updateMcpServer}
+							onRemoveMcpServer={removeMcpServer}
+							onToggleMcpServer={toggleMcpServer}
 						/>
 					</div>
 					{comparisonEnabled ? (

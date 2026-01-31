@@ -43,6 +43,7 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
 	formatPrice,
 	formatContextSize,
@@ -801,20 +802,20 @@ export function ModelSelector({
 												</div>
 
 												{/* Root model filter */}
-												<div className="flex items-center space-x-2">
-													<Checkbox
-														id="show-root"
-														checked={filters.showOnlyRoot}
-														onCheckedChange={(checked) =>
-															updateFilter("showOnlyRoot", checked)
-														}
-													/>
+												<div className="flex items-center justify-between">
 													<Label
 														htmlFor="show-root"
 														className="text-sm cursor-pointer font-medium"
 													>
 														Show only root models
 													</Label>
+													<Switch
+														id="show-root"
+														checked={filters.showOnlyRoot}
+														onCheckedChange={(checked) =>
+															updateFilter("showOnlyRoot", checked)
+														}
+													/>
 												</div>
 
 												<Separator />
@@ -940,25 +941,20 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Stability filter */}
-												<div className="space-y-2">
-													<Label className="text-sm font-medium">
-														Stability
+												<div className="flex items-center justify-between">
+													<Label
+														htmlFor="hide-unstable"
+														className="text-sm cursor-pointer font-medium"
+													>
+														Hide unstable/experimental
 													</Label>
-													<div className="flex items-center space-x-2">
-														<Checkbox
-															id="hide-unstable"
-															checked={filters.hideUnstable}
-															onCheckedChange={(checked) =>
-																updateFilter("hideUnstable", checked)
-															}
-														/>
-														<Label
-															htmlFor="hide-unstable"
-															className="text-sm cursor-pointer"
-														>
-															Hide unstable/experimental models
-														</Label>
-													</div>
+													<Switch
+														id="hide-unstable"
+														checked={filters.hideUnstable}
+														onCheckedChange={(checked) =>
+															updateFilter("hideUnstable", checked)
+														}
+													/>
 												</div>
 											</div>
 										</PopoverContent>

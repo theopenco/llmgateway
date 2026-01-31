@@ -1,9 +1,12 @@
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
+import { McpServersDialog } from "@/components/playground/mcp-servers-dialog";
 import { Label } from "@/components/ui/label";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
+import type { McpServer } from "@/hooks/useMcpServers";
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 
 interface ChatHeaderProps {
@@ -14,6 +17,15 @@ interface ChatHeaderProps {
 	comparisonEnabled: boolean;
 	onComparisonEnabledChange: (enabled: boolean) => void;
 	showGlobalModelSelector: boolean;
+	// MCP servers props
+	mcpServers: McpServer[];
+	onAddMcpServer: (server: Omit<McpServer, "id">) => McpServer;
+	onUpdateMcpServer: (
+		id: string,
+		updates: Partial<Omit<McpServer, "id">>,
+	) => void;
+	onRemoveMcpServer: (id: string) => void;
+	onToggleMcpServer: (id: string) => void;
 }
 
 export const ChatHeader = ({
@@ -24,13 +36,18 @@ export const ChatHeader = ({
 	comparisonEnabled,
 	onComparisonEnabledChange,
 	showGlobalModelSelector,
+	mcpServers,
+	onAddMcpServer,
+	onUpdateMcpServer,
+	onRemoveMcpServer,
+	onToggleMcpServer,
 }: ChatHeaderProps) => {
 	return (
-		<header className="flex items-center p-4 border-b bg-background">
-			<div className="flex items-center gap-3 min-w-0 flex-1">
+		<header className="bg-background flex items-center border-b p-4">
+			<div className="flex min-w-0 flex-1 items-center gap-3">
 				<SidebarTrigger />
 				{showGlobalModelSelector ? (
-					<div className="flex items-center gap-2 w-full max-w-[360px] sm:max-w-[420px] min-w-0">
+					<div className="flex w-full min-w-0 max-w-[360px] items-center gap-2 sm:max-w-[420px]">
 						<ModelSelector
 							models={models}
 							providers={providers}
@@ -41,11 +58,20 @@ export const ChatHeader = ({
 					</div>
 				) : null}
 			</div>
-			<div className="flex items-center gap-3 ml-3">
-				<div className="hidden md:flex items-center gap-2">
+			<div className="ml-3 flex items-center gap-3">
+				<TooltipProvider>
+					<McpServersDialog
+						servers={mcpServers}
+						onAddServer={onAddMcpServer}
+						onUpdateServer={onUpdateMcpServer}
+						onRemoveServer={onRemoveMcpServer}
+						onToggleServer={onToggleMcpServer}
+					/>
+				</TooltipProvider>
+				<div className="hidden items-center gap-2 md:flex">
 					<Label
 						htmlFor="comparison-mode"
-						className="text-xs text-muted-foreground"
+						className="text-muted-foreground text-xs"
 					>
 						Comparison mode
 					</Label>

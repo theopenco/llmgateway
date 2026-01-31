@@ -190,7 +190,8 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			textParts.push(p.text);
 		} else if (p.type === "reasoning") {
 			reasoningParts.push(p.text);
-		} else if (p.type === "dynamic-tool") {
+		} else if (p.type.startsWith("tool-")) {
+			// AI SDK v6 uses tool-{toolName} as the part type (e.g., "tool-fetch_weather")
 			toolParts.push(p);
 		} else if (p.type === "source-url") {
 			sourceParts.push(p);
@@ -226,7 +227,25 @@ const AssistantMessage = memo(
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
-			useMemo(() => extractMessageParts(message.parts), [message.parts]);
+			useMemo(() => {
+				const result = extractMessageParts(message.parts);
+				// Debug: Log when tool parts are found
+				if (result.toolParts.length > 0) {
+					console.log("=== Tool parts found in message ===");
+					console.log("Tool parts count:", result.toolParts.length);
+					for (const tool of result.toolParts) {
+						console.log("Tool part:", {
+							type: tool.type,
+							toolName: tool.toolName,
+							toolCallId: tool.toolCallId,
+							state: tool.state,
+							hasInput: !!tool.input,
+							hasOutput: !!tool.output,
+						});
+					}
+				}
+				return result;
+			}, [message.parts]);
 		const textContent = textParts.join("");
 
 		return (
@@ -244,6 +263,7 @@ const AssistantMessage = memo(
 				{toolParts.map((tool) => (
 					<Tool key={tool.toolCallId}>
 						<ToolHeader
+							title={tool.toolName}
 							type={tool.type as `tool-${string}`}
 							state={tool.state}
 						/>

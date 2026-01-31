@@ -562,6 +562,22 @@ chat.openapi(completions, async (c) => {
 		plugins,
 	} = validationResult.data;
 
+	// Debug: Log tools received from the AI SDK
+	if (tools && tools.length > 0) {
+		logger.info("=== TOOLS RECEIVED BY GATEWAY ===");
+		logger.info(`Number of tools: ${tools.length}`);
+		for (const t of tools) {
+			const tool = t as any;
+			logger.info(`Tool: ${tool.function?.name || "unknown"}`, {
+				hasFunction: !!tool.function,
+				hasParameters: !!tool.function?.parameters,
+				parametersPreview: tool.function?.parameters
+					? JSON.stringify(tool.function.parameters).slice(0, 500)
+					: "none",
+			});
+		}
+	}
+
 	// If web_search parameter is true, automatically add the web_search tool
 	if (
 		web_search &&
