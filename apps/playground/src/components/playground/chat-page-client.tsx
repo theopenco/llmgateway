@@ -147,21 +147,6 @@ export default function ChatPageClient({
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
 
-				// Debug: Log the full message structure
-				console.log("=== onFinish message ===");
-				console.log("Message ID:", message.id);
-				console.log("Message role:", message.role);
-				console.log("Message parts count:", message.parts?.length || 0);
-				if (message.parts) {
-					for (const part of message.parts) {
-						console.log("Part:", {
-							type: part.type,
-							hasText: "text" in part ? !!part.text : false,
-							keys: Object.keys(part),
-						});
-					}
-				}
-
 				// Wait for chatId to be available (handleUserMessage might still be running)
 				let chatId = chatIdRef.current;
 

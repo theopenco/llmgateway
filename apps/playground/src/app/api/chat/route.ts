@@ -189,14 +189,11 @@ export async function POST(req: Request) {
 		for (const { client, name } of mcpClients) {
 			try {
 				const mcpTools = await client.tools();
-				console.log(`Tools from MCP server "${name}":`, Object.keys(mcpTools));
 
 				for (const [toolName, mcpTool] of Object.entries(mcpTools)) {
 					const prefixedName =
 						mcpClients.length > 1 ? `${name}_${toolName}` : toolName;
 					const originalTool = mcpTool as any;
-
-					console.log(`Creating typed wrapper for MCP tool "${prefixedName}"`);
 
 					// Create typed tool wrappers with explicit schemas
 					// This ensures the LLM knows exactly what parameters are required
@@ -229,11 +226,8 @@ export async function POST(req: Request) {
 									),
 							}),
 							execute: async (args) => {
-								console.log(`=== TOOL EXECUTING: ${prefixedName} ===`);
-								console.log("Args:", JSON.stringify(args));
 								const result = await originalTool.execute(args);
 								const extracted = extractMcpResult(result);
-								console.log(`=== TOOL RESULT (${extracted.length} chars) ===`);
 								return { data: extracted };
 							},
 						});
@@ -273,26 +267,18 @@ export async function POST(req: Request) {
 									.describe("Optional: Maximum tokens to generate"),
 							}),
 							execute: async (args) => {
-								console.log(`=== TOOL EXECUTING: ${prefixedName} ===`);
-								console.log("Args:", JSON.stringify(args).slice(0, 500));
 								const result = await originalTool.execute(args);
 								const extracted = extractMcpResult(result);
-								console.log(`=== TOOL RESULT (${extracted.length} chars) ===`);
 								return { response: extracted };
 							},
 						});
 					} else {
 						// For unknown tools, use a permissive schema
-						console.log(
-							`Unknown MCP tool "${toolName}", using permissive schema`,
-						);
 						allTools[prefixedName] = tool({
 							description:
 								originalTool.description || `MCP tool: ${prefixedName}`,
 							inputSchema: z.object({}).passthrough(),
 							execute: async (args) => {
-								console.log(`=== TOOL EXECUTING: ${prefixedName} ===`);
-								console.log("Args:", JSON.stringify(args));
 								const result = await originalTool.execute(args);
 								const extracted = extractMcpResult(result);
 								return { result: extracted };
@@ -305,117 +291,14 @@ export async function POST(req: Request) {
 			}
 		}
 
-		// Add a simple test tool for debugging (to verify tool streaming works)
-		const testTool = tool({
-			description:
-				"A simple test tool that returns the current time. Use this to test if tool calling works.",
-			inputSchema: z.object({
-				format: z
-					.enum(["iso", "locale", "unix"])
-					.optional()
-					.default("iso")
-					.describe("The format of the time"),
-			}),
-			execute: async ({ format }) => {
-				console.log("=== TEST TOOL EXECUTING ===");
-				const now = new Date();
-				let result: string;
-				switch (format) {
-					case "unix":
-						result = Math.floor(now.getTime() / 1000).toString();
-						break;
-					case "locale":
-						result = now.toLocaleString();
-						break;
-					default:
-						result = now.toISOString();
-				}
-				console.log("=== TEST TOOL RESULT ===", result);
-				return { time: result, format };
-			},
-		});
-
-		// Always add the test tool when MCP servers are configured (for debugging)
-		if (enabledMcpServers.length > 0) {
-			allTools["get_current_time"] = testTool;
-		}
-
 		const hasTools = Object.keys(allTools).length > 0;
-
-		if (hasTools) {
-			console.log("=== TOOLS BEING SENT TO MODEL ===");
-			console.log("Tool names:", Object.keys(allTools).join(", "));
-			// Debug: Log the full tool definition that will be sent
-			for (const [toolName, toolDef] of Object.entries(allTools)) {
-				const t = toolDef as any;
-				console.log(`Tool "${toolName}" definition:`, {
-					description: t?.description?.slice(0, 100),
-					hasInputSchema: !!t?.inputSchema,
-					hasParameters: !!t?.parameters,
-					// Try to get the JSON schema that will be sent to OpenAI
-					inputSchemaKeys: t?.inputSchema ? Object.keys(t.inputSchema) : [],
-				});
-				// Log the actual schema shape if available
-				if (t?.inputSchema?._def) {
-					console.log(`Tool "${toolName}" schema shape:`, {
-						typeName: t.inputSchema._def.typeName,
-						shape: t.inputSchema._def.shape
-							? Object.keys(t.inputSchema._def.shape())
-							: "none",
-					});
-				}
-			}
-		}
 
 		// Streaming chat with optional MCP tools
 		const result = streamText({
 			model: llmgateway.chat(selectedModel),
 			messages: await convertToModelMessages(messages),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
-			onStepFinish: async (event) => {
-				console.log("=== STEP FINISHED ===");
-				console.log("Finish reason:", event.finishReason);
-				console.log(
-					"Has text:",
-					!!event.text,
-					"length:",
-					event.text?.length || 0,
-				);
-				console.log("Tool calls:", event.toolCalls?.length || 0);
-				console.log("Tool results:", event.toolResults?.length || 0);
-
-				// Debug: Log full tool call and result details
-				if (event.toolCalls && event.toolCalls.length > 0) {
-					for (const tc of event.toolCalls) {
-						console.log("Tool call:", {
-							toolName: tc.toolName,
-							toolCallId: tc.toolCallId,
-							// Use type assertion to access args which might be named differently
-							args: JSON.stringify((tc as any).args || tc).slice(0, 200),
-						});
-					}
-				}
-				if (event.toolResults && event.toolResults.length > 0) {
-					for (const tr of event.toolResults) {
-						// AI SDK v6 uses 'output' instead of 'result'
-						const output = (tr as any).result ?? (tr as any).output;
-						console.log("Tool result:", {
-							toolName: tr.toolName,
-							toolCallId: tr.toolCallId,
-							resultType: typeof output,
-							resultPreview:
-								typeof output === "string"
-									? output.slice(0, 200)
-									: JSON.stringify(output).slice(0, 200),
-						});
-					}
-				}
-			},
-			onFinish: async (event) => {
-				console.log("=== STREAM FINISHED ===");
-				console.log("Total steps:", event.steps?.length || 0);
-				console.log("Final finish reason:", event.finishReason);
-
+			onFinish: async () => {
 				// Clean up MCP clients when streaming is done
 				for (const { client } of mcpClients) {
 					try {
@@ -426,11 +309,6 @@ export async function POST(req: Request) {
 				}
 			},
 		});
-
-		// Debug: Log what the response contains before streaming
-		console.log("=== CREATING STREAM RESPONSE ===");
-		console.log("Has tools:", hasTools);
-		console.log("Model:", selectedModel);
 
 		return result.toUIMessageStreamResponse({
 			sendReasoning: true,

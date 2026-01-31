@@ -229,21 +229,6 @@ const AssistantMessage = memo(
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
 			useMemo(() => {
 				const result = extractMessageParts(message.parts);
-				// Debug: Log when tool parts are found
-				if (result.toolParts.length > 0) {
-					console.log("=== Tool parts found in message ===");
-					console.log("Tool parts count:", result.toolParts.length);
-					for (const tool of result.toolParts) {
-						console.log("Tool part:", {
-							type: tool.type,
-							toolName: tool.toolName,
-							toolCallId: tool.toolCallId,
-							state: tool.state,
-							hasInput: !!tool.input,
-							hasOutput: !!tool.output,
-						});
-					}
-				}
 				return result;
 			}, [message.parts]);
 		const textContent = textParts.join("");
