@@ -51,31 +51,21 @@ describe("API auth configuration", () => {
 
 describe("API auth hooks functionality", () => {
 	beforeEach(async () => {
-		// Clean up any existing data
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-		]);
+		// Clean up any existing data (sequential to avoid deadlocks)
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.account);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
 	});
 
 	afterEach(async () => {
-		// Clean up after tests
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-		]);
+		// Clean up after tests (sequential to avoid deadlocks)
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.account);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
 	});
 
 	test("should create default organization and project on signup", async () => {
@@ -180,34 +170,24 @@ describe("API auth hooks functionality", () => {
 
 describe("Auth rate limiting", () => {
 	beforeEach(async () => {
-		// Clean up any existing data
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-		]);
+		// Clean up any existing data (sequential to avoid deadlocks)
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.account);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
 
 		// Clear Redis rate limit data
 		await redisClient.flushdb();
 	});
 
 	afterEach(async () => {
-		// Clean up after tests
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-		]);
+		// Clean up after tests (sequential to avoid deadlocks)
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.account);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
 
 		// Clear Redis rate limit data
 		await redisClient.flushdb();

@@ -357,7 +357,7 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
-					{provider.requestPrice !== undefined && (
+					{provider.requestPrice !== undefined && provider.requestPrice > 0 && (
 						<div className="grid grid-cols-3 gap-3 mt-3">
 							<div className="col-span-3">
 								<div className="text-muted-foreground text-xs mb-1">

@@ -185,11 +185,12 @@ export function ModelsList() {
 											tokens
 										</div>
 									)}
-									{provider.requestPrice !== undefined && (
-										<div>
-											Request: ${provider.requestPrice * 1000} / 1K requests
-										</div>
-									)}
+									{provider.requestPrice !== undefined &&
+										provider.requestPrice > 0 && (
+											<div>
+												Request: ${provider.requestPrice * 1000} / 1K requests
+											</div>
+										)}
 								</div>
 							))}
 						</div>

@@ -14,7 +14,7 @@ import {
 	startMockServer,
 	stopMockServer,
 } from "./test-utils/mock-openai-server.js";
-import { clearCache, waitForLogs } from "./test-utils/test-helpers.js";
+import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 
 describe("test", () => {
 	let mockServerUrl: string;
@@ -788,5 +788,178 @@ describe("test", () => {
 		expect(json.message).toMatch(
 			/Custom headers \(X-LLMGateway-\*\) require a Pro plan/i,
 		);
+	});
+
+	// Timeout tests - use a short timeout via env var to test timeout handling
+	describe("Timeout handling", () => {
+		let originalTimeout: string | undefined;
+
+		beforeAll(() => {
+			// Save original env value
+			originalTimeout = process.env.AI_REQUEST_TIMEOUT_MS;
+			// Set a short timeout for testing (2 seconds)
+			process.env.AI_REQUEST_TIMEOUT_MS = "2000";
+		});
+
+		afterAll(() => {
+			// Restore original env value
+			if (originalTimeout !== undefined) {
+				process.env.AI_REQUEST_TIMEOUT_MS = originalTimeout;
+			} else {
+				delete process.env.AI_REQUEST_TIMEOUT_MS;
+			}
+		});
+
+		test("non-streaming request times out when upstream is slow", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Request that triggers a 5 second delay (longer than our 2s timeout)
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_TIMEOUT_5000",
+						},
+					],
+				}),
+			});
+
+			// Request should fail with 502 Bad Gateway (upstream timeout)
+			expect(res.status).toBe(502);
+
+			const json = await res.json();
+			expect(json).toHaveProperty("error");
+			expect(json.error.type).toBe("upstream_error");
+			expect(json.error.code).toBe("fetch_failed");
+
+			// Wait for the log to be written
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(logs[0].errorDetails).toBeTruthy();
+			expect(logs[0].errorDetails?.statusText).toBe("TimeoutError");
+		}, 15000);
+
+		test("streaming request times out when upstream is slow", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Request that triggers a 5 second delay (longer than our 2s timeout)
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_TIMEOUT_5000",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			// Streaming response should still return 200 status
+			expect(res.status).toBe(200);
+
+			// But the stream should contain a timeout error event
+			const streamResult = await readAll(res.body);
+
+			// Should have an error event
+			expect(streamResult.hasError).toBe(true);
+			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
+
+			const errorEvent = streamResult.errorEvents[0];
+			expect(errorEvent.error.type).toBe("upstream_timeout");
+			expect(errorEvent.error.code).toBe("timeout");
+
+			// Wait for the log to be written
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(logs[0].errorDetails).toBeTruthy();
+			expect(logs[0].errorDetails?.statusText).toBe("TimeoutError");
+		}, 15000);
+
+		test("request with short delay under timeout succeeds", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Request that triggers only 500ms delay (under our 2s timeout)
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_TIMEOUT_500",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json).toHaveProperty("choices.[0].message.content");
+		}, 10000);
 	});
 });

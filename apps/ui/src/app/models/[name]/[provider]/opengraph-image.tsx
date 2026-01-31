@@ -9,7 +9,10 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getProviderIcon,
+	MinimaxIconStatic,
+} from "@llmgateway/shared/components";
 
 export const size = {
 	width: 1200,
@@ -95,7 +98,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			(p) => p.id === selectedMapping?.providerId,
 		);
 		const ProviderIcon = selectedMapping
-			? getProviderIcon(selectedMapping.providerId)
+			? selectedMapping.providerId === "minimax"
+				? MinimaxIconStatic
+				: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
 		const requestPrice = selectedMapping?.requestPrice;
