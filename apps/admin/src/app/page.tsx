@@ -1,9 +1,8 @@
 import {
-	Activity,
-	ArrowUpRight,
+	Building2,
 	CircleDollarSign,
-	Coins,
-	Server,
+	ShieldCheck,
+	UserCheck,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -21,15 +20,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
-
-const percentFormatter = new Intl.NumberFormat("en-US", {
-	style: "percent",
-	maximumFractionDigits: 1,
-});
-
-function safeNumber(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
 
 function MetricCard({
 	label,
@@ -111,7 +101,7 @@ export default async function Page() {
 						Admin Dashboard
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						High-level overview of global usage, revenue, and customers.
+						Overview of users, customers, and revenue.
 					</p>
 				</div>
 				<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
@@ -121,27 +111,6 @@ export default async function Page() {
 			</header>
 
 			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-				<MetricCard
-					label="Total Credits Issued"
-					value={currencyFormatter.format(metrics.totalCreditsIssued)}
-					subtitle="Lifetime credits added to all organizations"
-					icon={<Coins className="h-4 w-4" />}
-					accent="purple"
-				/>
-				<MetricCard
-					label="Total Revenue"
-					value={currencyFormatter.format(metrics.totalRevenue)}
-					subtitle="All completed subscription and credit payments"
-					icon={<CircleDollarSign className="h-4 w-4" />}
-					accent="green"
-				/>
-				<MetricCard
-					label="Net Profit (approx.)"
-					value={currencyFormatter.format(metrics.netProfit)}
-					subtitle="Revenue minus metered usage costs"
-					icon={<ArrowUpRight className="h-4 w-4" />}
-					accent="blue"
-				/>
 				<MetricCard
 					label="Total Sign Ups"
 					value={numberFormatter.format(metrics.totalSignups)}
@@ -153,44 +122,37 @@ export default async function Page() {
 					label="Verified Users"
 					value={numberFormatter.format(metrics.verifiedUsers)}
 					subtitle="Users with verified email addresses"
-					icon={<Users className="h-4 w-4" />}
+					icon={<UserCheck className="h-4 w-4" />}
 					accent="green"
 				/>
 				<MetricCard
 					label="Paying Customers"
 					value={numberFormatter.format(metrics.payingCustomers)}
-					subtitle="Organizations with at least one completed transaction"
-					icon={<Users className="h-4 w-4" />}
+					subtitle="Organizations with completed transactions"
+					icon={<ShieldCheck className="h-4 w-4" />}
 					accent="purple"
 				/>
 				<MetricCard
-					label="$ / Customer / Month"
-					value={currencyFormatter.format(
-						safeNumber(metrics.revenuePerCustomerPerMonth),
-					)}
-					subtitle="Average monthly revenue per active paying customer (last 30 days)"
+					label="Total Revenue"
+					value={currencyFormatter.format(metrics.totalRevenue)}
+					subtitle="All completed payments"
 					icon={<CircleDollarSign className="h-4 w-4" />}
 					accent="green"
 				/>
 				<MetricCard
-					label="Requests Under Peak Load"
-					value={percentFormatter.format(
-						safeNumber(metrics.peakLoadSuccessRate),
-					)}
-					subtitle="Share of successful requests in the last 24 hours"
-					icon={<Activity className="h-4 w-4" />}
+					label="Total Organizations"
+					value={numberFormatter.format(metrics.totalOrganizations)}
+					subtitle="All registered organizations"
+					icon={<Building2 className="h-4 w-4" />}
 					accent="blue"
 				/>
-				<MetricCard
-					label="CIRR (Customer Infra Replacement Rate)"
-					value={percentFormatter.format(
-						safeNumber(metrics.customerInfraReplacementRate),
-					)}
-					subtitle="Weighted metric combining % of LLM traffic routed through LLM Gateway and % of infra control-plane features replaced"
-					icon={<Server className="h-4 w-4" />}
-					accent="purple"
-				/>
 			</section>
+
+			<div className="mt-4">
+				<Button asChild>
+					<Link href="/organizations">View Organizations</Link>
+				</Button>
+			</div>
 		</div>
 	);
 }

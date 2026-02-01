@@ -1,12 +1,22 @@
-import { Activity, CircleDollarSign, Hash, Info, Server } from "lucide-react";
+import {
+	Activity,
+	ArrowLeft,
+	Building2,
+	CircleDollarSign,
+	Hash,
+	Info,
+	Server,
+} from "lucide-react";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-	getAdminTokenMetrics,
+	getOrganizationMetrics,
 	type TokenWindow,
-} from "@/lib/admin-token-metrics";
+} from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
@@ -18,6 +28,20 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 4,
 });
+
+const creditsFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 2,
+});
+
+function formatDate(dateString: string) {
+	return new Date(dateString).toLocaleDateString("en-US", {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+	});
+}
 
 function safeNumber(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -88,49 +112,117 @@ function SignInPrompt() {
 	);
 }
 
-export default async function TokensPage({
+function getPlanBadgeVariant(plan: string) {
+	switch (plan) {
+		case "enterprise":
+			return "default";
+		case "pro":
+			return "secondary";
+		default:
+			return "outline";
+	}
+}
+
+function getDevPlanBadgeVariant(devPlan: string) {
+	switch (devPlan) {
+		case "max":
+			return "default";
+		case "pro":
+			return "secondary";
+		case "lite":
+			return "outline";
+		default:
+			return "outline";
+	}
+}
+
+export default async function OrganizationPage({
+	params,
 	searchParams,
 }: {
+	params: Promise<{ orgId: string }>;
 	searchParams?: Promise<{ window?: string }>;
 }) {
-	const params = await searchParams;
+	const { orgId } = await params;
+	const searchParamsData = await searchParams;
 	const windowParam =
-		params?.window === "30d" || params?.window === "7d"
-			? (params.window as TokenWindow)
+		searchParamsData?.window === "30d" || searchParamsData?.window === "7d"
+			? (searchParamsData.window as TokenWindow)
 			: "7d";
 
-	const metrics = await getAdminTokenMetrics(windowParam);
+	const metrics = await getOrganizationMetrics(orgId, windowParam);
 
-	if (!metrics) {
+	if (metrics === null) {
 		return <SignInPrompt />;
 	}
 
+	if (!metrics) {
+		notFound();
+	}
+
+	const org = metrics.organization;
 	const windowLabel = windowParam === "30d" ? "Last 30 days" : "Last 7 days";
 
 	return (
 		<div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
-			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">Token Usage</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Precise request, token, and cost breakdown across your gateway.
-					</p>
-					<p className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
-						<Info className="h-3 w-3" />
-						<span>
-							{windowLabel} ({new Date(metrics.startDate).toLocaleDateString()}{" "}
-							– {new Date(metrics.endDate).toLocaleDateString()})
+			<div className="flex items-center gap-2">
+				<Button variant="ghost" size="sm" asChild>
+					<Link href="/organizations">
+						<ArrowLeft className="h-4 w-4" />
+						Back
+					</Link>
+				</Button>
+			</div>
+
+			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-start">
+				<div className="space-y-2">
+					<div className="flex items-center gap-3">
+						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							<Building2 className="h-5 w-5" />
+						</div>
+						<div>
+							<h1 className="text-2xl font-semibold tracking-tight">
+								{org.name}
+							</h1>
+							<p className="text-sm text-muted-foreground">{org.id}</p>
+						</div>
+					</div>
+					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+						<span>{org.billingEmail}</span>
+						<span>•</span>
+						<span>Created {formatDate(org.createdAt)}</span>
+					</div>
+					<div className="flex flex-wrap items-center gap-2">
+						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
+						{org.devPlan !== "none" && (
+							<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
+								Dev: {org.devPlan}
+							</Badge>
+						)}
+						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
+							{org.status || "active"}
+						</Badge>
+						<span className="text-sm font-medium">
+							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
-					</p>
+					</div>
 				</div>
 				<TokenTimeRangeToggle initial={windowParam} />
 			</header>
+
+			<div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+				<Info className="h-3 w-3" />
+				<span>
+					{windowLabel} ({new Date(metrics.startDate).toLocaleDateString()} –{" "}
+					{new Date(metrics.endDate).toLocaleDateString()})
+				</span>
+			</div>
 
 			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 				<MetricCard
 					label="Total Requests"
 					value={numberFormatter.format(safeNumber(metrics.totalRequests))}
-					subtitle="All gateway requests in the selected time window"
+					subtitle="All API requests in the selected time window"
 					icon={<Hash className="h-4 w-4" />}
 					accent="blue"
 				/>

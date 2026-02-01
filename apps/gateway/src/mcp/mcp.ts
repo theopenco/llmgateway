@@ -67,8 +67,37 @@ const listModelsInputSchema = z.object({
 		.describe("Filter by model family (e.g., 'openai', 'anthropic', 'google')"),
 });
 
+const generateImageInputSchema = z.object({
+	prompt: z.string().describe("Text description of the image to generate"),
+	model: z
+		.string()
+		.optional()
+		.default("qwen-image-plus")
+		.describe(
+			'Image generation model to use (e.g., "qwen-image-plus", "qwen-image-max")',
+		),
+	size: z
+		.string()
+		.optional()
+		.default("1024x1024")
+		.describe(
+			'Image size in WxH format (e.g., "1024x1024", "1024x768", "768x1024")',
+		),
+	n: z
+		.number()
+		.min(1)
+		.max(4)
+		.optional()
+		.default(1)
+		.describe("Number of images to generate (1-4)"),
+});
+
+const listImageModelsInputSchema = z.object({});
+
 type ChatInput = z.infer<typeof chatInputSchema>;
 type ListModelsInput = z.infer<typeof listModelsInputSchema>;
+type GenerateImageInput = z.infer<typeof generateImageInputSchema>;
+type ListImageModelsInput = z.infer<typeof listImageModelsInputSchema>;
 
 /**
  * Creates an MCP server instance with tools for LLM Gateway
@@ -234,6 +263,9 @@ function createMcpServer(apiKey: string): McpServer {
 					const hasTools = model.providers.some((p) => p.tools);
 					const hasReasoning = model.providers.some((p) => p.reasoning);
 					const hasStreaming = model.providers.some((p) => p.streaming);
+					const hasImageGeneration = model.providers.some(
+						(p) => (p as ProviderModelMapping).imageGenerations,
+					);
 
 					const providerIds = [
 						...new Set(model.providers.map((p) => p.providerId)),
@@ -249,6 +281,7 @@ function createMcpServer(apiKey: string): McpServer {
 							tools: hasTools,
 							reasoning: hasReasoning,
 							streaming: hasStreaming,
+							imageGeneration: hasImageGeneration,
 						},
 						pricing: {
 							input: `$${inputPrice}/1M tokens`,
@@ -297,6 +330,9 @@ function createMcpServer(apiKey: string): McpServer {
 						if (model.capabilities.streaming) {
 							capabilities.push("streaming");
 						}
+						if (model.capabilities.imageGeneration) {
+							capabilities.push("image-generation");
+						}
 
 						responseText += `**${model.id}**`;
 						if (model.free) {
@@ -326,6 +362,234 @@ function createMcpServer(apiKey: string): McpServer {
 			} catch (error) {
 				logger.error(
 					"MCP list-models tool error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+						},
+					],
+					isError: true,
+				};
+			}
+		},
+	);
+
+	// Register the generate-image tool
+	server.tool(
+		"generate-image",
+		"Generate images from text prompts using AI image generation models like Qwen Image or other supported image models.",
+		generateImageInputSchema.shape,
+		async (input: GenerateImageInput) => {
+			try {
+				const gatewayUrl =
+					process.env.MCP_GATEWAY_URL ||
+					(process.env.NODE_ENV === "production"
+						? "https://api.llmgateway.io"
+						: "http://localhost:4001");
+
+				// Call the chat completions endpoint with image generation model
+				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${apiKey}`,
+					},
+					body: JSON.stringify({
+						model: input.model,
+						messages: [
+							{
+								role: "user",
+								content: input.prompt,
+							},
+						],
+						stream: false,
+						image_config: {
+							image_size: input.size,
+							n: input.n,
+						},
+					}),
+				});
+
+				if (!response.ok) {
+					const errorText = await response.text();
+					let errorMessage: string;
+					try {
+						const errorJson = JSON.parse(errorText);
+						errorMessage = errorJson.message || errorJson.error || errorText;
+					} catch {
+						errorMessage = errorText;
+					}
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `Error: ${response.status} - ${errorMessage}`,
+							},
+						],
+						isError: true,
+					};
+				}
+
+				const data = await response.json();
+
+				// Extract images from the response
+				const message = data.choices?.[0]?.message;
+				const images = message?.images || [];
+
+				if (images.length === 0) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text:
+									message?.content ||
+									"No images generated. The model may not support image generation.",
+							},
+						],
+					};
+				}
+
+				// Build MCP response with images
+				const contentBlocks: Array<
+					| { type: "text"; text: string }
+					| { type: "image"; data: string; mimeType: string }
+				> = [];
+
+				// Add text description if present
+				if (message?.content) {
+					contentBlocks.push({
+						type: "text" as const,
+						text: message.content,
+					});
+				}
+
+				// Add each image as an MCP image content block
+				for (const image of images) {
+					if (image.type === "image_url" && image.image_url?.url) {
+						const url = image.image_url.url;
+
+						// Check if it's a base64 data URL
+						if (url.startsWith("data:")) {
+							// Parse data URL: data:image/png;base64,<data>
+							const matches = url.match(/^data:([^;]+);base64,(.+)$/);
+							if (matches) {
+								contentBlocks.push({
+									type: "image" as const,
+									data: matches[2],
+									mimeType: matches[1],
+								});
+							}
+						} else {
+							// External URL - return as text with link
+							contentBlocks.push({
+								type: "text" as const,
+								text: `Image URL: ${url}`,
+							});
+						}
+					}
+				}
+
+				// If no images were successfully extracted, provide feedback
+				if (contentBlocks.length === 0) {
+					contentBlocks.push({
+						type: "text" as const,
+						text: "Images were generated but could not be extracted. Please check the model response.",
+					});
+				}
+
+				return {
+					content: contentBlocks,
+				};
+			} catch (error) {
+				logger.error(
+					"MCP generate-image tool error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+						},
+					],
+					isError: true,
+				};
+			}
+		},
+	);
+
+	// Register the list-image-models tool
+	server.tool(
+		"list-image-models",
+		"List all available image generation models with their capabilities and pricing. Use these models with the generate-image tool.",
+		listImageModelsInputSchema.shape,
+		async (_input: ListImageModelsInput) => {
+			try {
+				// Filter models to only those with image generation capability
+				const imageModels = modelsList.filter((model: ModelDefinition) => {
+					return model.providers.some(
+						(p) => (p as ProviderModelMapping).imageGenerations === true,
+					);
+				});
+
+				if (imageModels.length === 0) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: "No image generation models are currently available.",
+							},
+						],
+					};
+				}
+
+				let responseText = `# Image Generation Models\n\n`;
+				responseText += `Found ${imageModels.length} model(s) that support image generation.\n\n`;
+
+				for (const model of imageModels) {
+					const imageProvider = model.providers.find(
+						(p) => (p as ProviderModelMapping).imageGenerations === true,
+					) as ProviderModelMapping | undefined;
+
+					const requestPrice = imageProvider?.requestPrice;
+
+					responseText += `## ${(model as ModelDefinition).name || (model as ModelDefinition).id}\n`;
+					responseText += `- **Model ID:** \`${(model as ModelDefinition).id}\`\n`;
+					if ((model as ModelDefinition).description) {
+						responseText += `- **Description:** ${(model as ModelDefinition).description}\n`;
+					}
+					responseText += `- **Family:** ${(model as ModelDefinition).family}\n`;
+					if (requestPrice !== undefined && requestPrice > 0) {
+						responseText += `- **Price:** $${requestPrice} per request\n`;
+					}
+					responseText += "\n";
+				}
+
+				responseText += `\n## Usage\n`;
+				responseText += `Use the \`generate-image\` tool with any of these model IDs.\n\n`;
+				responseText += `Example:\n`;
+				responseText += `\`\`\`\n`;
+				responseText += `generate-image(\n`;
+				responseText += `  prompt: "A serene mountain landscape at sunset",\n`;
+				responseText += `  model: "qwen-image-plus",\n`;
+				responseText += `  size: "1024x1024"\n`;
+				responseText += `)\n`;
+				responseText += `\`\`\`\n`;
+
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: responseText,
+						},
+					],
+				};
+			} catch (error) {
+				logger.error(
+					"MCP list-image-models tool error",
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				return {

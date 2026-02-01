@@ -3,15 +3,11 @@ import { cookies } from "next/headers";
 import { fetchServerData } from "./server-api";
 
 export interface AdminDashboardMetrics {
-	totalCreditsIssued: number;
-	totalRevenue: number;
-	netProfit: number;
 	totalSignups: number;
 	verifiedUsers: number;
 	payingCustomers: number;
-	revenuePerCustomerPerMonth: number;
-	peakLoadSuccessRate: number;
-	customerInfraReplacementRate: number;
+	totalRevenue: number;
+	totalOrganizations: number;
 }
 
 export async function getAdminDashboardMetrics(): Promise<AdminDashboardMetrics | null> {
