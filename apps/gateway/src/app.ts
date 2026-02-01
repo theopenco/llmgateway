@@ -70,14 +70,7 @@ app.use("*", honoRequestLogger);
 app.use(
 	"*",
 	cors({
-		origin: process.env.ORIGIN_URLS?.split(",") || [
-			"https://docs.llmgateway.io",
-			"http://localhost:3002",
-			"http://localhost:3003",
-			"http://localhost:3004",
-			"http://localhost:3005",
-			"http://localhost:3006",
-		],
+		origin: "*",
 		allowHeaders: [
 			"Content-Type",
 			"Authorization",
@@ -88,7 +81,6 @@ app.use(
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
 		exposeHeaders: ["Content-Length", "mcp-session-id"],
 		maxAge: 600,
-		credentials: true,
 	}),
 );
 
