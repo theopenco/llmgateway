@@ -68,6 +68,22 @@ function isMcpTextContent(value: unknown): value is McpTextContent {
 }
 
 /**
+ * Type guard to check if an MCP content item is image content
+ */
+function isMcpImageContent(value: unknown): value is McpImageContent {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"type" in value &&
+		(value as McpImageContent).type === "image" &&
+		"data" in value &&
+		typeof (value as McpImageContent).data === "string" &&
+		"mimeType" in value &&
+		typeof (value as McpImageContent).mimeType === "string"
+	);
+}
+
+/**
  * MCP Tool type from client.tools() return value
  * The execute function is typed loosely to accommodate different MCP tool implementations
  */
@@ -398,6 +414,23 @@ export async function POST(req: Request) {
 			return typeof result === "string" ? result : JSON.stringify(result);
 		};
 
+		// Helper to extract images from MCP result format
+		// Returns array of image objects with base64 and mediaType for the Image component
+		const extractMcpImages = (
+			result: unknown,
+		): { images: { base64: string; mediaType: string }[]; text: string } => {
+			if (isMcpCallToolResult(result)) {
+				const images = result.content
+					.filter(isMcpImageContent)
+					.map((c) => ({ base64: c.data, mediaType: c.mimeType }));
+				const textParts = result.content
+					.filter(isMcpTextContent)
+					.map((c) => c.text);
+				return { images, text: textParts.join("\n") };
+			}
+			return { images: [], text: extractMcpResult(result) };
+		};
+
 		for (const { client, name } of mcpClients) {
 			try {
 				const mcpTools = await client.tools();
@@ -510,8 +543,8 @@ export async function POST(req: Request) {
 							}),
 							execute: async (args) => {
 								const result = await originalTool.execute(args);
-								const extracted = extractMcpResult(result);
-								return { images: extracted };
+								const { images, text } = extractMcpImages(result);
+								return { images, text };
 							},
 						});
 					} else if (toolName === "list-image-models") {
