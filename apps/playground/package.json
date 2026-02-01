@@ -17,9 +17,10 @@
 	},
 	"dependencies": {
 		"@ai-sdk/mcp": "1.0.5",
+		"@ai-sdk/openai": "3.0.25",
 		"@ai-sdk/react": "3.0.29",
 		"@hookform/resolvers": "5.2.2",
-		"@llmgateway/ai-sdk-provider": "3.0.0",
+		"@llmgateway/ai-sdk-provider": "3.1.1",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@modelcontextprotocol/sdk": "1.25.3",

@@ -228,8 +228,7 @@ const AssistantMessage = memo(
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
 			useMemo(() => {
-				const result = extractMessageParts(message.parts);
-				return result;
+				return extractMessageParts(message.parts);
 			}, [message.parts]);
 		const textContent = textParts.join("");
 

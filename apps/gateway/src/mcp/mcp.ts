@@ -88,9 +88,10 @@ function createMcpServer(apiKey: string): McpServer {
 			try {
 				// Call the internal chat completions endpoint
 				const gatewayUrl =
-					process.env.NODE_ENV === "production"
+					process.env.MCP_GATEWAY_URL ||
+					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
-						: "http://localhost:4001";
+						: "http://localhost:4001");
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
@@ -364,9 +365,10 @@ function extractApiKey(c: Context): string | null {
 }
 
 // JSON-RPC types
+// Note: id is optional for notifications (methods starting with "notifications/")
 interface JsonRpcRequest {
 	jsonrpc: "2.0";
-	id: string | number | null;
+	id?: string | number | null;
 	method: string;
 	params?: unknown;
 }
@@ -383,9 +385,10 @@ interface JsonRpcResponse {
 }
 
 // Zod schemas for JSON-RPC request validation
+// Note: id is optional for notifications (methods starting with "notifications/")
 const jsonRpcRequestSchema = z.object({
 	jsonrpc: z.literal("2.0"),
-	id: z.union([z.string(), z.number(), z.null()]),
+	id: z.union([z.string(), z.number(), z.null()]).optional(),
 	method: z.string().min(1),
 	params: z.unknown().optional(),
 });
@@ -459,7 +462,7 @@ async function processMcpRequest(
 				// Initialize the connection - capabilities are returned in the response
 				return {
 					jsonrpc: "2.0",
-					id: request.id,
+					id: request.id ?? null,
 					result: {
 						protocolVersion: "2024-11-05",
 						capabilities: {
@@ -477,7 +480,7 @@ async function processMcpRequest(
 				// Client notification that initialization is complete - no response needed
 				return {
 					jsonrpc: "2.0",
-					id: request.id,
+					id: request.id ?? null,
 					result: {},
 				};
 			}
@@ -486,7 +489,7 @@ async function processMcpRequest(
 				const result = await client.listTools();
 				return {
 					jsonrpc: "2.0",
-					id: request.id,
+					id: request.id ?? null,
 					result,
 				};
 			}
@@ -496,7 +499,7 @@ async function processMcpRequest(
 				if (!request.params || typeof request.params !== "object") {
 					return {
 						jsonrpc: "2.0",
-						id: request.id,
+						id: request.id ?? null,
 						error: {
 							code: -32602,
 							message: "Invalid params: request.params is required",
@@ -510,7 +513,7 @@ async function processMcpRequest(
 				if (!params.name || typeof params.name !== "string") {
 					return {
 						jsonrpc: "2.0",
-						id: request.id,
+						id: request.id ?? null,
 						error: {
 							code: -32602,
 							message:
@@ -524,7 +527,7 @@ async function processMcpRequest(
 				});
 				return {
 					jsonrpc: "2.0",
-					id: request.id,
+					id: request.id ?? null,
 					result,
 				};
 			}
@@ -532,7 +535,7 @@ async function processMcpRequest(
 			case "ping": {
 				return {
 					jsonrpc: "2.0",
-					id: request.id,
+					id: request.id ?? null,
 					result: {},
 				};
 			}
@@ -540,7 +543,7 @@ async function processMcpRequest(
 			default:
 				return {
 					jsonrpc: "2.0",
-					id: request.id,
+					id: request.id ?? null,
 					error: {
 						code: -32601,
 						message: `Method not found: ${request.method}`,

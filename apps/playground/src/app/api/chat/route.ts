@@ -8,8 +8,6 @@ import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
-import type { LLMGatewayChatModelId } from "@llmgateway/ai-sdk-provider/internal";
-
 export const maxDuration = 300; // 5 minutes
 
 /**
@@ -104,7 +102,10 @@ function validateMcpServerUrl(urlString: string): {
 
 	const hostname = url.hostname.toLowerCase();
 
-	// Block localhost and common local hostnames
+	// Allow localhost in development mode
+	const isDevelopment = process.env.NODE_ENV === "development";
+
+	// Block localhost and common local hostnames (except in development)
 	const blockedHostnames = [
 		"localhost",
 		"127.0.0.1",
@@ -118,25 +119,29 @@ function validateMcpServerUrl(urlString: string): {
 		"private",
 	];
 
-	if (
-		blockedHostnames.includes(hostname) ||
-		hostname.endsWith(".local") ||
-		hostname.endsWith(".localhost") ||
-		hostname.endsWith(".internal")
-	) {
-		return {
-			valid: false,
-			error: `Blocked hostname: ${hostname}. Local/internal addresses not allowed.`,
-		};
+	if (!isDevelopment) {
+		if (
+			blockedHostnames.includes(hostname) ||
+			hostname.endsWith(".local") ||
+			hostname.endsWith(".localhost") ||
+			hostname.endsWith(".internal")
+		) {
+			return {
+				valid: false,
+				error: `Blocked hostname: ${hostname}. Local/internal addresses not allowed.`,
+			};
+		}
 	}
 
-	// Check if hostname is an IP address and validate against private ranges
-	const ipValidation = validateIpAddress(hostname);
-	if (ipValidation.isIp && !ipValidation.isPublic) {
-		return {
-			valid: false,
-			error: `Blocked IP address: ${hostname}. Private/reserved IP ranges not allowed.`,
-		};
+	// Check if hostname is an IP address and validate against private ranges (except in development)
+	if (!isDevelopment) {
+		const ipValidation = validateIpAddress(hostname);
+		if (ipValidation.isIp && !ipValidation.isPublic) {
+			return {
+				valid: false,
+				error: `Blocked IP address: ${hostname}. Private/reserved IP ranges not allowed.`,
+			};
+		}
 	}
 
 	// Optional: Check against allowlist if configured
@@ -221,114 +226,6 @@ function validateIpAddress(hostname: string): {
 	return { isIp: false, isPublic: true };
 }
 
-/**
- * Debug logging utilities with PII redaction
- * Only logs when ENABLE_DEBUG_LOGS environment variable is set
- */
-const isDebugEnabled = process.env.ENABLE_DEBUG_LOGS === "true";
-
-/**
- * Redact potentially sensitive information from log messages
- * Removes API keys, tokens, user content, and other PII
- */
-function redactPII(input: unknown): unknown {
-	if (input === null || input === undefined) {
-		return input;
-	}
-
-	if (typeof input === "string") {
-		// Redact API keys and tokens (common patterns)
-		let redacted = input
-			.replace(/Bearer\s+[A-Za-z0-9_-]+/gi, "Bearer [REDACTED]")
-			.replace(
-				/api[_-]?key[=:]\s*["']?[A-Za-z0-9_-]+["']?/gi,
-				"api_key=[REDACTED]",
-			)
-			.replace(/sk-[A-Za-z0-9_-]+/g, "sk-[REDACTED]")
-			.replace(/key-[A-Za-z0-9_-]+/g, "key-[REDACTED]");
-
-		// Truncate long strings that might contain user content
-		if (redacted.length > 200) {
-			redacted = redacted.slice(0, 200) + "...[TRUNCATED]";
-		}
-
-		return redacted;
-	}
-
-	if (input instanceof Error) {
-		return {
-			name: input.name,
-			message: redactPII(input.message),
-			stack: undefined, // Don't log stack traces which may contain sensitive paths
-		};
-	}
-
-	if (Array.isArray(input)) {
-		return input.slice(0, 5).map(redactPII); // Limit array length
-	}
-
-	if (typeof input === "object") {
-		const redacted: Record<string, unknown> = {};
-		const sensitiveKeys = [
-			"apiKey",
-			"api_key",
-			"authorization",
-			"token",
-			"password",
-			"secret",
-			"content",
-			"text",
-			"arguments",
-			"args",
-		];
-
-		for (const [key, value] of Object.entries(input)) {
-			if (sensitiveKeys.some((k) => key.toLowerCase().includes(k))) {
-				redacted[key] = "[REDACTED]";
-			} else {
-				redacted[key] = redactPII(value);
-			}
-		}
-		return redacted;
-	}
-
-	return input;
-}
-
-/**
- * Debug logger that only logs when enabled and applies PII redaction
- * Console usage is intentional here as this is the centralized logging utility
- */
-
-const debugLogger = {
-	debug: (message: string, ...args: unknown[]) => {
-		if (isDebugEnabled) {
-			console.debug(
-				`[MCP Debug] ${redactPII(message)}`,
-				...args.map(redactPII),
-			);
-		}
-	},
-	info: (message: string, ...args: unknown[]) => {
-		if (isDebugEnabled) {
-			console.info(`[MCP Info] ${redactPII(message)}`, ...args.map(redactPII));
-		}
-	},
-	warn: (message: string, ...args: unknown[]) => {
-		if (isDebugEnabled) {
-			console.warn(`[MCP Warn] ${redactPII(message)}`, ...args.map(redactPII));
-		}
-	},
-	error: (message: string, ...args: unknown[]) => {
-		if (isDebugEnabled) {
-			console.error(
-				`[MCP Error] ${redactPII(message)}`,
-				...args.map(redactPII),
-			);
-		}
-	},
-};
-
 interface McpServerConfig {
 	id: string;
 	name: string;
@@ -339,7 +236,7 @@ interface McpServerConfig {
 
 interface ChatRequestBody {
 	messages: UIMessage[];
-	model?: LLMGatewayChatModelId;
+	model?: string;
 	apiKey?: string;
 	provider?: string; // optional provider override
 	mode?: "image" | "chat"; // optional hint to force image generation path
@@ -418,26 +315,26 @@ export async function POST(req: Request) {
 
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
-		baseUrl: gatewayUrl,
+		baseURL: gatewayUrl,
 		headers: {
 			"x-source": "chat.llmgateway.io",
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
-			...(reasoning_effort ? { reasoning_effort } : {}),
-			...(image_config ? { image_config } : {}),
-			...(web_search ? { web_search } : {}),
+			reasoning_effort,
+			image_config,
+			web_search,
 		},
-	});
+	}) as any;
 
 	// Respect root model IDs passed from the client without adding a provider prefix.
 	// Only apply provider-based prefixing when the client did NOT explicitly specify a model
 	// (i.e. we're using a header/default model value).
-	let selectedModel = (model ?? headerModel ?? "auto") as LLMGatewayChatModelId;
+	let selectedModel = (model ?? headerModel ?? "auto") as string;
 	if (!model && provider && typeof provider === "string") {
 		const alreadyPrefixed = String(selectedModel).includes("/");
 		if (!alreadyPrefixed) {
-			selectedModel = `${provider}/${selectedModel}` as LLMGatewayChatModelId;
+			selectedModel = `${provider}/${selectedModel}`;
 		}
 	}
 
@@ -453,9 +350,6 @@ export async function POST(req: Request) {
 				// SSRF Protection: Validate URL before creating transport
 				const urlValidation = validateMcpServerUrl(server.url);
 				if (!urlValidation.valid) {
-					debugLogger.error(
-						`SSRF Protection: Blocked MCP server "${server.name}": ${urlValidation.error}`,
-					);
 					continue; // Skip this server
 				}
 
@@ -484,11 +378,7 @@ export async function POST(req: Request) {
 
 				const client = await Promise.race([clientPromise, timeoutPromise]);
 				mcpClients.push({ client, name: server.name });
-			} catch (error) {
-				debugLogger.error(
-					`Failed to connect to MCP server "${server.name}"`,
-					error,
-				);
+			} catch {
 				// Continue with other servers
 			}
 		}
@@ -523,8 +413,7 @@ export async function POST(req: Request) {
 					if (toolName === "list-models") {
 						allTools[prefixedName] = tool({
 							description:
-								originalTool.description ||
-								"List all available LLM models with their capabilities and pricing",
+								"List and discover available LLM models. Use this ONLY when the user asks to see what models are available, NOT when they want to actually use a model. For generating content or images, use the 'chat' tool instead.",
 							inputSchema: z.object({
 								include_deactivated: z
 									.boolean()
@@ -555,42 +444,35 @@ export async function POST(req: Request) {
 							},
 						});
 					} else if (toolName === "chat") {
-						allTools[prefixedName] = tool({
+						// Chat tool - send a message to another LLM
+						// Rename to "generate_content" for better model understanding
+						const generateToolName =
+							mcpClients.length > 1
+								? `${name}_generate_content`
+								: "generate_content";
+
+						allTools[generateToolName] = tool({
 							description:
-								"Send a message to another LLM and get a response. REQUIRED: You MUST provide 'model' (e.g., 'gpt-4o-mini') and 'messages' array with at least one message object containing 'role' and 'content'.",
+								"Generate images or text using an AI model. You MUST provide both 'model' and 'prompt' parameters.",
 							inputSchema: z.object({
 								model: z
 									.string()
 									.describe(
-										"REQUIRED: The model ID to use, e.g., 'gpt-4o-mini', 'claude-sonnet-4-20250514'",
+										"The model ID to use, e.g. 'gemini-3-pro-image-preview', 'gpt-4o', 'claude-sonnet-4-20250514'",
 									),
-								messages: z
-									.array(
-										z.object({
-											role: z
-												.enum(["user", "assistant", "system"])
-												.describe("The role: 'user', 'assistant', or 'system'"),
-											content: z.string().describe("The message text content"),
-										}),
-									)
-									.min(1)
+								prompt: z
+									.string()
 									.describe(
-										"REQUIRED: Array of message objects, each with 'role' and 'content'",
+										"The prompt describing what to generate, e.g. 'draw a red apple' or 'explain quantum physics'",
 									),
-								temperature: z
-									.number()
-									.min(0)
-									.max(2)
-									.optional()
-									.describe("Optional: Sampling temperature (0-2)"),
-								max_tokens: z
-									.number()
-									.positive()
-									.optional()
-									.describe("Optional: Maximum tokens to generate"),
 							}),
 							execute: async (args) => {
-								const result = await originalTool.execute(args);
+								// Convert simple prompt to messages array format for the MCP tool
+								const mcpArgs = {
+									model: args.model,
+									messages: [{ role: "user" as const, content: args.prompt }],
+								};
+								const result = await originalTool.execute(mcpArgs);
 								const extracted = extractMcpResult(result);
 								return { response: extracted };
 							},
@@ -609,12 +491,42 @@ export async function POST(req: Request) {
 						});
 					}
 				}
-			} catch (error) {
-				debugLogger.error(
-					`Failed to get tools from MCP server "${name}"`,
-					error,
-				);
+			} catch {
+				// Failed to get tools from MCP server
 			}
+		}
+
+		// Add a simple test tool for debugging (to verify tool streaming works)
+		const testTool = tool({
+			description:
+				"A simple test tool that returns the current time. Use this to test if tool calling works.",
+			inputSchema: z.object({
+				format: z
+					.enum(["iso", "locale", "unix"])
+					.optional()
+					.default("iso")
+					.describe("The format of the time"),
+			}),
+			execute: async ({ format }) => {
+				const now = new Date();
+				let result: string;
+				switch (format) {
+					case "unix":
+						result = Math.floor(now.getTime() / 1000).toString();
+						break;
+					case "locale":
+						result = now.toLocaleString();
+						break;
+					default:
+						result = now.toISOString();
+				}
+				return { time: result, format };
+			},
+		});
+
+		// Always add the test tool when MCP servers are configured (for debugging)
+		if (enabledMcpServers.length > 0) {
+			allTools["get_current_time"] = testTool;
 		}
 
 		const hasTools = Object.keys(allTools).length > 0;
@@ -629,8 +541,8 @@ export async function POST(req: Request) {
 				for (const { client } of mcpClients) {
 					try {
 						await client.close();
-					} catch (error) {
-						debugLogger.error("Failed to close MCP client", error);
+					} catch {
+						// Ignore close errors
 					}
 				}
 			},
@@ -645,8 +557,8 @@ export async function POST(req: Request) {
 		for (const { client } of mcpClients) {
 			try {
 				await client.close();
-			} catch (closeError) {
-				debugLogger.error("Failed to close MCP client", closeError);
+			} catch {
+				// Ignore close errors
 			}
 		}
 
