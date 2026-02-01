@@ -477,6 +477,55 @@ export async function POST(req: Request) {
 								return { response: extracted };
 							},
 						});
+					} else if (toolName === "generate-image") {
+						// Generate image tool - requires prompt parameter
+						allTools[prefixedName] = tool({
+							description:
+								"Generate images from text prompts using AI image generation models. Returns generated images based on the provided description.",
+							inputSchema: z.object({
+								prompt: z
+									.string()
+									.describe(
+										"Text description of the image to generate, e.g. 'a futuristic city skyline at sunset with flying cars'",
+									),
+								model: z
+									.string()
+									.optional()
+									.default("qwen-image-plus")
+									.describe(
+										"Image generation model to use (e.g., 'qwen-image-plus', 'qwen-image-max')",
+									),
+								size: z
+									.string()
+									.optional()
+									.default("1024x1024")
+									.describe(
+										"Image size in WxH format (e.g., '1024x1024', '1024x768', '768x1024')",
+									),
+								n: z
+									.number()
+									.optional()
+									.default(1)
+									.describe("Number of images to generate (1-4)"),
+							}),
+							execute: async (args) => {
+								const result = await originalTool.execute(args);
+								const extracted = extractMcpResult(result);
+								return { images: extracted };
+							},
+						});
+					} else if (toolName === "list-image-models") {
+						// List image models tool - no required parameters
+						allTools[prefixedName] = tool({
+							description:
+								"List all available image generation models with their capabilities and pricing. Use this to discover which models can be used with generate-image.",
+							inputSchema: z.object({}),
+							execute: async (args) => {
+								const result = await originalTool.execute(args);
+								const extracted = extractMcpResult(result);
+								return { models: extracted };
+							},
+						});
 					} else {
 						// For unknown tools, use a permissive schema
 						allTools[prefixedName] = tool({
