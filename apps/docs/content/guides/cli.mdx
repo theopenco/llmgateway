@@ -1,0 +1,278 @@
+---
+title: LLM Gateway CLI
+description: Command-line tool for scaffolding and managing LLM Gateway projects
+icon: Terminal
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+
+The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for scaffolding projects, managing AI applications, and discovering models.
+
+## Installation
+
+<Tabs items={["npx (Recommended)", "Global Install"]}>
+  <Tab value="npx (Recommended)">
+    Run commands directly without installation:
+
+    ```bash
+    npx @llmgateway/cli init
+    ```
+
+  </Tab>
+  <Tab value="Global Install">
+    Install globally for faster access:
+
+    ```bash
+    npm install -g @llmgateway/cli
+    ```
+
+    Then run commands directly:
+
+    ```bash
+    llmgateway init
+    ```
+
+  </Tab>
+</Tabs>
+
+## Quick Start
+
+<Steps>
+<Step>
+### Initialize a Project
+
+Create a new project from a template:
+
+```bash
+npx @llmgateway/cli init
+```
+
+Or specify the template and name directly:
+
+```bash
+npx @llmgateway/cli init --template image-generation --name my-ai-app
+```
+
+</Step>
+
+<Step>
+### Configure Authentication
+
+Login to save your API key locally:
+
+```bash
+npx @llmgateway/cli auth login
+```
+
+This opens a browser window to authenticate with LLM Gateway. Your credentials are stored in `~/.llmgateway/config.json`.
+
+Alternatively, set the `LLMGATEWAY_API_KEY` environment variable which takes precedence over the config file.
+
+</Step>
+
+<Step>
+### Start Development
+
+Navigate to your project and start the development server:
+
+```bash
+cd my-ai-app
+npx @llmgateway/cli dev
+```
+
+Or specify a custom port:
+
+```bash
+npx @llmgateway/cli dev --port 3000
+```
+
+</Step>
+</Steps>
+
+## Commands
+
+### `init`
+
+Initialize a new project from a template.
+
+```bash
+npx @llmgateway/cli init [options]
+```
+
+**Options:**
+
+- `--template <name>` — Template to use (e.g., `image-generation`, `weather-agent`)
+- `--name <name>` — Project name
+
+**Examples:**
+
+```bash
+# Interactive mode
+npx @llmgateway/cli init
+
+# With options
+npx @llmgateway/cli init --template image-generation --name my-app
+```
+
+### `list`
+
+Display available project templates.
+
+```bash
+npx @llmgateway/cli list
+```
+
+**Options:**
+
+- `--json` — Output in JSON format
+
+### `models`
+
+Browse and filter available AI models.
+
+```bash
+npx @llmgateway/cli models [options]
+```
+
+**Options:**
+
+- `--capability <type>` — Filter by capability (e.g., `chat`, `image`, `embedding`)
+- `--provider <name>` — Filter by provider (e.g., `openai`, `anthropic`, `google`)
+- `--search <term>` — Search models by name
+
+**Examples:**
+
+```bash
+# List all models
+npx @llmgateway/cli models
+
+# Filter by provider
+npx @llmgateway/cli models --provider openai
+
+# Search models
+npx @llmgateway/cli models --search gpt
+```
+
+### `add`
+
+Add tools or API routes to an existing project.
+
+```bash
+npx @llmgateway/cli add
+```
+
+**Tools available:**
+
+- `weather` — Weather lookup functionality
+- `search` — Web search capability
+- `calculator` — Mathematical operations
+
+**API routes available:**
+
+- `generate` — Text generation endpoint
+- `chat` — Chat completion endpoint
+
+### `auth`
+
+Manage API authentication.
+
+```bash
+# Login via browser
+npx @llmgateway/cli auth login
+
+# Check authentication status
+npx @llmgateway/cli auth status
+
+# Logout
+npx @llmgateway/cli auth logout
+```
+
+### `dev`
+
+Start the local development server.
+
+```bash
+npx @llmgateway/cli dev [options]
+```
+
+**Options:**
+
+- `--port <number>` — Port to run on (default: 3000)
+
+### `upgrade`
+
+Update LLM Gateway dependencies in your project.
+
+```bash
+npx @llmgateway/cli upgrade [options]
+```
+
+**Options:**
+
+- `--dry-run` — Show what would be updated without making changes
+
+### `docs`
+
+Open the documentation in your browser.
+
+```bash
+npx @llmgateway/cli docs
+```
+
+## Available Templates
+
+### Image Generation
+
+A full-stack application for AI image generation.
+
+- **Stack:** Next.js 16, React 19, TypeScript
+- **Features:** Multi-provider support (DALL-E, Stable Diffusion), unified API
+- **Use case:** Image generation apps, creative tools
+
+```bash
+npx @llmgateway/cli init --template image-generation
+```
+
+### Weather Agent
+
+A CLI agent demonstrating tool calling capabilities.
+
+- **Stack:** TypeScript, AI SDK, OpenAI
+- **Features:** Tool calling, real-time data, natural language
+- **Use case:** Learning tool usage, building CLI agents
+
+```bash
+npx @llmgateway/cli init --template weather-agent
+```
+
+## Configuration
+
+The CLI stores configuration in `~/.llmgateway/config.json`:
+
+```json
+{
+	"apiKey": "llmgtwy_...",
+	"defaultTemplate": "image-generation"
+}
+```
+
+### Environment Variables
+
+The `LLMGATEWAY_API_KEY` environment variable takes precedence over the config file:
+
+```bash
+export LLMGATEWAY_API_KEY="llmgtwy_..."
+```
+
+## More Resources
+
+- [Agents](https://llmgateway.io/agents) — Pre-built AI agents
+- [Templates](https://llmgateway.io/templates) — Production-ready starter projects
+- [GitHub Repository](https://github.com/theopenco/llmgateway-templates) — Source code and issues
+
+<Callout type="info">
+	Need help or want to request a feature? Open an issue on
+	[GitHub](https://github.com/theopenco/llmgateway-templates/issues).
+</Callout>
