@@ -1,8 +1,18 @@
+import { eq } from "drizzle-orm";
+
 import { getCache, setCache } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { db } from "./db.js";
+import { project as projectTable } from "./schema.js";
 
+/**
+ * Check if caching is enabled for a project.
+ *
+ * Note: This function uses its own Redis-based cache layer (not Drizzle's cache)
+ * for the configuration lookup, but the underlying database query uses the
+ * select builder pattern for consistency with the rest of the codebase.
+ */
 export async function isCachingEnabled(
 	projectId: string,
 ): Promise<{ enabled: boolean; duration: number }> {
@@ -14,13 +24,15 @@ export async function isCachingEnabled(
 			return cachedConfig;
 		}
 
-		const project = await db.query.project.findFirst({
-			where: {
-				id: {
-					eq: projectId,
-				},
-			},
-		});
+		// Use select builder pattern instead of relational query API
+		// to ensure consistency with the cacheable query pattern used elsewhere
+		const results = await db
+			.select()
+			.from(projectTable)
+			.where(eq(projectTable.id, projectId))
+			.limit(1);
+
+		const project = results[0];
 
 		if (!project) {
 			return { enabled: false, duration: 0 };

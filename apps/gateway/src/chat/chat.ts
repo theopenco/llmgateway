@@ -5,6 +5,15 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
+import {
+	findApiKeyByToken,
+	findProjectById,
+	findOrganizationById,
+	findCustomProviderKey,
+	findProviderKey,
+	findActiveProviderKeys,
+	findProviderKeysByProviders,
+} from "@/lib/cached-queries.js";
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
@@ -27,7 +36,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	cdb as db,
 	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
@@ -399,13 +407,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			token: {
-				eq: token,
-			},
-		},
-	});
+	const apiKey = await findApiKeyByToken(token);
 
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, {
@@ -421,13 +423,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Get the project to determine mode for routing decisions
-	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: apiKey.projectId,
-			},
-		},
-	});
+	const project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -443,13 +439,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Fetch organization for coding model restriction check
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: {
-				eq: project.organizationId,
-			},
-		},
-	});
+	const organization = await findOrganizationById(project.organizationId);
 
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
@@ -690,22 +680,10 @@ chat.openapi(completions, async (c) => {
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await db.query.providerKey.findFirst({
-			where: {
-				status: {
-					eq: "active",
-				},
-				organizationId: {
-					eq: project.organizationId,
-				},
-				provider: {
-					eq: "custom",
-				},
-				name: {
-					eq: customProviderName,
-				},
-			},
-		});
+		const customProviderKey = await findCustomProviderKey(
+			project.organizationId,
+			customProviderName,
+		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
@@ -770,20 +748,10 @@ chat.openapi(completions, async (c) => {
 		let availableProviders: string[] = [];
 
 		if (project.mode === "api-keys") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			availableProviders = providerKeys.map((key) => key.provider);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			const databaseProviders = providerKeys.map((key) => key.provider);
 
 			// Check which providers have environment tokens available
@@ -1035,13 +1003,10 @@ chat.openapi(completions, async (c) => {
 				.map((p) => p.providerId);
 
 			if (providerIds.length > 0) {
-				const providerKeys = await db.query.providerKey.findMany({
-					where: {
-						status: { eq: "active" },
-						organizationId: { eq: project.organizationId },
-						provider: { in: providerIds },
-					},
-				});
+				const providerKeys = await findProviderKeysByProviders(
+					project.organizationId,
+					providerIds,
+				);
 
 				const availableProviders =
 					project.mode === "api-keys"
@@ -1182,19 +1147,10 @@ chat.openapi(completions, async (c) => {
 			usedModel = modelInfo.providers[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						in: providerIds,
-					},
-				},
-			});
+			const providerKeys = await findProviderKeysByProviders(
+				project.organizationId,
+				providerIds,
+			);
 
 			const availableProviders =
 				project.mode === "api-keys"
@@ -1442,21 +1398,15 @@ chat.openapi(completions, async (c) => {
 		const isPaidMode = process.env.PAID_MODE === "true";
 
 		if (isHosted && isPaidMode) {
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
+			const orgForProCheck = await findOrganizationById(project.organizationId);
 
-			if (!organization) {
+			if (!orgForProCheck) {
 				throw new HTTPException(500, {
 					message: "Could not find organization",
 				});
 			}
 
-			if (organization.plan !== "pro") {
+			if (orgForProCheck.plan !== "pro") {
 				throw new HTTPException(402, {
 					message:
 						"API Keys mode requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
@@ -1466,36 +1416,12 @@ chat.openapi(completions, async (c) => {
 
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (!providerKey) {
@@ -1511,33 +1437,27 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check if the organization has enough credits using cached helper function
-		const organization = await db.query.organization.findFirst({
-			where: {
-				id: {
-					eq: project.organizationId,
-				},
-			},
-		});
+		const orgForCredits = await findOrganizationById(project.organizationId);
 
-		if (!organization) {
+		if (!orgForCredits) {
 			throw new HTTPException(500, {
 				message: "Could not find organization",
 			});
 		}
 
 		// Check both regular credits AND dev plan credits
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(orgForCredits.credits || "0");
 		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+			orgForCredits.devPlan !== "none"
+				? parseFloat(orgForCredits.devPlanCreditsLimit || "0") -
+					parseFloat(orgForCredits.devPlanCreditsUsed || "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
-			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-				const renewalDate = organization.devPlanExpiresAt
-					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			if (orgForCredits.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+				const renewalDate = orgForCredits.devPlanExpiresAt
+					? new Date(orgForCredits.devPlanExpiresAt).toLocaleDateString()
 					: "your next billing date";
 				throw new HTTPException(402, {
 					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
@@ -1555,36 +1475,12 @@ chat.openapi(completions, async (c) => {
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (providerKey) {
@@ -1593,21 +1489,17 @@ chat.openapi(completions, async (c) => {
 			const isPaidMode = process.env.PAID_MODE === "true";
 
 			if (isHosted && isPaidMode) {
-				const organization = await db.query.organization.findFirst({
-					where: {
-						id: {
-							eq: project.organizationId,
-						},
-					},
-				});
+				const orgForHybridProCheck = await findOrganizationById(
+					project.organizationId,
+				);
 
-				if (!organization) {
+				if (!orgForHybridProCheck) {
 					throw new HTTPException(500, {
 						message: "Could not find organization",
 					});
 				}
 
-				if (organization.plan !== "pro") {
+				if (orgForHybridProCheck.plan !== "pro") {
 					throw new HTTPException(402, {
 						message:
 							"Hybrid mode with API keys requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
@@ -1618,26 +1510,22 @@ chat.openapi(completions, async (c) => {
 			usedToken = providerKey.token;
 		} else {
 			// No API key available, fall back to credits - no pro plan required
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
+			const orgForHybridCredits = await findOrganizationById(
+				project.organizationId,
+			);
 
-			if (!organization) {
+			if (!orgForHybridCredits) {
 				throw new HTTPException(500, {
 					message: "Could not find organization",
 				});
 			}
 
 			// Check both regular credits AND dev plan credits
-			const regularCredits = parseFloat(organization.credits || "0");
+			const regularCredits = parseFloat(orgForHybridCredits.credits || "0");
 			const devPlanCreditsRemaining =
-				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit || "0") -
-						parseFloat(organization.devPlanCreditsUsed || "0")
+				orgForHybridCredits.devPlan !== "none"
+					? parseFloat(orgForHybridCredits.devPlanCreditsLimit || "0") -
+						parseFloat(orgForHybridCredits.devPlanCreditsUsed || "0")
 					: 0;
 			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1645,9 +1533,14 @@ chat.openapi(completions, async (c) => {
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree(modelInfo as ModelDefinition)
 			) {
-				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-					const renewalDate = organization.devPlanExpiresAt
-						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+				if (
+					orgForHybridCredits.devPlan !== "none" &&
+					devPlanCreditsRemaining <= 0
+				) {
+					const renewalDate = orgForHybridCredits.devPlanExpiresAt
+						? new Date(
+								orgForHybridCredits.devPlanExpiresAt,
+							).toLocaleDateString()
 						: "your next billing date";
 					throw new HTTPException(402, {
 						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
