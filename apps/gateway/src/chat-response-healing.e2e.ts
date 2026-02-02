@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import "dotenv/config";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import {
 	afterAll,
 	beforeAll,
@@ -11,7 +12,7 @@ import {
 } from "vitest";
 
 import { app } from "@/app.js";
-import { clearCache } from "@/test-utils/test-helpers.js";
+import { clearCache, readAll } from "@/test-utils/test-helpers.js";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -35,6 +36,58 @@ mockServer.post("/v1/chat/completions", async (c) => {
 			},
 			500,
 		);
+	}
+
+	// Check if streaming is requested
+	const body = await c.req.json();
+	if (body.stream) {
+		// Return streaming response
+		return streamSSE(c, async (stream) => {
+			// Split content into chunks for streaming simulation
+			const chunks = mockResponseContent.split("");
+			for (let i = 0; i < chunks.length; i++) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-mock",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: "mock-model",
+						choices: [
+							{
+								index: 0,
+								delta: {
+									content: chunks[i],
+								},
+								finish_reason: null,
+							},
+						],
+					}),
+					id: String(i),
+				});
+			}
+			// Send final chunk with finish_reason
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-mock",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: "mock-model",
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: "stop",
+						},
+					],
+				}),
+				id: String(chunks.length),
+			});
+			await stream.writeSSE({
+				data: "[DONE]",
+				event: "done",
+				id: String(chunks.length + 1),
+			});
+		});
 	}
 
 	return c.json({
@@ -477,6 +530,273 @@ describe("Response Healing E2E", () => {
 			// Content should be unchanged since healing failed
 			const content = json.choices[0].message.content;
 			expect(content).toBe("This is not JSON at all, just plain text.");
+		});
+	});
+
+	describe("Streaming response healing", () => {
+		test("should heal JSON wrapped in markdown code blocks when streaming", async () => {
+			setMockResponse('```json\n{"healed": true}\n```');
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: { type: "json_object" },
+					plugins: [{ id: "response-healing" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasValidSSE).toBe(true);
+
+			// Collect all content from the stream
+			const contentChunks = streamResult.chunks
+				.filter(
+					(chunk: { choices?: Array<{ delta?: { content?: string } }> }) =>
+						chunk.choices?.[0]?.delta?.content,
+				)
+				.map(
+					(chunk: { choices: Array<{ delta: { content: string } }> }) =>
+						chunk.choices[0].delta.content,
+				);
+			const fullContent = contentChunks.join("");
+
+			// The healed content should be valid JSON
+			expect(() => JSON.parse(fullContent)).not.toThrow();
+			expect(JSON.parse(fullContent)).toEqual({ healed: true });
+		});
+
+		test("should heal JSON with trailing commas when streaming", async () => {
+			setMockResponse('{"name": "test", "value": 123,}');
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: { type: "json_object" },
+					plugins: [{ id: "response-healing" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasValidSSE).toBe(true);
+
+			// Collect all content from the stream
+			const contentChunks = streamResult.chunks
+				.filter(
+					(chunk: { choices?: Array<{ delta?: { content?: string } }> }) =>
+						chunk.choices?.[0]?.delta?.content,
+				)
+				.map(
+					(chunk: { choices: Array<{ delta: { content: string } }> }) =>
+						chunk.choices[0].delta.content,
+				);
+			const fullContent = contentChunks.join("");
+
+			// The healed content should be valid JSON
+			expect(() => JSON.parse(fullContent)).not.toThrow();
+			expect(JSON.parse(fullContent)).toEqual({ name: "test", value: 123 });
+		});
+
+		test("should heal truncated JSON when streaming", async () => {
+			setMockResponse('{"data": {"nested": true');
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: { type: "json_object" },
+					plugins: [{ id: "response-healing" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasValidSSE).toBe(true);
+
+			// Collect all content from the stream
+			const contentChunks = streamResult.chunks
+				.filter(
+					(chunk: { choices?: Array<{ delta?: { content?: string } }> }) =>
+						chunk.choices?.[0]?.delta?.content,
+				)
+				.map(
+					(chunk: { choices: Array<{ delta: { content: string } }> }) =>
+						chunk.choices[0].delta.content,
+				);
+			const fullContent = contentChunks.join("");
+
+			// The healed content should be valid JSON
+			expect(() => JSON.parse(fullContent)).not.toThrow();
+			expect(JSON.parse(fullContent)).toEqual({ data: { nested: true } });
+		});
+
+		test("should return valid JSON without healing when streaming response is already valid", async () => {
+			setMockResponse('{"message": "Hello World"}');
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: { type: "json_object" },
+					plugins: [{ id: "response-healing" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasValidSSE).toBe(true);
+
+			// Collect all content from the stream
+			const contentChunks = streamResult.chunks
+				.filter(
+					(chunk: { choices?: Array<{ delta?: { content?: string } }> }) =>
+						chunk.choices?.[0]?.delta?.content,
+				)
+				.map(
+					(chunk: { choices: Array<{ delta: { content: string } }> }) =>
+						chunk.choices[0].delta.content,
+				);
+			const fullContent = contentChunks.join("");
+
+			// The content should be valid JSON
+			expect(() => JSON.parse(fullContent)).not.toThrow();
+			expect(JSON.parse(fullContent)).toEqual({ message: "Hello World" });
+		});
+
+		test("should work with json_schema response format when streaming", async () => {
+			setMockResponse(
+				'```json\n{"temperature": "72F", "conditions": "sunny"}\n```',
+			);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "What is the weather?" }],
+					response_format: {
+						type: "json_schema",
+						json_schema: {
+							name: "weather_response",
+							description: "Weather information",
+							schema: {
+								type: "object",
+								properties: {
+									temperature: { type: "string" },
+									conditions: { type: "string" },
+								},
+								required: ["temperature", "conditions"],
+							},
+						},
+					},
+					plugins: [{ id: "response-healing" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasValidSSE).toBe(true);
+
+			// Collect all content from the stream
+			const contentChunks = streamResult.chunks
+				.filter(
+					(chunk: { choices?: Array<{ delta?: { content?: string } }> }) =>
+						chunk.choices?.[0]?.delta?.content,
+				)
+				.map(
+					(chunk: { choices: Array<{ delta: { content: string } }> }) =>
+						chunk.choices[0].delta.content,
+				);
+			const fullContent = contentChunks.join("");
+
+			// The healed content should be valid JSON
+			expect(() => JSON.parse(fullContent)).not.toThrow();
+			expect(JSON.parse(fullContent)).toEqual({
+				temperature: "72F",
+				conditions: "sunny",
+			});
+		});
+
+		test("should not heal streaming when plugin is not enabled", async () => {
+			// Set malformed JSON response
+			setMockResponse('{"name": "test",}');
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: { type: "json_object" },
+					// No plugins array - healing should not be applied
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasValidSSE).toBe(true);
+
+			// Collect all content from the stream
+			const contentChunks = streamResult.chunks
+				.filter(
+					(chunk: { choices?: Array<{ delta?: { content?: string } }> }) =>
+						chunk.choices?.[0]?.delta?.content,
+				)
+				.map(
+					(chunk: { choices: Array<{ delta: { content: string } }> }) =>
+						chunk.choices[0].delta.content,
+				);
+			const fullContent = contentChunks.join("");
+
+			// The content should still be the malformed JSON since healing is not enabled
+			expect(fullContent).toBe('{"name": "test",}');
 		});
 	});
 });

@@ -54,6 +54,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					},
 				],
 				response_format: { type: "json_object" },
+				plugins: [{ id: "response-healing" }],
 			}),
 		});
 
@@ -134,6 +135,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 						strict: true,
 					},
 				},
+				plugins: [{ id: "response-healing" }],
 			}),
 		});
 
@@ -199,6 +201,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					],
 					response_format: { type: "json_object" },
 					stream: true,
+					plugins: [{ id: "response-healing" }],
 				}),
 			});
 
@@ -292,6 +295,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 						},
 					},
 					stream: true,
+					plugins: [{ id: "response-healing" }],
 				}),
 			});
 

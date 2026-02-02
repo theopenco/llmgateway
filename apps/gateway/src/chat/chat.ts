@@ -2885,6 +2885,21 @@ chat.openapi(completions, async (c) => {
 			let rawUpstreamData = ""; // Raw data received from upstream provider
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
+			// Response healing for streaming - buffer content and apply healing at the end
+			const streamingResponseHealingEnabled = plugins?.some(
+				(p) => p.id === "response-healing",
+			);
+			const isStreamingJsonResponseFormat =
+				response_format?.type === "json_object" ||
+				response_format?.type === "json_schema";
+			const shouldBufferForHealing =
+				streamingResponseHealingEnabled && isStreamingJsonResponseFormat;
+			// Store buffered chunks for response healing - we'll send them at the end
+			const bufferedContentChunks: Array<{
+				data: Record<string, unknown>;
+				eventId: number;
+			}> = [];
+
 			try {
 				while (true) {
 					const { done, value } = await reader.read();
@@ -3483,10 +3498,25 @@ chat.openapi(completions, async (c) => {
 								}
 							}
 
-							await writeSSEAndCache({
-								data: JSON.stringify(transformedData),
-								id: String(eventId++),
-							});
+							// For response healing with JSON response formats, buffer content chunks
+							// and send them at the end with healing applied
+							const hasContentToBuffer =
+								shouldBufferForHealing &&
+								transformedData.choices?.[0]?.delta?.content;
+
+							if (hasContentToBuffer) {
+								// Buffer the chunk for later healing
+								bufferedContentChunks.push({
+									data: structuredClone(transformedData),
+									eventId: eventId++,
+								});
+							} else {
+								// Send immediately (non-content chunks or healing not enabled)
+								await writeSSEAndCache({
+									data: JSON.stringify(transformedData),
+									id: String(eventId++),
+								});
+							}
 
 							// Extract usage data from transformedData to update tracking variables
 							if (transformedData.usage && usedProvider === "openai") {
@@ -3964,6 +3994,64 @@ chat.openapi(completions, async (c) => {
 						);
 					}
 				} else {
+					// Apply response healing for buffered JSON content
+					if (
+						shouldBufferForHealing &&
+						bufferedContentChunks.length > 0 &&
+						fullContent
+					) {
+						try {
+							const healingResult = healJsonResponse(fullContent);
+							if (healingResult.healed) {
+								logger.debug("Streaming response healing applied", {
+									method: healingResult.healingMethod,
+									originalLength: healingResult.originalContent.length,
+									healedLength: healingResult.content.length,
+								});
+								// Send healed content as a single chunk
+								const healedChunk = {
+									id: `chatcmpl-${Date.now()}`,
+									object: "chat.completion.chunk",
+									created: Math.floor(Date.now() / 1000),
+									model: usedModel,
+									choices: [
+										{
+											index: 0,
+											delta: {
+												content: healingResult.content,
+											},
+											finish_reason: null,
+										},
+									],
+								};
+								await writeSSEAndCache({
+									data: JSON.stringify(healedChunk),
+									id: String(eventId++),
+								});
+							} else {
+								// Content was already valid, send buffered chunks
+								for (const bufferedChunk of bufferedContentChunks) {
+									await writeSSEAndCache({
+										data: JSON.stringify(bufferedChunk.data),
+										id: String(bufferedChunk.eventId),
+									});
+								}
+							}
+						} catch (error) {
+							logger.error(
+								"Error applying streaming response healing",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+							// On error, send original buffered chunks
+							for (const bufferedChunk of bufferedContentChunks) {
+								await writeSSEAndCache({
+									data: JSON.stringify(bufferedChunk.data),
+									id: String(bufferedChunk.eventId),
+								});
+							}
+						}
+					}
+
 					// Send final usage chunk if we need to send usage data
 					// This includes cases where:
 					// 1. No usage tokens were provided at all (all null)
