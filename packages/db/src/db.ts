@@ -25,14 +25,14 @@ pool.on("error", (err) => {
 	logger.error("Unexpected database pool error", err);
 });
 
-// Log when pool connects (useful for debugging connection issues)
+// Log when pool connects (trace level to avoid noise in production)
 pool.on("connect", () => {
-	logger.debug("New database connection established");
+	logger.trace("New database connection established");
 });
 
 // Log when connections are removed from pool
 pool.on("remove", () => {
-	logger.debug("Database connection removed from pool");
+	logger.trace("Database connection removed from pool");
 });
 
 const instrumentedPool = instrumentDrizzle(pool, {
