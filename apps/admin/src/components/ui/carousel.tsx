@@ -112,7 +112,6 @@ function Carousel({
 
 	return (
 		<CarouselContext.Provider
-			// eslint-disable-next-line react/jsx-no-constructed-context-values
 			value={{
 				carouselRef,
 				api: api,
