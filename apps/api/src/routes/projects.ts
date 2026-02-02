@@ -315,7 +315,7 @@ projects.openapi(createProject, async (c) => {
 		organizationId,
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
-		mode = "credits",
+		mode = "hybrid",
 	} = body;
 
 	const userOrganization = await db.query.userOrganization.findFirst({

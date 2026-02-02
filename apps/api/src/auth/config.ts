@@ -743,13 +743,13 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						organizationId: organization.id,
 					});
 
-					// Create a default project with credits mode for better conversion
+					// Create a default project with hybrid mode
 					const [project] = await tx
 						.insert(tables.project)
 						.values({
 							name: "Default Project",
 							organizationId: organization.id,
-							mode: "credits",
+							mode: "hybrid",
 						})
 						.returning();
 
