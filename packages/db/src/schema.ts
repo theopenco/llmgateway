@@ -441,6 +441,7 @@ export const log = pgTable(
 		frequencyPenalty: real(),
 		presencePenalty: real(),
 		reasoningEffort: text(),
+		reasoningMaxTokens: integer(),
 		effort: text(),
 		responseFormat: json(),
 		hasError: boolean().default(false),

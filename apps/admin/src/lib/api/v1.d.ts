@@ -641,6 +641,7 @@ export interface paths {
                                 frequencyPenalty: number | null;
                                 presencePenalty: number | null;
                                 reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
                                 responseFormat?: unknown;
                                 tools: ({
                                     /** @enum {string} */

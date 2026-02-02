@@ -640,6 +640,24 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 									</Tooltip>
 									<span>{log.reasoningEffort || "-"}</span>
 								</div>
+								{log.reasoningMaxTokens && (
+									<div className="flex items-center justify-between gap-2">
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground">
+													Reasoning Budget
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs">
+													Exact token budget allocated for reasoning (max_tokens
+													in reasoning config)
+												</p>
+											</TooltipContent>
+										</Tooltip>
+										<span>{log.reasoningMaxTokens.toLocaleString()}</span>
+									</div>
+								)}
 								{log.effort && (
 									<div className="flex items-center justify-between gap-2">
 										<Tooltip>
