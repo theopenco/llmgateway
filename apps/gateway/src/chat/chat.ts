@@ -22,6 +22,7 @@ import {
 	createCombinedSignal,
 	fetchWithRetry,
 	getAIRequestTimeoutMs,
+	isTimeoutError,
 } from "@/lib/timeout-config.js";
 
 import {
@@ -2414,14 +2415,18 @@ chat.openapi(completions, async (c) => {
 				// Handle fetch errors (timeout, connection failures, etc.)
 				const error = fetchResult.error;
 				const errorMessage = error.message;
-				logger.warn("Fetch error after retries", {
-					error: errorMessage,
-					attempts: fetchResult.attempts,
-					usedProvider,
-					requestedProvider,
-					usedModel,
-					initialRequestedModel,
-				});
+				const isTimeout = isTimeoutError(error);
+				logger.warn(
+					isTimeout ? "Upstream request timeout" : "Fetch error after retries",
+					{
+						error: errorMessage,
+						attempts: fetchResult.attempts,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					},
+				);
 
 				// Log the error in the database
 				// Extract plugin IDs for logging (fetch error)
@@ -2503,9 +2508,11 @@ chat.openapi(completions, async (c) => {
 					event: "error",
 					data: JSON.stringify({
 						error: {
-							message: `Failed to connect to provider: ${errorMessage}`,
-							type: "upstream_error",
-							code: "fetch_failed",
+							message: isTimeout
+								? `Upstream provider timeout: ${errorMessage}`
+								: `Failed to connect to provider: ${errorMessage}`,
+							type: isTimeout ? "upstream_timeout" : "upstream_error",
+							code: isTimeout ? "timeout" : "fetch_failed",
 						},
 					}),
 					id: String(eventId++),

@@ -828,6 +828,7 @@ describe("test", () => {
 			});
 
 			// Request that triggers a 5 second delay (longer than our 2s timeout)
+			// Disable retries to test timeout behavior directly
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -842,6 +843,9 @@ describe("test", () => {
 							content: "TRIGGER_TIMEOUT_5000",
 						},
 					],
+					routing: {
+						retries: 0,
+					},
 				}),
 			});
 
@@ -880,6 +884,7 @@ describe("test", () => {
 			});
 
 			// Request that triggers a 5 second delay (longer than our 2s timeout)
+			// Disable retries to test timeout behavior directly
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -895,6 +900,9 @@ describe("test", () => {
 						},
 					],
 					stream: true,
+					routing: {
+						retries: 0,
+					},
 				}),
 			});
 
