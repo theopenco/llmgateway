@@ -1,0 +1,11 @@
+{
+	"mcpServers": {
+		"llmgateway": {
+			"type": "http",
+			"url": "http://localhost:4001/mcp",
+			"headers": {
+				"Authorization": "Bearer test-token"
+			}
+		}
+	}
+}

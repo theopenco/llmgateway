@@ -5,6 +5,15 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
+import {
+	findApiKeyByToken,
+	findProjectById,
+	findOrganizationById,
+	findCustomProviderKey,
+	findProviderKey,
+	findActiveProviderKeys,
+	findProviderKeysByProviders,
+} from "@/lib/cached-queries.js";
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
@@ -27,7 +36,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	cdb as db,
 	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
@@ -79,6 +87,7 @@ import { transformResponseToOpenai } from "./tools/transform-response-to-openai.
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
+import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -399,13 +408,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			token: {
-				eq: token,
-			},
-		},
-	});
+	const apiKey = await findApiKeyByToken(token);
 
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, {
@@ -421,13 +424,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Get the project to determine mode for routing decisions
-	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: apiKey.projectId,
-			},
-		},
-	});
+	const project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -443,13 +440,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Fetch organization for coding model restriction check
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: {
-				eq: project.organizationId,
-			},
-		},
-	});
+	const organization = await findOrganizationById(project.organizationId);
 
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
@@ -523,130 +514,14 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	if (response_format?.type === "json_object") {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if the provider(s) support JSON output mode
-		const supportsJsonOutput = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
-		);
-
-		if (!supportsJsonOutput) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support JSON output mode`,
-			});
-		}
-	}
-
-	if (response_format?.type === "json_schema") {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// For non-auto/custom models, check if the provider supports json_schema
-		if (requestedModel !== "auto" && requestedModel !== "custom") {
-			const supportsJsonSchema = providersToCheck.some(
-				(provider) =>
-					(provider as ProviderModelMapping).jsonOutputSchema === true,
-			);
-
-			if (!supportsJsonSchema) {
-				throw new HTTPException(400, {
-					message: `Model ${requestedModel} does not support JSON schema output mode`,
-				});
-			}
-		}
-	}
-
-	// Check if reasoning_effort is specified but model doesn't support reasoning
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		reasoning_effort !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Check if any provider for this model supports reasoning
-		const supportsReasoning = modelInfo.providers.some(
-			(provider) => (provider as ProviderModelMapping).reasoning === true,
-		);
-
-		if (!supportsReasoning) {
-			logger.error(
-				`Reasoning effort specified for non-reasoning model: ${requestedModel}`,
-				{
-					requestedModel,
-					requestedProvider,
-					reasoning_effort,
-					modelProviders: modelInfo.providers.map((p) => ({
-						providerId: p.providerId,
-						reasoning: (p as ProviderModelMapping).reasoning,
-					})),
-				},
-			);
-
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
-			});
-		}
-	}
-
-	// Check if tools are specified but model doesn't support them
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		(tools !== undefined || tool_choice !== undefined) &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if any provider for this model supports tools
-		const supportsTools = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).tools === true,
-		);
-
-		// Check if any provider supports web search
-		const supportsWebSearch = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).webSearch === true,
-		);
-
-		// Determine if we have function tools (web_search tools were already extracted earlier)
-		// After extraction, `tools` only contains function tools
-		const hasFunctionTools = tools && tools.length > 0;
-
-		// The request is web-search-only if:
-		// 1. A web search tool was extracted (webSearchTool is set)
-		// 2. No function tools remain in the tools array
-		const isWebSearchOnly = webSearchTool !== undefined && !hasFunctionTools;
-
-		// Allow the request if:
-		// 1. Model supports regular tools, OR
-		// 2. Model supports web search AND request only uses web search (no function tools)
-		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
-			});
-		}
-
-		// If web_search tool is specifically requested, ensure the model supports it
-		if (webSearchTool && !supportsWebSearch) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.`,
-			});
-		}
-	}
+	// Validate model capabilities (JSON output, reasoning, tools, web search)
+	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
+		response_format,
+		reasoning_effort,
+		tools,
+		tool_choice,
+		webSearchTool,
+	});
 
 	let usedProvider = requestedProvider;
 	let usedModel: string = requestedModel;
@@ -675,22 +550,10 @@ chat.openapi(completions, async (c) => {
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await db.query.providerKey.findFirst({
-			where: {
-				status: {
-					eq: "active",
-				},
-				organizationId: {
-					eq: project.organizationId,
-				},
-				provider: {
-					eq: "custom",
-				},
-				name: {
-					eq: customProviderName,
-				},
-			},
-		});
+		const customProviderKey = await findCustomProviderKey(
+			project.organizationId,
+			customProviderName,
+		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
@@ -755,20 +618,10 @@ chat.openapi(completions, async (c) => {
 		let availableProviders: string[] = [];
 
 		if (project.mode === "api-keys") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			availableProviders = providerKeys.map((key) => key.provider);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			const databaseProviders = providerKeys.map((key) => key.provider);
 
 			// Check which providers have environment tokens available
@@ -1020,13 +873,10 @@ chat.openapi(completions, async (c) => {
 				.map((p) => p.providerId);
 
 			if (providerIds.length > 0) {
-				const providerKeys = await db.query.providerKey.findMany({
-					where: {
-						status: { eq: "active" },
-						organizationId: { eq: project.organizationId },
-						provider: { in: providerIds },
-					},
-				});
+				const providerKeys = await findProviderKeysByProviders(
+					project.organizationId,
+					providerIds,
+				);
 
 				const availableProviders =
 					project.mode === "api-keys"
@@ -1167,19 +1017,10 @@ chat.openapi(completions, async (c) => {
 			usedModel = modelInfo.providers[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						in: providerIds,
-					},
-				},
-			});
+			const providerKeys = await findProviderKeysByProviders(
+				project.organizationId,
+				providerIds,
+			);
 
 			const availableProviders =
 				project.mode === "api-keys"
@@ -1367,8 +1208,12 @@ chat.openapi(completions, async (c) => {
 	// Use the canonical model ID from modelInfo (set before any routing/fallback)
 	// This ensures correct stats tracking when low-uptime fallback changes the provider
 	// Fall back to finalModelInfo.id or usedModel for edge cases like custom providers
+	// Skip modelInfo.id when it's "auto" since that's a routing pseudo-model, not the actual model
+	const modelInfoId = (modelInfo as ModelDefinition)?.id;
 	const baseModelName =
-		(modelInfo as ModelDefinition)?.id || finalModelInfo?.id || usedModel;
+		(modelInfoId && modelInfoId !== "auto" ? modelInfoId : null) ||
+		finalModelInfo?.id ||
+		usedModel;
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
@@ -1414,7 +1259,10 @@ chat.openapi(completions, async (c) => {
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 
-	if (project.mode === "credits" && usedProvider === "custom") {
+	if (
+		project.mode === "credits" &&
+		(usedProvider === "custom" || usedProvider === "llmgateway")
+	) {
 		throw new HTTPException(400, {
 			message:
 				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
@@ -1424,36 +1272,12 @@ chat.openapi(completions, async (c) => {
 	if (project.mode === "api-keys") {
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (!providerKey) {
@@ -1469,33 +1293,27 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check if the organization has enough credits using cached helper function
-		const organization = await db.query.organization.findFirst({
-			where: {
-				id: {
-					eq: project.organizationId,
-				},
-			},
-		});
+		const orgForCredits = await findOrganizationById(project.organizationId);
 
-		if (!organization) {
+		if (!orgForCredits) {
 			throw new HTTPException(500, {
 				message: "Could not find organization",
 			});
 		}
 
 		// Check both regular credits AND dev plan credits
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(orgForCredits.credits || "0");
 		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+			orgForCredits.devPlan !== "none"
+				? parseFloat(orgForCredits.devPlanCreditsLimit || "0") -
+					parseFloat(orgForCredits.devPlanCreditsUsed || "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
-			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-				const renewalDate = organization.devPlanExpiresAt
-					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			if (orgForCredits.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+				const renewalDate = orgForCredits.devPlanExpiresAt
+					? new Date(orgForCredits.devPlanExpiresAt).toLocaleDateString()
 					: "your next billing date";
 				throw new HTTPException(402, {
 					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
@@ -1513,62 +1331,34 @@ chat.openapi(completions, async (c) => {
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (providerKey) {
 			usedToken = providerKey.token;
 		} else {
 			// No API key available, fall back to credits
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
+			const orgForHybridCredits = await findOrganizationById(
+				project.organizationId,
+			);
 
-			if (!organization) {
+			if (!orgForHybridCredits) {
 				throw new HTTPException(500, {
 					message: "Could not find organization",
 				});
 			}
 
 			// Check both regular credits AND dev plan credits
-			const regularCredits = parseFloat(organization.credits || "0");
+			const regularCredits = parseFloat(orgForHybridCredits.credits || "0");
 			const devPlanCreditsRemaining =
-				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit || "0") -
-						parseFloat(organization.devPlanCreditsUsed || "0")
+				orgForHybridCredits.devPlan !== "none"
+					? parseFloat(orgForHybridCredits.devPlanCreditsLimit || "0") -
+						parseFloat(orgForHybridCredits.devPlanCreditsUsed || "0")
 					: 0;
 			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1576,9 +1366,14 @@ chat.openapi(completions, async (c) => {
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree(modelInfo as ModelDefinition)
 			) {
-				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-					const renewalDate = organization.devPlanExpiresAt
-						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+				if (
+					orgForHybridCredits.devPlan !== "none" &&
+					devPlanCreditsRemaining <= 0
+				) {
+					const renewalDate = orgForHybridCredits.devPlanExpiresAt
+						? new Date(
+								orgForHybridCredits.devPlanExpiresAt,
+							).toLocaleDateString()
 						: "your next billing date";
 					throw new HTTPException(402, {
 						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
@@ -4212,6 +4007,7 @@ chat.openapi(completions, async (c) => {
 
 	let canceled = false;
 	let fetchError: Error | null = null;
+	let isTimeoutFetchError = false;
 	let res;
 	try {
 		const headers = getProviderHeaders(usedProvider, usedToken, {
@@ -4255,6 +4051,7 @@ chat.openapi(completions, async (c) => {
 			// Capture timeout as a fetch error for logging
 			fetchError =
 				error instanceof Error ? error : new Error("Request timeout");
+			isTimeoutFetchError = true;
 		} else if (error instanceof Error && error.name === "AbortError") {
 			canceled = true;
 		} else if (error instanceof Error) {
@@ -4357,21 +4154,23 @@ chat.openapi(completions, async (c) => {
 			reportKeyError(envVarName, configIndex, 0);
 		}
 
-		// Return error response
+		// Return error response - use 504 for timeouts, 502 for other connection failures
 		return c.json(
 			{
 				error: {
-					message: `Failed to connect to provider: ${errorMessage}`,
-					type: "upstream_error",
+					message: isTimeoutFetchError
+						? `Upstream provider timeout: ${errorMessage}`
+						: `Failed to connect to provider: ${errorMessage}`,
+					type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
 					param: null,
-					code: "fetch_failed",
+					code: isTimeoutFetchError ? "timeout" : "fetch_failed",
 					requestedProvider,
 					usedProvider,
 					requestedModel: initialRequestedModel,
 					usedModel,
 				},
 			},
-			502,
+			isTimeoutFetchError ? 504 : 502,
 		);
 	}
 

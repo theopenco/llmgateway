@@ -461,8 +461,9 @@ export function ModelSelector({
 			}
 
 			// Add root model entry (auto-routing)
+			// Only include "auto" in search text for the actual auto model
 			const rootSearchText = normalize(
-				[m.name ?? "", m.family ?? "", m.id, "auto"].join(" "),
+				[m.name ?? "", m.family ?? "", m.id].join(" "),
 			);
 			out.push({
 				model: m,

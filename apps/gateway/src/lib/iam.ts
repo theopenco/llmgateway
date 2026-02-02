@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
-import { cdb as db } from "@llmgateway/db";
+import { findActiveIamRules } from "@/lib/cached-queries.js";
+
 import { models, type ModelDefinition } from "@llmgateway/models";
 
 export interface IamRule {
@@ -27,13 +28,8 @@ export async function validateModelAccess(
 	requestedModel: string,
 	requestedProvider?: string,
 ): Promise<{ allowed: boolean; reason?: string }> {
-	// Get all active IAM rules for this API key
-	const iamRules = await db.query.apiKeyIamRule.findMany({
-		where: {
-			apiKeyId: { eq: apiKeyId },
-			status: { eq: "active" },
-		},
-	});
+	// Get all active IAM rules for this API key (using cacheable select builder)
+	const iamRules = await findActiveIamRules(apiKeyId);
 
 	// If no rules exist, allow all access (backwards compatibility)
 	if (iamRules.length === 0) {
