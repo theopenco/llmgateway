@@ -66,7 +66,6 @@ export const CodeBlock = ({
 	}, [code, language]);
 
 	return (
-		// eslint-disable-next-line react/jsx-no-constructed-context-values
 		<CodeBlockContext.Provider value={{ code }}>
 			<div className="group relative">
 				<div

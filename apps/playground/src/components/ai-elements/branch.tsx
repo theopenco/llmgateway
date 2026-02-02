@@ -61,7 +61,6 @@ export const Branch = ({
 		handleBranchChange(newBranch);
 	};
 
-	// eslint-disable-next-line react/jsx-no-constructed-context-values
 	const contextValue: BranchContextType = {
 		currentBranch,
 		totalBranches: branches.length,

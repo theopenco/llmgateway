@@ -99,7 +99,6 @@ export const Reasoning = memo(
 
 		return (
 			<ReasoningContext.Provider
-				// eslint-disable-next-line react/jsx-no-constructed-context-values
 				value={{ isStreaming, isOpen, setIsOpen, duration }}
 			>
 				<Collapsible

@@ -37,7 +37,6 @@ const FormField = <
 	...props
 }: ControllerProps<TFieldValues, TName>) => {
 	return (
-		// eslint-disable-next-line react/jsx-no-constructed-context-values
 		<FormFieldContext.Provider value={{ name: props.name }}>
 			<Controller {...props} />
 		</FormFieldContext.Provider>
@@ -79,7 +78,6 @@ function FormItem({ className, ...props }: React.ComponentProps<"div">) {
 	const id = React.useId();
 
 	return (
-		// eslint-disable-next-line react/jsx-no-constructed-context-values
 		<FormItemContext.Provider value={{ id }}>
 			<div
 				data-slot="form-item"
