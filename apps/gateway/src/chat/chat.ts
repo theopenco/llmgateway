@@ -45,7 +45,6 @@ import {
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasProviderEnvironmentToken,
-	type Model,
 	type ModelDefinition,
 	models,
 	type Provider,
@@ -57,6 +56,7 @@ import {
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
+import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
@@ -69,8 +69,12 @@ import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.j
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
+import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
+import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
@@ -78,78 +82,8 @@ import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-// Pre-compiled regex patterns to avoid recompilation per request
-const IMAGE_URL_PATTERN = /https:\/\/[^\s]+/gi;
+// Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
-
-/**
- * Quick heuristic to check if a string might be complete JSON.
- * Returns false if brackets are definitely unbalanced (avoiding expensive JSON.parse).
- * Returns true if it might be valid (still needs JSON.parse to confirm).
- * This is a performance optimization for SSE parsing where we do many validity checks.
- */
-function mightBeCompleteJson(str: string): boolean {
-	const trimmed = str.trim();
-	if (trimmed.length === 0) {
-		return false;
-	}
-
-	const firstChar = trimmed[0];
-	const lastChar = trimmed[trimmed.length - 1];
-
-	// Quick check: must start with { or [ and end with } or ]
-	if (firstChar === "{") {
-		if (lastChar !== "}") {
-			return false;
-		}
-	} else if (firstChar === "[") {
-		if (lastChar !== "]") {
-			return false;
-		}
-	} else {
-		// Not a JSON object or array
-		return false;
-	}
-
-	// Quick bracket count (doesn't account for strings, but catches obvious imbalances)
-	let braces = 0;
-	let brackets = 0;
-	for (const c of trimmed) {
-		if (c === "{") {
-			braces++;
-		} else if (c === "}") {
-			braces--;
-		} else if (c === "[") {
-			brackets++;
-		} else if (c === "]") {
-			brackets--;
-		}
-	}
-
-	return braces === 0 && brackets === 0;
-}
-
-/**
- * Checks if any messages contain images (image_url or image type content)
- * Used to filter providers that don't support vision
- */
-function messagesContainImages(messages: BaseMessage[]): boolean {
-	for (const message of messages) {
-		if (Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					(part.type === "image_url" || part.type === "image")
-				) {
-					return true;
-				}
-			}
-		}
-	}
-	return false;
-}
 
 export const chat = new OpenAPIHono<ServerTypes>();
 
@@ -327,11 +261,25 @@ chat.openapi(completions, async (c) => {
 		plugins,
 	} = validationResult.data;
 
+	// Debug: Log tools received from the AI SDK (development only)
+	if (process.env.NODE_ENV !== "production" && tools && tools.length > 0) {
+		logger.debug("Tools received by gateway", { count: tools.length });
+		for (const tool of tools) {
+			if (tool.type === "function") {
+				logger.debug(`Function tool: ${tool.function?.name || "unknown"}`, {
+					hasParameters: !!tool.function?.parameters,
+					parametersPreview: tool.function?.parameters
+						? JSON.stringify(tool.function.parameters).slice(0, 500)
+						: "none",
+				});
+			} else if (tool.type === "web_search") {
+				logger.debug("Web search tool configured");
+			}
+		}
+	}
+
 	// If web_search parameter is true, automatically add the web_search tool
-	if (
-		web_search &&
-		(!tools || !tools.some((t: any) => t.type === "web_search"))
-	) {
+	if (web_search && (!tools || !tools.some((t) => t.type === "web_search"))) {
 		tools = tools || [];
 		tools.push({
 			type: "web_search" as const,
@@ -339,38 +287,10 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	let inputImageCount = 0;
-	if (modelInput === "gemini-3-pro-image-preview") {
-		for (const message of messages) {
-			if (Array.isArray(message.content)) {
-				for (const part of message.content) {
-					if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "image_url"
-					) {
-						inputImageCount++;
-					} else if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "text" &&
-						"text" in part &&
-						typeof part.text === "string"
-					) {
-						// Count image URLs in text content using pre-compiled pattern
-						// Reset lastIndex since global flag maintains state
-						IMAGE_URL_PATTERN.lastIndex = 0;
-						const matches = part.text.match(IMAGE_URL_PATTERN);
-						if (matches) {
-							inputImageCount += matches.length;
-						}
-					}
-				}
-			}
-		}
-	}
+	const inputImageCount =
+		modelInput === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
@@ -440,185 +360,19 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
-	let requestedModel: Model = modelInput as Model;
-	let requestedProvider: Provider | undefined;
-	let customProviderName: string | undefined;
+	// Parse model input to resolve model, provider, and custom provider name
+	const parseResult = parseModelInput(modelInput);
+	const requestedModel = parseResult.requestedModel;
+	const customProviderName = parseResult.customProviderName;
 
-	// check if there is an exact model match
-	if (modelInput === "auto" || modelInput === "custom") {
-		requestedProvider = "llmgateway";
-		requestedModel = modelInput as Model;
-	} else if (modelInput.includes("/")) {
-		const split = modelInput.split("/");
-		const providerCandidate = split[0];
-
-		// Check if the provider exists
-		const knownProvider = providers.find((p) => p.id === providerCandidate);
-		if (!knownProvider) {
-			// This might be a custom provider name - we'll validate against the database later
-			// For now, assume it's a potential custom provider
-			customProviderName = providerCandidate;
-			requestedProvider = "custom";
-		} else {
-			requestedProvider = providerCandidate as Provider;
-		}
-		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
-		const modelName = split.slice(1).join("/");
-
-		// For custom providers, we don't need to validate the model name
-		// since they can use any OpenAI-compatible model name
-		if (requestedProvider === "custom") {
-			requestedModel = modelName as Model;
-		} else {
-			// First try to find by base model name
-			let modelDef = models.find((m) => m.id === modelName);
-
-			if (!modelDef) {
-				modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.modelName === modelName && p.providerId === requestedProvider,
-					),
-				);
-			}
-
-			if (!modelDef) {
-				throw new HTTPException(400, {
-					message: `Requested model ${modelName} not supported`,
-				});
-			}
-
-			if (!modelDef.providers.some((p) => p.providerId === requestedProvider)) {
-				throw new HTTPException(400, {
-					message: `Provider ${requestedProvider} does not support model ${modelName}`,
-				});
-			}
-
-			// Use the provider-specific model name if available
-			const providerMapping = modelDef.providers.find(
-				(p) => p.providerId === requestedProvider,
-			);
-			if (providerMapping) {
-				requestedModel = providerMapping.modelName as Model;
-			} else {
-				requestedModel = modelName as Model;
-			}
-		}
-	} else if (models.find((m) => m.id === modelInput)) {
-		requestedModel = modelInput as Model;
-	} else if (
-		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
-	) {
-		const model = models.find((m) =>
-			m.providers.find((p) => p.modelName === modelInput),
-		);
-		const provider = model?.providers.find((p) => p.modelName === modelInput);
-
-		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
-		});
-	} else {
-		throw new HTTPException(400, {
-			message: `Requested model ${modelInput} not supported`,
-		});
-	}
-
-	if (
-		requestedProvider &&
-		requestedProvider !== "custom" &&
-		!providers.find((p) => p.id === requestedProvider)
-	) {
-		throw new HTTPException(400, {
-			message: `Requested provider ${requestedProvider} not supported`,
-		});
-	}
-
-	let modelInfo;
-
-	if (requestedProvider === "custom") {
-		// For custom providers, we create a mock model info that treats it as an OpenAI model
-		modelInfo = {
-			model: requestedModel,
-			providers: [
-				{
-					providerId: "custom" as const,
-					modelName: requestedModel,
-					inputPrice: 0,
-					outputPrice: 0,
-					contextSize: 8192,
-					maxOutput: 4096,
-					streaming: true,
-					vision: false,
-					jsonOutput: true,
-				},
-			],
-		};
-	} else {
-		// First try to find by model ID
-		modelInfo = models.find((m) => m.id === requestedModel);
-
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
-		if (!modelInfo) {
-			if (requestedProvider) {
-				modelInfo = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.modelName === requestedModel &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				modelInfo = models.find((m) =>
-					m.providers.find((p) => p.modelName === requestedModel),
-				);
-			}
-		}
-
-		if (!modelInfo) {
-			throw new HTTPException(400, {
-				message: `Unsupported model: ${requestedModel}`,
-			});
-		}
-	}
-
-	// Save original providers list (including deactivated) for routing metadata display
-	const allModelProviders = modelInfo.providers;
-
-	// Filter out deactivated provider mappings
-	const now = new Date();
-	const activeProviders = modelInfo.providers.filter(
-		(provider) =>
-			!(
-				(provider as ProviderModelMapping).deactivatedAt &&
-				now > (provider as ProviderModelMapping).deactivatedAt!
-			),
+	// Resolve model info and filter deactivated providers
+	const modelInfoResult = resolveModelInfo(
+		requestedModel,
+		parseResult.requestedProvider,
 	);
-
-	// Check if all providers are deactivated
-	if (activeProviders.length === 0) {
-		throw new HTTPException(410, {
-			message: `Model ${requestedModel} has been deactivated and is no longer available`,
-		});
-	}
-
-	// Update modelInfo to only include active providers
-	modelInfo = {
-		...modelInfo,
-		providers: activeProviders,
-	};
-
-	// If a specific provider was requested but is now deactivated, clear it
-	// so routing logic will pick another active provider
-	if (
-		requestedProvider &&
-		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom" &&
-		!activeProviders.some((p) => p.providerId === requestedProvider)
-	) {
-		// The requested provider was deactivated, routing will select another
-		requestedProvider = undefined;
-	}
+	let modelInfo = modelInfoResult.modelInfo;
+	const allModelProviders = modelInfoResult.allModelProviders;
+	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -895,7 +649,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	let usedProvider = requestedProvider;
-	let usedModel = requestedModel;
+	let usedModel: string = requestedModel;
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation
@@ -2332,6 +2086,38 @@ chat.openapi(completions, async (c) => {
 						} catch {
 							// Silently fail - thought_signature is optional
 						}
+					}
+				}
+			}
+		}
+	}
+
+	// For Moonshot provider, enrich assistant messages with cached reasoning_content
+	// This is needed for multi-turn tool call conversations with thinking models
+	// Moonshot requires reasoning_content in assistant messages with tool_calls
+	if (usedProvider === "moonshot") {
+		const { redisClient } = await import("@llmgateway/cache");
+		for (const message of messages) {
+			if (
+				message.role === "assistant" &&
+				message.tool_calls &&
+				Array.isArray(message.tool_calls) &&
+				message.tool_calls.length > 0 &&
+				!(message as any).reasoning_content // Only add if not already present
+			) {
+				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
+				const firstToolCall = message.tool_calls[0];
+				if (firstToolCall?.id) {
+					try {
+						const cachedReasoningContent = await redisClient.get(
+							`reasoning_content:${firstToolCall.id}`,
+						);
+						if (cachedReasoningContent) {
+							// Add reasoning_content to the message for Moonshot
+							(message as any).reasoning_content = cachedReasoningContent;
+						}
+					} catch {
+						// Silently fail - reasoning_content caching is optional
 					}
 				}
 			}

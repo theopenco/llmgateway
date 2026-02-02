@@ -715,6 +715,31 @@ export function parseProviderResponse(
 			break;
 	}
 
+	// Cache reasoning_content for Moonshot thinking models when tool_calls are present
+	// This is needed for multi-turn tool call conversations because Moonshot requires
+	// reasoning_content to be included in assistant messages with tool_calls
+	if (
+		usedProvider === "moonshot" &&
+		reasoningContent &&
+		toolResults &&
+		Array.isArray(toolResults) &&
+		toolResults.length > 0
+	) {
+		for (const toolCall of toolResults) {
+			if (toolCall.id) {
+				redisClient
+					.setex(
+						`reasoning_content:${toolCall.id}`,
+						86400, // 1 day expiration
+						reasoningContent,
+					)
+					.catch((err) => {
+						logger.error("Failed to cache reasoning_content", { err });
+					});
+			}
+		}
+	}
+
 	return {
 		content,
 		reasoningContent,

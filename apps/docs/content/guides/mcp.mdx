@@ -1,0 +1,297 @@
+---
+title: Model Context Protocol (MCP)
+description: Use LLM Gateway as an MCP server for Claude Code, Cursor, and other MCP-compatible clients
+icon: Mcp
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+
+LLM Gateway provides a Model Context Protocol (MCP) server that enables AI assistants like Claude Code to access multiple LLM providers through a unified interface. This allows you to use any model from OpenAI, Anthropic, Google, and more directly from your AI coding assistant.
+
+## What is MCP?
+
+The Model Context Protocol (MCP) is an open standard that allows AI assistants to connect with external tools and data sources. LLM Gateway's MCP server exposes tools for:
+
+- **Chat completions** - Send messages to any supported LLM
+- **Image generation** - Generate images using models like Qwen Image
+- **Model discovery** - List available models with capabilities and pricing
+
+## Available Tools
+
+### `chat`
+
+Send a message to any LLM and get a response.
+
+**Parameters:**
+
+- `model` (string) - The model to use (e.g., `"gpt-4o"`, `"claude-sonnet-4-20250514"`)
+- `messages` (array) - Array of messages with `role` and `content`
+- `temperature` (number, optional) - Sampling temperature (0-2)
+- `max_tokens` (number, optional) - Maximum tokens to generate
+
+**Example:**
+
+```json
+{
+	"model": "gpt-4o",
+	"messages": [{ "role": "user", "content": "Explain quantum computing" }],
+	"temperature": 0.7
+}
+```
+
+### `generate-image`
+
+Generate images from text prompts using AI image models.
+
+**Parameters:**
+
+- `prompt` (string) - Text description of the image to generate
+- `model` (string, optional) - Image model (default: `"qwen-image-plus"`)
+- `size` (string, optional) - Image size (default: `"1024x1024"`)
+- `n` (number, optional) - Number of images (1-4, default: 1)
+
+**Example:**
+
+```json
+{
+	"prompt": "A serene mountain landscape at sunset",
+	"model": "qwen-image-max",
+	"size": "1024x1024"
+}
+```
+
+### `list-models`
+
+List available LLM models with capabilities and pricing.
+
+**Parameters:**
+
+- `include_deactivated` (boolean, optional) - Include deactivated models
+- `exclude_deprecated` (boolean, optional) - Exclude deprecated models
+- `limit` (number, optional) - Maximum models to return (default: 20)
+- `family` (string, optional) - Filter by family (e.g., `"openai"`, `"anthropic"`)
+
+### `list-image-models`
+
+List all available image generation models.
+
+**Example output:**
+
+```
+# Image Generation Models
+
+## Qwen Image Plus
+- **Model ID:** `qwen-image-plus`
+- **Description:** Text-to-image with excellent text rendering
+- **Price:** $0.03 per request
+
+## Qwen Image Max
+- **Model ID:** `qwen-image-max`
+- **Description:** Highest quality text-to-image
+- **Price:** $0.075 per request
+```
+
+## Setup
+
+<Tabs items={["Claude Code", "Cursor", "Other MCP Clients"]}>
+  <Tab value="Claude Code">
+    <Steps>
+    <Step>
+    ### Get Your API Key
+
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+
+    </Step>
+
+    <Step>
+    ### Configure Claude Code
+
+    Add the MCP server to your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+
+    ```json
+    {
+      "mcpServers": {
+        "llmgateway": {
+          "command": "npx",
+          "args": ["-y", "@anthropic-ai/mcp-remote", "https://api.llmgateway.io/mcp"],
+          "env": {
+            "API_KEY": "your-api-key-here"
+          }
+        }
+      }
+    }
+    ```
+
+    Or use the HTTP transport directly:
+
+    ```json
+    {
+      "mcpServers": {
+        "llmgateway": {
+          "url": "https://api.llmgateway.io/mcp",
+          "headers": {
+            "Authorization": "Bearer your-api-key-here"
+          }
+        }
+      }
+    }
+    ```
+
+    </Step>
+
+    <Step>
+    ### Restart Claude Code
+
+    Restart Claude Code to load the new MCP configuration. You should now see the LLM Gateway tools available.
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Try using the tools in Claude Code:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Generate an image of a futuristic city using the generate-image tool"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
+
+  </Tab>
+
+  <Tab value="Cursor">
+    Cursor supports MCP servers through its settings. Configure the LLM Gateway MCP server:
+
+    1. Open Cursor Settings
+    2. Navigate to **Features** > **MCP**
+    3. Add a new MCP server with:
+       - **URL:** `https://api.llmgateway.io/mcp`
+       - **Headers:** `Authorization: Bearer your-api-key-here`
+
+    <Callout type="info">
+      MCP support in Cursor may require a specific version. Check Cursor's documentation for the latest compatibility information.
+    </Callout>
+
+  </Tab>
+
+  <Tab value="Other MCP Clients">
+    LLM Gateway's MCP server supports the standard HTTP Streamable transport. Configure your client with:
+
+    - **Endpoint:** `https://api.llmgateway.io/mcp`
+    - **Authentication:** Bearer token via `Authorization` header or `x-api-key` header
+    - **Protocol Version:** 2024-11-05
+
+    **Direct HTTP Example:**
+
+    ```bash
+    curl -X POST https://api.llmgateway.io/mcp \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer your-api-key" \
+      -d '{
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list"
+      }'
+    ```
+
+    **Server-Sent Events (SSE):**
+
+    For real-time updates, connect with `Accept: text/event-stream`:
+
+    ```bash
+    curl -N https://api.llmgateway.io/mcp \
+      -H "Accept: text/event-stream" \
+      -H "Authorization: Bearer your-api-key"
+    ```
+
+  </Tab>
+</Tabs>
+
+## Use Cases
+
+### Multi-Model Access in Claude Code
+
+Use Claude Code to interact with models it doesn't natively support:
+
+```
+Use the chat tool with model "gpt-4o" to analyze this code for security issues.
+```
+
+### Image Generation
+
+Generate images directly from your AI assistant:
+
+```
+Use generate-image to create a logo for my new startup.
+It should be minimalist, blue and white, representing AI and cloud computing.
+```
+
+### Cost-Effective Model Selection
+
+Query available models to find the best option for your task:
+
+```
+List models from OpenAI and Anthropic, then use the cheapest one for this simple task.
+```
+
+## Authentication
+
+The MCP server supports two authentication methods:
+
+1. **Bearer Token** - `Authorization: Bearer your-api-key`
+2. **API Key Header** - `x-api-key: your-api-key`
+
+Your API key is the same one you use for the REST API and works across all LLM Gateway services.
+
+## OAuth Support
+
+For applications that prefer OAuth authentication, LLM Gateway's MCP server implements OAuth 2.0:
+
+- **Authorization Endpoint:** `/oauth/authorize`
+- **Token Endpoint:** `/oauth/token`
+- **Registration Endpoint:** `/oauth/register`
+- **Supported Flows:** Authorization Code, Client Credentials
+
+## Troubleshooting
+
+### Connection Errors
+
+If you're having trouble connecting:
+
+1. Verify your API key is valid
+2. Check the endpoint URL is correct: `https://api.llmgateway.io/mcp`
+3. Ensure your firewall allows outbound HTTPS connections
+
+### Tool Not Found
+
+If tools aren't appearing:
+
+1. Restart your MCP client
+2. Check the configuration syntax
+3. Verify the MCP server is responding: `GET https://api.llmgateway.io/mcp`
+
+### Rate Limiting
+
+The MCP server respects your account's rate limits. If you're hitting limits:
+
+1. Check your usage in the dashboard
+2. Consider upgrading your plan
+3. Implement request queuing in your application
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support.
+</Callout>
+
+## Benefits
+
+- **Unified Access** - Use 200+ models from 20+ providers through one interface
+- **Cost Tracking** - Monitor usage and costs in the LLM Gateway dashboard
+- **Caching** - Automatic response caching reduces costs and latency
+- **Fallback** - Automatic provider failover ensures reliability
+- **Image Generation** - Generate images directly from your AI assistant

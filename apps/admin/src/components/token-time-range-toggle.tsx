@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-import type { TokenWindow } from "@/lib/admin-token-metrics";
+import type { TokenWindow } from "@/lib/admin-organizations";
 
 interface TimeRangeToggleProps {
 	initial: TokenWindow;

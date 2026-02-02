@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LayoutDashboard, LogOut, Users } from "lucide-react";
+import { Building2, LayoutDashboard, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -37,7 +37,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const queryClient = useQueryClient();
 
 	const isDashboard = pathname === "/" || pathname === "";
-	const isTokens = pathname === "/tokens";
+	const isOrganizations = pathname.startsWith("/organizations");
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -82,25 +82,14 @@ export function AdminShell({ children }: AdminShellProps) {
 										<span>Dashboard</span>
 									</SidebarMenuButton>
 								</Link>
-								<Link href="/tokens" className="block">
-									<SidebarMenuButton isActive={isTokens} size="lg">
-										<KeyRound className="h-4 w-4" />
-										<span>Tokens</span>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/organizations" className="block">
+									<SidebarMenuButton isActive={isOrganizations} size="lg">
+										<Building2 className="h-4 w-4" />
+										<span>Organizations</span>
 									</SidebarMenuButton>
 								</Link>
-							</SidebarMenuItem>
-						</SidebarMenu>
-					</SidebarGroup>
-					<SidebarGroup>
-						<SidebarGroupLabel>People</SidebarGroupLabel>
-						<SidebarMenu>
-							<SidebarMenuItem>
-								<SidebarMenuButton size="lg" asChild>
-									<div className="flex w-full items-center gap-2 text-sidebar-foreground/80 hover:text-sidebar-accent-foreground">
-										<Users className="h-4 w-4" />
-										<span>Users (coming soon)</span>
-									</div>
-								</SidebarMenuButton>
 							</SidebarMenuItem>
 						</SidebarMenu>
 					</SidebarGroup>
