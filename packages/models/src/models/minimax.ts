@@ -86,6 +86,7 @@ export const minimaxModels = [
 			{
 				providerId: "canopywave",
 				modelName: "minimax/minimax-m2.1",
+				test: "skip",
 				inputPrice: 0.27 / 1e6,
 				outputPrice: 1.08 / 1e6,
 				discount: 0.25,

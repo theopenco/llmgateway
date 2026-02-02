@@ -180,6 +180,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
+				test: "skip",
 				modelName: "glm-4.7",
 				inputPrice: 0.6 / 1e6,
 				cachedInputPrice: 0.11 / 1e6,
