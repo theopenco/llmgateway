@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -10,6 +10,8 @@ import { RedisCache } from "./redis-cache.js";
 import { relations } from "./relations.js";
 import {
 	apiKey,
+	apiKeyIamRule,
+	providerKey,
 	user,
 	organization,
 	userOrganization,
@@ -31,6 +33,8 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	const testProjectId = "test-project-resilience";
 	const testApiKeyId = "test-api-key-resilience";
 	const testApiKeyToken = "sk-test-resilience-token";
+	const testProviderKeyId = "test-provider-key-resilience";
+	const testIamRuleId = "test-iam-rule-resilience";
 
 	// Shared Redis cache instance to ensure cache hits work across pool instances
 	let sharedCache: RedisCache;
@@ -43,7 +47,9 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		sharedCache = new RedisCache(redisClient);
 
 		// Clean up test data using regular db
+		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
+		await db.delete(providerKey);
 		await db.delete(userOrganization);
 		await db.delete(project);
 		await db.delete(organization);
@@ -84,10 +90,43 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			status: "active",
 			createdBy: testUserId,
 		});
+
+		// Provider keys for testing compound conditions and inArray
+		await db.insert(providerKey).values({
+			id: testProviderKeyId,
+			token: "test-provider-token",
+			provider: "openai",
+			organizationId: testOrgId,
+			status: "active",
+		});
+
+		await db.insert(providerKey).values({
+			id: "test-provider-key-anthropic",
+			token: "test-anthropic-token",
+			provider: "anthropic",
+			organizationId: testOrgId,
+			status: "active",
+		});
+
+		// IAM rule for testing
+		await db.insert(apiKeyIamRule).values({
+			id: testIamRuleId,
+			apiKeyId: testApiKeyId,
+			ruleType: "allow_models",
+			ruleValue: { models: ["gpt-4"] },
+			status: "active",
+		});
 	});
 
 	afterEach(async () => {
-		// Nothing to clean up - pools are cleaned up in tests
+		// Clean up test data
+		await db.delete(apiKeyIamRule);
+		await db.delete(apiKey);
+		await db.delete(providerKey);
+		await db.delete(userOrganization);
+		await db.delete(project);
+		await db.delete(organization);
+		await db.delete(user);
 	});
 
 	it("should serve cached API key data when Postgres connection is terminated (using select builder)", async () => {
@@ -452,6 +491,267 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		try {
 			await slowPool.end();
+		} catch {
+			// Ignore
+		}
+	});
+
+	/**
+	 * Gateway query pattern tests - these verify the exact patterns used in
+	 * apps/gateway/src/lib/cached-queries.ts are cacheable
+	 */
+
+	it("should cache provider key queries with compound AND conditions", async () => {
+		const workingPool = new Pool({
+			connectionString:
+				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+			max: 2,
+			connectionTimeoutMillis: 5000,
+		});
+
+		const workingCdb = drizzle({
+			client: workingPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		// Prime cache with exact pattern from findProviderKey
+		const primeResults = await workingCdb
+			.select()
+			.from(providerKey)
+			.where(
+				and(
+					eq(providerKey.status, "active"),
+					eq(providerKey.organizationId, testOrgId),
+					eq(providerKey.provider, "openai"),
+				),
+			)
+			.limit(1);
+		expect(primeResults[0]).toBeDefined();
+
+		await workingPool.end();
+
+		const brokenPool = new Pool({
+			connectionString: "postgres://postgres:pw@localhost:59999/nonexistent",
+			max: 1,
+			connectionTimeoutMillis: 100,
+		});
+
+		const brokenCdb = drizzle({
+			client: brokenPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		const cachedResults = await brokenCdb
+			.select()
+			.from(providerKey)
+			.where(
+				and(
+					eq(providerKey.status, "active"),
+					eq(providerKey.organizationId, testOrgId),
+					eq(providerKey.provider, "openai"),
+				),
+			)
+			.limit(1);
+
+		expect(cachedResults[0]).toBeDefined();
+		expect(cachedResults[0]?.provider).toBe("openai");
+
+		try {
+			await brokenPool.end();
+		} catch {
+			// Ignore
+		}
+	});
+
+	it("should cache queries using inArray operator", async () => {
+		const workingPool = new Pool({
+			connectionString:
+				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+			max: 2,
+			connectionTimeoutMillis: 5000,
+		});
+
+		const workingCdb = drizzle({
+			client: workingPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		// Prime cache with exact pattern from findProviderKeysByProviders
+		const providers = ["openai", "anthropic"];
+		const primeResults = await workingCdb
+			.select()
+			.from(providerKey)
+			.where(
+				and(
+					eq(providerKey.status, "active"),
+					eq(providerKey.organizationId, testOrgId),
+					inArray(providerKey.provider, providers),
+				),
+			);
+		expect(primeResults).toHaveLength(2);
+
+		await workingPool.end();
+
+		const brokenPool = new Pool({
+			connectionString: "postgres://postgres:pw@localhost:59999/nonexistent",
+			max: 1,
+			connectionTimeoutMillis: 100,
+		});
+
+		const brokenCdb = drizzle({
+			client: brokenPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		const cachedResults = await brokenCdb
+			.select()
+			.from(providerKey)
+			.where(
+				and(
+					eq(providerKey.status, "active"),
+					eq(providerKey.organizationId, testOrgId),
+					inArray(providerKey.provider, providers),
+				),
+			);
+
+		expect(cachedResults).toHaveLength(2);
+
+		try {
+			await brokenPool.end();
+		} catch {
+			// Ignore
+		}
+	});
+
+	it("should cache IAM rules queries", async () => {
+		const workingPool = new Pool({
+			connectionString:
+				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+			max: 2,
+			connectionTimeoutMillis: 5000,
+		});
+
+		const workingCdb = drizzle({
+			client: workingPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		// Prime cache with exact pattern from findActiveIamRules
+		const primeResults = await workingCdb
+			.select()
+			.from(apiKeyIamRule)
+			.where(
+				and(
+					eq(apiKeyIamRule.apiKeyId, testApiKeyId),
+					eq(apiKeyIamRule.status, "active"),
+				),
+			);
+		expect(primeResults).toHaveLength(1);
+
+		await workingPool.end();
+
+		const brokenPool = new Pool({
+			connectionString: "postgres://postgres:pw@localhost:59999/nonexistent",
+			max: 1,
+			connectionTimeoutMillis: 100,
+		});
+
+		const brokenCdb = drizzle({
+			client: brokenPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		const cachedResults = await brokenCdb
+			.select()
+			.from(apiKeyIamRule)
+			.where(
+				and(
+					eq(apiKeyIamRule.apiKeyId, testApiKeyId),
+					eq(apiKeyIamRule.status, "active"),
+				),
+			);
+
+		expect(cachedResults).toHaveLength(1);
+		expect(cachedResults[0]?.ruleType).toBe("allow_models");
+
+		try {
+			await brokenPool.end();
+		} catch {
+			// Ignore
+		}
+	});
+
+	it("should cache join queries (user from organization)", async () => {
+		const workingPool = new Pool({
+			connectionString:
+				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+			max: 2,
+			connectionTimeoutMillis: 5000,
+		});
+
+		const workingCdb = drizzle({
+			client: workingPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		// Prime cache with exact pattern from findUserFromOrganization
+		const primeResults = await workingCdb
+			.select({
+				userOrganization: userOrganization,
+				user: user,
+			})
+			.from(userOrganization)
+			.innerJoin(user, eq(userOrganization.userId, user.id))
+			.where(eq(userOrganization.organizationId, testOrgId))
+			.limit(1);
+		expect(primeResults[0]).toBeDefined();
+		expect(primeResults[0]?.user.id).toBe(testUserId);
+
+		await workingPool.end();
+
+		const brokenPool = new Pool({
+			connectionString: "postgres://postgres:pw@localhost:59999/nonexistent",
+			max: 1,
+			connectionTimeoutMillis: 100,
+		});
+
+		const brokenCdb = drizzle({
+			client: brokenPool,
+			casing: "snake_case",
+			relations,
+			cache: sharedCache,
+		});
+
+		const cachedResults = await brokenCdb
+			.select({
+				userOrganization: userOrganization,
+				user: user,
+			})
+			.from(userOrganization)
+			.innerJoin(user, eq(userOrganization.userId, user.id))
+			.where(eq(userOrganization.organizationId, testOrgId))
+			.limit(1);
+
+		expect(cachedResults[0]).toBeDefined();
+		expect(cachedResults[0]?.user.id).toBe(testUserId);
+		expect(cachedResults[0]?.user.email).toBe("test-resilience@example.com");
+
+		try {
+			await brokenPool.end();
 		} catch {
 			// Ignore
 		}

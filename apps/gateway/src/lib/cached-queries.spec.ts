@@ -24,11 +24,15 @@ import {
 } from "./cached-queries.js";
 
 /**
- * These tests verify that all cached query functions:
- * 1. Return correct data
- * 2. Use the select builder pattern (which supports Drizzle cache)
+ * These tests verify that all cached query functions return correct data.
  *
- * This ensures 100% of gateway queries are cacheable for maximum performance.
+ * IMPORTANT: Cache resilience (proving queries work from Redis when Postgres is down)
+ * is tested in packages/db/src/cdb-resilience.spec.ts. Those tests prove that the
+ * select builder pattern (db.select().from()) works with Drizzle's cache layer.
+ *
+ * The functions in cached-queries.ts all use the select builder pattern,
+ * which is the only pattern that goes through Drizzle's cache. The relational
+ * query API (db.query.table.findFirst()) does NOT use the cache.
  */
 describe("Cached Queries - Gateway Database Access", () => {
 	const testUserId = "test-user-cached-queries";
