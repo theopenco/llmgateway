@@ -1429,7 +1429,10 @@ chat.openapi(completions, async (c) => {
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 
-	if (project.mode === "credits" && usedProvider === "custom") {
+	if (
+		project.mode === "credits" &&
+		(usedProvider === "custom" || usedProvider === "llmgateway")
+	) {
 		throw new HTTPException(400, {
 			message:
 				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
