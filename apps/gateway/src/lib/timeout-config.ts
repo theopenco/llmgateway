@@ -81,3 +81,17 @@ export function isCancellationError(error: unknown): boolean {
 	}
 	return false;
 }
+
+// Re-export retry utilities for convenience
+export {
+	getMaxRetryAttempts,
+	getRetryInitialBackoffMs,
+	getRetryBackoffMultiplier,
+	calculateBackoffDelay,
+	getRetryableStatusCodes,
+	isRetryableStatusCode,
+	isRetryableError,
+	fetchWithRetry,
+	type FetchWithRetryResult,
+	type FetchWithRetryOptions,
+} from "./retry.js";

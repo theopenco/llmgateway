@@ -124,9 +124,30 @@ When you specify a provider explicitly, LLMGateway checks the provider's recent 
 	requested provider.
 </Callout>
 
-#### Disabling Fallback with X-No-Fallback Header
+#### Disabling Fallback
 
-If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, you can use the `X-No-Fallback` header:
+If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, you can disable fallback using either:
+
+1. The `routing.fallback` parameter in the request body (recommended)
+2. The `X-No-Fallback` header
+
+**Using routing.fallback (recommended):**
+
+```bash
+# Force use of a specific provider even if it has low uptime
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": {
+      "fallback": false
+    }
+  }'
+```
+
+**Using X-No-Fallback header:**
 
 ```bash
 # Force use of a specific provider even if it has low uptime
@@ -141,12 +162,96 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 ```
 
 <Callout type="warn">
-	Using `X-No-Fallback: true` disables automatic provider failover. Your
-	requests will be sent to the specified provider even if it is experiencing
-	issues, which may result in higher error rates.
+	Disabling fallback means your requests will be sent to the specified provider
+	even if it is experiencing issues, which may result in higher error rates.
 </Callout>
 
-When the `X-No-Fallback` header is used, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
+When fallback is disabled, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
+
+## Automatic Retries
+
+LLMGateway automatically retries failed requests to upstream providers with exponential backoff. This helps improve reliability when providers experience temporary issues.
+
+### Default Behavior
+
+By default, requests are retried up to **3 times** with exponential backoff delays:
+
+- **Attempt 1**: Immediate (original request)
+- **Attempt 2**: After 1 second delay
+- **Attempt 3**: After 2 seconds delay
+- **Attempt 4**: After 4 seconds delay
+
+Retries are triggered on:
+
+- **Network errors**: Connection refused, DNS failures, connection resets
+- **Timeout errors**: Request timeouts
+- **Retryable HTTP status codes**: 408, 429, 500, 502, 503, 504
+
+Retries are **not** triggered on:
+
+- Client errors (4xx except 408, 429)
+- Authentication errors (401, 403)
+- User cancellation
+
+### Configuring Retries Per Request
+
+You can customize the number of retries for each request using the `routing.retries` parameter:
+
+```bash
+# Use 5 retries instead of the default 3
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": {
+      "retries": 5
+    }
+  }'
+```
+
+### Disabling Retries
+
+To disable retries for a specific request, set `routing.retries` to `0` or `null`:
+
+```bash
+# Disable retries for this request
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": {
+      "retries": 0
+    }
+  }'
+```
+
+<Callout type="info">
+	Setting `routing.retries` to `null` has the same effect as setting it to `0` —
+	both disable retries entirely.
+</Callout>
+
+### Combining Routing Options
+
+You can combine multiple routing options in a single request:
+
+```bash
+# Disable fallback and use custom retry count
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": {
+      "fallback": false,
+      "retries": 5
+    }
+  }'
+```
 
 ## Optimized Auto Routing
 

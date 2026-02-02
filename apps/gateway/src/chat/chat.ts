@@ -18,7 +18,11 @@ import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
-import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import {
+	createCombinedSignal,
+	fetchWithRetry,
+	getAIRequestTimeoutMs,
+} from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -267,6 +271,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+		routing,
 	} = validationResult.data;
 
 	// Debug: Log tools received from the AI SDK (development only)
@@ -360,10 +365,14 @@ chat.openapi(completions, async (c) => {
 	// Extract custom X-LLMGateway-* headers
 	const customHeaders = extractCustomHeaders(c);
 
-	// Check for X-No-Fallback header to disable provider fallback on low uptime
+	// Check for X-No-Fallback header or routing.fallback=false to disable provider fallback on low uptime
 	const noFallback =
 		c.req.raw.headers.get("x-no-fallback") === "true" ||
-		c.req.raw.headers.get("X-No-Fallback") === "true";
+		c.req.raw.headers.get("X-No-Fallback") === "true" ||
+		routing?.fallback === false;
+
+	// Get retry configuration from routing options (null or 0 means no retries, undefined uses default)
+	const requestRetries = routing?.retries;
 
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
@@ -2218,383 +2227,296 @@ chat.openapi(completions, async (c) => {
 			// Add event listener for the abort event on the connection
 			c.req.raw.signal.addEventListener("abort", onAbort);
 
-			let res;
-			try {
-				const headers = getProviderHeaders(usedProvider, usedToken, {
-					webSearchEnabled: !!webSearchTool,
-				});
-				headers["Content-Type"] = "application/json";
+			const headers = getProviderHeaders(usedProvider, usedToken, {
+				webSearchEnabled: !!webSearchTool,
+			});
+			headers["Content-Type"] = "application/json";
 
-				// Add effort beta header for Anthropic if effort parameter is specified
-				if (usedProvider === "anthropic" && effort !== undefined) {
-					const currentBeta = headers["anthropic-beta"];
-					headers["anthropic-beta"] = currentBeta
-						? `${currentBeta},effort-2025-11-24`
-						: "effort-2025-11-24";
-				}
+			// Add effort beta header for Anthropic if effort parameter is specified
+			if (usedProvider === "anthropic" && effort !== undefined) {
+				const currentBeta = headers["anthropic-beta"];
+				headers["anthropic-beta"] = currentBeta
+					? `${currentBeta},effort-2025-11-24`
+					: "effort-2025-11-24";
+			}
 
-				// Add structured outputs beta header for Anthropic if json_schema response_format is specified
-				if (
-					usedProvider === "anthropic" &&
-					response_format?.type === "json_schema"
-				) {
-					const currentBeta = headers["anthropic-beta"];
-					headers["anthropic-beta"] = currentBeta
-						? `${currentBeta},structured-outputs-2025-11-13`
-						: "structured-outputs-2025-11-13";
-				}
+			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+			if (
+				usedProvider === "anthropic" &&
+				response_format?.type === "json_schema"
+			) {
+				const currentBeta = headers["anthropic-beta"];
+				headers["anthropic-beta"] = currentBeta
+					? `${currentBeta},structured-outputs-2025-11-13`
+					: "structured-outputs-2025-11-13";
+			}
 
-				// Create a combined signal for both timeout and cancellation
-				const fetchSignal = createCombinedSignal(
-					requestCanBeCanceled ? controller : undefined,
-				);
+			// Create a combined signal for both timeout and cancellation
+			const fetchSignal = createCombinedSignal(
+				requestCanBeCanceled ? controller : undefined,
+			);
 
-				res = await fetch(url, {
+			// Perform fetch with automatic retry on retryable errors
+			const fetchResult = await fetchWithRetry({
+				url,
+				init: {
 					method: "POST",
 					headers,
 					body: JSON.stringify(requestBody),
 					signal: fetchSignal,
-				});
-			} catch (error) {
-				// Clean up the event listeners
-				c.req.raw.signal.removeEventListener("abort", onAbort);
+				},
+				timeBudgetMs: getAIRequestTimeoutMs(),
+				requestId,
+				provider: usedProvider,
+				model: usedModel,
+				maxRetries: requestRetries,
+			});
 
-				// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
-				if (isTimeoutError(error)) {
-					// Handle timeout error
-					const errorMessage =
-						error instanceof Error ? error.message : "Request timeout";
-					logger.warn("Upstream request timeout", {
-						error: errorMessage,
+			// Clean up the event listeners
+			c.req.raw.signal.removeEventListener("abort", onAbort);
+
+			let res: Response;
+			if (fetchResult.success) {
+				res = fetchResult.response;
+			} else if (fetchResult.canceled) {
+				// Log the canceled request
+				// Extract plugin IDs for logging (canceled request)
+				const canceledPluginIds = plugins?.map((p) => p.id) || [];
+
+				// Calculate costs for cancelled request if billing is enabled
+				const billCancelled = shouldBillCancelledRequests();
+				let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+				let estimatedPromptTokens: number | null = null;
+
+				if (billCancelled) {
+					// Estimate prompt tokens from messages
+					const tokenEstimation = estimateTokens(
 						usedProvider,
-						requestedProvider,
+						messages,
+						null,
+						null,
+						null,
+					);
+					estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+					// Calculate costs based on prompt tokens only (no completion yet)
+					// If web search tool was enabled, count it as 1 search for billing
+					cancelledCosts = calculateCosts(
 						usedModel,
-						initialRequestedModel,
-					});
-
-					// Log the timeout error in the database
-					const timeoutPluginIds = plugins?.map((p) => p.id) || [];
-
-					const baseLogEntry = createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						providerKey?.id,
-						usedModelFormatted,
-						usedModelMapping,
 						usedProvider,
-						initialRequestedModel,
-						requestedProvider,
-						messages,
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						effort,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-						image_config,
-						routingMetadata,
-						rawBody,
-						null, // No response for timeout error
-						requestBody,
-						null, // No upstream response for timeout error
-						timeoutPluginIds,
-						undefined, // No plugin results for error case
-					);
-
-					await insertLog({
-						...baseLogEntry,
-						duration: Date.now() - startTime,
-						timeToFirstToken: null,
-						timeToFirstReasoningToken: null,
-						responseSize: 0,
-						content: null,
-						reasoningContent: null,
-						finishReason: "upstream_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: true,
-						canceled: false,
-						errorDetails: {
-							statusCode: 0,
-							statusText: "TimeoutError",
-							responseText: errorMessage,
+						estimatedPromptTokens,
+						0, // No completion tokens yet
+						null, // No cached tokens
+						{
+							prompt: messages.map((m) => m.content).join("\n"),
+							completion: "",
 						},
-						cachedInputCost: null,
-						requestCost: null,
-						webSearchCost: null,
-						discount: null,
-						dataStorageCost: "0",
-						cached: false,
-						toolResults: null,
-					});
-
-					await stream.writeSSE({
-						event: "error",
-						data: JSON.stringify({
-							error: {
-								message: `Upstream provider timeout: ${errorMessage}`,
-								type: "upstream_timeout",
-								code: "timeout",
-							},
-						}),
-						id: String(eventId++),
-					});
-					return;
-				} else if (error instanceof Error && error.name === "AbortError") {
-					// Log the canceled request
-					// Extract plugin IDs for logging (canceled request)
-					const canceledPluginIds = plugins?.map((p) => p.id) || [];
-
-					// Calculate costs for cancelled request if billing is enabled
-					const billCancelled = shouldBillCancelledRequests();
-					let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
-					let estimatedPromptTokens: number | null = null;
-
-					if (billCancelled) {
-						// Estimate prompt tokens from messages
-						const tokenEstimation = estimateTokens(
-							usedProvider,
-							messages,
-							null,
-							null,
-							null,
-						);
-						estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-						// Calculate costs based on prompt tokens only (no completion yet)
-						// If web search tool was enabled, count it as 1 search for billing
-						cancelledCosts = calculateCosts(
-							usedModel,
-							usedProvider,
-							estimatedPromptTokens,
-							0, // No completion tokens yet
-							null, // No cached tokens
-							{
-								prompt: messages.map((m) => m.content).join("\n"),
-								completion: "",
-							},
-							null, // No reasoning tokens
-							0, // No output images
-							undefined,
-							inputImageCount,
-							webSearchTool ? 1 : null, // Bill for web search if it was enabled
-						);
-					}
-
-					const baseLogEntry = createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						providerKey?.id,
-						usedModelFormatted,
-						usedModelMapping,
-						usedProvider,
-						initialRequestedModel,
-						requestedProvider,
-						messages,
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						effort,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-						image_config,
-						routingMetadata,
-						rawBody,
-						null, // No response for canceled request
-						requestBody, // The request that was sent before cancellation
-						null, // No upstream response for canceled request
-						canceledPluginIds,
-						undefined, // No plugin results for canceled request
+						null, // No reasoning tokens
+						0, // No output images
+						undefined,
+						inputImageCount,
+						webSearchTool ? 1 : null, // Bill for web search if it was enabled
 					);
-
-					await insertLog({
-						...baseLogEntry,
-						duration: Date.now() - startTime,
-						timeToFirstToken: null, // Not applicable for canceled request
-						timeToFirstReasoningToken: null, // Not applicable for canceled request
-						responseSize: 0,
-						content: null,
-						reasoningContent: null,
-						finishReason: "canceled",
-						promptTokens: billCancelled
-							? estimatedPromptTokens?.toString()
-							: null,
-						completionTokens: billCancelled ? "0" : null,
-						totalTokens: billCancelled
-							? estimatedPromptTokens?.toString()
-							: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: false,
-						streamed: true,
-						canceled: true,
-						errorDetails: null,
-						inputCost: cancelledCosts?.inputCost ?? null,
-						outputCost: cancelledCosts?.outputCost ?? null,
-						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-						requestCost: cancelledCosts?.requestCost ?? null,
-						webSearchCost: cancelledCosts?.webSearchCost ?? null,
-						cost: cancelledCosts?.totalCost ?? null,
-						estimatedCost: cancelledCosts?.estimatedCost ?? false,
-						discount: cancelledCosts?.discount ?? null,
-						dataStorageCost: billCancelled
-							? calculateDataStorageCost(
-									estimatedPromptTokens,
-									null,
-									0,
-									null,
-									retentionLevel,
-								)
-							: "0",
-						cached: false,
-						toolResults: null,
-					});
-
-					// Send a cancellation event to the client
-					await writeSSEAndCache({
-						event: "canceled",
-						data: JSON.stringify({
-							message: "Request canceled by client",
-						}),
-						id: String(eventId++),
-					});
-					await writeSSEAndCache({
-						event: "done",
-						data: "[DONE]",
-						id: String(eventId++),
-					});
-					clearKeepalive();
-					return;
-				} else if (error instanceof Error) {
-					// Handle fetch errors (timeout, connection failures, etc.)
-					const errorMessage = error.message;
-					logger.warn("Fetch error", {
-						error: errorMessage,
-						usedProvider,
-						requestedProvider,
-						usedModel,
-						initialRequestedModel,
-					});
-
-					// Log the error in the database
-					// Extract plugin IDs for logging (fetch error)
-					const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
-
-					const baseLogEntry = createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						providerKey?.id,
-						usedModelFormatted,
-						usedModelMapping,
-						usedProvider,
-						initialRequestedModel,
-						requestedProvider,
-						messages,
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						effort,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-						image_config,
-						routingMetadata,
-						rawBody,
-						null, // No response for fetch error
-						requestBody, // The request that resulted in error
-						null, // No upstream response for fetch error
-						fetchErrorPluginIds,
-						undefined, // No plugin results for error case
-					);
-
-					await insertLog({
-						...baseLogEntry,
-						duration: Date.now() - startTime,
-						timeToFirstToken: null, // Not applicable for error case
-						timeToFirstReasoningToken: null, // Not applicable for error case
-						responseSize: 0,
-						content: null,
-						reasoningContent: null,
-						finishReason: "upstream_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: true,
-						canceled: false,
-						errorDetails: {
-							statusCode: 0,
-							statusText: error.name,
-							responseText: errorMessage,
-						},
-						cachedInputCost: null,
-						requestCost: null,
-						webSearchCost: null,
-						discount: null,
-						dataStorageCost: "0",
-						cached: false,
-						toolResults: null,
-					});
-
-					// Report key health for environment-based tokens
-					if (envVarName !== undefined) {
-						reportKeyError(envVarName, configIndex, 0);
-					}
-
-					// Send error event to the client
-					await writeSSEAndCache({
-						event: "error",
-						data: JSON.stringify({
-							error: {
-								message: `Failed to connect to provider: ${errorMessage}`,
-								type: "upstream_error",
-								code: "fetch_failed",
-							},
-						}),
-						id: String(eventId++),
-					});
-					await writeSSEAndCache({
-						event: "done",
-						data: "[DONE]",
-						id: String(eventId++),
-					});
-					clearKeepalive();
-					return;
-				} else {
-					throw error;
 				}
+
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModelFormatted,
+					usedModelMapping,
+					usedProvider,
+					initialRequestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					reasoning_effort,
+					effort,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					debugMode,
+					userAgent,
+					image_config,
+					routingMetadata,
+					rawBody,
+					null, // No response for canceled request
+					requestBody, // The request that was sent before cancellation
+					null, // No upstream response for canceled request
+					canceledPluginIds,
+					undefined, // No plugin results for canceled request
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration: Date.now() - startTime,
+					timeToFirstToken: null, // Not applicable for canceled request
+					timeToFirstReasoningToken: null, // Not applicable for canceled request
+					responseSize: 0,
+					content: null,
+					reasoningContent: null,
+					finishReason: "canceled",
+					promptTokens: billCancelled
+						? estimatedPromptTokens?.toString()
+						: null,
+					completionTokens: billCancelled ? "0" : null,
+					totalTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: true,
+					canceled: true,
+					errorDetails: null,
+					inputCost: cancelledCosts?.inputCost ?? null,
+					outputCost: cancelledCosts?.outputCost ?? null,
+					cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+					requestCost: cancelledCosts?.requestCost ?? null,
+					webSearchCost: cancelledCosts?.webSearchCost ?? null,
+					cost: cancelledCosts?.totalCost ?? null,
+					estimatedCost: cancelledCosts?.estimatedCost ?? false,
+					discount: cancelledCosts?.discount ?? null,
+					dataStorageCost: billCancelled
+						? calculateDataStorageCost(
+								estimatedPromptTokens,
+								null,
+								0,
+								null,
+								retentionLevel,
+							)
+						: "0",
+					cached: false,
+					toolResults: null,
+				});
+
+				// Send a cancellation event to the client
+				await writeSSEAndCache({
+					event: "canceled",
+					data: JSON.stringify({
+						message: "Request canceled by client",
+					}),
+					id: String(eventId++),
+				});
+				await writeSSEAndCache({
+					event: "done",
+					data: "[DONE]",
+					id: String(eventId++),
+				});
+				clearKeepalive();
+				return;
+			} else {
+				// Handle fetch errors (timeout, connection failures, etc.)
+				const error = fetchResult.error;
+				const errorMessage = error.message;
+				logger.warn("Fetch error after retries", {
+					error: errorMessage,
+					attempts: fetchResult.attempts,
+					usedProvider,
+					requestedProvider,
+					usedModel,
+					initialRequestedModel,
+				});
+
+				// Log the error in the database
+				// Extract plugin IDs for logging (fetch error)
+				const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModelFormatted,
+					usedModelMapping,
+					usedProvider,
+					initialRequestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					reasoning_effort,
+					effort,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					debugMode,
+					userAgent,
+					image_config,
+					routingMetadata,
+					rawBody,
+					null, // No response for fetch error
+					requestBody, // The request that resulted in error
+					null, // No upstream response for fetch error
+					fetchErrorPluginIds,
+					undefined, // No plugin results for error case
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration: Date.now() - startTime,
+					timeToFirstToken: null, // Not applicable for error case
+					timeToFirstReasoningToken: null, // Not applicable for error case
+					responseSize: 0,
+					content: null,
+					reasoningContent: null,
+					finishReason: "upstream_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: true,
+					canceled: false,
+					errorDetails: {
+						statusCode: 0,
+						statusText: error.name,
+						responseText: errorMessage,
+					},
+					cachedInputCost: null,
+					requestCost: null,
+					webSearchCost: null,
+					discount: null,
+					dataStorageCost: "0",
+					cached: false,
+					toolResults: null,
+				});
+
+				// Report key health for environment-based tokens
+				if (envVarName !== undefined) {
+					reportKeyError(envVarName, configIndex, 0);
+				}
+
+				// Send error event to the client
+				await writeSSEAndCache({
+					event: "error",
+					data: JSON.stringify({
+						error: {
+							message: `Failed to connect to provider: ${errorMessage}`,
+							type: "upstream_error",
+							code: "fetch_failed",
+						},
+					}),
+					id: String(eventId++),
+				});
+				await writeSSEAndCache({
+					event: "done",
+					data: "[DONE]",
+					id: String(eventId++),
+				});
+				clearKeepalive();
+				return;
 			}
 
 			if (!res.ok) {
@@ -4185,60 +4107,61 @@ chat.openapi(completions, async (c) => {
 
 	let canceled = false;
 	let fetchError: Error | null = null;
-	let res;
-	try {
-		const headers = getProviderHeaders(usedProvider, usedToken, {
-			webSearchEnabled: !!webSearchTool,
-		});
-		headers["Content-Type"] = "application/json";
+	let res: Response | undefined;
 
-		// Add effort beta header for Anthropic if effort parameter is specified
-		if (usedProvider === "anthropic" && effort !== undefined) {
-			const currentBeta = headers["anthropic-beta"];
-			headers["anthropic-beta"] = currentBeta
-				? `${currentBeta},effort-2025-11-24`
-				: "effort-2025-11-24";
-		}
+	const headers = getProviderHeaders(usedProvider, usedToken, {
+		webSearchEnabled: !!webSearchTool,
+	});
+	headers["Content-Type"] = "application/json";
 
-		// Add structured outputs beta header for Anthropic if json_schema response_format is specified
-		if (
-			usedProvider === "anthropic" &&
-			response_format?.type === "json_schema"
-		) {
-			const currentBeta = headers["anthropic-beta"];
-			headers["anthropic-beta"] = currentBeta
-				? `${currentBeta},structured-outputs-2025-11-13`
-				: "structured-outputs-2025-11-13";
-		}
+	// Add effort beta header for Anthropic if effort parameter is specified
+	if (usedProvider === "anthropic" && effort !== undefined) {
+		const currentBeta = headers["anthropic-beta"];
+		headers["anthropic-beta"] = currentBeta
+			? `${currentBeta},effort-2025-11-24`
+			: "effort-2025-11-24";
+	}
 
-		// Create a combined signal for both timeout and cancellation
-		const fetchSignal = createCombinedSignal(
-			requestCanBeCanceled ? controller : undefined,
-		);
+	// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+	if (usedProvider === "anthropic" && response_format?.type === "json_schema") {
+		const currentBeta = headers["anthropic-beta"];
+		headers["anthropic-beta"] = currentBeta
+			? `${currentBeta},structured-outputs-2025-11-13`
+			: "structured-outputs-2025-11-13";
+	}
 
-		res = await fetch(url, {
+	// Create a combined signal for both timeout and cancellation
+	const fetchSignal = createCombinedSignal(
+		requestCanBeCanceled ? controller : undefined,
+	);
+
+	// Perform fetch with automatic retry on retryable errors
+	const fetchResult = await fetchWithRetry({
+		url,
+		init: {
 			method: "POST",
 			headers,
 			body: JSON.stringify(requestBody),
 			signal: fetchSignal,
-		});
-	} catch (error) {
-		// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
-		if (isTimeoutError(error)) {
-			// Capture timeout as a fetch error for logging
-			fetchError =
-				error instanceof Error ? error : new Error("Request timeout");
-		} else if (error instanceof Error && error.name === "AbortError") {
+		},
+		timeBudgetMs: getAIRequestTimeoutMs(),
+		requestId,
+		provider: usedProvider,
+		model: usedModel,
+		maxRetries: requestRetries,
+	});
+
+	// Clean up the event listener
+	c.req.raw.signal.removeEventListener("abort", onAbort);
+
+	if (fetchResult.success) {
+		res = fetchResult.response;
+	} else {
+		if (fetchResult.canceled) {
 			canceled = true;
-		} else if (error instanceof Error) {
-			// Capture fetch errors (connection failures, etc.)
-			fetchError = error;
 		} else {
-			throw error;
+			fetchError = fetchResult.error;
 		}
-	} finally {
-		// Clean up the event listener
-		c.req.raw.signal.removeEventListener("abort", onAbort);
 	}
 
 	const duration = Date.now() - startTime;

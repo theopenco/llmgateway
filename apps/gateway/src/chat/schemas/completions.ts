@@ -224,6 +224,25 @@ export const completionsRequestSchema = z.object({
 				"Plugins to enable for this request. Currently supported: response-healing (automatically repairs malformed JSON responses when using response_format)",
 			example: [{ id: "response-healing" }],
 		}),
+	// Routing configuration
+	routing: z
+		.object({
+			retries: z.number().int().min(0).max(10).nullable().optional().openapi({
+				description:
+					"Number of retry attempts for failed upstream requests. Set to 0 or null to disable retries. Defaults to 3.",
+				example: 3,
+			}),
+			fallback: z.boolean().optional().openapi({
+				description:
+					"Whether to enable automatic provider fallback when the requested provider has low uptime. Set to false to disable fallback (equivalent to X-No-Fallback header). Defaults to true.",
+				example: true,
+			}),
+		})
+		.optional()
+		.openapi({
+			description: "Routing configuration options for the request.",
+			example: { retries: 3, fallback: true },
+		}),
 });
 
 export type CompletionsRequest = z.infer<typeof completionsRequestSchema>;
