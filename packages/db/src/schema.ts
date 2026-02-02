@@ -18,6 +18,7 @@ import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type z from "zod";
 
 export const UnifiedFinishReason = {
+	PENDING: "pending",
 	COMPLETED: "completed",
 	LENGTH_LIMIT: "length_limit",
 	CONTENT_FILTER: "content_filter",

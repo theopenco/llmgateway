@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
 	consumeFromQueue,
 	LOG_QUEUE,
+	LOG_UPDATE_QUEUE,
 	closeRedisClient,
 	publishToQueue,
 } from "@llmgateway/cache";
@@ -918,6 +919,116 @@ export async function processLogQueue(): Promise<void> {
 	}
 }
 
+/**
+ * Type for log update data that includes the logId field.
+ */
+interface LogUpdateData extends LogInsertData {
+	logId: string;
+}
+
+export async function processLogUpdateQueue(): Promise<void> {
+	const message = await consumeFromQueue(LOG_UPDATE_QUEUE);
+
+	if (!message) {
+		return;
+	}
+
+	const MAX_RETRIES = 5;
+
+	try {
+		const logUpdateData = message.map((i) => JSON.parse(i) as LogUpdateData);
+
+		const processedLogData: LogUpdateData[] = await Promise.all(
+			logUpdateData.map(async (data) => {
+				const org = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: data.organizationId,
+						},
+					},
+				});
+
+				if (org?.retentionLevel === "none") {
+					const {
+						messages: _messages,
+						content: _content,
+						reasoningContent: _reasoningContent,
+						tools: _tools,
+						toolChoice: _toolChoice,
+						toolResults: _toolResults,
+						...metadataOnly
+					} = data;
+					return metadataOnly as LogUpdateData;
+				}
+
+				return data;
+			}),
+		);
+
+		// Update logs with retry logic
+		let lastError: Error | undefined;
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				// Process each update individually since we need to update by ID
+				for (const updateData of processedLogData) {
+					const { logId, ...fieldsToUpdate } = updateData;
+					await db
+						.update(log)
+						.set(fieldsToUpdate as Partial<LogInsertData>)
+						.where(eq(log.id, logId));
+				}
+				return; // Success, exit function
+			} catch (updateError) {
+				lastError =
+					updateError instanceof Error
+						? updateError
+						: new Error(String(updateError));
+
+				if (attempt < MAX_RETRIES) {
+					const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, 8s, 16s, ...
+					logger.warn(
+						`Failed to update logs (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms...`,
+						lastError,
+					);
+					await new Promise((resolve) => {
+						setTimeout(resolve, delay);
+					});
+				}
+			}
+		}
+
+		// All retries exhausted, push messages back to queue for later processing
+		logger.error(
+			`Failed to update logs after ${MAX_RETRIES + 1} attempts, pushing back to queue`,
+			lastError,
+		);
+
+		// Re-add messages to queue
+		for (const msg of message) {
+			await publishToQueue(LOG_UPDATE_QUEUE, JSON.parse(msg));
+		}
+	} catch (error) {
+		logger.error(
+			"Error processing log update message",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+
+		// Re-add messages to queue on unexpected errors
+		try {
+			for (const msg of message) {
+				await publishToQueue(LOG_UPDATE_QUEUE, JSON.parse(msg));
+			}
+		} catch (requeueError) {
+			logger.error(
+				"Failed to re-queue log update messages",
+				requeueError instanceof Error
+					? requeueError
+					: new Error(String(requeueError)),
+			);
+		}
+	}
+}
+
 let isWorkerRunning = false;
 let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
@@ -956,6 +1067,38 @@ async function runLogQueueLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Log queue loop stopped");
+	}
+}
+
+async function runLogUpdateQueueLoop() {
+	activeLoops++;
+	logger.info("Starting log update queue processing loop...");
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await processLogUpdateQueue();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 1000);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in log update queue loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Log update queue loop stopped");
 	}
 }
 
@@ -1243,6 +1386,7 @@ export async function startWorker() {
 
 	// Start all parallel worker loops
 	void runLogQueueLoop();
+	void runLogUpdateQueueLoop();
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();

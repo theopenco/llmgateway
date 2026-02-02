@@ -16,6 +16,7 @@ redisClient.on("error", (err) =>
 );
 
 export const LOG_QUEUE = "log_queue_" + process.env.NODE_ENV;
+export const LOG_UPDATE_QUEUE = "log_update_queue_" + process.env.NODE_ENV;
 
 export async function publishToQueue(
 	queue: string,

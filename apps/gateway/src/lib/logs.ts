@@ -1,9 +1,14 @@
-import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
-import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
+import { publishToQueue, LOG_QUEUE, LOG_UPDATE_QUEUE } from "@llmgateway/cache";
+import {
+	UnifiedFinishReason,
+	type LogInsertData,
+	cdb as db,
+	log,
+	shortid,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import type { InferInsertModel } from "@llmgateway/db";
-import type { log } from "@llmgateway/db";
 
 /**
  * Check if a finish reason is expected to map to UNKNOWN
@@ -177,4 +182,114 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 	}
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations
+}
+
+/**
+ * Data required for creating a pending log entry.
+ * Only includes the minimal fields needed at request start.
+ */
+export interface PendingLogData {
+	requestId: string;
+	organizationId: string;
+	projectId: string;
+	apiKeyId: string;
+	requestedModel: string;
+	requestedProvider: string | null;
+	mode: "api-keys" | "credits" | "hybrid";
+	usedMode: "api-keys" | "credits";
+	messages: unknown;
+	streamed: boolean;
+	source: string | null;
+	userAgent: string | null;
+}
+
+/**
+ * Insert a pending log entry synchronously to the database.
+ * This is called at the start of a request to track requests that may timeout or be cancelled.
+ * Returns the log ID that should be used in the subsequent updateLog() call.
+ */
+export async function insertPendingLog(data: PendingLogData): Promise<string> {
+	const logId = shortid();
+
+	try {
+		await db.insert(log).values({
+			id: logId,
+			requestId: data.requestId,
+			organizationId: data.organizationId,
+			projectId: data.projectId,
+			apiKeyId: data.apiKeyId,
+			requestedModel: data.requestedModel,
+			requestedProvider: data.requestedProvider,
+			// Set placeholder values for required fields - these will be updated later
+			usedModel: data.requestedModel,
+			usedProvider: data.requestedProvider || "unknown",
+			duration: 0,
+			responseSize: 0,
+			mode: data.mode,
+			usedMode: data.usedMode,
+			// Set pending status
+			unifiedFinishReason: UnifiedFinishReason.PENDING,
+			// Include available data
+			messages: data.messages,
+			streamed: data.streamed,
+			source: data.source,
+			userAgent: data.userAgent,
+			// Initialize other fields
+			hasError: false,
+			canceled: false,
+			cached: false,
+			dataStorageCost: "0",
+		});
+
+		return logId;
+	} catch (error) {
+		logger.error("Failed to insert pending log", {
+			requestId: data.requestId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		throw error;
+	}
+}
+
+/**
+ * Data for updating an existing log entry.
+ * Includes the log ID and all the fields to update.
+ */
+export interface LogUpdateData extends Omit<LogInsertData, "id"> {
+	logId: string;
+}
+
+/**
+ * Update an existing log entry via the message queue.
+ * This is called at the end of a request to update the pending log with final data.
+ */
+export async function updateLog(logData: LogUpdateData): Promise<unknown> {
+	if (logData.unifiedFinishReason === undefined) {
+		if (logData.canceled) {
+			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;
+		} else {
+			logData.unifiedFinishReason = getUnifiedFinishReason(
+				logData.finishReason,
+				logData.usedProvider,
+			);
+
+			if (
+				logData.unifiedFinishReason === UnifiedFinishReason.UNKNOWN &&
+				logData.finishReason &&
+				!isExpectedUnknownFinishReason(
+					logData.finishReason,
+					logData.usedProvider,
+				)
+			) {
+				logger.error("Unknown finish reason encountered", {
+					requestId: logData.requestId,
+					finishReason: logData.finishReason,
+					provider: logData.usedProvider,
+					model: logData.usedModel,
+				});
+			}
+		}
+	}
+	await publishToQueue(LOG_UPDATE_QUEUE, logData);
+	return 1;
 }
