@@ -504,6 +504,20 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										? `$${Number(log.dataStorageCost).toFixed(8)}`
 										: "$0"}
 								</div>
+								{log.usedMode === "api-keys" && (
+									<>
+										<div className="text-muted-foreground">
+											API Key Fee (1%)
+										</div>
+										<div>
+											{log.serviceFee
+												? `$${Number(log.serviceFee).toFixed(8)}`
+												: log.cost
+													? `$${(Number(log.cost) * 0.01).toFixed(8)}`
+													: "$0"}
+										</div>
+									</>
+								)}
 							</div>
 						</div>
 						<div className="space-y-2">
