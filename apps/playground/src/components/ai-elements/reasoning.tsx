@@ -2,7 +2,7 @@
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
-import { createContext, memo, use, useEffect, useState } from "react";
+import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -25,7 +25,7 @@ interface ReasoningContextValue {
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
 
 export const useReasoning = () => {
-	const context = use(ReasoningContext);
+	const context = useContext(ReasoningContext);
 	if (!context) {
 		throw new Error("Reasoning components must be used within Reasoning");
 	}
@@ -98,7 +98,10 @@ export const Reasoning = memo(
 		};
 
 		return (
-			<ReasoningContext value={{ isStreaming, isOpen, setIsOpen, duration }}>
+			<ReasoningContext.Provider
+				// eslint-disable-next-line react/jsx-no-constructed-context-values
+				value={{ isStreaming, isOpen, setIsOpen, duration }}
+			>
 				<Collapsible
 					className={cn("not-prose mb-4", className)}
 					onOpenChange={handleOpenChange}
@@ -107,7 +110,7 @@ export const Reasoning = memo(
 				>
 					{children}
 				</Collapsible>
-			</ReasoningContext>
+			</ReasoningContext.Provider>
 		);
 	},
 );

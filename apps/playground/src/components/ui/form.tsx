@@ -37,15 +37,16 @@ const FormField = <
 	...props
 }: ControllerProps<TFieldValues, TName>) => {
 	return (
-		<FormFieldContext value={{ name: props.name }}>
+		// eslint-disable-next-line react/jsx-no-constructed-context-values
+		<FormFieldContext.Provider value={{ name: props.name }}>
 			<Controller {...props} />
-		</FormFieldContext>
+		</FormFieldContext.Provider>
 	);
 };
 
 const useFormField = () => {
-	const fieldContext = React.use(FormFieldContext);
-	const itemContext = React.use(FormItemContext);
+	const fieldContext = React.useContext(FormFieldContext);
+	const itemContext = React.useContext(FormItemContext);
 	const { getFieldState } = useFormContext();
 	const formState = useFormState({ name: fieldContext.name });
 	const fieldState = getFieldState(fieldContext.name, formState);
@@ -78,13 +79,14 @@ function FormItem({ className, ...props }: React.ComponentProps<"div">) {
 	const id = React.useId();
 
 	return (
-		<FormItemContext value={{ id }}>
+		// eslint-disable-next-line react/jsx-no-constructed-context-values
+		<FormItemContext.Provider value={{ id }}>
 			<div
 				data-slot="form-item"
 				className={cn("grid gap-2", className)}
 				{...props}
 			/>
-		</FormItemContext>
+		</FormItemContext.Provider>
 	);
 }
 

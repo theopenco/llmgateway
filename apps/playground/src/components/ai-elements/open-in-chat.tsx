@@ -3,7 +3,7 @@ import {
 	ExternalLinkIcon,
 	MessageCircleIcon,
 } from "lucide-react";
-import { type ComponentProps, createContext, use } from "react";
+import { type ComponentProps, createContext, useContext } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -160,7 +160,7 @@ const providers = {
 const OpenInContext = createContext<{ query: string } | undefined>(undefined);
 
 const useOpenInContext = () => {
-	const context = use(OpenInContext);
+	const context = useContext(OpenInContext);
 	if (!context) {
 		throw new Error("OpenIn components must be used within an OpenIn provider");
 	}
@@ -172,9 +172,10 @@ export type OpenInProps = ComponentProps<typeof DropdownMenu> & {
 };
 
 export const OpenIn = ({ query, ...props }: OpenInProps) => (
-	<OpenInContext value={{ query }}>
+	// eslint-disable-next-line react/jsx-no-constructed-context-values
+	<OpenInContext.Provider value={{ query }}>
 		<DropdownMenu {...props} />
-	</OpenInContext>
+	</OpenInContext.Provider>
 );
 
 export type OpenInContentProps = ComponentProps<typeof DropdownMenuContent>;

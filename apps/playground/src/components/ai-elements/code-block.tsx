@@ -5,7 +5,7 @@ import {
 	type ComponentProps,
 	createContext,
 	type HTMLAttributes,
-	use,
+	useContext,
 	useEffect,
 	useRef,
 	useState,
@@ -66,7 +66,8 @@ export const CodeBlock = ({
 	}, [code, language]);
 
 	return (
-		<CodeBlockContext value={{ code }}>
+		// eslint-disable-next-line react/jsx-no-constructed-context-values
+		<CodeBlockContext.Provider value={{ code }}>
 			<div className="group relative">
 				<div
 					className={cn(
@@ -74,7 +75,6 @@ export const CodeBlock = ({
 						className,
 					)}
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{ __html: html }}
 					{...props}
 				/>
@@ -84,13 +84,12 @@ export const CodeBlock = ({
 						className,
 					)}
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{ __html: darkHtml }}
 					{...props}
 				/>
 				{children}
 			</div>
-		</CodeBlockContext>
+		</CodeBlockContext.Provider>
 	);
 };
 
@@ -109,7 +108,7 @@ export const CodeBlockCopyButton = ({
 	...props
 }: CodeBlockCopyButtonProps) => {
 	const [isCopied, setIsCopied] = useState(false);
-	const { code } = use(CodeBlockContext);
+	const { code } = useContext(CodeBlockContext);
 
 	const copyToClipboard = async () => {
 		if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {

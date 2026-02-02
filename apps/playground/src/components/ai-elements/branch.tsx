@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import { createContext, use, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ interface BranchContextType {
 const BranchContext = createContext<BranchContextType | null>(null);
 
 const useBranch = () => {
-	const context = use(BranchContext);
+	const context = useContext(BranchContext);
 
 	if (!context) {
 		throw new Error("Branch components must be used within Branch");
@@ -61,6 +61,7 @@ export const Branch = ({
 		handleBranchChange(newBranch);
 	};
 
+	// eslint-disable-next-line react/jsx-no-constructed-context-values
 	const contextValue: BranchContextType = {
 		currentBranch,
 		totalBranches: branches.length,
@@ -71,12 +72,12 @@ export const Branch = ({
 	};
 
 	return (
-		<BranchContext value={contextValue}>
+		<BranchContext.Provider value={contextValue}>
 			<div
 				className={cn("grid w-full gap-2 [&>div]:pb-0", className)}
 				{...props}
 			/>
-		</BranchContext>
+		</BranchContext.Provider>
 	);
 };
 
