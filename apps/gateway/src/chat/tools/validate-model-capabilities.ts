@@ -90,7 +90,13 @@ export function validateModelCapabilities(
 		requestedModel !== "auto" &&
 		requestedModel !== "custom"
 	) {
-		const supportsReasoning = modelInfo.providers.some(
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsReasoning = providersToCheck.some(
 			(provider) => (provider as ProviderModelMapping).reasoning === true,
 		);
 
