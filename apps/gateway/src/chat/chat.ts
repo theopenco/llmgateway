@@ -4070,6 +4070,7 @@ chat.openapi(completions, async (c) => {
 
 	let canceled = false;
 	let fetchError: Error | null = null;
+	let isTimeoutFetchError = false;
 	let res;
 	try {
 		const headers = getProviderHeaders(usedProvider, usedToken, {
@@ -4113,6 +4114,7 @@ chat.openapi(completions, async (c) => {
 			// Capture timeout as a fetch error for logging
 			fetchError =
 				error instanceof Error ? error : new Error("Request timeout");
+			isTimeoutFetchError = true;
 		} else if (error instanceof Error && error.name === "AbortError") {
 			canceled = true;
 		} else if (error instanceof Error) {
@@ -4215,21 +4217,23 @@ chat.openapi(completions, async (c) => {
 			reportKeyError(envVarName, configIndex, 0);
 		}
 
-		// Return error response
+		// Return error response - use 504 for timeouts, 502 for other connection failures
 		return c.json(
 			{
 				error: {
-					message: `Failed to connect to provider: ${errorMessage}`,
-					type: "upstream_error",
+					message: isTimeoutFetchError
+						? `Upstream provider timeout: ${errorMessage}`
+						: `Failed to connect to provider: ${errorMessage}`,
+					type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
 					param: null,
-					code: "fetch_failed",
+					code: isTimeoutFetchError ? "timeout" : "fetch_failed",
 					requestedProvider,
 					usedProvider,
 					requestedModel: initialRequestedModel,
 					usedModel,
 				},
 			},
-			502,
+			isTimeoutFetchError ? 504 : 502,
 		);
 	}
 

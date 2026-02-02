@@ -845,13 +845,13 @@ describe("test", () => {
 				}),
 			});
 
-			// Request should fail with 502 Bad Gateway (upstream timeout)
-			expect(res.status).toBe(502);
+			// Request should fail with 504 Gateway Timeout (upstream timeout)
+			expect(res.status).toBe(504);
 
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
-			expect(json.error.type).toBe("upstream_error");
-			expect(json.error.code).toBe("fetch_failed");
+			expect(json.error.type).toBe("upstream_timeout");
+			expect(json.error.code).toBe("timeout");
 
 			// Wait for the log to be written
 			const logs = await waitForLogs(1);
