@@ -408,10 +408,35 @@ export async function POST(req: Request) {
 			if (isMcpCallToolResult(result)) {
 				const textParts = result.content
 					.filter(isMcpTextContent)
-					.map((c) => c.text);
+					.map((c) => c.text)
+					// Filter out structured data comments
+					.filter((text) => !text.startsWith("<!--STRUCTURED_DATA:"));
 				return textParts.join("\n");
 			}
 			return typeof result === "string" ? result : JSON.stringify(result);
+		};
+
+		// Helper to extract structured data from MCP result (embedded as HTML comment)
+		const extractStructuredData = (
+			result: unknown,
+		): { type: string; data: unknown } | null => {
+			if (isMcpCallToolResult(result)) {
+				for (const content of result.content) {
+					if (isMcpTextContent(content)) {
+						const match = content.text.match(
+							/<!--STRUCTURED_DATA:([\s\S]+?)-->/,
+						);
+						if (match) {
+							try {
+								return JSON.parse(match[1]);
+							} catch {
+								return null;
+							}
+						}
+					}
+				}
+			}
+			return null;
 		};
 
 		// Helper to extract images from MCP result format
@@ -473,7 +498,13 @@ export async function POST(req: Request) {
 							execute: async (args) => {
 								const result = await originalTool.execute(args);
 								const extracted = extractMcpResult(result);
-								return { data: extracted };
+								const structured = extractStructuredData(result);
+								return {
+									text: extracted,
+									...(structured?.type === "models"
+										? { models: structured.data }
+										: {}),
+								};
 							},
 						});
 					} else if (toolName === "chat") {
@@ -486,17 +517,17 @@ export async function POST(req: Request) {
 
 						allTools[generateToolName] = tool({
 							description:
-								"Generate images or text using an AI model. You MUST provide both 'model' and 'prompt' parameters.",
+								"Generate TEXT responses using a language model. Use this for text-based tasks like answering questions, writing, analysis, coding, etc. Do NOT use this for image generation - use 'generate-image' tool instead when the user wants to create, draw, or generate images.",
 							inputSchema: z.object({
 								model: z
 									.string()
 									.describe(
-										"The model ID to use, e.g. 'gemini-3-pro-image-preview', 'gpt-4o', 'claude-sonnet-4-20250514'",
+										"The language model ID to use for text generation, e.g. 'gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.0-flash'",
 									),
 								prompt: z
 									.string()
 									.describe(
-										"The prompt describing what to generate, e.g. 'draw a red apple' or 'explain quantum physics'",
+										"The text prompt for the language model, e.g. 'explain quantum physics' or 'write a poem about nature'",
 									),
 							}),
 							execute: async (args) => {
@@ -514,12 +545,12 @@ export async function POST(req: Request) {
 						// Generate image tool - requires prompt parameter
 						allTools[prefixedName] = tool({
 							description:
-								"Generate images from text prompts using AI image generation models. Returns generated images based on the provided description.",
+								"CREATE AND GENERATE IMAGES from text descriptions. Use this tool whenever the user wants to create, draw, generate, make, or produce an image, picture, illustration, artwork, or visual content. This is the ONLY tool for image generation - do not use generate_content for images.",
 							inputSchema: z.object({
 								prompt: z
 									.string()
 									.describe(
-										"Text description of the image to generate, e.g. 'a futuristic city skyline at sunset with flying cars'",
+										"Detailed text description of the image to create, e.g. 'a futuristic city skyline at sunset with flying cars'",
 									),
 								model: z
 									.string()
@@ -556,7 +587,13 @@ export async function POST(req: Request) {
 							execute: async (args) => {
 								const result = await originalTool.execute(args);
 								const extracted = extractMcpResult(result);
-								return { models: extracted };
+								const structured = extractStructuredData(result);
+								return {
+									text: extracted,
+									...(structured?.type === "image-models"
+										? { imageModels: structured.data }
+										: {}),
+								};
 							},
 						});
 					} else {
@@ -576,39 +613,6 @@ export async function POST(req: Request) {
 			} catch {
 				// Failed to get tools from MCP server
 			}
-		}
-
-		// Add a simple test tool for debugging (to verify tool streaming works)
-		const testTool = tool({
-			description:
-				"A simple test tool that returns the current time. Use this to test if tool calling works.",
-			inputSchema: z.object({
-				format: z
-					.enum(["iso", "locale", "unix"])
-					.optional()
-					.default("iso")
-					.describe("The format of the time"),
-			}),
-			execute: async ({ format }) => {
-				const now = new Date();
-				let result: string;
-				switch (format) {
-					case "unix":
-						result = Math.floor(now.getTime() / 1000).toString();
-						break;
-					case "locale":
-						result = now.toLocaleString();
-						break;
-					default:
-						result = now.toISOString();
-				}
-				return { time: result, format };
-			},
-		});
-
-		// Always add the test tool when MCP servers are configured (for debugging)
-		if (enabledMcpServers.length > 0) {
-			allTools["get_current_time"] = testTool;
 		}
 
 		const hasTools = Object.keys(allTools).length > 0;

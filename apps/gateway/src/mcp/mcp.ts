@@ -18,7 +18,9 @@ import type { Context } from "hono";
 const chatInputSchema = z.object({
 	model: z
 		.string()
-		.describe('The model to use (e.g., "gpt-4o", "claude-sonnet-4-20250514")'),
+		.describe(
+			'The language model ID to use for text generation (e.g., "gpt-4o", "claude-sonnet-4-20250514", "gemini-2.0-flash")',
+		),
 	messages: z
 		.array(
 			z.object({
@@ -26,7 +28,7 @@ const chatInputSchema = z.object({
 				content: z.string().describe("Message content"),
 			}),
 		)
-		.describe("Array of messages in the conversation"),
+		.describe("Array of messages in the conversation for text generation"),
 	temperature: z
 		.number()
 		.min(0)
@@ -68,7 +70,11 @@ const listModelsInputSchema = z.object({
 });
 
 const generateImageInputSchema = z.object({
-	prompt: z.string().describe("Text description of the image to generate"),
+	prompt: z
+		.string()
+		.describe(
+			"Detailed text description of the image to create, e.g. 'a futuristic city skyline at sunset with flying cars'",
+		),
 	model: z
 		.string()
 		.optional()
@@ -111,7 +117,7 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the chat tool
 	server.tool(
 		"chat",
-		"Send a message to an LLM and get a response. Supports multiple models through LLM Gateway.",
+		"Generate TEXT responses using a language model. Use this for text-based tasks like answering questions, writing, analysis, coding, explanations, etc. Do NOT use this for image generation - use the 'generate-image' tool instead when the user wants to create, draw, or generate images.",
 		chatInputSchema.shape,
 		async (input: ChatInput) => {
 			try {
@@ -357,6 +363,10 @@ function createMcpServer(apiKey: string): McpServer {
 							type: "text" as const,
 							text: responseText,
 						},
+						{
+							type: "text" as const,
+							text: `<!--STRUCTURED_DATA:${JSON.stringify({ type: "models", data: modelData })}-->`,
+						},
 					],
 				};
 			} catch (error) {
@@ -380,7 +390,7 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the generate-image tool
 	server.tool(
 		"generate-image",
-		"Generate images from text prompts using AI image generation models like Qwen Image or other supported image models.",
+		"CREATE AND GENERATE IMAGES from text descriptions. Use this tool whenever the user wants to create, draw, generate, make, or produce an image, picture, illustration, artwork, or visual content. This is the ONLY tool for image generation - do not use the 'chat' tool for images.",
 		generateImageInputSchema.shape,
 		async (input: GenerateImageInput) => {
 			try {
@@ -546,24 +556,37 @@ function createMcpServer(apiKey: string): McpServer {
 					};
 				}
 
-				let responseText = `# Image Generation Models\n\n`;
-				responseText += `Found ${imageModels.length} model(s) that support image generation.\n\n`;
-
-				for (const model of imageModels) {
+				// Build structured data for image models
+				const imageModelData = imageModels.map((model: ModelDefinition) => {
 					const imageProvider = model.providers.find(
 						(p) => (p as ProviderModelMapping).imageGenerations === true,
 					) as ProviderModelMapping | undefined;
 
-					const requestPrice = imageProvider?.requestPrice;
+					return {
+						id: model.id,
+						name: model.name || model.id,
+						description: model.description,
+						family: model.family,
+						requestPrice: imageProvider?.requestPrice,
+						providers: [...new Set(model.providers.map((p) => p.providerId))],
+					};
+				});
 
-					responseText += `## ${(model as ModelDefinition).name || (model as ModelDefinition).id}\n`;
-					responseText += `- **Model ID:** \`${(model as ModelDefinition).id}\`\n`;
-					if ((model as ModelDefinition).description) {
-						responseText += `- **Description:** ${(model as ModelDefinition).description}\n`;
+				let responseText = `# Image Generation Models\n\n`;
+				responseText += `Found ${imageModels.length} model(s) that support image generation.\n\n`;
+
+				for (const modelData of imageModelData) {
+					responseText += `## ${modelData.name}\n`;
+					responseText += `- **Model ID:** \`${modelData.id}\`\n`;
+					if (modelData.description) {
+						responseText += `- **Description:** ${modelData.description}\n`;
 					}
-					responseText += `- **Family:** ${(model as ModelDefinition).family}\n`;
-					if (requestPrice !== undefined && requestPrice > 0) {
-						responseText += `- **Price:** $${requestPrice} per request\n`;
+					responseText += `- **Family:** ${modelData.family}\n`;
+					if (
+						modelData.requestPrice !== undefined &&
+						modelData.requestPrice > 0
+					) {
+						responseText += `- **Price:** $${modelData.requestPrice} per request\n`;
 					}
 					responseText += "\n";
 				}
@@ -584,6 +607,10 @@ function createMcpServer(apiKey: string): McpServer {
 						{
 							type: "text" as const,
 							text: responseText,
+						},
+						{
+							type: "text" as const,
+							text: `<!--STRUCTURED_DATA:${JSON.stringify({ type: "image-models", data: imageModelData })}-->`,
 						},
 					],
 				};
