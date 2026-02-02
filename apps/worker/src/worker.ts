@@ -21,7 +21,6 @@ import {
 	inArray,
 	type LogInsertData,
 	closeDatabase,
-	closeCachedDatabase,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
@@ -1313,11 +1312,7 @@ export async function stopWorker(): Promise<boolean> {
 
 	// Close database and Redis connections
 	try {
-		await Promise.all([
-			closeDatabase(),
-			closeCachedDatabase(),
-			closeRedisClient(),
-		]);
+		await Promise.all([closeDatabase(), closeRedisClient()]);
 		logger.info("All connections closed successfully");
 	} catch (error) {
 		logger.error(
