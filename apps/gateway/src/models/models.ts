@@ -285,10 +285,8 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 		}
 	}
 
-	// Check if model's primary provider is Anthropic (which doesn't support frequency/presence penalty)
-	const isAnthropicModel = model.providers.some(
-		(p) => p.providerId === "anthropic" || p.providerId === "aws-bedrock",
-	);
+	// Check if model is in the Anthropic family (which doesn't support frequency/presence penalty)
+	const isAnthropicModel = model.family === "anthropic";
 
 	// Default common parameters that most models support
 	// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
