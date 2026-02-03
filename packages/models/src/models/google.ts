@@ -10,7 +10,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-03-25"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-pro",
 				inputPrice: 1.25 / 1e6,
@@ -42,7 +41,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-pro",
 				inputPrice: 1.25 / 1e6,
@@ -84,7 +82,6 @@ export const googleModels = [
 		providers: [
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-pro-preview-05-06",
 				inputPrice: 1.25 / 1e6,
@@ -116,7 +113,6 @@ export const googleModels = [
 			},
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-pro-preview-05-06",
 				inputPrice: 1.25 / 1e6,
@@ -157,7 +153,6 @@ export const googleModels = [
 		providers: [
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-pro-preview-06-05",
 				inputPrice: 1.25 / 1e6,
@@ -189,7 +184,6 @@ export const googleModels = [
 			},
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-pro-preview-06-05",
 				inputPrice: 1.25 / 1e6,
@@ -229,7 +223,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-04-17"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-preview-04-17",
 				inputPrice: 0.15 / 1e6,
@@ -246,7 +239,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2025-07-15"),
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-preview-04-17",
 				inputPrice: 0.15 / 1e6,
@@ -272,7 +264,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-05-20"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-preview-05-20",
 				inputPrice: 0.15 / 1e6,
@@ -289,7 +280,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2025-07-15"),
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-preview-05-20",
 				inputPrice: 0.15 / 1e6,
@@ -315,7 +305,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-09-25"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-preview-09-2025",
 				inputPrice: 0.3 / 1e6,
@@ -332,7 +321,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				deactivatedAt: new Date("2026-01-27"),
 				modelName: "gemini-2.5-flash-preview-09-2025",
@@ -359,7 +347,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-08-26"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash",
 				inputPrice: 0.3 / 1e6,
@@ -378,7 +365,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash",
 				inputPrice: 0.3 / 1e6,
@@ -407,7 +393,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-07-22"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-lite",
 				inputPrice: 0.1 / 1e6,
@@ -423,7 +408,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-lite",
 				inputPrice: 0.1 / 1e6,
@@ -448,7 +432,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-09-25"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-lite-preview-09-2025",
 				inputPrice: 0.1 / 1e6,
@@ -464,7 +447,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-lite-preview-09-2025",
 				inputPrice: 0.1 / 1e6,
@@ -490,7 +472,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-11-18"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-3-pro-preview",
 				inputPrice: 2 / 1e6,
@@ -524,7 +505,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-3-pro-preview",
 				inputPrice: 2 / 1e6,
@@ -568,7 +548,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-12-17"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-3-flash-preview",
 				inputPrice: 0.5 / 1e6,
@@ -602,7 +581,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-3-flash-preview",
 				inputPrice: 0.5 / 1e6,
@@ -648,7 +626,6 @@ export const googleModels = [
 		providers: [
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-image-preview",
 				inputPrice: 0.3 / 1e6,
@@ -664,7 +641,6 @@ export const googleModels = [
 			},
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-image-preview",
 				inputPrice: 0.3 / 1e6,
@@ -691,7 +667,6 @@ export const googleModels = [
 		providers: [
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-image",
 				inputPrice: 0.3 / 1e6,
@@ -707,7 +682,6 @@ export const googleModels = [
 			},
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-image",
 				inputPrice: 0.3 / 1e6,
@@ -735,7 +709,6 @@ export const googleModels = [
 		providers: [
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-3-pro-image-preview",
 				inputPrice: 2 / 1e6,
@@ -753,7 +726,6 @@ export const googleModels = [
 			},
 			{
 				test: "skip",
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-3-pro-image-preview",
 				inputPrice: 2 / 1e6,
@@ -779,7 +751,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-04-17"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-preview-04-17-thinking",
 				inputPrice: 0.15 / 1e6,
@@ -796,7 +767,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2025-07-22"),
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.5-flash-preview-04-17-thinking",
 				inputPrice: 0.15 / 1e6,
@@ -822,7 +792,6 @@ export const googleModels = [
 		releasedAt: new Date("2024-05-23"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-1.5-pro",
 				inputPrice: 2.5 / 1e6,
@@ -839,7 +808,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2025-09-20"),
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-1.5-pro",
 				inputPrice: 2.5 / 1e6,
@@ -865,7 +833,6 @@ export const googleModels = [
 		releasedAt: new Date("2024-05-10"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-1.5-flash",
 				inputPrice: 0.0375 / 1e6,
@@ -882,7 +849,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2025-09-20"),
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-1.5-flash",
 				inputPrice: 0.0375 / 1e6,
@@ -908,7 +874,6 @@ export const googleModels = [
 		releasedAt: new Date("2024-10-03"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-1.5-flash-8b",
 				inputPrice: 0.0375 / 1e6,
@@ -925,7 +890,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2025-09-20"),
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-1.5-flash-8b",
 				inputPrice: 0.0375 / 1e6,
@@ -951,7 +915,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-02-25"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.0-flash-lite",
 				inputPrice: 0.075 / 1e6,
@@ -966,7 +929,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.0-flash-lite",
 				inputPrice: 0.075 / 1e6,
@@ -990,7 +952,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-02-05"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.0-flash",
 				inputPrice: 0.1 / 1e6,
@@ -1005,7 +966,6 @@ export const googleModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				discount: 0.2,
 				providerId: "google-vertex",
 				modelName: "gemini-2.0-flash",
 				inputPrice: 0.1 / 1e6,
@@ -1029,7 +989,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-06-26"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemma-3n-e2b-it",
 				inputPrice: 0.075 / 1e6,
@@ -1052,7 +1011,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-06-26"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemma-3n-e4b-it",
 				inputPrice: 0.075 / 1e6,
@@ -1075,7 +1033,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-03-12"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemma-3-1b-it",
 				inputPrice: 0.075 / 1e6,
@@ -1098,7 +1055,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-03-10"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemma-3-4b-it",
 				inputPrice: 0.075 / 1e6,
@@ -1121,7 +1077,6 @@ export const googleModels = [
 		releasedAt: new Date("2025-03-10"),
 		providers: [
 			{
-				discount: 0.2,
 				providerId: "google-ai-studio",
 				modelName: "gemma-3-12b-it",
 				inputPrice: 0.075 / 1e6,
