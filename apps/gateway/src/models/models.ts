@@ -270,18 +270,6 @@ modelsApi.openapi(listModels, async (c) => {
 // Helper function to determine supported parameters from model definitions
 // Falls back to common default parameters if not explicitly defined
 function getSupportedParametersFromModel(model: ModelDefinition): string[] {
-	// Default common parameters that most models support
-	const defaultCommonParams = [
-		"temperature",
-		"max_tokens",
-		"top_p",
-		"frequency_penalty",
-		"presence_penalty",
-		"response_format",
-		"tools",
-		"tool_choice",
-	];
-
 	// Start with explicit supported parameters if any provider defines them
 	for (const provider of model.providers) {
 		const supportedParameters = provider.supportedParameters;
@@ -296,6 +284,33 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 			return params;
 		}
 	}
+
+	// Check if model's primary provider is Anthropic (which doesn't support frequency/presence penalty)
+	const isAnthropicModel = model.providers.some(
+		(p) => p.providerId === "anthropic" || p.providerId === "aws-bedrock",
+	);
+
+	// Default common parameters that most models support
+	// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
+	const defaultCommonParams = isAnthropicModel
+		? [
+				"temperature",
+				"max_tokens",
+				"top_p",
+				"response_format",
+				"tools",
+				"tool_choice",
+			]
+		: [
+				"temperature",
+				"max_tokens",
+				"top_p",
+				"frequency_penalty",
+				"presence_penalty",
+				"response_format",
+				"tools",
+				"tool_choice",
+			];
 
 	// If no provider has explicit supported parameters, return defaults
 	const params = [...defaultCommonParams];

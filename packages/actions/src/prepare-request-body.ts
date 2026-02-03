@@ -967,12 +967,7 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.top_p = top_p;
 			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
 			if (effort !== undefined) {
 				if (!requestBody.output_config) {
 					requestBody.output_config = {};
