@@ -1577,8 +1577,11 @@ chat.openapi(completions, async (c) => {
 				let reasoningTokens = null;
 				let cachedTokens = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
+				let cachedResponseSize = 0; // Track size incrementally to avoid expensive stringify
 
 				for (const chunk of cachedStreamingResponse.chunks) {
+					// Track response size incrementally (sum of chunk data lengths + overhead)
+					cachedResponseSize += chunk.data.length + 50; // 50 bytes overhead per chunk for metadata
 					// Reconstruct raw SSE data for logging only in debug mode and within size limit
 					if (debugMode && rawCachedResponseData.length < MAX_RAW_DATA_SIZE) {
 						const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
@@ -1688,7 +1691,7 @@ chat.openapi(completions, async (c) => {
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
-					responseSize: JSON.stringify(cachedStreamingResponse).length,
+					responseSize: cachedResponseSize,
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
@@ -1807,15 +1810,23 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 				);
 
+				// Estimate cached response size based on content to avoid expensive stringify
+				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
+				const cachedReasoningContent =
+					cachedResponse.choices?.[0]?.message?.reasoning;
+				const estimatedCachedSize =
+					(cachedContent?.length || 0) +
+					(cachedReasoningContent?.length || 0) +
+					500; // overhead for metadata
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
-					responseSize: JSON.stringify(cachedResponse).length,
-					content: cachedResponse.choices?.[0]?.message?.content || null,
-					reasoningContent:
-						cachedResponse.choices?.[0]?.message?.reasoning || null,
+					responseSize: estimatedCachedSize,
+					content: cachedContent || null,
+					reasoningContent: cachedReasoningContent || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
 					promptTokens: cachedResponse.usage?.prompt_tokens || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
@@ -3627,28 +3638,32 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!completionTokens && (fullContent || imageByteSize > 0)) {
-						try {
-							let textTokens = fullContent
-								? encode(JSON.stringify(fullContent)).length
-								: 0;
-							// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
-							}
+						// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+						let imageTokens = 0;
+						if (imageByteSize > 0) {
+							imageTokens = 258 + Math.ceil(imageByteSize / 750);
+						}
+
+						// Skip expensive token encoding for image responses - use simple estimation
+						// Token encoding on large base64 content causes CPU spikes
+						if (imageByteSize > 0) {
+							const textTokens = estimateTokensFromContent(fullContent);
 							calculatedCompletionTokens = textTokens + imageTokens;
-						} catch (error) {
-							// Fallback to simple estimation if encoding fails
-							logger.error(
-								"Failed to encode completion text in streaming",
-								error instanceof Error ? error : new Error(String(error)),
-							);
-							let textTokens = estimateTokensFromContent(fullContent);
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
+						} else {
+							try {
+								const textTokens = fullContent
+									? encode(JSON.stringify(fullContent)).length
+									: 0;
+								calculatedCompletionTokens = textTokens + imageTokens;
+							} catch (error) {
+								// Fallback to simple estimation if encoding fails
+								logger.error(
+									"Failed to encode completion text in streaming",
+									error instanceof Error ? error : new Error(String(error)),
+								);
+								const textTokens = estimateTokensFromContent(fullContent);
+								calculatedCompletionTokens = textTokens + imageTokens;
 							}
-							calculatedCompletionTokens = textTokens + imageTokens;
 						}
 					}
 
@@ -4518,7 +4533,11 @@ chat.openapi(completions, async (c) => {
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
 	}
-	const responseText = JSON.stringify(json);
+	// Track response size - prefer Content-Length header to avoid expensive stringify on large responses
+	const contentLengthHeader = res.headers.get("Content-Length");
+	let responseSize = contentLengthHeader
+		? parseInt(contentLengthHeader, 10)
+		: 0;
 
 	// Extract content and token usage based on provider
 	let {
@@ -4752,12 +4771,26 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Calculate response size if Content-Length was not available
+	// For large responses, use content length estimation to avoid CPU spikes from stringify
+	if (!responseSize) {
+		const contentLength = content?.length || 0;
+		// If content is very large (likely contains base64 images), use estimation
+		// Otherwise stringify is acceptable for smaller responses
+		if (contentLength > 1_000_000) {
+			// Estimate: content + JSON overhead
+			responseSize = contentLength + 500;
+		} else {
+			responseSize = JSON.stringify(json).length;
+		}
+	}
+
 	await insertLog({
 		...baseLogEntry,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
-		responseSize: responseText.length,
+		responseSize,
 		content: content,
 		reasoningContent: reasoningContent,
 		finishReason: hasEmptyNonStreamingResponse
