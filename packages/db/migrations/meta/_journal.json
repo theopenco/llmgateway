@@ -603,6 +603,13 @@
       "when": 1769624265351,
       "tag": "1769624265_square_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "8",
+      "when": 1770068951667,
+      "tag": "1770068951_simple_magma",
+      "breakpoints": true
     }
   ]
 }
