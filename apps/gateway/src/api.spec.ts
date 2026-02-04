@@ -793,20 +793,28 @@ describe("test", () => {
 	// Timeout tests - use a short timeout via env var to test timeout handling
 	describe("Timeout handling", () => {
 		let originalTimeout: string | undefined;
+		let originalStreamingTimeout: string | undefined;
 
 		beforeAll(() => {
-			// Save original env value
-			originalTimeout = process.env.AI_REQUEST_TIMEOUT_MS;
+			// Save original env values
+			originalTimeout = process.env.AI_TIMEOUT_MS;
+			originalStreamingTimeout = process.env.AI_STREAMING_TIMEOUT_MS;
 			// Set a short timeout for testing (2 seconds)
-			process.env.AI_REQUEST_TIMEOUT_MS = "2000";
+			process.env.AI_TIMEOUT_MS = "2000";
+			process.env.AI_STREAMING_TIMEOUT_MS = "2000";
 		});
 
 		afterAll(() => {
-			// Restore original env value
+			// Restore original env values
 			if (originalTimeout !== undefined) {
-				process.env.AI_REQUEST_TIMEOUT_MS = originalTimeout;
+				process.env.AI_TIMEOUT_MS = originalTimeout;
 			} else {
-				delete process.env.AI_REQUEST_TIMEOUT_MS;
+				delete process.env.AI_TIMEOUT_MS;
+			}
+			if (originalStreamingTimeout !== undefined) {
+				process.env.AI_STREAMING_TIMEOUT_MS = originalStreamingTimeout;
+			} else {
+				delete process.env.AI_STREAMING_TIMEOUT_MS;
 			}
 		});
 

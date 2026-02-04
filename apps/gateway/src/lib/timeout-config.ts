@@ -16,12 +16,12 @@ export function getGatewayTimeoutMs(): number {
 }
 
 /**
- * Gets the AI API request timeout - the maximum time for upstream provider calls.
+ * Gets the AI API request timeout for streaming requests - the maximum time for upstream provider calls.
  * Should be shorter than gateway timeout to allow for error handling.
  * Default: 4 minutes (240000ms) or 80% of gateway timeout, whichever is smaller
  */
-export function getAIRequestTimeoutMs(): number {
-	const envValue = Number(process.env.AI_REQUEST_TIMEOUT_MS);
+export function getStreamingTimeoutMs(): number {
+	const envValue = Number(process.env.AI_STREAMING_TIMEOUT_MS);
 	if (envValue > 0) {
 		return envValue;
 	}
@@ -29,23 +29,63 @@ export function getAIRequestTimeoutMs(): number {
 	return Math.min(240000, getGatewayTimeoutMs() * 0.8);
 }
 
+/**
+ * Gets the AI API request timeout for non-streaming (plain) requests.
+ * Non-streaming requests have a shorter default timeout since they don't benefit
+ * from incremental responses and long waits are usually indicative of issues.
+ * Default: 80 seconds (80000ms)
+ */
+export function getTimeoutMs(): number {
+	const envValue = Number(process.env.AI_TIMEOUT_MS);
+	if (envValue > 0) {
+		return envValue;
+	}
+	// Default: 80 seconds for non-streaming requests
+	return 80000;
+}
+
 // Legacy exports for backwards compatibility (read at module load time)
 // These should be avoided in new code - use the getter functions instead
 export const GATEWAY_TIMEOUT_MS = getGatewayTimeoutMs();
-export const AI_REQUEST_TIMEOUT_MS = getAIRequestTimeoutMs();
+export const AI_STREAMING_TIMEOUT_MS = getStreamingTimeoutMs();
+export const AI_TIMEOUT_MS = getTimeoutMs();
 
 /**
- * Creates an AbortSignal that will abort after the AI request timeout.
+ * Creates an AbortSignal that will abort after the streaming request timeout.
  * Can be combined with other signals (e.g., client cancellation) using AbortSignal.any().
  */
-export function createTimeoutSignal(): AbortSignal {
-	return AbortSignal.timeout(getAIRequestTimeoutMs());
+export function createStreamingTimeoutSignal(): AbortSignal {
+	return AbortSignal.timeout(getStreamingTimeoutMs());
 }
 
 /**
- * Combines a timeout signal with an optional cancellation signal.
+ * Creates an AbortSignal that will abort after the plain (non-streaming) request timeout.
+ * Can be combined with other signals (e.g., client cancellation) using AbortSignal.any().
+ */
+export function createTimeoutSignal(): AbortSignal {
+	return AbortSignal.timeout(getTimeoutMs());
+}
+
+/**
+ * Combines a streaming timeout signal with an optional cancellation signal.
  * If the cancellation signal is provided, the request will abort on either timeout or cancellation.
  * If no cancellation signal is provided, only the timeout will cause an abort.
+ */
+export function createStreamingCombinedSignal(
+	cancellationController?: AbortController,
+): AbortSignal {
+	const timeoutSignal = createStreamingTimeoutSignal();
+
+	if (cancellationController) {
+		return AbortSignal.any([timeoutSignal, cancellationController.signal]);
+	}
+
+	return timeoutSignal;
+}
+
+/**
+ * Combines a plain (non-streaming) timeout signal with an optional cancellation signal.
+ * Uses the shorter timeout (default 80s) for non-streaming requests.
  */
 export function createCombinedSignal(
 	cancellationController?: AbortController,

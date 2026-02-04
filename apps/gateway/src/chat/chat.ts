@@ -18,7 +18,11 @@ import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
-import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import {
+	createCombinedSignal,
+	createStreamingCombinedSignal,
+	isTimeoutError,
+} from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -2141,7 +2145,7 @@ chat.openapi(completions, async (c) => {
 				}
 
 				// Create a combined signal for both timeout and cancellation
-				const fetchSignal = createCombinedSignal(
+				const fetchSignal = createStreamingCombinedSignal(
 					requestCanBeCanceled ? controller : undefined,
 				);
 
@@ -4113,6 +4117,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Create a combined signal for both timeout and cancellation
+		// Non-streaming requests use a shorter timeout (default 80s)
 		const fetchSignal = createCombinedSignal(
 			requestCanBeCanceled ? controller : undefined,
 		);
