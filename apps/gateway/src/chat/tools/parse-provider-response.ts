@@ -178,7 +178,8 @@ export function parseProviderResponse(
 			break;
 		}
 		case "google-ai-studio":
-		case "google-vertex": {
+		case "google-vertex":
+		case "obsidian": {
 			// Debug logging at the start to capture raw response structure
 			// Only log as error if there's no promptFeedback explaining why candidates are missing
 			if (

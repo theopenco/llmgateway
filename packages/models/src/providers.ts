@@ -118,6 +118,22 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "obsidian",
+		name: "Obsidian",
+		description: "Obsidian - Google-compatible LLM provider.",
+		env: {
+			required: {
+				apiKey: "LLM_OBSIDIAN_API_KEY",
+				baseUrl: "LLM_OBSIDIAN_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a1a",
+		website: null,
+		announcement: null,
+	},
+	{
 		id: "groq",
 		name: "Groq",
 		description: "Groq's ultra-fast LPU inference with various models",

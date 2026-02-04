@@ -61,6 +61,14 @@ export function getProviderEndpoint(
 			case "google-vertex":
 				url = "https://aiplatform.googleapis.com";
 				break;
+			case "obsidian":
+				url = getProviderEnvValue("obsidian", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Obsidian provider requires LLM_OBSIDIAN_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
@@ -173,6 +181,19 @@ export function getProviderEndpoint(
 			if (token) {
 				queryParams.push(`key=${token}`);
 			}
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
+		}
+		case "obsidian": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = modelName
+				? `${url}/v1beta/models/${modelName}:${endpoint}`
+				: `${url}/v1beta/models/gemini-3-pro-image-preview:${endpoint}`;
+			const queryParams = [];
 			if (stream) {
 				queryParams.push("alt=sse");
 			}
