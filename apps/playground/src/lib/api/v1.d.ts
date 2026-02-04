@@ -899,6 +899,8 @@ export interface paths {
                     limit?: number;
                     offset?: number | null;
                     search?: string;
+                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status";
+                    sortOrder?: "asc" | "desc";
                 };
                 header?: never;
                 path?: never;
@@ -949,7 +951,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "7d" | "30d";
+                    window?: "1d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -977,7 +979,7 @@ export interface paths {
                                 status: string | null;
                             };
                             /** @enum {string} */
-                            window: "7d" | "30d";
+                            window: "1d" | "7d";
                             startDate: string;
                             endDate: string;
                             totalRequests: number;
@@ -992,6 +994,62 @@ export interface paths {
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
                             mostUsedModelRequestCount: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization transactions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            transactions: {
+                                id: string;
+                                createdAt: string;
+                                type: string;
+                                amount: string | null;
+                                creditAmount: string | null;
+                                currency: string;
+                                status: string;
+                                description: string | null;
+                            }[];
+                            total: number;
                         };
                     };
                 };
