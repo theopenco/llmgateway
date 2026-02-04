@@ -62,9 +62,12 @@ export function getProviderEndpoint(
 				url = "https://aiplatform.googleapis.com";
 				break;
 			case "obsidian":
-				url =
-					getProviderEnvValue("obsidian", "baseUrl", configIndex) ||
-					"https://example.com";
+				url = getProviderEnvValue("obsidian", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Obsidian provider requires LLM_OBSIDIAN_BASE_URL environment variable",
+					);
+				}
 				break;
 			case "inference.net":
 				url = "https://api.inference.net";
