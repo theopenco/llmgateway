@@ -19,7 +19,9 @@ export function isExpectedUnknownFinishReason(
 	}
 	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
 	if (
-		(provider === "google-ai-studio" || provider === "google-vertex") &&
+		(provider === "google-ai-studio" ||
+			provider === "google-vertex" ||
+			provider === "obsidian") &&
 		finishReason === "OTHER"
 	) {
 		return true;

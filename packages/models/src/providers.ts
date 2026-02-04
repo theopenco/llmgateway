@@ -124,8 +124,6 @@ export const providers = [
 		env: {
 			required: {
 				apiKey: "LLM_OBSIDIAN_API_KEY",
-			},
-			optional: {
 				baseUrl: "LLM_OBSIDIAN_BASE_URL",
 			},
 		},
