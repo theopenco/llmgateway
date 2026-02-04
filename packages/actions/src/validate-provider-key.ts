@@ -49,6 +49,12 @@ export async function validateProviderKey(
 				provider,
 				validationModel,
 			});
+		} else if (provider === "google-ai-studio") {
+			validationModel = "gemini-2.5-flash-lite";
+			logger.debug("Using fixed Google AI Studio validation model", {
+				provider,
+				validationModel,
+			});
 		} else {
 			const cheapestModel = getCheapestModelForProvider(provider);
 			logger.debug("Using cheapest validation model", {

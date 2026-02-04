@@ -551,6 +551,8 @@ chat.openapi(completions, async (c) => {
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
 	}
+	// IAM allowed providers - used to filter available providers during routing
+	const iamAllowedProviders = iamValidation.allowedProviders;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -1041,6 +1043,13 @@ chat.openapi(completions, async (c) => {
 				if (!availableProviders.includes(provider.providerId)) {
 					return false;
 				}
+				// Filter by IAM allowed providers
+				if (
+					iamAllowedProviders &&
+					!iamAllowedProviders.includes(provider.providerId)
+				) {
+					return false;
+				}
 				// If web search tool is requested, only include providers that support it
 				if (webSearchTool) {
 					if ((provider as ProviderModelMapping).webSearch !== true) {
@@ -1056,7 +1065,7 @@ chat.openapi(completions, async (c) => {
 						return false;
 					}
 				}
-				// If JSON schema output is requested, only include providers that support it
+				// If JSON schema output is requested, also include providers that support it
 				if (response_format?.type === "json_schema") {
 					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
 						return false;
