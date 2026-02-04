@@ -20,17 +20,17 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 
 	useEffect(() => {
 		const param = searchParams.get("window");
-		if (param === "7d" || param === "30d") {
+		if (param === "1d" || param === "7d") {
 			setCurrent(param);
 		} else {
-			setCurrent("7d");
+			setCurrent("1d");
 		}
 	}, [searchParams]);
 
 	function setWindow(value: TokenWindow) {
 		const params = new URLSearchParams(searchParams.toString());
 
-		if (value === "7d") {
+		if (value === "1d") {
 			params.delete("window");
 		} else {
 			params.set("window", value);
@@ -45,14 +45,14 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 	return (
 		<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 p-1 text-xs text-muted-foreground backdrop-blur">
 			<TimeRangeButton
-				label="Last 7 days"
-				value="7d"
+				label="Last 24 hours"
+				value="1d"
 				current={current}
 				onClick={setWindow}
 			/>
 			<TimeRangeButton
-				label="Last 30 days"
-				value="30d"
+				label="Last 7 days"
+				value="7d"
 				current={current}
 				onClick={setWindow}
 			/>

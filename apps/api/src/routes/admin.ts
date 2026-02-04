@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
 	and,
+	asc,
 	db,
 	desc,
 	eq,
@@ -27,7 +28,7 @@ const adminMetricsSchema = z.object({
 	totalOrganizations: z.number(),
 });
 
-const tokenWindowSchema = z.enum(["7d", "30d"]);
+const tokenWindowSchema = z.enum(["1d", "7d"]);
 
 const organizationSchema = z.object({
 	id: z.string(),
@@ -66,6 +67,22 @@ const orgMetricsSchema = z.object({
 	mostUsedModelRequestCount: z.number(),
 });
 
+const transactionSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	type: z.string(),
+	amount: z.string().nullable(),
+	creditAmount: z.string().nullable(),
+	currency: z.string(),
+	status: z.string(),
+	description: z.string().nullable(),
+});
+
+const transactionsListSchema = z.object({
+	transactions: z.array(transactionSchema),
+	total: z.number(),
+});
+
 function isAdminEmail(email: string | null | undefined): boolean {
 	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
 	const adminEmails = adminEmailsEnv
@@ -96,6 +113,18 @@ const getMetrics = createRoute({
 	},
 });
 
+const sortBySchema = z.enum([
+	"name",
+	"billingEmail",
+	"plan",
+	"devPlan",
+	"credits",
+	"createdAt",
+	"status",
+]);
+
+const sortOrderSchema = z.enum(["asc", "desc"]);
+
 const getOrganizations = createRoute({
 	method: "get",
 	path: "/organizations",
@@ -104,6 +133,8 @@ const getOrganizations = createRoute({
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
 			search: z.string().optional(),
+			sortBy: sortBySchema.default("createdAt").optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
 		}),
 	},
 	responses: {
@@ -126,7 +157,7 @@ const getOrganizationMetrics = createRoute({
 			orgId: z.string(),
 		}),
 		query: z.object({
-			window: tokenWindowSchema.default("7d").optional(),
+			window: tokenWindowSchema.default("1d").optional(),
 		}),
 	},
 	responses: {
@@ -137,6 +168,29 @@ const getOrganizationMetrics = createRoute({
 				},
 			},
 			description: "Organization metrics.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationTransactions = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/transactions",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: transactionsListSchema.openapi({}),
+				},
+			},
+			description: "Organization transactions.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -241,6 +295,8 @@ admin.openapi(getOrganizations, async (c) => {
 	const limit = query.limit ?? 50;
 	const offset = query.offset ?? 0;
 	const search = query.search;
+	const sortBy = query.sortBy ?? "createdAt";
+	const sortOrder = query.sortOrder ?? "desc";
 
 	const searchLower = search?.toLowerCase();
 	const whereClause = searchLower
@@ -260,6 +316,19 @@ admin.openapi(getOrganizations, async (c) => {
 
 	const total = Number(countResult?.count ?? 0);
 
+	const sortColumnMap = {
+		name: tables.organization.name,
+		billingEmail: tables.organization.billingEmail,
+		plan: tables.organization.plan,
+		devPlan: tables.organization.devPlan,
+		credits: tables.organization.credits,
+		createdAt: tables.organization.createdAt,
+		status: tables.organization.status,
+	} as const;
+
+	const sortColumn = sortColumnMap[sortBy];
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
 	const organizations = await db
 		.select({
 			id: tables.organization.id,
@@ -273,7 +342,7 @@ admin.openapi(getOrganizations, async (c) => {
 		})
 		.from(tables.organization)
 		.where(whereClause)
-		.orderBy(desc(tables.organization.createdAt))
+		.orderBy(orderFn(sortColumn))
 		.limit(limit)
 		.offset(offset);
 
@@ -306,7 +375,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 
 	const { orgId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const windowParam = query.window ?? "7d";
+	const windowParam = query.window ?? "1d";
 
 	// Fetch organization
 	const org = await db.query.organization.findFirst({
@@ -330,7 +399,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	const projectIds = projects.map((p) => p.id);
 
 	const now = new Date();
-	const days = windowParam === "30d" ? 30 : 7;
+	const days = windowParam === "7d" ? 7 : 1;
 	const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
 	let totalRequests = 0;
@@ -437,6 +506,67 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelRequestCount,
+	});
+});
+
+admin.openapi(getOrganizationTransactions, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	if (!isAdminEmail(authUser.email)) {
+		throw new HTTPException(403, {
+			message: "Admin access required",
+		});
+	}
+
+	const { orgId } = c.req.valid("param");
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	// Fetch all transactions for this organization
+	const transactions = await db
+		.select({
+			id: tables.transaction.id,
+			createdAt: tables.transaction.createdAt,
+			type: tables.transaction.type,
+			amount: tables.transaction.amount,
+			creditAmount: tables.transaction.creditAmount,
+			currency: tables.transaction.currency,
+			status: tables.transaction.status,
+			description: tables.transaction.description,
+		})
+		.from(tables.transaction)
+		.where(eq(tables.transaction.organizationId, orgId))
+		.orderBy(desc(tables.transaction.createdAt));
+
+	return c.json({
+		transactions: transactions.map((t) => ({
+			id: t.id,
+			createdAt: t.createdAt.toISOString(),
+			type: t.type,
+			amount: t.amount ? String(t.amount) : null,
+			creditAmount: t.creditAmount ? String(t.creditAmount) : null,
+			currency: t.currency,
+			status: t.status,
+			description: t.description,
+		})),
+		total: transactions.length,
 	});
 });
 

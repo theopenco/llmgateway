@@ -5,6 +5,7 @@ import {
 	CircleDollarSign,
 	Hash,
 	Info,
+	Receipt,
 	Server,
 } from "lucide-react";
 import Link from "next/link";
@@ -14,7 +15,16 @@ import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
+import {
 	getOrganizationMetrics,
+	getOrganizationTransactions,
 	type TokenWindow,
 } from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
@@ -136,6 +146,23 @@ function getDevPlanBadgeVariant(devPlan: string) {
 	}
 }
 
+function getTransactionTypeBadgeVariant(type: string) {
+	if (type.includes("cancel") || type.includes("refund")) {
+		return "destructive";
+	}
+	if (type.includes("start") || type.includes("topup")) {
+		return "default";
+	}
+	if (type.includes("upgrade")) {
+		return "secondary";
+	}
+	return "outline";
+}
+
+function formatTransactionType(type: string) {
+	return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default async function OrganizationPage({
 	params,
 	searchParams,
@@ -146,11 +173,14 @@ export default async function OrganizationPage({
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
 	const windowParam =
-		searchParamsData?.window === "30d" || searchParamsData?.window === "7d"
+		searchParamsData?.window === "1d" || searchParamsData?.window === "7d"
 			? (searchParamsData.window as TokenWindow)
-			: "7d";
+			: "1d";
 
-	const metrics = await getOrganizationMetrics(orgId, windowParam);
+	const [metrics, transactionsData] = await Promise.all([
+		getOrganizationMetrics(orgId, windowParam),
+		getOrganizationTransactions(orgId),
+	]);
 
 	if (metrics === null) {
 		return <SignInPrompt />;
@@ -161,7 +191,8 @@ export default async function OrganizationPage({
 	}
 
 	const org = metrics.organization;
-	const windowLabel = windowParam === "30d" ? "Last 30 days" : "Last 7 days";
+	const transactions = transactionsData?.transactions ?? [];
+	const windowLabel = windowParam === "7d" ? "Last 7 days" : "Last 24 hours";
 
 	return (
 		<div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
@@ -291,6 +322,89 @@ export default async function OrganizationPage({
 					icon={<Server className="h-4 w-4" />}
 					accent="green"
 				/>
+			</section>
+
+			<section className="space-y-4">
+				<div className="flex items-center gap-2">
+					<Receipt className="h-5 w-5 text-muted-foreground" />
+					<h2 className="text-lg font-semibold">Transactions</h2>
+					<span className="text-sm text-muted-foreground">
+						({transactions.length})
+					</span>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card">
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>Date</TableHead>
+								<TableHead>Type</TableHead>
+								<TableHead>Amount</TableHead>
+								<TableHead>Credits</TableHead>
+								<TableHead>Status</TableHead>
+								<TableHead>Description</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{transactions.length === 0 ? (
+								<TableRow>
+									<TableCell
+										colSpan={6}
+										className="h-24 text-center text-muted-foreground"
+									>
+										No transactions found
+									</TableCell>
+								</TableRow>
+							) : (
+								transactions.map((transaction) => (
+									<TableRow key={transaction.id}>
+										<TableCell className="text-muted-foreground">
+											{formatDate(transaction.createdAt)}
+										</TableCell>
+										<TableCell>
+											<Badge
+												variant={getTransactionTypeBadgeVariant(
+													transaction.type,
+												)}
+											>
+												{formatTransactionType(transaction.type)}
+											</Badge>
+										</TableCell>
+										<TableCell className="tabular-nums">
+											{transaction.amount
+												? currencyFormatter.format(
+														parseFloat(transaction.amount),
+													)
+												: "—"}
+										</TableCell>
+										<TableCell className="tabular-nums">
+											{transaction.creditAmount
+												? creditsFormatter.format(
+														parseFloat(transaction.creditAmount),
+													)
+												: "—"}
+										</TableCell>
+										<TableCell>
+											<Badge
+												variant={
+													transaction.status === "completed"
+														? "secondary"
+														: transaction.status === "failed"
+															? "destructive"
+															: "outline"
+												}
+											>
+												{transaction.status}
+											</Badge>
+										</TableCell>
+										<TableCell className="max-w-[200px] truncate text-muted-foreground">
+											{transaction.description || "—"}
+										</TableCell>
+									</TableRow>
+								))
+							)}
+						</TableBody>
+					</Table>
+				</div>
 			</section>
 		</div>
 	);

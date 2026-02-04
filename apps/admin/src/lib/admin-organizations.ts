@@ -20,7 +20,7 @@ export interface OrganizationsListResponse {
 	offset: number;
 }
 
-export type TokenWindow = "7d" | "30d";
+export type TokenWindow = "1d" | "7d";
 
 export interface OrganizationMetrics {
 	organization: Organization;
@@ -41,6 +41,22 @@ export interface OrganizationMetrics {
 	mostUsedModelRequestCount: number;
 }
 
+export interface Transaction {
+	id: string;
+	createdAt: string;
+	type: string;
+	amount: string | null;
+	creditAmount: string | null;
+	currency: string;
+	status: string;
+	description: string | null;
+}
+
+export interface TransactionsListResponse {
+	transactions: Transaction[];
+	total: number;
+}
+
 async function hasSession(): Promise<boolean> {
 	const cookieStore = await cookies();
 	const key = "better-auth.session_token";
@@ -53,10 +69,22 @@ async function hasSession(): Promise<boolean> {
 	return hasAuth;
 }
 
+export type SortBy =
+	| "name"
+	| "billingEmail"
+	| "plan"
+	| "devPlan"
+	| "credits"
+	| "createdAt"
+	| "status";
+export type SortOrder = "asc" | "desc";
+
 export async function getOrganizations(params?: {
 	limit?: number;
 	offset?: number;
 	search?: string;
+	sortBy?: SortBy;
+	sortOrder?: SortOrder;
 }): Promise<OrganizationsListResponse | null> {
 	if (!(await hasSession())) {
 		return null;
@@ -71,6 +99,8 @@ export async function getOrganizations(params?: {
 					limit: params?.limit ?? 50,
 					offset: params?.offset ?? 0,
 					search: params?.search,
+					sortBy: params?.sortBy,
+					sortOrder: params?.sortOrder,
 				},
 			},
 		},
@@ -81,7 +111,7 @@ export async function getOrganizations(params?: {
 
 export async function getOrganizationMetrics(
 	orgId: string,
-	window: TokenWindow = "7d",
+	window: TokenWindow = "1d",
 ): Promise<OrganizationMetrics | null> {
 	if (!(await hasSession())) {
 		console.log("[getOrganizationMetrics] No session found");
@@ -104,6 +134,30 @@ export async function getOrganizationMetrics(
 		},
 	);
 	console.log("[getOrganizationMetrics] Result:", data ? "success" : "null");
+
+	return data;
+}
+
+export async function getOrganizationTransactions(
+	orgId: string,
+): Promise<TransactionsListResponse | null> {
+	if (!(await hasSession())) {
+		console.log("[getOrganizationTransactions] No session found");
+		return null;
+	}
+
+	// Cast needed as this endpoint may not be in generated types yet
+	const data = await fetchServerData<TransactionsListResponse>(
+		"GET",
+		"/admin/organizations/{orgId}/transactions" as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: {
+					orgId,
+				},
+			},
+		},
+	);
 
 	return data;
 }
