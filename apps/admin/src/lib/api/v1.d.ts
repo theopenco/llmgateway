@@ -926,6 +926,7 @@ export interface paths {
                                 status: string | null;
                             }[];
                             total: number;
+                            totalCredits: string;
                             limit: number;
                             offset: number;
                         };
@@ -1023,7 +1024,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                };
                 header?: never;
                 path: {
                     orgId: string;
@@ -1050,6 +1054,8 @@ export interface paths {
                                 description: string | null;
                             }[];
                             total: number;
+                            limit: number;
+                            offset: number;
                         };
                     };
                 };

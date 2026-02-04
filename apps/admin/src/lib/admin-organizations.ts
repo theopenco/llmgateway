@@ -16,6 +16,7 @@ export interface Organization {
 export interface OrganizationsListResponse {
 	organizations: Organization[];
 	total: number;
+	totalCredits: string;
 	limit: number;
 	offset: number;
 }
@@ -55,6 +56,8 @@ export interface Transaction {
 export interface TransactionsListResponse {
 	transactions: Transaction[];
 	total: number;
+	limit: number;
+	offset: number;
 }
 
 async function hasSession(): Promise<boolean> {
@@ -140,6 +143,10 @@ export async function getOrganizationMetrics(
 
 export async function getOrganizationTransactions(
 	orgId: string,
+	params?: {
+		limit?: number;
+		offset?: number;
+	},
 ): Promise<TransactionsListResponse | null> {
 	if (!(await hasSession())) {
 		console.log("[getOrganizationTransactions] No session found");
@@ -154,6 +161,10 @@ export async function getOrganizationTransactions(
 			params: {
 				path: {
 					orgId,
+				},
+				query: {
+					limit: params?.limit ?? 25,
+					offset: params?.offset ?? 0,
 				},
 			},
 		},

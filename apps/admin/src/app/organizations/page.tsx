@@ -183,7 +183,8 @@ export default async function OrganizationsPage({
 						Organizations
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} organizations found
+						{data.total} organizations found • Total credits:{" "}
+						{currencyFormatter.format(parseFloat(data.totalCredits))}
 					</p>
 				</div>
 				<form action={handleSearch} className="flex items-center gap-2">
