@@ -47,6 +47,9 @@ export function getUnifiedFinishReason(
 	if (finishReason === "upstream_error") {
 		return UnifiedFinishReason.UPSTREAM_ERROR;
 	}
+	if (finishReason === "network_error") {
+		return UnifiedFinishReason.UPSTREAM_ERROR;
+	}
 	if (finishReason === "client_error") {
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
