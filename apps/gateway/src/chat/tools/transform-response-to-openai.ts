@@ -80,7 +80,8 @@ export function transformResponseToOpenai(
 
 	switch (usedProvider) {
 		case "google-ai-studio":
-		case "google-vertex": {
+		case "google-vertex":
+		case "obsidian": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",

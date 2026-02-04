@@ -1867,7 +1867,11 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+	if (
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "obsidian"
+	) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -3277,7 +3281,8 @@ chat.openapi(completions, async (c) => {
 							// Track image data size for Google providers (for token estimation)
 							if (
 								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
+								usedProvider === "google-vertex" ||
+								usedProvider === "obsidian"
 							) {
 								const parts = data.candidates?.[0]?.content?.parts || [];
 								for (const part of parts) {
@@ -3303,7 +3308,8 @@ chat.openapi(completions, async (c) => {
 								}
 							} else if (
 								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
+								usedProvider === "google-vertex" ||
+								usedProvider === "obsidian"
 							) {
 								// For Google, count when grounding metadata is present
 								if (data.candidates?.[0]?.groundingMetadata) {
@@ -3397,6 +3403,7 @@ chat.openapi(completions, async (c) => {
 							switch (usedProvider) {
 								case "google-ai-studio":
 								case "google-vertex":
+								case "obsidian":
 									// Preserve original Google finish reason for logging
 									if (data.promptFeedback?.blockReason) {
 										finishReason = data.promptFeedback.blockReason;
@@ -4530,7 +4537,11 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Enhanced logging for Google models to debug missing responses
-	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+	if (
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "obsidian"
+	) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
 			usedModel,
@@ -4685,7 +4696,9 @@ chat.openapi(completions, async (c) => {
 	// For Google, check for original finish reasons that indicate content filtering
 	// These include both finishReason values and promptFeedback.blockReason values
 	const isGoogleContentFilter =
-		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
+		(usedProvider === "google-ai-studio" ||
+			usedProvider === "google-vertex" ||
+			usedProvider === "obsidian") &&
 		(finishReason === "SAFETY" ||
 			finishReason === "PROHIBITED_CONTENT" ||
 			finishReason === "RECITATION" ||
