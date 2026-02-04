@@ -3,7 +3,7 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables, eq } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
 
 describe("keys route", () => {
 	let token: string;
@@ -126,47 +126,8 @@ describe("keys route", () => {
 		expect(apiKey?.status).toBe("inactive");
 	});
 
-	test("POST /keys/api should enforce plan limits", async () => {
-		// Create 4 more API keys to reach the free plan limit of 5
-		for (let i = 2; i <= 5; i++) {
-			await db.insert(tables.apiKey).values({
-				id: `test-api-key-id-${i}`,
-				token: `test-token-${i}`,
-				projectId: "test-project-id",
-				description: `Test API Key ${i}`,
-				status: "active",
-				createdBy: "test-user-id",
-			});
-		}
-
-		// Try to create the 6th API key, should fail for free plan
-		const res = await app.request("/keys/api", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Cookie: token,
-			},
-			body: JSON.stringify({
-				description: "Sixth API Key",
-				projectId: "test-project-id",
-				usageLimit: null,
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(json.message).toContain("API key limit reached");
-		expect(json.message).toContain("Free plan allows maximum 5 API keys");
-	});
-
-	test("POST /keys/api should allow more keys for pro plan", async () => {
-		// Update organization to pro plan
-		await db
-			.update(tables.organization)
-			.set({ plan: "pro" })
-			.where(eq(tables.organization.id, "test-org-id"));
-
-		// Create 19 more API keys to reach 20 total (pro plan limit)
+	test("POST /keys/api should enforce API key limit of 20", async () => {
+		// Create 19 more API keys to reach the limit of 20
 		for (let i = 2; i <= 20; i++) {
 			await db.insert(tables.apiKey).values({
 				id: `test-api-key-id-${i}`,
@@ -178,7 +139,7 @@ describe("keys route", () => {
 			});
 		}
 
-		// Try to create the 21st API key, should fail even for pro plan
+		// Try to create the 21st API key, should fail
 		const res = await app.request("/keys/api", {
 			method: "POST",
 			headers: {
@@ -195,6 +156,6 @@ describe("keys route", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.message).toContain("API key limit reached");
-		expect(json.message).toContain("Pro plan allows maximum 20 API keys");
+		expect(json.message).toContain("Maximum 20 API keys per project");
 	});
 });

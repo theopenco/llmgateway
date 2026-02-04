@@ -11,24 +11,17 @@ const comparisonData = [
 		category: "Pricing & Fees",
 		features: [
 			{
-				title: "Free tier",
-				description: "Get started without upfront costs",
-				llmgateway:
-					"5% fee + Stripe (2.9% + $0.35) on credit purchases (Free plan); 2.5% fee with Pro plan",
+				title: "Credits pricing",
+				description: "Pay-as-you-go with credits",
+				llmgateway: "Flat 5% fee on credit purchases",
 				openrouter:
 					"5% fee + $0.35 per credit purchase; 5% fee still applies with own API key",
 			},
 			{
-				title: "Pro plan pricing",
-				description: "Monthly subscription cost",
-				llmgateway: "$50/month — 2.5% gateway fee (half the free plan rate)",
-				openrouter: "No subscription — always pay 5% fee",
-			},
-			{
-				title: "Reduced usage fees",
-				description: "Lower fees on Pro plan (2.5% vs 5%)",
-				llmgateway: "Pro plan",
-				openrouter: false,
+				title: "Bring Your Own Keys",
+				description: "Use your own provider API keys",
+				llmgateway: "1% tracking fee — pay providers directly",
+				openrouter: "5% fee still applies with own API key",
 			},
 			{
 				title: "Self-hosting option",
@@ -91,7 +84,7 @@ const comparisonData = [
 			{
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
-				llmgateway: "Pro+",
+				llmgateway: "Enterprise",
 				openrouter: false,
 			},
 		],
@@ -133,7 +126,7 @@ export function Comparison() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>50% lower gateway fees</strong> on Pro plan (2.5% vs 5%)
+								<strong>Bring Your Own Keys</strong> with just 1% tracking fee
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
@@ -167,7 +160,7 @@ export function Comparison() {
 									LLM Gateway
 								</h3>
 								<p className="text-sm text-muted-foreground mb-2">
-									OPEN & LOWER FEES
+									OPEN & FLEXIBLE
 								</p>
 								<p className="text-2xl font-bold text-primary">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">

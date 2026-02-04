@@ -5,7 +5,11 @@ import {
 	reportKeySuccess,
 	reportKeyError,
 	getKeyHealth,
+	getKeyMetrics,
+	getAllKeyMetrics,
+	calculateUptimePenalty,
 	resetKeyHealth,
+	UPTIME_PENALTY_THRESHOLD,
 } from "./api-key-health.js";
 
 describe("api-key-health", () => {
@@ -141,6 +145,124 @@ describe("api-key-health", () => {
 
 			expect(getKeyHealth("LLM_OPENAI_API_KEY", 0)).toBeUndefined();
 			expect(getKeyHealth("LLM_ANTHROPIC_API_KEY", 1)).toBeUndefined();
+		});
+	});
+
+	describe("getKeyMetrics", () => {
+		it("should return 100% uptime for unknown keys", () => {
+			const metrics = getKeyMetrics("LLM_UNKNOWN", 0);
+			expect(metrics.uptime).toBe(100);
+			expect(metrics.totalRequests).toBe(0);
+			expect(metrics.consecutiveErrors).toBe(0);
+			expect(metrics.permanentlyBlacklisted).toBe(false);
+		});
+
+		it("should return 100% uptime for all successful requests", () => {
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0);
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0);
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0);
+
+			const metrics = getKeyMetrics("LLM_OPENAI_API_KEY", 0);
+			expect(metrics.uptime).toBe(100);
+			expect(metrics.totalRequests).toBe(3);
+		});
+
+		it("should calculate uptime based on success/error ratio", () => {
+			// 7 successes, 3 errors = 70% uptime
+			for (let i = 0; i < 7; i++) {
+				reportKeySuccess("LLM_OPENAI_API_KEY", 0);
+			}
+			for (let i = 0; i < 3; i++) {
+				reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
+			}
+
+			const metrics = getKeyMetrics("LLM_OPENAI_API_KEY", 0);
+			expect(metrics.uptime).toBe(70);
+			expect(metrics.totalRequests).toBe(10);
+		});
+
+		it("should track permanently blacklisted status", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 401);
+
+			const metrics = getKeyMetrics("LLM_OPENAI_API_KEY", 0);
+			expect(metrics.permanentlyBlacklisted).toBe(true);
+		});
+
+		it("should track consecutive errors", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
+
+			const metrics = getKeyMetrics("LLM_OPENAI_API_KEY", 0);
+			expect(metrics.consecutiveErrors).toBe(2);
+		});
+	});
+
+	describe("getAllKeyMetrics", () => {
+		it("should return metrics for all key indices", () => {
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0);
+			reportKeyError("LLM_OPENAI_API_KEY", 1, 500);
+
+			const metrics = getAllKeyMetrics("LLM_OPENAI_API_KEY", 3);
+			expect(metrics).toHaveLength(3);
+			expect(metrics[0].totalRequests).toBe(1);
+			expect(metrics[0].uptime).toBe(100);
+			expect(metrics[1].totalRequests).toBe(1);
+			expect(metrics[1].uptime).toBe(0);
+			expect(metrics[2].totalRequests).toBe(0);
+			expect(metrics[2].uptime).toBe(100); // No data = 100%
+		});
+	});
+
+	describe("calculateUptimePenalty", () => {
+		it("should return 0 penalty for uptime >= threshold", () => {
+			expect(calculateUptimePenalty(100)).toBe(0);
+			expect(calculateUptimePenalty(UPTIME_PENALTY_THRESHOLD)).toBe(0);
+		});
+
+		it("should return increasing penalty for lower uptime", () => {
+			const penalty90 = calculateUptimePenalty(90);
+			const penalty80 = calculateUptimePenalty(80);
+			const penalty70 = calculateUptimePenalty(70);
+			const penalty50 = calculateUptimePenalty(50);
+
+			expect(penalty90).toBeGreaterThan(0);
+			expect(penalty80).toBeGreaterThan(penalty90);
+			expect(penalty70).toBeGreaterThan(penalty80);
+			expect(penalty50).toBeGreaterThan(penalty70);
+		});
+
+		it("should have approximately expected penalty values", () => {
+			// Based on the formula: ((95 - uptime) / 95 * 5)^2
+			expect(calculateUptimePenalty(90)).toBeCloseTo(0.069, 1);
+			expect(calculateUptimePenalty(80)).toBeCloseTo(0.62, 1);
+			expect(calculateUptimePenalty(70)).toBeCloseTo(1.73, 1);
+		});
+	});
+
+	describe("history tracking", () => {
+		it("should track success in history", () => {
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0);
+
+			const health = getKeyHealth("LLM_OPENAI_API_KEY", 0);
+			expect(health?.history).toHaveLength(1);
+			expect(health?.history[0].success).toBe(true);
+		});
+
+		it("should track errors in history", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
+
+			const health = getKeyHealth("LLM_OPENAI_API_KEY", 0);
+			expect(health?.history).toHaveLength(1);
+			expect(health?.history[0].success).toBe(false);
+		});
+
+		it("should track permanent blacklist errors in history", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 401);
+
+			const health = getKeyHealth("LLM_OPENAI_API_KEY", 0);
+			expect(health?.history).toHaveLength(1);
+			expect(health?.history[0].success).toBe(false);
+			expect(health?.permanentlyBlacklisted).toBe(true);
 		});
 	});
 });

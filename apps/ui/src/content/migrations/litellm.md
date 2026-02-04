@@ -194,7 +194,7 @@ model_list:
 
 With LLM Gateway, you don't need a config file. Provider keys are managed in the web dashboard, or you can use the default LLM Gateway keys.
 
-For Pro users who want to use their own keys, configure them in the dashboard under Settings > Provider Keys.
+If you want to use your own provider keys, configure them in the dashboard under Settings > Provider Keys.
 
 ## Streaming Support
 

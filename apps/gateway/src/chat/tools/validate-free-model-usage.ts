@@ -1,11 +1,10 @@
 // Helper function to validate free model usage
 import { HTTPException } from "hono/http-exception";
 
+import { findUserFromOrganization } from "@/lib/cached-queries.js";
 import { checkFreeModelRateLimit } from "@/lib/rate-limit.js";
 
 import { logger } from "@llmgateway/logger";
-
-import { getUserFromOrganization } from "./get-user-from-organization.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ModelDefinition } from "@llmgateway/models";
@@ -17,13 +16,14 @@ export async function validateFreeModelUsage(
 	requestedModel: string,
 	modelInfo: ModelDefinition,
 ) {
-	const user = await getUserFromOrganization(organizationId);
-	if (!user) {
+	const result = await findUserFromOrganization(organizationId);
+	if (!result?.user) {
 		logger.error("User not found", { organizationId });
 		throw new HTTPException(500, {
 			message: "User not found",
 		});
 	}
+	const user = result.user;
 	if (!user.emailVerified) {
 		throw new HTTPException(403, {
 			message:

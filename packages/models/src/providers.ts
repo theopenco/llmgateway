@@ -95,6 +95,7 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://ai.google.com",
 		announcement: null,
+		priority: 0.8,
 	},
 	{
 		id: "google-vertex",
@@ -115,7 +116,6 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.5,
 	},
 	{
 		id: "groq",

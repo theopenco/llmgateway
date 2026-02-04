@@ -1,8 +1,6 @@
-import { CreditCard, Key, Lock, ArrowRight } from "lucide-react";
+import { CreditCard, Key, ArrowRight } from "lucide-react";
 import * as React from "react";
 
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
-import { useDefaultOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -25,8 +23,6 @@ export function PlanChoiceStep({
 	onSelectBYOK,
 }: PlanChoiceStepProps) {
 	const config = useAppConfig();
-	const { data: organization } = useDefaultOrganization();
-	const isProPlan = organization?.plan === "pro";
 
 	return (
 		<Step>
@@ -48,7 +44,7 @@ export function PlanChoiceStep({
 								Buy Credits
 							</CardTitle>
 							<CardDescription>
-								Use our managed service with pay-as-you-go credits
+								Use our managed service with pay-as-you-go credits (5% fee)
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="flex-1 flex flex-col justify-between">
@@ -68,7 +64,7 @@ export function PlanChoiceStep({
 									</li>
 									<li className="flex items-center gap-2">
 										<div className="h-1.5 w-1.5 bg-green-500 rounded-full" />
-										Works with any plan
+										5% platform fee on usage
 									</li>
 								</ul>
 							</div>
@@ -95,14 +91,9 @@ export function PlanChoiceStep({
 							<CardTitle className="flex items-center gap-2">
 								<Key className="h-5 w-5" />
 								Bring Your Own Keys
-								{!isProPlan && (
-									<span className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">
-										Pro Plan Required
-									</span>
-								)}
 							</CardTitle>
 							<CardDescription>
-								Use your own API keys for LLM providers
+								Use your own API keys for LLM providers (1% fee)
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="flex-1 flex flex-col justify-between">
@@ -122,40 +113,19 @@ export function PlanChoiceStep({
 									</li>
 									<li className="flex items-center gap-2">
 										<div className="h-1.5 w-1.5 bg-blue-500 rounded-full" />
-										Advanced enterprise features
+										1% platform fee on tracked usage
 									</li>
 								</ul>
-
-								{!isProPlan && (
-									<div className="rounded-md bg-blue-50 dark:bg-blue-950 p-3 text-sm">
-										<p className="font-medium text-blue-800 dark:text-blue-300 mb-1">
-											Pro Plan Required
-										</p>
-										<p className="text-blue-700 dark:text-blue-400">
-											BYOK requires a Pro plan subscription to access advanced
-											features and custom provider support.
-										</p>
-									</div>
-								)}
 							</div>
 
-							{isProPlan ? (
-								<Button
-									className="w-full mt-4"
-									onClick={onSelectBYOK}
-									variant="outline"
-								>
-									Choose BYOK
-									<ArrowRight className="ml-2 h-4 w-4" />
-								</Button>
-							) : (
-								<UpgradeToProDialog>
-									<Button className="w-full mt-4" variant="outline">
-										<Lock className="mr-2 h-4 w-4" />
-										Upgrade to Pro for BYOK
-									</Button>
-								</UpgradeToProDialog>
-							)}
+							<Button
+								className="w-full mt-4"
+								onClick={onSelectBYOK}
+								variant="outline"
+							>
+								Choose BYOK
+								<ArrowRight className="ml-2 h-4 w-4" />
+							</Button>
 						</CardContent>
 					</Card>
 				</div>

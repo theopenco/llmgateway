@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useOrganization } from "@/hooks/useOrganization";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
 
@@ -172,7 +171,6 @@ function AmountStep({
 	onCancel: () => void;
 }) {
 	const presetAmounts = [10, 25, 50, 100];
-	const { organization } = useOrganization();
 	const api = useApi();
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
@@ -236,25 +234,9 @@ function AmountStep({
 									<span>${feeData.baseAmount.toFixed(2)}</span>
 								</div>
 								<div className="flex justify-between">
-									<span>Stripe fees ($0.30 + 2.9%)</span>
-									<span>${feeData.stripeFee.toFixed(2)}</span>
+									<span>Platform fee (5%)</span>
+									<span>${feeData.platformFee.toFixed(2)}</span>
 								</div>
-								{feeData.internationalFee > 0 && (
-									<div className="flex justify-between">
-										<span>International card fee (1.5%)</span>
-										<span>${feeData.internationalFee.toFixed(2)}</span>
-									</div>
-								)}
-								{feeData.planFee > 0 && (
-									<div className="flex justify-between">
-										<span>
-											Service fee (
-											{organization?.plan === "pro" ? "2.5%" : "5%"} -{" "}
-											{organization?.plan === "pro" ? "Pro" : "Free"} plan)
-										</span>
-										<span>${feeData.planFee.toFixed(2)}</span>
-									</div>
-								)}
 								<div className="border-t pt-1 flex justify-between font-medium">
 									<span>Total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
@@ -567,7 +549,6 @@ function ConfirmPaymentStep({
 	loading: boolean;
 	setLoading: (loading: boolean) => void;
 }) {
-	const { organization } = useOrganization();
 	const api = useApi();
 	const { mutateAsync: topUpMutation } = api.useMutation(
 		"post",
@@ -626,28 +607,9 @@ function ConfirmPaymentStep({
 								<span>${feeData.baseAmount.toFixed(2)}</span>
 							</div>
 							<div className="flex justify-between">
-								<span>Stripe fees ($0.30 + 2.9%)</span>
-								<span>${feeData.stripeFee.toFixed(2)}</span>
+								<span>Platform fee (5%)</span>
+								<span>${feeData.platformFee.toFixed(2)}</span>
 							</div>
-							{feeData.internationalFee > 0 && (
-								<div className="flex justify-between">
-									<span>International card fee (1.5%)</span>
-									<span>${feeData.internationalFee.toFixed(2)}</span>
-								</div>
-							)}
-							{feeData.planFee > 0 && (
-								<div className="flex justify-between">
-									<span>Service fee (5% - Free plan)</span>
-									<span>${feeData.planFee.toFixed(2)}</span>
-								</div>
-							)}
-							{organization?.plan === "pro" && feeData.planFee === 0 && (
-								<div className="flex justify-between text-green-600">
-									<span>Service fee (Pro plan)</span>
-									<span>$0.00</span>
-								</div>
-							)}
-
 							<div className="border-t pt-2 flex justify-between font-medium">
 								<span>Total</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>

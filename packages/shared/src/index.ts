@@ -1,4 +1,5 @@
 export {
+	BYOK_FEE_PERCENTAGE,
 	calculateFees,
 	type FeeBreakdown,
 	type FeeCalculationInput,

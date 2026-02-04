@@ -54,13 +54,12 @@ You agree to notify us immediately of any unauthorized access to your account.
 
 ## 4. Plans and Billing
 
-LLM Gateway offers free and paid plans:
+LLM Gateway offers free and enterprise plans:
 
-- **Free Plan:** Basic features and limited usage
-- **Pro Plan:** Advanced features, including team management and extended data retention
+- **Free Plan:** Full features with generous limits
 - **Enterprise Plan:** Custom integrations, dedicated support, and SLA
 
-Billing is processed securely through **Stripe**. You authorize us to charge your payment method for all applicable fees, including renewals.  
+Billing is processed securely through **Stripe**. You authorize us to charge your payment method for all applicable fees.
 All fees are non-refundable unless required by law.
 
 ---
@@ -116,7 +115,7 @@ If you are part of an organization:
 - Developers can view usage and manage projects
 - Restricted users have API-only access
 
-Team management is available on **Pro and Enterprise plans**.
+Team management is available for all users.
 
 ---
 

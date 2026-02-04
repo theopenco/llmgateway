@@ -5,11 +5,24 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
+import {
+	findApiKeyByToken,
+	findProjectById,
+	findOrganizationById,
+	findCustomProviderKey,
+	findProviderKey,
+	findActiveProviderKeys,
+	findProviderKeysByProviders,
+} from "@/lib/cached-queries.js";
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
-import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import {
+	createCombinedSignal,
+	createStreamingCombinedSignal,
+	isTimeoutError,
+} from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -27,7 +40,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	cdb as db,
 	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
@@ -45,7 +57,6 @@ import {
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasProviderEnvironmentToken,
-	type Model,
 	type ModelDefinition,
 	models,
 	type Provider,
@@ -57,6 +68,7 @@ import {
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
+import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
@@ -69,87 +81,22 @@ import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.j
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
+import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
+import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
+import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-// Pre-compiled regex patterns to avoid recompilation per request
-const IMAGE_URL_PATTERN = /https:\/\/[^\s]+/gi;
+// Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
-
-/**
- * Quick heuristic to check if a string might be complete JSON.
- * Returns false if brackets are definitely unbalanced (avoiding expensive JSON.parse).
- * Returns true if it might be valid (still needs JSON.parse to confirm).
- * This is a performance optimization for SSE parsing where we do many validity checks.
- */
-function mightBeCompleteJson(str: string): boolean {
-	const trimmed = str.trim();
-	if (trimmed.length === 0) {
-		return false;
-	}
-
-	const firstChar = trimmed[0];
-	const lastChar = trimmed[trimmed.length - 1];
-
-	// Quick check: must start with { or [ and end with } or ]
-	if (firstChar === "{") {
-		if (lastChar !== "}") {
-			return false;
-		}
-	} else if (firstChar === "[") {
-		if (lastChar !== "]") {
-			return false;
-		}
-	} else {
-		// Not a JSON object or array
-		return false;
-	}
-
-	// Quick bracket count (doesn't account for strings, but catches obvious imbalances)
-	let braces = 0;
-	let brackets = 0;
-	for (const c of trimmed) {
-		if (c === "{") {
-			braces++;
-		} else if (c === "}") {
-			braces--;
-		} else if (c === "[") {
-			brackets++;
-		} else if (c === "]") {
-			brackets--;
-		}
-	}
-
-	return braces === 0 && brackets === 0;
-}
-
-/**
- * Checks if any messages contain images (image_url or image type content)
- * Used to filter providers that don't support vision
- */
-function messagesContainImages(messages: BaseMessage[]): boolean {
-	for (const message of messages) {
-		if (Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					(part.type === "image_url" || part.type === "image")
-				) {
-					return true;
-				}
-			}
-		}
-	}
-	return false;
-}
 
 export const chat = new OpenAPIHono<ServerTypes>();
 
@@ -327,11 +274,25 @@ chat.openapi(completions, async (c) => {
 		plugins,
 	} = validationResult.data;
 
+	// Debug: Log tools received from the AI SDK (development only)
+	if (process.env.NODE_ENV !== "production" && tools && tools.length > 0) {
+		logger.debug("Tools received by gateway", { count: tools.length });
+		for (const tool of tools) {
+			if (tool.type === "function") {
+				logger.debug(`Function tool: ${tool.function?.name || "unknown"}`, {
+					hasParameters: !!tool.function?.parameters,
+					parametersPreview: tool.function?.parameters
+						? JSON.stringify(tool.function.parameters).slice(0, 500)
+						: "none",
+				});
+			} else if (tool.type === "web_search") {
+				logger.debug("Web search tool configured");
+			}
+		}
+	}
+
 	// If web_search parameter is true, automatically add the web_search tool
-	if (
-		web_search &&
-		(!tools || !tools.some((t: any) => t.type === "web_search"))
-	) {
+	if (web_search && (!tools || !tools.some((t) => t.type === "web_search"))) {
 		tools = tools || [];
 		tools.push({
 			type: "web_search" as const,
@@ -339,38 +300,10 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	let inputImageCount = 0;
-	if (modelInput === "gemini-3-pro-image-preview") {
-		for (const message of messages) {
-			if (Array.isArray(message.content)) {
-				for (const part of message.content) {
-					if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "image_url"
-					) {
-						inputImageCount++;
-					} else if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "text" &&
-						"text" in part &&
-						typeof part.text === "string"
-					) {
-						// Count image URLs in text content using pre-compiled pattern
-						// Reset lastIndex since global flag maintains state
-						IMAGE_URL_PATTERN.lastIndex = 0;
-						const matches = part.text.match(IMAGE_URL_PATTERN);
-						if (matches) {
-							inputImageCount += matches.length;
-						}
-					}
-				}
-			}
-		}
-	}
+	const inputImageCount =
+		modelInput === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
@@ -474,185 +407,19 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
-	let requestedModel: Model = modelInput as Model;
-	let requestedProvider: Provider | undefined;
-	let customProviderName: string | undefined;
+	// Parse model input to resolve model, provider, and custom provider name
+	const parseResult = parseModelInput(modelInput);
+	const requestedModel = parseResult.requestedModel;
+	const customProviderName = parseResult.customProviderName;
 
-	// check if there is an exact model match
-	if (modelInput === "auto" || modelInput === "custom") {
-		requestedProvider = "llmgateway";
-		requestedModel = modelInput as Model;
-	} else if (modelInput.includes("/")) {
-		const split = modelInput.split("/");
-		const providerCandidate = split[0];
-
-		// Check if the provider exists
-		const knownProvider = providers.find((p) => p.id === providerCandidate);
-		if (!knownProvider) {
-			// This might be a custom provider name - we'll validate against the database later
-			// For now, assume it's a potential custom provider
-			customProviderName = providerCandidate;
-			requestedProvider = "custom";
-		} else {
-			requestedProvider = providerCandidate as Provider;
-		}
-		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
-		const modelName = split.slice(1).join("/");
-
-		// For custom providers, we don't need to validate the model name
-		// since they can use any OpenAI-compatible model name
-		if (requestedProvider === "custom") {
-			requestedModel = modelName as Model;
-		} else {
-			// First try to find by base model name
-			let modelDef = models.find((m) => m.id === modelName);
-
-			if (!modelDef) {
-				modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.modelName === modelName && p.providerId === requestedProvider,
-					),
-				);
-			}
-
-			if (!modelDef) {
-				throw new HTTPException(400, {
-					message: `Requested model ${modelName} not supported`,
-				});
-			}
-
-			if (!modelDef.providers.some((p) => p.providerId === requestedProvider)) {
-				throw new HTTPException(400, {
-					message: `Provider ${requestedProvider} does not support model ${modelName}`,
-				});
-			}
-
-			// Use the provider-specific model name if available
-			const providerMapping = modelDef.providers.find(
-				(p) => p.providerId === requestedProvider,
-			);
-			if (providerMapping) {
-				requestedModel = providerMapping.modelName as Model;
-			} else {
-				requestedModel = modelName as Model;
-			}
-		}
-	} else if (models.find((m) => m.id === modelInput)) {
-		requestedModel = modelInput as Model;
-	} else if (
-		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
-	) {
-		const model = models.find((m) =>
-			m.providers.find((p) => p.modelName === modelInput),
-		);
-		const provider = model?.providers.find((p) => p.modelName === modelInput);
-
-		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
-		});
-	} else {
-		throw new HTTPException(400, {
-			message: `Requested model ${modelInput} not supported`,
-		});
-	}
-
-	if (
-		requestedProvider &&
-		requestedProvider !== "custom" &&
-		!providers.find((p) => p.id === requestedProvider)
-	) {
-		throw new HTTPException(400, {
-			message: `Requested provider ${requestedProvider} not supported`,
-		});
-	}
-
-	let modelInfo;
-
-	if (requestedProvider === "custom") {
-		// For custom providers, we create a mock model info that treats it as an OpenAI model
-		modelInfo = {
-			model: requestedModel,
-			providers: [
-				{
-					providerId: "custom" as const,
-					modelName: requestedModel,
-					inputPrice: 0,
-					outputPrice: 0,
-					contextSize: 8192,
-					maxOutput: 4096,
-					streaming: true,
-					vision: false,
-					jsonOutput: true,
-				},
-			],
-		};
-	} else {
-		// First try to find by model ID
-		modelInfo = models.find((m) => m.id === requestedModel);
-
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
-		if (!modelInfo) {
-			if (requestedProvider) {
-				modelInfo = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.modelName === requestedModel &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				modelInfo = models.find((m) =>
-					m.providers.find((p) => p.modelName === requestedModel),
-				);
-			}
-		}
-
-		if (!modelInfo) {
-			throw new HTTPException(400, {
-				message: `Unsupported model: ${requestedModel}`,
-			});
-		}
-	}
-
-	// Save original providers list (including deactivated) for routing metadata display
-	const allModelProviders = modelInfo.providers;
-
-	// Filter out deactivated provider mappings
-	const now = new Date();
-	const activeProviders = modelInfo.providers.filter(
-		(provider) =>
-			!(
-				(provider as ProviderModelMapping).deactivatedAt &&
-				now > (provider as ProviderModelMapping).deactivatedAt!
-			),
+	// Resolve model info and filter deactivated providers
+	const modelInfoResult = resolveModelInfo(
+		requestedModel,
+		parseResult.requestedProvider,
 	);
-
-	// Check if all providers are deactivated
-	if (activeProviders.length === 0) {
-		throw new HTTPException(410, {
-			message: `Model ${requestedModel} has been deactivated and is no longer available`,
-		});
-	}
-
-	// Update modelInfo to only include active providers
-	modelInfo = {
-		...modelInfo,
-		providers: activeProviders,
-	};
-
-	// If a specific provider was requested but is now deactivated, clear it
-	// so routing logic will pick another active provider
-	if (
-		requestedProvider &&
-		requestedProvider !== "llmgateway" &&
-		requestedProvider !== "custom" &&
-		!activeProviders.some((p) => p.providerId === requestedProvider)
-	) {
-		// The requested provider was deactivated, routing will select another
-		requestedProvider = undefined;
-	}
+	let modelInfo = modelInfoResult.modelInfo;
+	const allModelProviders = modelInfoResult.allModelProviders;
+	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -679,13 +446,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			token: {
-				eq: token,
-			},
-		},
-	});
+	const apiKey = await findApiKeyByToken(token);
 
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, {
@@ -701,13 +462,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Get the project to determine mode for routing decisions
-	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: apiKey.projectId,
-			},
-		},
-	});
+	const project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -723,13 +478,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Fetch organization for coding model restriction check
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: {
-				eq: project.organizationId,
-			},
-		},
-	});
+	const organization = await findOrganizationById(project.organizationId);
 
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
@@ -803,174 +552,18 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	if (response_format?.type === "json_object") {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if the provider(s) support JSON output mode
-		const supportsJsonOutput = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
-		);
-
-		if (!supportsJsonOutput) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support JSON output mode`,
-			});
-		}
-	}
-
-	if (response_format?.type === "json_schema") {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// For non-auto/custom models, check if the provider supports json_schema
-		if (requestedModel !== "auto" && requestedModel !== "custom") {
-			const supportsJsonSchema = providersToCheck.some(
-				(provider) =>
-					(provider as ProviderModelMapping).jsonOutputSchema === true,
-			);
-
-			if (!supportsJsonSchema) {
-				throw new HTTPException(400, {
-					message: `Model ${requestedModel} does not support JSON schema output mode`,
-				});
-			}
-		}
-	}
-
-	// Check if reasoning_effort is specified but model doesn't support reasoning
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		reasoning_effort !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Check if any provider for this model supports reasoning
-		const supportsReasoning = modelInfo.providers.some(
-			(provider) => (provider as ProviderModelMapping).reasoning === true,
-		);
-
-		if (!supportsReasoning) {
-			logger.error(
-				`Reasoning effort specified for non-reasoning model: ${requestedModel}`,
-				{
-					requestedModel,
-					requestedProvider,
-					reasoning_effort,
-					modelProviders: modelInfo.providers.map((p) => ({
-						providerId: p.providerId,
-						reasoning: (p as ProviderModelMapping).reasoning,
-					})),
-				},
-			);
-
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
-			});
-		}
-	}
-
-	// Check if reasoning.max_tokens is specified but model doesn't support it
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		reasoning_max_tokens !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if any provider for this model supports reasoning.max_tokens
-		const supportsReasoningMaxTokens = providersToCheck.some(
-			(provider) =>
-				(provider as ProviderModelMapping).supportsReasoningMaxTokens === true,
-		);
-
-		if (!supportsReasoningMaxTokens) {
-			logger.error(
-				`reasoning.max_tokens specified for model that doesn't support it: ${requestedModel}`,
-				{
-					requestedModel,
-					requestedProvider,
-					reasoning_max_tokens,
-					modelProviders: modelInfo.providers.map((p) => ({
-						providerId: p.providerId,
-						supportsReasoningMaxTokens: (p as ProviderModelMapping)
-							.supportsReasoningMaxTokens,
-					})),
-				},
-			);
-
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support reasoning.max_tokens. Remove the reasoning.max_tokens parameter or use a model that supports explicit reasoning token budgets (Anthropic or Google thinking models).`,
-			});
-		}
-	}
-
-	// Check if tools are specified but model doesn't support them
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		(tools !== undefined || tool_choice !== undefined) &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if any provider for this model supports tools
-		const supportsTools = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).tools === true,
-		);
-
-		// Check if any provider supports web search
-		const supportsWebSearch = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).webSearch === true,
-		);
-
-		// Determine if we have function tools (web_search tools were already extracted earlier)
-		// After extraction, `tools` only contains function tools
-		const hasFunctionTools = tools && tools.length > 0;
-
-		// The request is web-search-only if:
-		// 1. A web search tool was extracted (webSearchTool is set)
-		// 2. No function tools remain in the tools array
-		const isWebSearchOnly = webSearchTool !== undefined && !hasFunctionTools;
-
-		// Allow the request if:
-		// 1. Model supports regular tools, OR
-		// 2. Model supports web search AND request only uses web search (no function tools)
-		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
-			});
-		}
-
-		// If web_search tool is specifically requested, ensure the model supports it
-		if (webSearchTool && !supportsWebSearch) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.`,
-			});
-		}
-	}
+	// Validate model capabilities (JSON output, reasoning, tools, web search)
+	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
+		response_format,
+		reasoning_effort,
+		reasoning_max_tokens,
+		tools,
+		tool_choice,
+		webSearchTool,
+	});
 
 	let usedProvider = requestedProvider;
-	let usedModel = requestedModel;
+	let usedModel: string = requestedModel;
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation
@@ -994,39 +587,12 @@ chat.openapi(completions, async (c) => {
 		throwIamException(iamValidation.reason!);
 	}
 
-	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode
-	const isHosted = process.env.HOSTED === "true";
-	const isPaidMode = process.env.PAID_MODE === "true";
-	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
-		if (!organization) {
-			throw new HTTPException(500, { message: "Could not find organization" });
-		}
-		if (organization.plan !== "pro") {
-			throw new HTTPException(402, {
-				message:
-					"Custom headers (X-LLMGateway-*) require a Pro plan. Please upgrade to Pro or remove these headers.",
-			});
-		}
-	}
-
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await db.query.providerKey.findFirst({
-			where: {
-				status: {
-					eq: "active",
-				},
-				organizationId: {
-					eq: project.organizationId,
-				},
-				provider: {
-					eq: "custom",
-				},
-				name: {
-					eq: customProviderName,
-				},
-			},
-		});
+		const customProviderKey = await findCustomProviderKey(
+			project.organizationId,
+			customProviderName,
+		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
@@ -1091,20 +657,10 @@ chat.openapi(completions, async (c) => {
 		let availableProviders: string[] = [];
 
 		if (project.mode === "api-keys") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			availableProviders = providerKeys.map((key) => key.provider);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			const databaseProviders = providerKeys.map((key) => key.provider);
 
 			// Check which providers have environment tokens available
@@ -1364,13 +920,10 @@ chat.openapi(completions, async (c) => {
 				.map((p) => p.providerId);
 
 			if (providerIds.length > 0) {
-				const providerKeys = await db.query.providerKey.findMany({
-					where: {
-						status: { eq: "active" },
-						organizationId: { eq: project.organizationId },
-						provider: { in: providerIds },
-					},
-				});
+				const providerKeys = await findProviderKeysByProviders(
+					project.organizationId,
+					providerIds,
+				);
 
 				const availableProviders =
 					project.mode === "api-keys"
@@ -1511,19 +1064,10 @@ chat.openapi(completions, async (c) => {
 			usedModel = modelInfo.providers[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						in: providerIds,
-					},
-				},
-			});
+			const providerKeys = await findProviderKeysByProviders(
+				project.organizationId,
+				providerIds,
+			);
 
 			const availableProviders =
 				project.mode === "api-keys"
@@ -1711,8 +1255,12 @@ chat.openapi(completions, async (c) => {
 	// Use the canonical model ID from modelInfo (set before any routing/fallback)
 	// This ensures correct stats tracking when low-uptime fallback changes the provider
 	// Fall back to finalModelInfo.id or usedModel for edge cases like custom providers
+	// Skip modelInfo.id when it's "auto" since that's a routing pseudo-model, not the actual model
+	const modelInfoId = (modelInfo as ModelDefinition)?.id;
 	const baseModelName =
-		(modelInfo as ModelDefinition)?.id || finalModelInfo?.id || usedModel;
+		(modelInfoId && modelInfoId !== "auto" ? modelInfoId : null) ||
+		finalModelInfo?.id ||
+		usedModel;
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
@@ -1758,7 +1306,10 @@ chat.openapi(completions, async (c) => {
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 
-	if (project.mode === "credits" && usedProvider === "custom") {
+	if (
+		project.mode === "credits" &&
+		(usedProvider === "custom" || usedProvider === "llmgateway")
+	) {
 		throw new HTTPException(400, {
 			message:
 				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
@@ -1766,65 +1317,14 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (project.mode === "api-keys") {
-		// Check if pro plan is required for API keys mode in hosted environment
-		const isHosted = process.env.HOSTED === "true";
-		const isPaidMode = process.env.PAID_MODE === "true";
-
-		if (isHosted && isPaidMode) {
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
-
-			if (!organization) {
-				throw new HTTPException(500, {
-					message: "Could not find organization",
-				});
-			}
-
-			if (organization.plan !== "pro") {
-				throw new HTTPException(402, {
-					message:
-						"API Keys mode requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
-				});
-			}
-		}
-
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (!providerKey) {
@@ -1840,33 +1340,27 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check if the organization has enough credits using cached helper function
-		const organization = await db.query.organization.findFirst({
-			where: {
-				id: {
-					eq: project.organizationId,
-				},
-			},
-		});
+		const orgForCredits = await findOrganizationById(project.organizationId);
 
-		if (!organization) {
+		if (!orgForCredits) {
 			throw new HTTPException(500, {
 				message: "Could not find organization",
 			});
 		}
 
 		// Check both regular credits AND dev plan credits
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(orgForCredits.credits || "0");
 		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+			orgForCredits.devPlan !== "none"
+				? parseFloat(orgForCredits.devPlanCreditsLimit || "0") -
+					parseFloat(orgForCredits.devPlanCreditsUsed || "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
-			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-				const renewalDate = organization.devPlanExpiresAt
-					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			if (orgForCredits.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+				const renewalDate = orgForCredits.devPlanExpiresAt
+					? new Date(orgForCredits.devPlanExpiresAt).toLocaleDateString()
 					: "your next billing date";
 				throw new HTTPException(402, {
 					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
@@ -1884,89 +1378,34 @@ chat.openapi(completions, async (c) => {
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (providerKey) {
-			// Check if pro plan is required when using API keys in hybrid mode in hosted environment
-			const isHosted = process.env.HOSTED === "true";
-			const isPaidMode = process.env.PAID_MODE === "true";
-
-			if (isHosted && isPaidMode) {
-				const organization = await db.query.organization.findFirst({
-					where: {
-						id: {
-							eq: project.organizationId,
-						},
-					},
-				});
-
-				if (!organization) {
-					throw new HTTPException(500, {
-						message: "Could not find organization",
-					});
-				}
-
-				if (organization.plan !== "pro") {
-					throw new HTTPException(402, {
-						message:
-							"Hybrid mode with API keys requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
-					});
-				}
-			}
-
 			usedToken = providerKey.token;
 		} else {
-			// No API key available, fall back to credits - no pro plan required
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
+			// No API key available, fall back to credits
+			const orgForHybridCredits = await findOrganizationById(
+				project.organizationId,
+			);
 
-			if (!organization) {
+			if (!orgForHybridCredits) {
 				throw new HTTPException(500, {
 					message: "Could not find organization",
 				});
 			}
 
 			// Check both regular credits AND dev plan credits
-			const regularCredits = parseFloat(organization.credits || "0");
+			const regularCredits = parseFloat(orgForHybridCredits.credits || "0");
 			const devPlanCreditsRemaining =
-				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit || "0") -
-						parseFloat(organization.devPlanCreditsUsed || "0")
+				orgForHybridCredits.devPlan !== "none"
+					? parseFloat(orgForHybridCredits.devPlanCreditsLimit || "0") -
+						parseFloat(orgForHybridCredits.devPlanCreditsUsed || "0")
 					: 0;
 			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1974,9 +1413,14 @@ chat.openapi(completions, async (c) => {
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree(modelInfo as ModelDefinition)
 			) {
-				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-					const renewalDate = organization.devPlanExpiresAt
-						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+				if (
+					orgForHybridCredits.devPlan !== "none" &&
+					devPlanCreditsRemaining <= 0
+				) {
+					const renewalDate = orgForHybridCredits.devPlanExpiresAt
+						? new Date(
+								orgForHybridCredits.devPlanExpiresAt,
+							).toLocaleDateString()
 						: "your next billing date";
 					throw new HTTPException(402, {
 						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
@@ -2121,8 +1565,11 @@ chat.openapi(completions, async (c) => {
 				let reasoningTokens = null;
 				let cachedTokens = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
+				let cachedResponseSize = 0; // Track size incrementally to avoid expensive stringify
 
 				for (const chunk of cachedStreamingResponse.chunks) {
+					// Track response size incrementally (sum of chunk data lengths + overhead)
+					cachedResponseSize += chunk.data.length + 50; // 50 bytes overhead per chunk for metadata
 					// Reconstruct raw SSE data for logging only in debug mode and within size limit
 					if (debugMode && rawCachedResponseData.length < MAX_RAW_DATA_SIZE) {
 						const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
@@ -2233,7 +1680,7 @@ chat.openapi(completions, async (c) => {
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
-					responseSize: JSON.stringify(cachedStreamingResponse).length,
+					responseSize: cachedResponseSize,
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
@@ -2353,15 +1800,23 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 				);
 
+				// Estimate cached response size based on content to avoid expensive stringify
+				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
+				const cachedReasoningContent =
+					cachedResponse.choices?.[0]?.message?.reasoning;
+				const estimatedCachedSize =
+					(cachedContent?.length || 0) +
+					(cachedReasoningContent?.length || 0) +
+					500; // overhead for metadata
+
 				await insertLog({
 					...baseLogEntry,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
-					responseSize: JSON.stringify(cachedResponse).length,
-					content: cachedResponse.choices?.[0]?.message?.content || null,
-					reasoningContent:
-						cachedResponse.choices?.[0]?.message?.reasoning || null,
+					responseSize: estimatedCachedSize,
+					content: cachedContent || null,
+					reasoningContent: cachedReasoningContent || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
 					promptTokens: cachedResponse.usage?.prompt_tokens || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
@@ -2486,6 +1941,38 @@ chat.openapi(completions, async (c) => {
 						} catch {
 							// Silently fail - thought_signature is optional
 						}
+					}
+				}
+			}
+		}
+	}
+
+	// For Moonshot provider, enrich assistant messages with cached reasoning_content
+	// This is needed for multi-turn tool call conversations with thinking models
+	// Moonshot requires reasoning_content in assistant messages with tool_calls
+	if (usedProvider === "moonshot") {
+		const { redisClient } = await import("@llmgateway/cache");
+		for (const message of messages) {
+			if (
+				message.role === "assistant" &&
+				message.tool_calls &&
+				Array.isArray(message.tool_calls) &&
+				message.tool_calls.length > 0 &&
+				!(message as any).reasoning_content // Only add if not already present
+			) {
+				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
+				const firstToolCall = message.tool_calls[0];
+				if (firstToolCall?.id) {
+					try {
+						const cachedReasoningContent = await redisClient.get(
+							`reasoning_content:${firstToolCall.id}`,
+						);
+						if (cachedReasoningContent) {
+							// Add reasoning_content to the message for Moonshot
+							(message as any).reasoning_content = cachedReasoningContent;
+						}
+					} catch {
+						// Silently fail - reasoning_content caching is optional
 					}
 				}
 			}
@@ -2645,7 +2132,7 @@ chat.openapi(completions, async (c) => {
 				}
 
 				// Create a combined signal for both timeout and cancellation
-				const fetchSignal = createCombinedSignal(
+				const fetchSignal = createStreamingCombinedSignal(
 					requestCanBeCanceled ? controller : undefined,
 				);
 
@@ -3546,9 +3033,8 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 								);
 
-								// Only include costs in response if not hosted or if org is pro
-								const shouldIncludeCosts = !isHosted || userPlan === "pro";
-								const showUpgradeMessage = isHosted && userPlan !== "pro";
+								// Include costs in response for all users
+								const shouldIncludeCosts = true;
 
 								const finalUsageChunk = {
 									id: `chatcmpl-${Date.now()}`,
@@ -3588,9 +3074,6 @@ chat.openapi(completions, async (c) => {
 											cost_usd_output: streamingCosts.outputCost,
 											cost_usd_cached_input: streamingCosts.cachedInputCost,
 											cost_usd_request: streamingCosts.requestCost,
-										}),
-										...(showUpgradeMessage && {
-											info: "upgrade to pro to include usd cost breakdown",
 										}),
 									},
 								};
@@ -4146,28 +3629,32 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!completionTokens && (fullContent || imageByteSize > 0)) {
-						try {
-							let textTokens = fullContent
-								? encode(JSON.stringify(fullContent)).length
-								: 0;
-							// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
-							}
+						// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+						let imageTokens = 0;
+						if (imageByteSize > 0) {
+							imageTokens = 258 + Math.ceil(imageByteSize / 750);
+						}
+
+						// Skip expensive token encoding for image responses - use simple estimation
+						// Token encoding on large base64 content causes CPU spikes
+						if (imageByteSize > 0) {
+							const textTokens = estimateTokensFromContent(fullContent);
 							calculatedCompletionTokens = textTokens + imageTokens;
-						} catch (error) {
-							// Fallback to simple estimation if encoding fails
-							logger.error(
-								"Failed to encode completion text in streaming",
-								error instanceof Error ? error : new Error(String(error)),
-							);
-							let textTokens = estimateTokensFromContent(fullContent);
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
+						} else {
+							try {
+								const textTokens = fullContent
+									? encode(JSON.stringify(fullContent)).length
+									: 0;
+								calculatedCompletionTokens = textTokens + imageTokens;
+							} catch (error) {
+								// Fallback to simple estimation if encoding fails
+								logger.error(
+									"Failed to encode completion text in streaming",
+									error instanceof Error ? error : new Error(String(error)),
+								);
+								const textTokens = estimateTokensFromContent(fullContent);
+								calculatedCompletionTokens = textTokens + imageTokens;
 							}
-							calculatedCompletionTokens = textTokens + imageTokens;
 						}
 					}
 
@@ -4590,6 +4077,7 @@ chat.openapi(completions, async (c) => {
 
 	let canceled = false;
 	let fetchError: Error | null = null;
+	let isTimeoutFetchError = false;
 	let res;
 	try {
 		const headers = getProviderHeaders(usedProvider, usedToken, {
@@ -4617,6 +4105,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Create a combined signal for both timeout and cancellation
+		// Non-streaming requests use a shorter timeout (default 80s)
 		const fetchSignal = createCombinedSignal(
 			requestCanBeCanceled ? controller : undefined,
 		);
@@ -4633,6 +4122,7 @@ chat.openapi(completions, async (c) => {
 			// Capture timeout as a fetch error for logging
 			fetchError =
 				error instanceof Error ? error : new Error("Request timeout");
+			isTimeoutFetchError = true;
 		} else if (error instanceof Error && error.name === "AbortError") {
 			canceled = true;
 		} else if (error instanceof Error) {
@@ -4736,21 +4226,23 @@ chat.openapi(completions, async (c) => {
 			reportKeyError(envVarName, configIndex, 0);
 		}
 
-		// Return error response
+		// Return error response - use 504 for timeouts, 502 for other connection failures
 		return c.json(
 			{
 				error: {
-					message: `Failed to connect to provider: ${errorMessage}`,
-					type: "upstream_error",
+					message: isTimeoutFetchError
+						? `Upstream provider timeout: ${errorMessage}`
+						: `Failed to connect to provider: ${errorMessage}`,
+					type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
 					param: null,
-					code: "fetch_failed",
+					code: isTimeoutFetchError ? "timeout" : "fetch_failed",
 					requestedProvider,
 					usedProvider,
 					requestedModel: initialRequestedModel,
 					usedModel,
 				},
 			},
-			502,
+			isTimeoutFetchError ? 504 : 502,
 		);
 	}
 
@@ -5037,7 +4529,11 @@ chat.openapi(completions, async (c) => {
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
 	}
-	const responseText = JSON.stringify(json);
+	// Track response size - prefer Content-Length header to avoid expensive stringify on large responses
+	const contentLengthHeader = res.headers.get("Content-Length");
+	let responseSize = contentLengthHeader
+		? parseInt(contentLengthHeader, 10)
+		: 0;
 
 	// Extract content and token usage based on provider
 	let {
@@ -5165,9 +4661,8 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
-	// Only include costs in response if not hosted or if org is pro
-	const shouldIncludeCosts = !isHosted || userPlan === "pro";
-	const showUpgradeMessage = isHosted && userPlan !== "pro";
+	// Include costs in response for all users
+	const shouldIncludeCosts = true;
 	const transformedResponse = transformResponseToOpenai(
 		usedProvider,
 		usedModel,
@@ -5197,7 +4692,7 @@ chat.openapi(completions, async (c) => {
 					totalCost: costs.totalCost,
 				}
 			: null,
-		showUpgradeMessage,
+		false, // showUpgradeMessage - never show since Pro plan is removed
 		annotations,
 	);
 
@@ -5272,12 +4767,26 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Calculate response size if Content-Length was not available
+	// For large responses, use content length estimation to avoid CPU spikes from stringify
+	if (!responseSize) {
+		const contentLength = content?.length || 0;
+		// If content is very large (likely contains base64 images), use estimation
+		// Otherwise stringify is acceptable for smaller responses
+		if (contentLength > 1_000_000) {
+			// Estimate: content + JSON overhead
+			responseSize = contentLength + 500;
+		} else {
+			responseSize = JSON.stringify(json).length;
+		}
+	}
+
 	await insertLog({
 		...baseLogEntry,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
-		responseSize: responseText.length,
+		responseSize,
 		content: content,
 		reasoningContent: reasoningContent,
 		finishReason: hasEmptyNonStreamingResponse

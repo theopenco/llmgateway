@@ -21,6 +21,7 @@ import {
 	useDataChat,
 	useDeleteChat,
 } from "@/hooks/useChats";
+import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -32,6 +33,27 @@ import type {
 	ApiProvider,
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
+
+/**
+ * Minimal interface for tool parts from AI SDK v6 (tool-{toolName} pattern)
+ */
+interface ToolPart {
+	type: string;
+	[key: string]: unknown;
+}
+
+/**
+ * Type guard to check if an object is a ToolPart (type starts with "tool-")
+ */
+function isToolPart(obj: unknown): obj is ToolPart {
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		"type" in obj &&
+		typeof (obj as ToolPart).type === "string" &&
+		(obj as ToolPart).type.startsWith("tool-")
+	);
+}
 
 interface ChatPageClientProps {
 	models: ApiModel[];
@@ -96,6 +118,16 @@ export default function ChatPageClient({
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	// MCP servers management
+	const {
+		servers: mcpServers,
+		addServer: addMcpServer,
+		updateServer: updateMcpServer,
+		removeServer: removeMcpServer,
+		toggleServer: toggleMcpServer,
+		getEnabledServers: getEnabledMcpServers,
+	} = useMcpServers();
 
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("chat");
@@ -220,10 +252,8 @@ export default function ChatPageClient({
 
 				const images = [...imageUrlParts, ...fileParts];
 
-				// Extract tool parts (AI SDK dynamic tool UI parts)
-				const toolParts = (message.parts as any[]).filter(
-					(p: any) => p.type === "dynamic-tool",
-				);
+				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
+				const toolParts = message.parts.filter(isToolPart);
 
 				const bodyToSave = {
 					role: "assistant" as const,
@@ -363,6 +393,9 @@ export default function ChatPageClient({
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
 
+			// Get enabled MCP servers
+			const enabledMcpServers = getEnabledMcpServers();
+
 			const mergedOptions = {
 				...options,
 				headers: {
@@ -375,6 +408,9 @@ export default function ChatPageClient({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
+						: {}),
+					...(enabledMcpServers.length > 0
+						? { mcp_servers: enabledMcpServers }
 						: {}),
 				},
 			};
@@ -391,6 +427,7 @@ export default function ChatPageClient({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
+			getEnabledMcpServers,
 		],
 	);
 
@@ -840,6 +877,11 @@ export default function ChatPageClient({
 							showGlobalModelSelector={
 								!(comparisonEnabled && extraPanelIds.length > 0)
 							}
+							mcpServers={mcpServers}
+							onAddMcpServer={addMcpServer}
+							onUpdateMcpServer={updateMcpServer}
+							onRemoveMcpServer={removeMcpServer}
+							onToggleMcpServer={toggleMcpServer}
 						/>
 					</div>
 					{comparisonEnabled ? (

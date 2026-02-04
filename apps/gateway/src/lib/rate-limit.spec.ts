@@ -13,16 +13,6 @@ vi.mock("@llmgateway/cache", () => ({
 	},
 }));
 
-vi.mock("@llmgateway/db", () => ({
-	cdb: {
-		query: {
-			organization: {
-				findFirst: vi.fn(),
-			},
-		},
-	},
-}));
-
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
 		info: vi.fn(),
@@ -31,10 +21,14 @@ vi.mock("@llmgateway/logger", () => ({
 	},
 }));
 
+// Mock the cached queries module
+vi.mock("@/lib/cached-queries.js", () => ({
+	findOrganizationById: vi.fn(),
+}));
+
 const mockCache = await import("@llmgateway/cache");
-const mockDb = await import("@llmgateway/db");
+const mockCachedQueries = await import("@/lib/cached-queries.js");
 const redis = mockCache.redisClient;
-const { cdb } = mockDb;
 
 describe("Rate Limiting", () => {
 	beforeEach(() => {
@@ -78,7 +72,7 @@ describe("Rate Limiting", () => {
 		it("should apply base rate limits for orgs with 0 credits", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+			vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue({
 				id: "org-1",
 				createdAt: new Date(),
 				updatedAt: new Date(),
@@ -133,7 +127,7 @@ describe("Rate Limiting", () => {
 		it("should apply elevated rate limits for orgs with credits > 0", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+			vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue({
 				id: "org-1",
 				createdAt: new Date(),
 				updatedAt: new Date(),
@@ -185,7 +179,7 @@ describe("Rate Limiting", () => {
 		it("should block requests when base rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+			vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue({
 				id: "org-1",
 				createdAt: new Date(),
 				updatedAt: new Date(),
@@ -245,7 +239,7 @@ describe("Rate Limiting", () => {
 		it("should block requests when elevated rate limit is exceeded", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+			vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue({
 				id: "org-1",
 				createdAt: new Date(),
 				updatedAt: new Date(),
@@ -305,7 +299,7 @@ describe("Rate Limiting", () => {
 		it("should allow requests on Redis errors", async () => {
 			const modelDefinition = { free: true };
 
-			vi.mocked(cdb.query.organization.findFirst).mockResolvedValue({
+			vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue({
 				id: "org-1",
 				createdAt: new Date(),
 				updatedAt: new Date(),

@@ -454,6 +454,7 @@ export const log = pgTable(
 		webSearchCost: real(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		serviceFee: real(),
 		pricingTier: text(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),

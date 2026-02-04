@@ -7,7 +7,7 @@ import {
 	test,
 } from "vitest";
 
-import { db, tables, eq } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
 
 import { app } from "./app.js";
 import {
@@ -738,75 +738,31 @@ describe("test", () => {
 		expect(json.metadata.requested_provider).toBeNull();
 	});
 
-	test("Using custom headers requires Pro plan in hosted/paid mode", async () => {
-		// Downgrade org to free
-		await db
-			.update(tables.organization)
-			.set({ plan: "free" })
-			.where(eq(tables.organization.id, "org-id"));
-
-		// Create API key and provider key so request can route
-		await db.insert(tables.apiKey).values({
-			id: "token-id-headers",
-			token: "token-with-headers",
-			projectId: "project-id",
-			description: "Test API Key with headers",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id-headers",
-			token: "sk-test-key",
-			provider: "openai",
-			organizationId: "org-id",
-		});
-
-		// Simulate hosted/paid mode
-		process.env.HOSTED = "true";
-		process.env.PAID_MODE = "true";
-
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer token-with-headers`,
-				"X-LLMGateway-uid": "abc123",
-			},
-			body: JSON.stringify({
-				model: "openai/gpt-4o-mini",
-				messages: [
-					{
-						role: "user",
-						content: "Hello!",
-					},
-				],
-			}),
-		});
-
-		expect(res.status).toBe(402);
-		const json = await res.json();
-		expect(json.message).toMatch(
-			/Custom headers \(X-LLMGateway-\*\) require a Pro plan/i,
-		);
-	});
-
 	// Timeout tests - use a short timeout via env var to test timeout handling
 	describe("Timeout handling", () => {
 		let originalTimeout: string | undefined;
+		let originalStreamingTimeout: string | undefined;
 
 		beforeAll(() => {
-			// Save original env value
-			originalTimeout = process.env.AI_REQUEST_TIMEOUT_MS;
+			// Save original env values
+			originalTimeout = process.env.AI_TIMEOUT_MS;
+			originalStreamingTimeout = process.env.AI_STREAMING_TIMEOUT_MS;
 			// Set a short timeout for testing (2 seconds)
-			process.env.AI_REQUEST_TIMEOUT_MS = "2000";
+			process.env.AI_TIMEOUT_MS = "2000";
+			process.env.AI_STREAMING_TIMEOUT_MS = "2000";
 		});
 
 		afterAll(() => {
-			// Restore original env value
+			// Restore original env values
 			if (originalTimeout !== undefined) {
-				process.env.AI_REQUEST_TIMEOUT_MS = originalTimeout;
+				process.env.AI_TIMEOUT_MS = originalTimeout;
 			} else {
-				delete process.env.AI_REQUEST_TIMEOUT_MS;
+				delete process.env.AI_TIMEOUT_MS;
+			}
+			if (originalStreamingTimeout !== undefined) {
+				process.env.AI_STREAMING_TIMEOUT_MS = originalStreamingTimeout;
+			} else {
+				delete process.env.AI_STREAMING_TIMEOUT_MS;
 			}
 		});
 
@@ -845,13 +801,13 @@ describe("test", () => {
 				}),
 			});
 
-			// Request should fail with 502 Bad Gateway (upstream timeout)
-			expect(res.status).toBe(502);
+			// Request should fail with 504 Gateway Timeout (upstream timeout)
+			expect(res.status).toBe(504);
 
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
-			expect(json.error.type).toBe("upstream_error");
-			expect(json.error.code).toBe("fetch_failed");
+			expect(json.error.type).toBe("upstream_timeout");
+			expect(json.error.code).toBe("timeout");
 
 			// Wait for the log to be written
 			const logs = await waitForLogs(1);

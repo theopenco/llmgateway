@@ -219,13 +219,12 @@ keysApi.openapi(create, async (c) => {
 		},
 	});
 
-	// Check plan limits
-	const maxApiKeys = project.organization.plan === "pro" ? 20 : 5;
+	// Check API key limit
+	const maxApiKeys = 20;
 
 	if (existingApiKeys.length >= maxApiKeys) {
-		const planName = project.organization.plan === "pro" ? "Pro" : "Free";
 		throw new HTTPException(400, {
-			message: `API key limit reached. ${planName} plan allows maximum ${maxApiKeys} API keys per project.`,
+			message: `API key limit reached. Maximum ${maxApiKeys} API keys per project. Contact us at contact@llmgateway.io to unlock more.`,
 		});
 	}
 

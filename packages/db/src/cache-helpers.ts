@@ -1,39 +1,39 @@
-import { getCache, setCache } from "@llmgateway/cache";
+import { eq } from "drizzle-orm";
+
 import { logger } from "@llmgateway/logger";
 
-import { db } from "./db.js";
+import { cdb } from "./cdb.js";
+import { project as projectTable } from "./schema.js";
 
+/**
+ * Check if caching is enabled for a project.
+ *
+ * Uses the cached database client (cdb) which has Drizzle's cache layer,
+ * so this query will be served from Redis cache when available.
+ */
 export async function isCachingEnabled(
 	projectId: string,
 ): Promise<{ enabled: boolean; duration: number }> {
 	try {
-		const configCacheKey = `project_cache_config:${projectId}`;
-		const cachedConfig = await getCache(configCacheKey);
+		const results = await cdb
+			.select({
+				cachingEnabled: projectTable.cachingEnabled,
+				cacheDurationSeconds: projectTable.cacheDurationSeconds,
+			})
+			.from(projectTable)
+			.where(eq(projectTable.id, projectId))
+			.limit(1);
 
-		if (cachedConfig) {
-			return cachedConfig;
-		}
-
-		const project = await db.query.project.findFirst({
-			where: {
-				id: {
-					eq: projectId,
-				},
-			},
-		});
+		const project = results[0];
 
 		if (!project) {
 			return { enabled: false, duration: 0 };
 		}
 
-		const config = {
+		return {
 			enabled: project.cachingEnabled || false,
 			duration: project.cacheDurationSeconds || 60,
 		};
-
-		await setCache(configCacheKey, config, 300);
-
-		return config;
 	} catch (error) {
 		logger.error("Error checking if caching is enabled:", error as Error);
 		throw error;

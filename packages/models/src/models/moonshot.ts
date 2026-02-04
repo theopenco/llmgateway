@@ -182,4 +182,28 @@ export const moonshotModels = [
 			},
 		],
 	},
+	{
+		id: "kimi-k2.5",
+		name: "Kimi K2.5",
+		description:
+			"Moonshot's native multimodal model with visual coding and agentic capabilities.",
+		family: "moonshot",
+		releasedAt: new Date("2026-01-26"),
+		providers: [
+			{
+				providerId: "moonshot",
+				modelName: "kimi-k2.5",
+				inputPrice: 0.6 / 1e6,
+				outputPrice: 3.0 / 1e6,
+				cachedInputPrice: 0.1 / 1e6,
+				requestPrice: 0,
+				contextSize: 262144,
+				maxOutput: 32768,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

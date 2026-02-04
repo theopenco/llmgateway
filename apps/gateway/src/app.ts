@@ -12,12 +12,15 @@ import { db } from "@llmgateway/db";
 import {
 	createHonoRequestLogger,
 	createRequestLifecycleMiddleware,
+	getMetrics,
+	getMetricsContentType,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { responses } from "./responses/responses.js";
@@ -69,25 +72,29 @@ app.use("*", honoRequestLogger);
 app.use(
 	"*",
 	cors({
-		origin: process.env.ORIGIN_URLS?.split(",") || [
-			"https://docs.llmgateway.io",
-			"http://localhost:3002",
-			"http://localhost:3003",
-			"http://localhost:3004",
-			"http://localhost:3005",
-			"http://localhost:3006",
+		origin: "*",
+		allowHeaders: [
+			"Content-Type",
+			"Authorization",
+			"Cache-Control",
+			"x-api-key",
+			"mcp-session-id",
 		],
-		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
-		exposeHeaders: ["Content-Length"],
+		exposeHeaders: ["Content-Length", "mcp-session-id"],
 		maxAge: 600,
-		credentials: true,
 	}),
 );
 
 // Middleware to check for application/json content type on POST requests
+// Excludes /mcp endpoint which handles its own content type validation
+// Excludes /oauth endpoints which accept form-urlencoded or JSON
 app.use("*", async (c, next) => {
-	if (c.req.method === "POST") {
+	if (
+		c.req.method === "POST" &&
+		!c.req.path.startsWith("/mcp") &&
+		!c.req.path.startsWith("/oauth")
+	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {
 			throw new HTTPException(415, {
@@ -208,6 +215,13 @@ app.openapi(root, async (c) => {
 		? skip.split(",").map((s) => s.trim().toLowerCase())
 		: [];
 
+	// By default, skip database health check for gateway since it uses cached db client
+	// and can operate without direct Postgres connectivity as long as Redis is available
+	const skipDatabase = process.env.HEALTH_CHECK_SKIP_DATABASE !== "false";
+	if (skipDatabase && !skipChecks.includes("database")) {
+		skipChecks.push("database");
+	}
+
 	// Health check timeout - allow more time under load for DB/Redis connections
 	// 15 seconds default to prevent false failures during traffic spikes
 	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
@@ -228,6 +242,32 @@ app.openapi(root, async (c) => {
 	return c.json(response, statusCode as 200 | 503);
 });
 
+// Prometheus metrics endpoint
+const metricsRoute = createRoute({
+	summary: "Prometheus metrics",
+	description: "Prometheus metrics endpoint for scraping.",
+	operationId: "metrics",
+	method: "get",
+	path: "/metrics",
+	responses: {
+		200: {
+			content: {
+				"text/plain": {
+					schema: z.string(),
+				},
+			},
+			description: "Prometheus metrics in exposition format.",
+		},
+	},
+});
+
+app.openapi(metricsRoute, async (c) => {
+	const metrics = await getMetrics();
+	return c.text(metrics, 200, {
+		"Content-Type": getMetricsContentType(),
+	});
+});
+
 const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
@@ -236,6 +276,13 @@ v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 
 app.route("/v1", v1);
+
+// MCP endpoint - Model Context Protocol server
+app.all("/mcp", mcpHandler);
+
+// Register MCP OAuth routes for Claude Code authentication workaround
+// This adds OAuth endpoints at /.well-known/oauth-authorization-server and /oauth/*
+registerMcpOAuthRoutes(app);
 
 app.doc("/json", config);
 

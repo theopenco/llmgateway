@@ -869,15 +869,11 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            totalCreditsIssued: number;
-                            totalRevenue: number;
-                            netProfit: number;
                             totalSignups: number;
                             verifiedUsers: number;
                             payingCustomers: number;
-                            revenuePerCustomerPerMonth: number;
-                            peakLoadSuccessRate: number;
-                            customerInfraReplacementRate: number;
+                            totalRevenue: number;
+                            totalOrganizations: number;
                         };
                     };
                 };
@@ -891,7 +887,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/tokens": {
+    "/admin/organizations": {
         parameters: {
             query?: never;
             header?: never;
@@ -901,7 +897,11 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "7d" | "30d";
+                    limit?: number;
+                    offset?: number | null;
+                    search?: string;
+                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status";
+                    sortOrder?: "asc" | "desc";
                 };
                 header?: never;
                 path?: never;
@@ -909,15 +909,78 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Admin token usage metrics. */
+                /** @description List of organizations. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
+                            organizations: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                plan: string;
+                                devPlan: string;
+                                credits: string;
+                                createdAt: string;
+                                status: string | null;
+                            }[];
+                            total: number;
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1d" | "7d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            organization: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                plan: string;
+                                devPlan: string;
+                                credits: string;
+                                createdAt: string;
+                                status: string | null;
+                            };
                             /** @enum {string} */
-                            window: "7d" | "30d";
+                            window: "1d" | "7d";
                             startDate: string;
                             endDate: string;
                             totalRequests: number;
@@ -934,6 +997,69 @@ export interface paths {
                             mostUsedModelRequestCount: number;
                         };
                     };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization transactions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            transactions: {
+                                id: string;
+                                createdAt: string;
+                                type: string;
+                                amount: string | null;
+                                creditAmount: string | null;
+                                currency: string;
+                                status: string;
+                                description: string | null;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -3024,10 +3150,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             baseAmount: number;
-                            stripeFee: number;
-                            internationalFee: number;
-                            planFee: number;
-                            totalFees: number;
+                            platformFee: number;
                             totalAmount: number;
                             bonusAmount?: number;
                             finalCreditAmount?: number;

@@ -11,6 +11,8 @@ image:
   height: 677
 ---
 
+> **Update (January 2026):** All Pro features are now available on the Free plan. See our [announcement](/changelog/pro-features-now-free) for details.
+
 ## Bring Your Own Provider Keys
 
 **Reduced Gateway fees** Just 2.5% (half the free plan rate) when using your own OpenAI, Anthropic, Google AI Studio keys
