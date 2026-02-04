@@ -675,8 +675,15 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Check if any of the model's providers are available
-			const availableModelProviders = modelDef.providers.filter((provider) =>
-				availableProviders.includes(provider.providerId),
+			// Note: We don't filter by iamAllowedProviders here because it was computed
+			// for the "auto" model, not the actual models being considered for selection
+			const availableModelProviders = modelDef.providers.filter(
+				(provider) =>
+					availableProviders.includes(provider.providerId) &&
+					// Filter by IAM allowed providers only for non-auto models
+					(requestedModel === "auto" ||
+						!iamAllowedProviders ||
+						iamAllowedProviders.includes(provider.providerId)),
 			);
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
@@ -901,6 +908,13 @@ chat.openapi(completions, async (c) => {
 							return false;
 						}
 						if (provider.providerId === usedProvider) {
+							return false;
+						}
+						// Filter by IAM allowed providers
+						if (
+							iamAllowedProviders &&
+							!iamAllowedProviders.includes(provider.providerId)
+						) {
 							return false;
 						}
 						// If web search tool is requested, only include providers that support it
