@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a3a9c41e-a3c7-4b64-be48-60bd9f0bf9d2",
-  "prevId": "aa3a0b33-9d18-4bca-81d7-7498555c26f9",
+  "id": "b2cc1456-8ec6-43ac-834c-e4b71781b9c2",
+  "prevId": "afccd9a7-b9e3-405e-ae16-89d16e6b336d",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -2034,6 +2034,19 @@
       "generated": null,
       "identity": null,
       "name": "discount",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "service_fee",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
