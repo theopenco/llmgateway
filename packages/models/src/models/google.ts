@@ -750,6 +750,7 @@ export const googleModels = [
 				imageInputPrice: 0.0011,
 				imageOutputPrice: 120 / 1e6,
 				requestPrice: 0,
+				discount: 0.2,
 				contextSize: 98304,
 				maxOutput: 32768,
 				streaming: true,
