@@ -76,6 +76,10 @@ const schema = z.object({
 	total_tokens: z.string().nullable(),
 	reasoning_tokens: z.string().nullable(),
 	cached_tokens: z.string().nullable(),
+	input_cost: z.number().nullable(),
+	output_cost: z.number().nullable(),
+	cached_input_cost: z.number().nullable(),
+	estimated_cost: z.boolean().nullable(),
 	error_details: z
 		.object({
 			statusCode: z.number(),
@@ -479,6 +483,10 @@ export async function batchProcessLogs(): Promise<void> {
 					total_tokens: log.totalTokens,
 					reasoning_tokens: log.reasoningTokens,
 					cached_tokens: log.cachedTokens,
+					input_cost: log.inputCost,
+					output_cost: log.outputCost,
+					cached_input_cost: log.cachedInputCost,
+					estimated_cost: log.estimatedCost,
 					error_details: log.errorDetails,
 					trace_id: log.traceId,
 				})
@@ -517,6 +525,10 @@ export async function batchProcessLogs(): Promise<void> {
 					organizationId: row.organization_id,
 					projectId: row.project_id,
 					cost: row.cost,
+					inputCost: row.input_cost,
+					outputCost: row.output_cost,
+					cachedInputCost: row.cached_input_cost,
+					estimatedCost: row.estimated_cost,
 					error: !!row.hasError,
 					cached: row.cached,
 					apiKeyId: row.api_key_id,

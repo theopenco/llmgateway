@@ -42,7 +42,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-preview",
+    "model": "gpt-oss-120b",
     "messages": [
       {
         "role": "user",
@@ -62,7 +62,7 @@ The response will include a `reasoning` field in the message object containing t
 	"id": "chatcmpl-abc123",
 	"object": "chat.completion",
 	"created": 1234567890,
-	"model": "gpt-5-preview",
+	"model": "gpt-oss-120b",
 	"choices": [
 		{
 			"index": 0,
@@ -92,7 +92,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-preview",
+    "model": "gpt-oss-120b",
     "messages": [
       {
         "role": "user",

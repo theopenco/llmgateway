@@ -12,6 +12,8 @@ import { db } from "@llmgateway/db";
 import {
 	createHonoRequestLogger,
 	createRequestLifecycleMiddleware,
+	getMetrics,
+	getMetricsContentType,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
@@ -238,6 +240,32 @@ app.openapi(root, async (c) => {
 	const { response, statusCode } = healthChecker.createHealthResponse(health);
 
 	return c.json(response, statusCode as 200 | 503);
+});
+
+// Prometheus metrics endpoint
+const metricsRoute = createRoute({
+	summary: "Prometheus metrics",
+	description: "Prometheus metrics endpoint for scraping.",
+	operationId: "metrics",
+	method: "get",
+	path: "/metrics",
+	responses: {
+		200: {
+			content: {
+				"text/plain": {
+					schema: z.string(),
+				},
+			},
+			description: "Prometheus metrics in exposition format.",
+		},
+	},
+});
+
+app.openapi(metricsRoute, async (c) => {
+	const metrics = await getMetrics();
+	return c.text(metrics, 200, {
+		"Content-Type": getMetricsContentType(),
+	});
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();

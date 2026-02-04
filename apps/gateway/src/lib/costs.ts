@@ -20,12 +20,12 @@ const DEFAULT_TOKENIZER_MODEL = "gpt-4";
 
 /**
  * Check if billing for cancelled requests is enabled via environment variable.
- * Defaults to true if not set.
+ * Defaults to false if not set.
  */
 export function shouldBillCancelledRequests(): boolean {
 	const envValue = process.env.BILL_CANCELLED_REQUESTS;
-	// Default to true if not set, only disable if explicitly set to "false"
-	return envValue !== "false";
+	// Default to false if not set, only enable if explicitly set to "true"
+	return envValue === "true";
 }
 
 /**

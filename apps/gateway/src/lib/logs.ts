@@ -1,5 +1,6 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
+import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import type { InferInsertModel } from "@llmgateway/db";
@@ -113,6 +114,28 @@ export function getUnifiedFinishReason(
 }
 
 /**
+ * Map unified finish reason to an error type for metrics (if applicable)
+ */
+function getErrorTypeFromUnifiedFinishReason(
+	unifiedReason: string | null | undefined,
+): string | undefined {
+	switch (unifiedReason) {
+		case UnifiedFinishReason.CLIENT_ERROR:
+			return "client_error";
+		case UnifiedFinishReason.GATEWAY_ERROR:
+			return "gateway_error";
+		case UnifiedFinishReason.UPSTREAM_ERROR:
+			return "upstream_error";
+		case UnifiedFinishReason.CONTENT_FILTER:
+			return "content_filter";
+		case UnifiedFinishReason.CANCELED:
+			return "canceled";
+		default:
+			return undefined;
+	}
+}
+
+/**
  * Calculate data storage cost based on token usage
  * $0.01 per 1M tokens (total tokens = input + cached + output + reasoning)
  * Returns "0" if retention level is "none" since no data is stored
@@ -175,6 +198,34 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 			}
 		}
 	}
+
+	// Record Prometheus metrics for chat completion requests
+	const errorType = getErrorTypeFromUnifiedFinishReason(
+		logData.unifiedFinishReason,
+	);
+
+	recordChatCompletionMetrics({
+		model: logData.usedModel || "unknown",
+		provider: logData.usedProvider || "unknown",
+		finishReason: logData.finishReason || null,
+		streaming: logData.streamed || false,
+		durationMs: logData.duration || 0,
+		ttftMs: logData.timeToFirstToken || undefined,
+		inputTokens: logData.promptTokens
+			? Number(logData.promptTokens)
+			: undefined,
+		outputTokens: logData.completionTokens
+			? Number(logData.completionTokens)
+			: undefined,
+		reasoningTokens: logData.reasoningTokens
+			? Number(logData.reasoningTokens)
+			: undefined,
+		cachedTokens: logData.cachedTokens
+			? Number(logData.cachedTokens)
+			: undefined,
+		errorType,
+	});
+
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations
 }

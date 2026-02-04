@@ -21,6 +21,14 @@ import { cn } from "@/lib/utils";
 
 import { CodeBlock } from "./code-block";
 import { Image } from "./image";
+import {
+	hasImageModelsOutput,
+	hasModelsOutput,
+	hasTextContentOutput,
+	ImageModelsListOutput,
+	ModelsListOutput,
+	TextContentOutput,
+} from "./tool-results";
 
 import type { ToolUIPart } from "ai";
 import type { ComponentProps, ReactNode } from "react";
@@ -191,6 +199,15 @@ export const ToolOutput = ({
 				</div>
 			</div>
 		);
+	} else if (hasModelsOutput(output)) {
+		// Render model cards for list-models tool output
+		Output = <ModelsListOutput models={output.models} />;
+	} else if (hasImageModelsOutput(output)) {
+		// Render image model cards for list-image-models tool output
+		Output = <ImageModelsListOutput imageModels={output.imageModels} />;
+	} else if (hasTextContentOutput(output)) {
+		// Render text content for generate_content tool output
+		Output = <TextContentOutput response={output.response} />;
 	} else if (typeof output === "object" && !isValidElement(output)) {
 		Output = (
 			<CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
