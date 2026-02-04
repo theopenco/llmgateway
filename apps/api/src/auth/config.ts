@@ -449,7 +449,11 @@ export async function updateResendContact(
 				});
 				return;
 			}
-			throw new Error(`Resend API error: ${error.message}`);
+			logger.error("Resend API error during contact update", {
+				email,
+				errorMessage: error.message,
+			});
+			return;
 		}
 
 		logger.info("Successfully updated Resend contact", {
