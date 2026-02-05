@@ -5,7 +5,14 @@ import { Streamdown } from "streamdown";
 
 import { cn } from "@/lib/utils";
 
+import type { BundledTheme } from "shiki";
+
 type ResponseProps = ComponentProps<typeof Streamdown>;
+
+const shikiTheme: [BundledTheme, BundledTheme] = [
+	"github-light",
+	"github-dark",
+];
 
 export const Response = memo(
 	({ className, ...props }: ResponseProps) => (
@@ -14,6 +21,7 @@ export const Response = memo(
 				"size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
 				className,
 			)}
+			shikiTheme={shikiTheme}
 			{...props}
 		/>
 	),
