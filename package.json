@@ -68,5 +68,10 @@
 	},
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
-	]
+	],
+	"pnpm": {
+		"overrides": {
+			"shiki": "3.22.0"
+		}
+	}
 }
