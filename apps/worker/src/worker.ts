@@ -3,34 +3,34 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	closeRedisClient,
 	consumeFromQueue,
 	LOG_QUEUE,
-	closeRedisClient,
 	publishToQueue,
 } from "@llmgateway/cache";
 import {
-	db,
-	log,
-	organization,
-	eq,
-	sql,
 	and,
-	lt,
-	tables,
 	apiKey,
-	inArray,
-	type LogInsertData,
 	closeDatabase,
+	db,
+	eq,
+	inArray,
+	log,
+	type LogInsertData,
+	lt,
+	organization,
+	sql,
+	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
 
 import {
-	calculateMinutelyHistory,
-	calculateCurrentMinuteHistory,
-	calculateAggregatedStatistics,
 	backfillHistoryIfNeeded,
+	calculateAggregatedStatistics,
+	calculateCurrentMinuteHistory,
+	calculateMinutelyHistory,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 
@@ -88,6 +88,7 @@ const schema = z.object({
 		})
 		.nullable(),
 	trace_id: z.string().nullable(),
+	unified_finish_reason: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -489,6 +490,7 @@ export async function batchProcessLogs(): Promise<void> {
 					estimated_cost: log.estimatedCost,
 					error_details: log.errorDetails,
 					trace_id: log.traceId,
+					unified_finish_reason: log.unifiedFinishReason,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -548,6 +550,7 @@ export async function batchProcessLogs(): Promise<void> {
 					cachedTokens: row.cached_tokens,
 					errorDetails: row.error_details,
 					traceId: row.trace_id,
+					unifiedFinishReason: row.unified_finish_reason,
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {

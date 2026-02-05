@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { adminMiddleware } from "@/middleware/admin.js";
+
 import {
 	and,
 	asc,
@@ -19,6 +21,8 @@ import {
 import type { ServerTypes } from "@/vars.js";
 
 export const admin = new OpenAPIHono<ServerTypes>();
+
+admin.use("/*", adminMiddleware);
 
 const adminMetricsSchema = z.object({
 	totalSignups: z.number(),
@@ -44,6 +48,7 @@ const organizationSchema = z.object({
 const organizationsListSchema = z.object({
 	organizations: z.array(organizationSchema),
 	total: z.number(),
+	totalCredits: z.string(),
 	limit: z.number(),
 	offset: z.number(),
 });
@@ -81,21 +86,9 @@ const transactionSchema = z.object({
 const transactionsListSchema = z.object({
 	transactions: z.array(transactionSchema),
 	total: z.number(),
+	limit: z.number(),
+	offset: z.number(),
 });
-
-function isAdminEmail(email: string | null | undefined): boolean {
-	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
-	const adminEmails = adminEmailsEnv
-		.split(",")
-		.map((value) => value.trim().toLowerCase())
-		.filter(Boolean);
-
-	if (!email || adminEmails.length === 0) {
-		return false;
-	}
-
-	return adminEmails.includes(email.toLowerCase());
-}
 
 const getMetrics = createRoute({
 	method: "get",
@@ -182,6 +175,10 @@ const getOrganizationTransactions = createRoute({
 		params: z.object({
 			orgId: z.string(),
 		}),
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(25).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -199,20 +196,6 @@ const getOrganizationTransactions = createRoute({
 });
 
 admin.openapi(getMetrics, async (c) => {
-	const authUser = c.get("user");
-
-	if (!authUser) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-
-	if (!isAdminEmail(authUser.email)) {
-		throw new HTTPException(403, {
-			message: "Admin access required",
-		});
-	}
-
 	// Total signups (all users)
 	const [signupsRow] = await db
 		.select({
@@ -277,20 +260,6 @@ admin.openapi(getMetrics, async (c) => {
 });
 
 admin.openapi(getOrganizations, async (c) => {
-	const authUser = c.get("user");
-
-	if (!authUser) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-
-	if (!isAdminEmail(authUser.email)) {
-		throw new HTTPException(403, {
-			message: "Admin access required",
-		});
-	}
-
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
 	const offset = query.offset ?? 0;
@@ -310,11 +279,16 @@ admin.openapi(getOrganizations, async (c) => {
 	const [countResult] = await db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
+			totalCredits:
+				sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`.as(
+					"totalCredits",
+				),
 		})
 		.from(tables.organization)
 		.where(whereClause);
 
 	const total = Number(countResult?.count ?? 0);
+	const totalCredits = String(countResult?.totalCredits ?? "0");
 
 	const sortColumnMap = {
 		name: tables.organization.name,
@@ -353,26 +327,13 @@ admin.openapi(getOrganizations, async (c) => {
 			createdAt: org.createdAt.toISOString(),
 		})),
 		total,
+		totalCredits,
 		limit,
 		offset,
 	});
 });
 
 admin.openapi(getOrganizationMetrics, async (c) => {
-	const authUser = c.get("user");
-
-	if (!authUser) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-
-	if (!isAdminEmail(authUser.email)) {
-		throw new HTTPException(403, {
-			message: "Admin access required",
-		});
-	}
-
 	const { orgId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const windowParam = query.window ?? "1d";
@@ -462,18 +423,19 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			.groupBy(tables.log.usedModel, tables.log.usedProvider);
 
 		for (const row of rows) {
-			totalRequests += row.requestsCount;
-			totalTokens += row.totalTokens;
-			totalCost += row.totalCost;
-			inputTokens += row.inputTokens;
-			inputCost += row.inputCost;
-			outputTokens += row.outputTokens;
-			outputCost += row.outputCost;
-			cachedTokens += row.cachedTokens;
-			cachedCost += row.cachedCost;
+			totalRequests += Number(row.requestsCount) || 0;
+			totalTokens += Number(row.totalTokens) || 0;
+			totalCost += Number(row.totalCost) || 0;
+			inputTokens += Number(row.inputTokens) || 0;
+			inputCost += Number(row.inputCost) || 0;
+			outputTokens += Number(row.outputTokens) || 0;
+			outputCost += Number(row.outputCost) || 0;
+			cachedTokens += Number(row.cachedTokens) || 0;
+			cachedCost += Number(row.cachedCost) || 0;
 
-			if (row.requestsCount > mostUsedModelRequestCount) {
-				mostUsedModelRequestCount = row.requestsCount;
+			const rowRequestCount = Number(row.requestsCount) || 0;
+			if (rowRequestCount > mostUsedModelRequestCount) {
+				mostUsedModelRequestCount = rowRequestCount;
 				mostUsedModel = row.usedModel;
 				mostUsedProvider = row.usedProvider;
 			}
@@ -510,21 +472,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 });
 
 admin.openapi(getOrganizationTransactions, async (c) => {
-	const authUser = c.get("user");
-
-	if (!authUser) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-
-	if (!isAdminEmail(authUser.email)) {
-		throw new HTTPException(403, {
-			message: "Admin access required",
-		});
-	}
-
 	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 25;
+	const offset = query.offset ?? 0;
 
 	// Verify organization exists
 	const org = await db.query.organization.findFirst({
@@ -539,7 +490,17 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 		});
 	}
 
-	// Fetch all transactions for this organization
+	// Get total count
+	const [countResult] = await db
+		.select({
+			count: sql<number>`COUNT(*)`.as("count"),
+		})
+		.from(tables.transaction)
+		.where(eq(tables.transaction.organizationId, orgId));
+
+	const total = Number(countResult?.count ?? 0);
+
+	// Fetch paginated transactions for this organization
 	const transactions = await db
 		.select({
 			id: tables.transaction.id,
@@ -553,7 +514,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
-		.orderBy(desc(tables.transaction.createdAt));
+		.orderBy(desc(tables.transaction.createdAt))
+		.limit(limit)
+		.offset(offset);
 
 	return c.json({
 		transactions: transactions.map((t) => ({
@@ -566,7 +529,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			status: t.status,
 			description: t.description,
 		})),
-		total: transactions.length,
+		total,
+		limit,
+		offset,
 	});
 });
 

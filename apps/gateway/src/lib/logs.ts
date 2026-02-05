@@ -92,7 +92,8 @@ export function getUnifiedFinishReason(
 				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
 				finishReason === "IMAGE_RECITATION" ||
 				finishReason === "IMAGE_OTHER" ||
-				finishReason === "NO_IMAGE"
+				finishReason === "NO_IMAGE" ||
+				finishReason === "content_filter" // OpenAI format sometimes returned by Google
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}

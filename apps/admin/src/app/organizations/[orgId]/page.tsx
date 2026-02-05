@@ -2,6 +2,8 @@ import {
 	Activity,
 	ArrowLeft,
 	Building2,
+	ChevronLeft,
+	ChevronRight,
 	CircleDollarSign,
 	Hash,
 	Info,
@@ -168,7 +170,7 @@ export default async function OrganizationPage({
 	searchParams,
 }: {
 	params: Promise<{ orgId: string }>;
-	searchParams?: Promise<{ window?: string }>;
+	searchParams?: Promise<{ window?: string; txPage?: string }>;
 }) {
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
@@ -176,10 +178,13 @@ export default async function OrganizationPage({
 		searchParamsData?.window === "1d" || searchParamsData?.window === "7d"
 			? (searchParamsData.window as TokenWindow)
 			: "1d";
+	const txPage = Math.max(1, parseInt(searchParamsData?.txPage || "1", 10));
+	const txLimit = 25;
+	const txOffset = (txPage - 1) * txLimit;
 
 	const [metrics, transactionsData] = await Promise.all([
 		getOrganizationMetrics(orgId, windowParam),
-		getOrganizationTransactions(orgId),
+		getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
 	]);
 
 	if (metrics === null) {
@@ -192,6 +197,8 @@ export default async function OrganizationPage({
 
 	const org = metrics.organization;
 	const transactions = transactionsData?.transactions ?? [];
+	const txTotal = transactionsData?.total ?? 0;
+	const txTotalPages = Math.ceil(txTotal / txLimit);
 	const windowLabel = windowParam === "7d" ? "Last 7 days" : "Last 24 hours";
 
 	return (
@@ -328,9 +335,7 @@ export default async function OrganizationPage({
 				<div className="flex items-center gap-2">
 					<Receipt className="h-5 w-5 text-muted-foreground" />
 					<h2 className="text-lg font-semibold">Transactions</h2>
-					<span className="text-sm text-muted-foreground">
-						({transactions.length})
-					</span>
+					<span className="text-sm text-muted-foreground">({txTotal})</span>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card">
 					<Table>
@@ -405,6 +410,54 @@ export default async function OrganizationPage({
 						</TableBody>
 					</Table>
 				</div>
+
+				{txTotalPages > 1 && (
+					<div className="flex items-center justify-between">
+						<p className="text-sm text-muted-foreground">
+							Showing {txOffset + 1} to {Math.min(txOffset + txLimit, txTotal)}{" "}
+							of {txTotal}
+						</p>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								asChild
+								disabled={txPage <= 1}
+							>
+								<Link
+									href={`/organizations/${orgId}?window=${windowParam}&txPage=${txPage - 1}`}
+									className={
+										txPage <= 1 ? "pointer-events-none opacity-50" : ""
+									}
+								>
+									<ChevronLeft className="h-4 w-4" />
+									Previous
+								</Link>
+							</Button>
+							<span className="text-sm text-muted-foreground">
+								Page {txPage} of {txTotalPages}
+							</span>
+							<Button
+								variant="outline"
+								size="sm"
+								asChild
+								disabled={txPage >= txTotalPages}
+							>
+								<Link
+									href={`/organizations/${orgId}?window=${windowParam}&txPage=${txPage + 1}`}
+									className={
+										txPage >= txTotalPages
+											? "pointer-events-none opacity-50"
+											: ""
+									}
+								>
+									Next
+									<ChevronRight className="h-4 w-4" />
+								</Link>
+							</Button>
+						</div>
+					</div>
+				)}
 			</section>
 		</div>
 	);

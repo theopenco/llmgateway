@@ -4525,7 +4525,7 @@ chat.openapi(completions, async (c) => {
 		images,
 		annotations,
 		webSearchCount,
-	} = parseProviderResponse(usedProvider, json, messages);
+	} = parseProviderResponse(usedProvider, usedModel, json, messages);
 
 	// Apply response healing if enabled and response_format is json_object or json_schema
 	const responseHealingEnabled = plugins?.some(
