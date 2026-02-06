@@ -922,6 +922,7 @@ export interface paths {
                                 plan: string;
                                 devPlan: string;
                                 credits: string;
+                                totalCreditsAllTime?: string;
                                 createdAt: string;
                                 status: string | null;
                             }[];
@@ -976,6 +977,7 @@ export interface paths {
                                 plan: string;
                                 devPlan: string;
                                 credits: string;
+                                totalCreditsAllTime?: string;
                                 createdAt: string;
                                 status: string | null;
                             };
@@ -994,7 +996,7 @@ export interface paths {
                             cachedCost: number;
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
-                            mostUsedModelRequestCount: number;
+                            mostUsedModelCost: number;
                         };
                     };
                 };
@@ -1043,6 +1045,17 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            organization: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                plan: string;
+                                devPlan: string;
+                                credits: string;
+                                totalCreditsAllTime?: string;
+                                createdAt: string;
+                                status: string | null;
+                            };
                             transactions: {
                                 id: string;
                                 createdAt: string;
@@ -1052,6 +1065,122 @@ export interface paths {
                                 currency: string;
                                 status: string;
                                 description: string | null;
+                            }[];
+                            total: number;
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization projects. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            projects: {
+                                id: string;
+                                name: string;
+                                mode: string;
+                                status: string | null;
+                                cachingEnabled: boolean;
+                                createdAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization API keys. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKeys: {
+                                id: string;
+                                token: string;
+                                description: string;
+                                status: string | null;
+                                usage: string;
+                                usageLimit: string | null;
+                                projectId: string;
+                                projectName: string;
+                                createdAt: string;
                             }[];
                             total: number;
                             limit: number;

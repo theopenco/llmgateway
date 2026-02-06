@@ -41,6 +41,7 @@ const organizationSchema = z.object({
 	plan: z.string(),
 	devPlan: z.string(),
 	credits: z.string(),
+	totalCreditsAllTime: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
 });
@@ -69,7 +70,7 @@ const orgMetricsSchema = z.object({
 	cachedCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
-	mostUsedModelRequestCount: z.number(),
+	mostUsedModelCost: z.number(),
 });
 
 const transactionSchema = z.object({
@@ -84,7 +85,41 @@ const transactionSchema = z.object({
 });
 
 const transactionsListSchema = z.object({
+	organization: organizationSchema,
 	transactions: z.array(transactionSchema),
+	total: z.number(),
+	limit: z.number(),
+	offset: z.number(),
+});
+
+const projectSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	mode: z.string(),
+	status: z.string().nullable(),
+	cachingEnabled: z.boolean(),
+	createdAt: z.string(),
+});
+
+const projectsListSchema = z.object({
+	projects: z.array(projectSchema),
+	total: z.number(),
+});
+
+const apiKeySchema = z.object({
+	id: z.string(),
+	token: z.string(),
+	description: z.string(),
+	status: z.string().nullable(),
+	usage: z.string(),
+	usageLimit: z.string().nullable(),
+	projectId: z.string(),
+	projectName: z.string(),
+	createdAt: z.string(),
+});
+
+const apiKeysListSchema = z.object({
+	apiKeys: z.array(apiKeySchema),
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
@@ -188,6 +223,56 @@ const getOrganizationTransactions = createRoute({
 				},
 			},
 			description: "Organization transactions.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationProjects = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectsListSchema.openapi({}),
+				},
+			},
+			description: "Organization projects.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationApiKeys = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/api-keys",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(25).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: apiKeysListSchema.openapi({}),
+				},
+			},
+			description: "Organization API keys.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -311,6 +396,10 @@ admin.openapi(getOrganizations, async (c) => {
 			plan: tables.organization.plan,
 			devPlan: tables.organization.devPlan,
 			credits: tables.organization.credits,
+			totalCreditsAllTime:
+				sql<string>`COALESCE((SELECT SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FROM ${tables.transaction} WHERE ${tables.transaction.organizationId} = ${tables.organization.id} AND ${tables.transaction.status} = 'completed'), 0)`.as(
+					"totalCreditsAllTime",
+				),
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
 		})
@@ -324,6 +413,7 @@ admin.openapi(getOrganizations, async (c) => {
 		organizations: organizations.map((org) => ({
 			...org,
 			credits: String(org.credits),
+			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			createdAt: org.createdAt.toISOString(),
 		})),
 		total,
@@ -374,7 +464,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let cachedCost = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
-	let mostUsedModelRequestCount = 0;
+	let mostUsedModelCost = 0;
 
 	if (projectIds.length > 0) {
 		const rows = await db
@@ -433,9 +523,9 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			cachedTokens += Number(row.cachedTokens) || 0;
 			cachedCost += Number(row.cachedCost) || 0;
 
-			const rowRequestCount = Number(row.requestsCount) || 0;
-			if (rowRequestCount > mostUsedModelRequestCount) {
-				mostUsedModelRequestCount = rowRequestCount;
+			const rowCost = Number(row.totalCost) || 0;
+			if (rowCost > mostUsedModelCost) {
+				mostUsedModelCost = rowCost;
 				mostUsedModel = row.usedModel;
 				mostUsedProvider = row.usedProvider;
 			}
@@ -467,7 +557,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		cachedCost,
 		mostUsedModel,
 		mostUsedProvider,
-		mostUsedModelRequestCount,
+		mostUsedModelCost,
 	});
 });
 
@@ -519,6 +609,16 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 		.offset(offset);
 
 	return c.json({
+		organization: {
+			id: org.id,
+			name: org.name,
+			billingEmail: org.billingEmail,
+			plan: org.plan,
+			devPlan: org.devPlan,
+			credits: String(org.credits),
+			createdAt: org.createdAt.toISOString(),
+			status: org.status,
+		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
 			createdAt: t.createdAt.toISOString(),
@@ -528,6 +628,118 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
+		})),
+		total,
+		limit,
+		offset,
+	});
+});
+
+admin.openapi(getOrganizationProjects, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const projects = await db
+		.select({
+			id: tables.project.id,
+			name: tables.project.name,
+			mode: tables.project.mode,
+			status: tables.project.status,
+			cachingEnabled: tables.project.cachingEnabled,
+			createdAt: tables.project.createdAt,
+		})
+		.from(tables.project)
+		.where(eq(tables.project.organizationId, orgId))
+		.orderBy(desc(tables.project.createdAt));
+
+	return c.json({
+		projects: projects.map((p) => ({
+			...p,
+			createdAt: p.createdAt.toISOString(),
+		})),
+		total: projects.length,
+	});
+});
+
+admin.openapi(getOrganizationApiKeys, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 25;
+	const offset = query.offset ?? 0;
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const projectIds = await db
+		.select({ id: tables.project.id })
+		.from(tables.project)
+		.where(eq(tables.project.organizationId, orgId));
+
+	const ids = projectIds.map((p) => p.id);
+
+	if (ids.length === 0) {
+		return c.json({
+			apiKeys: [],
+			total: 0,
+			limit,
+			offset,
+		});
+	}
+
+	const [countResult] = await db
+		.select({
+			count: sql<number>`COUNT(*)`.as("count"),
+		})
+		.from(tables.apiKey)
+		.where(inArray(tables.apiKey.projectId, ids));
+
+	const total = Number(countResult?.count ?? 0);
+
+	const apiKeys = await db
+		.select({
+			id: tables.apiKey.id,
+			token: tables.apiKey.token,
+			description: tables.apiKey.description,
+			status: tables.apiKey.status,
+			usage: tables.apiKey.usage,
+			usageLimit: tables.apiKey.usageLimit,
+			projectId: tables.apiKey.projectId,
+			projectName: tables.project.name,
+			createdAt: tables.apiKey.createdAt,
+		})
+		.from(tables.apiKey)
+		.innerJoin(tables.project, eq(tables.apiKey.projectId, tables.project.id))
+		.where(inArray(tables.apiKey.projectId, ids))
+		.orderBy(desc(tables.apiKey.createdAt))
+		.limit(limit)
+		.offset(offset);
+
+	return c.json({
+		apiKeys: apiKeys.map((k) => ({
+			...k,
+			usage: String(k.usage),
+			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
+			createdAt: k.createdAt.toISOString(),
 		})),
 		total,
 		limit,

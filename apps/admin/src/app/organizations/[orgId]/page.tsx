@@ -1,19 +1,15 @@
 import {
-	Activity,
 	ArrowLeft,
 	Building2,
 	ChevronLeft,
 	ChevronRight,
-	CircleDollarSign,
-	Hash,
-	Info,
+	FolderOpen,
+	Key,
 	Receipt,
-	Server,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,16 +20,14 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-	getOrganizationMetrics,
+	getOrganizationApiKeys,
+	getOrganizationProjects,
 	getOrganizationTransactions,
-	type TokenWindow,
 } from "@/lib/admin-organizations";
-import { cn } from "@/lib/utils";
 
-const numberFormatter = new Intl.NumberFormat("en-US", {
-	maximumFractionDigits: 0,
-});
+import { OrgMetricsSection } from "./org-metrics";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -53,55 +47,6 @@ function formatDate(dateString: string) {
 		month: "short",
 		day: "numeric",
 	});
-}
-
-function safeNumber(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function MetricCard({
-	label,
-	value,
-	subtitle,
-	icon,
-	accent,
-}: {
-	label: string;
-	value: string;
-	subtitle?: string;
-	icon?: React.ReactNode;
-	accent?: "green" | "blue" | "purple";
-}) {
-	return (
-		<div className="bg-card text-card-foreground flex flex-col justify-between gap-3 rounded-xl border border-border/60 p-5 shadow-sm">
-			<div className="flex items-start justify-between gap-3">
-				<div>
-					<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{label}
-					</p>
-					<p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
-					{subtitle ? (
-						<p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-					) : null}
-				</div>
-				{icon ? (
-					<div
-						className={cn(
-							"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
-							accent === "green" &&
-								"border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-							accent === "blue" &&
-								"border-sky-500/30 bg-sky-500/10 text-sky-400",
-							accent === "purple" &&
-								"border-violet-500/30 bg-violet-500/10 text-violet-400",
-						)}
-					>
-						{icon}
-					</div>
-				) : null}
-			</div>
-		</div>
-	);
 }
 
 function SignInPrompt() {
@@ -170,36 +115,45 @@ export default async function OrganizationPage({
 	searchParams,
 }: {
 	params: Promise<{ orgId: string }>;
-	searchParams?: Promise<{ window?: string; txPage?: string }>;
+	searchParams?: Promise<{
+		txPage?: string;
+		akPage?: string;
+		tab?: string;
+	}>;
 }) {
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
-	const windowParam =
-		searchParamsData?.window === "1d" || searchParamsData?.window === "7d"
-			? (searchParamsData.window as TokenWindow)
-			: "1d";
 	const txPage = Math.max(1, parseInt(searchParamsData?.txPage || "1", 10));
+	const akPage = Math.max(1, parseInt(searchParamsData?.akPage || "1", 10));
+	const activeTab = searchParamsData?.tab || "transactions";
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
+	const akLimit = 25;
+	const akOffset = (akPage - 1) * akLimit;
 
-	const [metrics, transactionsData] = await Promise.all([
-		getOrganizationMetrics(orgId, windowParam),
+	const [transactionsData, projectsData, apiKeysData] = await Promise.all([
 		getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
+		getOrganizationProjects(orgId),
+		getOrganizationApiKeys(orgId, { limit: akLimit, offset: akOffset }),
 	]);
 
-	if (metrics === null) {
+	if (transactionsData === null) {
 		return <SignInPrompt />;
 	}
 
-	if (!metrics) {
+	if (!transactionsData) {
 		notFound();
 	}
 
-	const org = metrics.organization;
-	const transactions = transactionsData?.transactions ?? [];
-	const txTotal = transactionsData?.total ?? 0;
+	const org = transactionsData.organization;
+	const transactions = transactionsData.transactions;
+	const txTotal = transactionsData.total;
 	const txTotalPages = Math.ceil(txTotal / txLimit);
-	const windowLabel = windowParam === "7d" ? "Last 7 days" : "Last 24 hours";
+
+	const projects = projectsData?.projects ?? [];
+	const apiKeys = apiKeysData?.apiKeys ?? [];
+	const akTotal = apiKeysData?.total ?? 0;
+	const akTotalPages = Math.ceil(akTotal / akLimit);
 
 	return (
 		<div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
@@ -245,220 +199,313 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
-				<TokenTimeRangeToggle initial={windowParam} />
 			</header>
 
-			<div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-				<Info className="h-3 w-3" />
-				<span>
-					{windowLabel} ({new Date(metrics.startDate).toLocaleDateString()} –{" "}
-					{new Date(metrics.endDate).toLocaleDateString()})
-				</span>
-			</div>
+			<OrgMetricsSection orgId={orgId} />
 
-			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-				<MetricCard
-					label="Total Requests"
-					value={numberFormatter.format(safeNumber(metrics.totalRequests))}
-					subtitle="All API requests in the selected time window"
-					icon={<Hash className="h-4 w-4" />}
-					accent="blue"
-				/>
-				<MetricCard
-					label="Total Tokens"
-					value={numberFormatter.format(safeNumber(metrics.totalTokens))}
-					subtitle={`Total tokens across all requests (${windowLabel.toLowerCase()})`}
-					icon={<Activity className="h-4 w-4" />}
-					accent="green"
-				/>
-				<MetricCard
-					label="Total Cost"
-					value={currencyFormatter.format(safeNumber(metrics.totalCost))}
-					subtitle="Sum of metered usage costs (USD)"
-					icon={<CircleDollarSign className="h-4 w-4" />}
-					accent="purple"
-				/>
-				<MetricCard
-					label="Input Tokens & Cost"
-					value={`${numberFormatter.format(
-						safeNumber(metrics.inputTokens),
-					)} • ${currencyFormatter.format(safeNumber(metrics.inputCost))}`}
-					subtitle="Prompt tokens and associated cost"
-					icon={<Activity className="h-4 w-4" />}
-					accent="blue"
-				/>
-				<MetricCard
-					label="Output Tokens & Cost"
-					value={`${numberFormatter.format(
-						safeNumber(metrics.outputTokens),
-					)} • ${currencyFormatter.format(safeNumber(metrics.outputCost))}`}
-					subtitle="Completion tokens and associated cost"
-					icon={<Activity className="h-4 w-4" />}
-					accent="green"
-				/>
-				<MetricCard
-					label="Cached Tokens & Cost"
-					value={`${numberFormatter.format(
-						safeNumber(metrics.cachedTokens),
-					)} • ${currencyFormatter.format(safeNumber(metrics.cachedCost))}`}
-					subtitle="Tokens and cost served from cache (if supported)"
-					icon={<Server className="h-4 w-4" />}
-					accent="purple"
-				/>
-				<MetricCard
-					label="Most Used Model"
-					value={metrics.mostUsedModel ?? "—"}
-					subtitle={
-						metrics.mostUsedModel
-							? `With ${numberFormatter.format(
-									safeNumber(metrics.mostUsedModelRequestCount),
-								)} requests`
-							: "No traffic in selected window"
-					}
-					icon={<Activity className="h-4 w-4" />}
-					accent="blue"
-				/>
-				<MetricCard
-					label="Most Used Provider"
-					value={metrics.mostUsedProvider ?? "—"}
-					subtitle={
-						metrics.mostUsedProvider
-							? `Provider for the most used model`
-							: "No traffic in selected window"
-					}
-					icon={<Server className="h-4 w-4" />}
-					accent="green"
-				/>
-			</section>
-
-			<section className="space-y-4">
-				<div className="flex items-center gap-2">
-					<Receipt className="h-5 w-5 text-muted-foreground" />
-					<h2 className="text-lg font-semibold">Transactions</h2>
-					<span className="text-sm text-muted-foreground">({txTotal})</span>
-				</div>
-				<div className="rounded-lg border border-border/60 bg-card">
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>Date</TableHead>
-								<TableHead>Type</TableHead>
-								<TableHead>Amount</TableHead>
-								<TableHead>Credits</TableHead>
-								<TableHead>Status</TableHead>
-								<TableHead>Description</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{transactions.length === 0 ? (
-								<TableRow>
-									<TableCell
-										colSpan={6}
-										className="h-24 text-center text-muted-foreground"
-									>
-										No transactions found
-									</TableCell>
-								</TableRow>
-							) : (
-								transactions.map((transaction) => (
-									<TableRow key={transaction.id}>
-										<TableCell className="text-muted-foreground">
-											{formatDate(transaction.createdAt)}
-										</TableCell>
-										<TableCell>
-											<Badge
-												variant={getTransactionTypeBadgeVariant(
-													transaction.type,
-												)}
-											>
-												{formatTransactionType(transaction.type)}
-											</Badge>
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{transaction.amount
-												? currencyFormatter.format(
-														parseFloat(transaction.amount),
-													)
-												: "—"}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{transaction.creditAmount
-												? creditsFormatter.format(
-														parseFloat(transaction.creditAmount),
-													)
-												: "—"}
-										</TableCell>
-										<TableCell>
-											<Badge
-												variant={
-													transaction.status === "completed"
-														? "secondary"
-														: transaction.status === "failed"
-															? "destructive"
-															: "outline"
-												}
-											>
-												{transaction.status}
-											</Badge>
-										</TableCell>
-										<TableCell className="max-w-[200px] truncate text-muted-foreground">
-											{transaction.description || "—"}
-										</TableCell>
-									</TableRow>
-								))
-							)}
-						</TableBody>
-					</Table>
-				</div>
-
-				{txTotalPages > 1 && (
-					<div className="flex items-center justify-between">
-						<p className="text-sm text-muted-foreground">
-							Showing {txOffset + 1} to {Math.min(txOffset + txLimit, txTotal)}{" "}
-							of {txTotal}
-						</p>
-						<div className="flex items-center gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								asChild
-								disabled={txPage <= 1}
-							>
-								<Link
-									href={`/organizations/${orgId}?window=${windowParam}&txPage=${txPage - 1}`}
-									className={
-										txPage <= 1 ? "pointer-events-none opacity-50" : ""
-									}
-								>
-									<ChevronLeft className="h-4 w-4" />
-									Previous
-								</Link>
-							</Button>
-							<span className="text-sm text-muted-foreground">
-								Page {txPage} of {txTotalPages}
-							</span>
-							<Button
-								variant="outline"
-								size="sm"
-								asChild
-								disabled={txPage >= txTotalPages}
-							>
-								<Link
-									href={`/organizations/${orgId}?window=${windowParam}&txPage=${txPage + 1}`}
-									className={
-										txPage >= txTotalPages
-											? "pointer-events-none opacity-50"
-											: ""
-									}
-								>
-									Next
-									<ChevronRight className="h-4 w-4" />
-								</Link>
-							</Button>
-						</div>
+			{projects.length > 0 && (
+				<section className="space-y-4">
+					<div className="flex items-center gap-2">
+						<FolderOpen className="h-5 w-5 text-muted-foreground" />
+						<h2 className="text-lg font-semibold">Projects</h2>
+						<span className="text-sm text-muted-foreground">
+							({projects.length})
+						</span>
 					</div>
-				)}
-			</section>
+					<div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+						{projects.map((project) => (
+							<div
+								key={project.id}
+								className="rounded-lg border border-border/60 bg-card p-4"
+							>
+								<div className="flex items-start justify-between gap-2">
+									<div>
+										<p className="font-medium">{project.name}</p>
+										<p className="text-xs text-muted-foreground">
+											{project.id}
+										</p>
+									</div>
+									<Badge
+										variant={
+											project.status === "active" ? "secondary" : "outline"
+										}
+									>
+										{project.status || "active"}
+									</Badge>
+								</div>
+								<div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+									<Badge variant="outline">{project.mode}</Badge>
+									{project.cachingEnabled && (
+										<Badge variant="outline">cached</Badge>
+									)}
+									<span>{formatDate(project.createdAt)}</span>
+								</div>
+							</div>
+						))}
+					</div>
+				</section>
+			)}
+
+			<Tabs defaultValue={activeTab}>
+				<TabsList>
+					<TabsTrigger value="transactions">
+						<Receipt className="mr-1.5 h-4 w-4" />
+						Transactions ({txTotal})
+					</TabsTrigger>
+					<TabsTrigger value="api-keys">
+						<Key className="mr-1.5 h-4 w-4" />
+						API Keys ({akTotal})
+					</TabsTrigger>
+				</TabsList>
+
+				<TabsContent value="transactions">
+					<div className="space-y-4">
+						<div className="rounded-lg border border-border/60 bg-card">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Date</TableHead>
+										<TableHead>Type</TableHead>
+										<TableHead>Amount</TableHead>
+										<TableHead>Credits</TableHead>
+										<TableHead>Status</TableHead>
+										<TableHead>Description</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{transactions.length === 0 ? (
+										<TableRow>
+											<TableCell
+												colSpan={6}
+												className="h-24 text-center text-muted-foreground"
+											>
+												No transactions found
+											</TableCell>
+										</TableRow>
+									) : (
+										transactions.map((transaction) => (
+											<TableRow key={transaction.id}>
+												<TableCell className="text-muted-foreground">
+													{formatDate(transaction.createdAt)}
+												</TableCell>
+												<TableCell>
+													<Badge
+														variant={getTransactionTypeBadgeVariant(
+															transaction.type,
+														)}
+													>
+														{formatTransactionType(transaction.type)}
+													</Badge>
+												</TableCell>
+												<TableCell className="tabular-nums">
+													{transaction.amount
+														? currencyFormatter.format(
+																parseFloat(transaction.amount),
+															)
+														: "—"}
+												</TableCell>
+												<TableCell className="tabular-nums">
+													{transaction.creditAmount
+														? creditsFormatter.format(
+																parseFloat(transaction.creditAmount),
+															)
+														: "—"}
+												</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															transaction.status === "completed"
+																? "secondary"
+																: transaction.status === "failed"
+																	? "destructive"
+																	: "outline"
+														}
+													>
+														{transaction.status}
+													</Badge>
+												</TableCell>
+												<TableCell className="max-w-[200px] truncate text-muted-foreground">
+													{transaction.description || "—"}
+												</TableCell>
+											</TableRow>
+										))
+									)}
+								</TableBody>
+							</Table>
+						</div>
+
+						{txTotalPages > 1 && (
+							<div className="flex items-center justify-between">
+								<p className="text-sm text-muted-foreground">
+									Showing {txOffset + 1} to{" "}
+									{Math.min(txOffset + txLimit, txTotal)} of {txTotal}
+								</p>
+								<div className="flex items-center gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										asChild
+										disabled={txPage <= 1}
+									>
+										<Link
+											href={`/organizations/${orgId}?tab=transactions&txPage=${txPage - 1}&akPage=${akPage}`}
+											className={
+												txPage <= 1 ? "pointer-events-none opacity-50" : ""
+											}
+										>
+											<ChevronLeft className="h-4 w-4" />
+											Previous
+										</Link>
+									</Button>
+									<span className="text-sm text-muted-foreground">
+										Page {txPage} of {txTotalPages}
+									</span>
+									<Button
+										variant="outline"
+										size="sm"
+										asChild
+										disabled={txPage >= txTotalPages}
+									>
+										<Link
+											href={`/organizations/${orgId}?tab=transactions&txPage=${txPage + 1}&akPage=${akPage}`}
+											className={
+												txPage >= txTotalPages
+													? "pointer-events-none opacity-50"
+													: ""
+											}
+										>
+											Next
+											<ChevronRight className="h-4 w-4" />
+										</Link>
+									</Button>
+								</div>
+							</div>
+						)}
+					</div>
+				</TabsContent>
+
+				<TabsContent value="api-keys">
+					<div className="space-y-4">
+						<div className="rounded-lg border border-border/60 bg-card">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Token</TableHead>
+										<TableHead>Description</TableHead>
+										<TableHead>Project</TableHead>
+										<TableHead>Usage</TableHead>
+										<TableHead>Status</TableHead>
+										<TableHead>Created</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{apiKeys.length === 0 ? (
+										<TableRow>
+											<TableCell
+												colSpan={6}
+												className="h-24 text-center text-muted-foreground"
+											>
+												No API keys found
+											</TableCell>
+										</TableRow>
+									) : (
+										apiKeys.map((apiKey) => (
+											<TableRow key={apiKey.id}>
+												<TableCell className="font-mono text-xs">
+													{apiKey.token.slice(0, 12)}...
+												</TableCell>
+												<TableCell className="max-w-[200px] truncate">
+													{apiKey.description || "—"}
+												</TableCell>
+												<TableCell>
+													<span className="text-sm">{apiKey.projectName}</span>
+													<p className="text-xs text-muted-foreground">
+														{apiKey.projectId}
+													</p>
+												</TableCell>
+												<TableCell className="tabular-nums text-sm">
+													{creditsFormatter.format(parseFloat(apiKey.usage))}
+													{apiKey.usageLimit && (
+														<span className="text-muted-foreground">
+															{" "}
+															/{" "}
+															{creditsFormatter.format(
+																parseFloat(apiKey.usageLimit),
+															)}
+														</span>
+													)}
+												</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															apiKey.status === "active"
+																? "secondary"
+																: "outline"
+														}
+													>
+														{apiKey.status || "active"}
+													</Badge>
+												</TableCell>
+												<TableCell className="text-muted-foreground">
+													{formatDate(apiKey.createdAt)}
+												</TableCell>
+											</TableRow>
+										))
+									)}
+								</TableBody>
+							</Table>
+						</div>
+
+						{akTotalPages > 1 && (
+							<div className="flex items-center justify-between">
+								<p className="text-sm text-muted-foreground">
+									Showing {akOffset + 1} to{" "}
+									{Math.min(akOffset + akLimit, akTotal)} of {akTotal}
+								</p>
+								<div className="flex items-center gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										asChild
+										disabled={akPage <= 1}
+									>
+										<Link
+											href={`/organizations/${orgId}?tab=api-keys&txPage=${txPage}&akPage=${akPage - 1}`}
+											className={
+												akPage <= 1 ? "pointer-events-none opacity-50" : ""
+											}
+										>
+											<ChevronLeft className="h-4 w-4" />
+											Previous
+										</Link>
+									</Button>
+									<span className="text-sm text-muted-foreground">
+										Page {akPage} of {akTotalPages}
+									</span>
+									<Button
+										variant="outline"
+										size="sm"
+										asChild
+										disabled={akPage >= akTotalPages}
+									>
+										<Link
+											href={`/organizations/${orgId}?tab=api-keys&txPage=${txPage}&akPage=${akPage + 1}`}
+											className={
+												akPage >= akTotalPages
+													? "pointer-events-none opacity-50"
+													: ""
+											}
+										>
+											Next
+											<ChevronRight className="h-4 w-4" />
+										</Link>
+									</Button>
+								</div>
+							</div>
+						)}
+					</div>
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 }

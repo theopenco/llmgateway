@@ -255,6 +255,9 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
+							<TableHead className="text-muted-foreground">
+								All Time Credits
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Created"
@@ -279,7 +282,7 @@ export default async function OrganizationsPage({
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={7}
+									colSpan={8}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -316,6 +319,11 @@ export default async function OrganizationsPage({
 									</TableCell>
 									<TableCell className="tabular-nums">
 										{currencyFormatter.format(parseFloat(org.credits))}
+									</TableCell>
+									<TableCell className="tabular-nums text-muted-foreground">
+										{currencyFormatter.format(
+											parseFloat(org.totalCreditsAllTime ?? "0"),
+										)}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(org.createdAt)}
