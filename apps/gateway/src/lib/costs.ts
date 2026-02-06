@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import { encode, encodeChat } from "gpt-tokenizer";
 
+import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
@@ -78,8 +79,10 @@ function getPricingForTokenCount(
  * Calculate costs based on model, provider, and token counts
  * If promptTokens or completionTokens are not available, it will try to calculate them
  * from the fullOutput parameter if provided
+ *
+ * @param organizationId - Optional organization ID for org-specific discounts
  */
-export function calculateCosts(
+export async function calculateCosts(
 	model: string,
 	provider: string,
 	promptTokens: number | null,
@@ -96,6 +99,7 @@ export function calculateCosts(
 	imageSize?: string,
 	inputImageCount = 0,
 	webSearchCount: number | null = null,
+	organizationId: string | null = null,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -250,7 +254,16 @@ export function calculateCosts(
 		pricing.cachedInputPrice ?? pricing.inputPrice,
 	);
 	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
-	const discount = providerInfo.discount || 0;
+
+	// Get effective discount (checks org-specific, global, then hardcoded)
+	const hardcodedDiscount = providerInfo.discount || 0;
+	const effectiveDiscountResult = await getEffectiveDiscount(
+		organizationId,
+		provider,
+		model,
+		hardcodedDiscount,
+	);
+	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
 	// Add input image tokens to prompt tokens if applicable (for Google image generation models)

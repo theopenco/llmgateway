@@ -245,7 +245,14 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
-				<TokenTimeRangeToggle initial={windowParam} />
+				<div className="flex items-center gap-2">
+					<Button variant="outline" size="sm" asChild>
+						<Link href={`/organizations/${orgId}/discounts`}>
+							Manage Discounts
+						</Link>
+					</Button>
+					<TokenTimeRangeToggle initial={windowParam} />
+				</div>
 			</header>
 
 			<div className="inline-flex items-center gap-1 text-xs text-muted-foreground">

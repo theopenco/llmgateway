@@ -7,16 +7,19 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import {
 	and,
 	asc,
+	cdb,
 	db,
 	desc,
 	eq,
 	gte,
 	inArray,
+	isNull,
 	lt,
 	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { models, providers } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -532,6 +535,491 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 		total,
 		limit,
 		offset,
+	});
+});
+
+// ==================== Discount Management ====================
+
+// Get valid provider IDs as a Set for O(1) lookup
+const validProviderIds = new Set<string>(providers.map((p) => p.id));
+// Get valid model IDs as a Set for O(1) lookup
+const validModelIds = new Set<string>(models.map((m) => m.id));
+
+const discountSchema = z.object({
+	id: z.string(),
+	organizationId: z.string().nullable(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	discountPercent: z.string(),
+	reason: z.string().nullable(),
+	expiresAt: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const discountsListSchema = z.object({
+	discounts: z.array(discountSchema),
+	total: z.number(),
+});
+
+const createDiscountBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	discountPercent: z.coerce
+		.number()
+		.min(0, "Discount must be at least 0%")
+		.max(100, "Discount cannot exceed 100%"),
+	reason: z.string().nullable().optional(),
+	expiresAt: z.string().nullable().optional(),
+});
+
+// --- Global Discounts ---
+
+const getGlobalDiscounts = createRoute({
+	method: "get",
+	path: "/discounts",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: discountsListSchema.openapi({}),
+				},
+			},
+			description: "List of global discounts.",
+		},
+	},
+});
+
+const createGlobalDiscount = createRoute({
+	method: "post",
+	path: "/discounts",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: discountSchema.openapi({}),
+				},
+			},
+			description: "Created global discount.",
+		},
+		400: {
+			description: "Invalid discount data.",
+		},
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
+		},
+	},
+});
+
+const deleteGlobalDiscount = createRoute({
+	method: "delete",
+	path: "/discounts/{discountId}",
+	request: {
+		params: z.object({
+			discountId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Discount deleted.",
+		},
+		404: {
+			description: "Discount not found.",
+		},
+	},
+});
+
+// --- Organization Discounts ---
+
+const getOrganizationDiscounts = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/discounts",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: discountsListSchema.openapi({}),
+				},
+			},
+			description: "List of organization discounts.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const createOrganizationDiscount = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/discounts",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: discountSchema.openapi({}),
+				},
+			},
+			description: "Created organization discount.",
+		},
+		400: {
+			description: "Invalid discount data.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
+		},
+	},
+});
+
+const deleteOrganizationDiscount = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/discounts/{discountId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			discountId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Discount deleted.",
+		},
+		404: {
+			description: "Discount not found.",
+		},
+	},
+});
+
+// --- Available Providers/Models for discount selection ---
+
+const getAvailableProvidersAndModels = createRoute({
+	method: "get",
+	path: "/discounts/options",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							providers: z.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+								}),
+							),
+							models: z.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+									family: z.string(),
+								}),
+							),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Available providers and models for discount selection.",
+		},
+	},
+});
+
+// Helper to format discount for response
+function formatDiscount(d: {
+	id: string;
+	organizationId: string | null;
+	provider: string | null;
+	model: string | null;
+	discountPercent: string | null;
+	reason: string | null;
+	expiresAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	return {
+		id: d.id,
+		organizationId: d.organizationId,
+		provider: d.provider,
+		model: d.model,
+		discountPercent: String(d.discountPercent),
+		reason: d.reason,
+		expiresAt: d.expiresAt?.toISOString() ?? null,
+		createdAt: d.createdAt.toISOString(),
+		updatedAt: d.updatedAt.toISOString(),
+	};
+}
+
+// Helper to validate provider/model
+function validateProviderAndModel(
+	provider: string | null | undefined,
+	model: string | null | undefined,
+): { error?: string } {
+	// Must have at least one of provider or model
+	if (!provider && !model) {
+		return { error: "At least one of provider or model must be specified" };
+	}
+
+	// Validate provider if specified
+	if (provider && !validProviderIds.has(provider)) {
+		return { error: `Invalid provider: ${provider}` };
+	}
+
+	// Validate model if specified
+	if (model && !validModelIds.has(model)) {
+		return { error: `Invalid model: ${model}` };
+	}
+
+	return {};
+}
+
+// --- Global Discount Handlers ---
+
+admin.openapi(getGlobalDiscounts, async (c) => {
+	const discounts = await cdb
+		.select()
+		.from(tables.discount)
+		.where(isNull(tables.discount.organizationId))
+		.orderBy(desc(tables.discount.createdAt));
+
+	return c.json({
+		discounts: discounts.map(formatDiscount),
+		total: discounts.length,
+	});
+});
+
+admin.openapi(createGlobalDiscount, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// Convert percentage to decimal (e.g., 30 -> 0.3)
+	const discountDecimal = (body.discountPercent / 100).toFixed(4);
+
+	// Check for existing discount
+	const existing = await db
+		.select({ id: tables.discount.id })
+		.from(tables.discount)
+		.where(
+			and(
+				isNull(tables.discount.organizationId),
+				provider
+					? eq(tables.discount.provider, provider)
+					: isNull(tables.discount.provider),
+				model
+					? eq(tables.discount.model, model)
+					: isNull(tables.discount.model),
+			),
+		)
+		.limit(1);
+
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message: "A discount already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await db
+		.insert(tables.discount)
+		.values({
+			organizationId: null,
+			provider,
+			model,
+			discountPercent: discountDecimal,
+			reason: body.reason ?? null,
+			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+		})
+		.returning();
+
+	return c.json(formatDiscount(created), 201);
+});
+
+admin.openapi(deleteGlobalDiscount, async (c) => {
+	const { discountId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.discount)
+		.where(
+			and(
+				eq(tables.discount.id, discountId),
+				isNull(tables.discount.organizationId),
+			),
+		)
+		.returning({ id: tables.discount.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Organization Discount Handlers ---
+
+admin.openapi(getOrganizationDiscounts, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const discounts = await cdb
+		.select()
+		.from(tables.discount)
+		.where(eq(tables.discount.organizationId, orgId))
+		.orderBy(desc(tables.discount.createdAt));
+
+	return c.json({
+		discounts: discounts.map(formatDiscount),
+		total: discounts.length,
+	});
+});
+
+admin.openapi(createOrganizationDiscount, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// Convert percentage to decimal (e.g., 30 -> 0.3)
+	const discountDecimal = (body.discountPercent / 100).toFixed(4);
+
+	// Check for existing discount
+	const existing = await db
+		.select({ id: tables.discount.id })
+		.from(tables.discount)
+		.where(
+			and(
+				eq(tables.discount.organizationId, orgId),
+				provider
+					? eq(tables.discount.provider, provider)
+					: isNull(tables.discount.provider),
+				model
+					? eq(tables.discount.model, model)
+					: isNull(tables.discount.model),
+			),
+		)
+		.limit(1);
+
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message: "A discount already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await db
+		.insert(tables.discount)
+		.values({
+			organizationId: orgId,
+			provider,
+			model,
+			discountPercent: discountDecimal,
+			reason: body.reason ?? null,
+			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+		})
+		.returning();
+
+	return c.json(formatDiscount(created), 201);
+});
+
+admin.openapi(deleteOrganizationDiscount, async (c) => {
+	const { orgId, discountId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.discount)
+		.where(
+			and(
+				eq(tables.discount.id, discountId),
+				eq(tables.discount.organizationId, orgId),
+			),
+		)
+		.returning({ id: tables.discount.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Available Options Handler ---
+
+admin.openapi(getAvailableProvidersAndModels, async (c) => {
+	return c.json({
+		providers: providers.map((p) => ({ id: p.id, name: p.name })),
+		models: (
+			models as Array<{ id: string; name?: string; family: string }>
+		).map((m) => ({
+			id: m.id,
+			name: m.name || m.id,
+			family: m.family,
+		})),
 	});
 });
 

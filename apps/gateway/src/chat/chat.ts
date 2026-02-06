@@ -1623,7 +1623,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const costs = calculateCosts(
+				const costs = await calculateCosts(
 					usedModel,
 					usedProvider,
 					promptTokens || null,
@@ -1634,6 +1634,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				await insertLog({
@@ -1747,7 +1749,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const cachedCosts = calculateCosts(
+				const cachedCosts = await calculateCosts(
 					usedModel,
 					usedProvider,
 					cachedResponse.usage?.prompt_tokens || null,
@@ -1758,6 +1760,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				// Estimate cached response size based on content to avoid expensive stringify
@@ -2210,7 +2214,9 @@ chat.openapi(completions, async (c) => {
 
 					// Calculate costs for cancelled request if billing is enabled
 					const billCancelled = shouldBillCancelledRequests();
-					let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+					let cancelledCosts: Awaited<
+						ReturnType<typeof calculateCosts>
+					> | null = null;
 					let estimatedPromptTokens: number | null = null;
 
 					if (billCancelled) {
@@ -2226,7 +2232,7 @@ chat.openapi(completions, async (c) => {
 
 						// Calculate costs based on prompt tokens only (no completion yet)
 						// If web search tool was enabled, count it as 1 search for billing
-						cancelledCosts = calculateCosts(
+						cancelledCosts = await calculateCosts(
 							usedModel,
 							usedProvider,
 							estimatedPromptTokens,
@@ -2241,6 +2247,7 @@ chat.openapi(completions, async (c) => {
 							undefined,
 							inputImageCount,
 							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							project.organizationId,
 						);
 					}
 
@@ -2974,7 +2981,7 @@ chat.openapi(completions, async (c) => {
 								finalTotalTokens !== null
 							) {
 								// Calculate costs for streaming response
-								const streamingCosts = calculateCosts(
+								const streamingCosts = await calculateCosts(
 									usedModel,
 									usedProvider,
 									finalPromptTokens,
@@ -2990,6 +2997,7 @@ chat.openapi(completions, async (c) => {
 									image_config?.image_size,
 									inputImageCount,
 									webSearchCount,
+									project.organizationId,
 								);
 
 								// Include costs in response for all users
@@ -3825,7 +3833,7 @@ chat.openapi(completions, async (c) => {
 								discount: undefined,
 								pricingTier: undefined,
 							}
-						: calculateCosts(
+						: await calculateCosts(
 								usedModel,
 								usedProvider,
 								calculatedPromptTokens,
@@ -3841,6 +3849,7 @@ chat.openapi(completions, async (c) => {
 								image_config?.image_size,
 								inputImageCount,
 								webSearchCount,
+								project.organizationId,
 							);
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
@@ -4214,7 +4223,8 @@ chat.openapi(completions, async (c) => {
 
 		// Calculate costs for cancelled request if billing is enabled
 		const billCancelled = shouldBillCancelledRequests();
-		let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+		let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
+			null;
 		let estimatedPromptTokens: number | null = null;
 
 		if (billCancelled) {
@@ -4230,7 +4240,7 @@ chat.openapi(completions, async (c) => {
 
 			// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
 			// If web search tool was enabled, count it as 1 search for billing
-			cancelledCosts = calculateCosts(
+			cancelledCosts = await calculateCosts(
 				usedModel,
 				usedProvider,
 				estimatedPromptTokens,
@@ -4245,6 +4255,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				inputImageCount,
 				webSearchTool ? 1 : null, // Bill for web search if it was enabled
+				project.organizationId,
 			);
 		}
 
@@ -4604,7 +4615,7 @@ chat.openapi(completions, async (c) => {
 			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 		}
 	}
-	const costs = calculateCosts(
+	const costs = await calculateCosts(
 		usedModel,
 		usedProvider,
 		calculatedPromptTokens,
@@ -4620,6 +4631,7 @@ chat.openapi(completions, async (c) => {
 		image_config?.image_size,
 		inputImageCount,
 		webSearchCount,
+		project.organizationId,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
