@@ -161,7 +161,7 @@ export function DiscountForm({
 							<PopoverContent className="w-[300px] p-0" align="start">
 								<Command>
 									<CommandInput placeholder="Search providers..." />
-									<CommandList>
+									<CommandList className="max-h-[200px]">
 										<CommandEmpty>No provider found.</CommandEmpty>
 										<CommandGroup>
 											<CommandItem
@@ -229,7 +229,7 @@ export function DiscountForm({
 							<PopoverContent className="w-[400px] p-0" align="start">
 								<Command>
 									<CommandInput placeholder="Search models..." />
-									<CommandList>
+									<CommandList className="max-h-[200px]">
 										<CommandEmpty>No model found.</CommandEmpty>
 										<CommandGroup>
 											<CommandItem
