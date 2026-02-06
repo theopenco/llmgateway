@@ -7,7 +7,6 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import {
 	and,
 	asc,
-	cdb,
 	db,
 	desc,
 	eq,
@@ -816,7 +815,7 @@ function validateProviderAndModel(
 // --- Global Discount Handlers ---
 
 admin.openapi(getGlobalDiscounts, async (c) => {
-	const discounts = await cdb
+	const discounts = await db
 		.select()
 		.from(tables.discount)
 		.where(isNull(tables.discount.organizationId))
@@ -914,7 +913,7 @@ admin.openapi(getOrganizationDiscounts, async (c) => {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	const discounts = await cdb
+	const discounts = await db
 		.select()
 		.from(tables.discount)
 		.where(eq(tables.discount.organizationId, orgId))
