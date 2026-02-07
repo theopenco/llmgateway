@@ -686,8 +686,6 @@ export const anthropicModels = [
 				vision: true,
 				tools: true,
 				jsonOutputSchema: true,
-				webSearch: true,
-				webSearchPrice: 0.01,
 				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
 			},
 		],
