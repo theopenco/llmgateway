@@ -388,10 +388,12 @@ export default function ChatPageClient({
 						: undefined
 				: undefined;
 
-			// Hidden feature: check localStorage for no-fallback setting
-			const noFallback =
+			// Automatically disable provider fallback for provider-specific model selections
+			const isProviderSpecific = selectedModel.includes("/");
+			const localStorageOverride =
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
+			const noFallback = isProviderSpecific || localStorageOverride;
 
 			// Get enabled MCP servers
 			const enabledMcpServers = getEnabledMcpServers();
@@ -1204,9 +1206,11 @@ function ExtraChatPanel({
 						: undefined
 				: undefined;
 
-			const noFallback =
+			const isProviderSpecific = selectedModel.includes("/");
+			const localStorageOverride =
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
+			const noFallback = isProviderSpecific || localStorageOverride;
 
 			const mergedOptions = {
 				...options,
