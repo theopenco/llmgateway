@@ -344,6 +344,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											priority
 										/>
 										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
@@ -351,6 +352,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											priority
 										/>
 									</div>
 								</div>

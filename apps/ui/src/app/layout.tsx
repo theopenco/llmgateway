@@ -17,9 +17,8 @@ const inter = Inter({
 const geistMono = Geist_Mono({
 	variable: "--font-mono",
 	subsets: ["latin"],
+	display: "swap",
 });
-
-export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
 	metadataBase: new URL("https://llmgateway.io"),
