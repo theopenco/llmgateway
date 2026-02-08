@@ -1129,3 +1129,94 @@ export const guardrailViolation = pgTable(
 		),
 	],
 );
+
+// Project hourly statistics aggregation - used for fast dashboard queries
+export const projectHourlyStats = pgTable(
+	"project_hourly_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per project-hour
+		unique().on(table.projectId, table.hourTimestamp),
+		// Index for dashboard queries (project + time range)
+		index("project_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries (find hours to update)
+		index("project_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
+	],
+);
+
+// Project hourly model statistics aggregation - model breakdown per hour
+export const projectHourlyModelStats = pgTable(
+	"project_hourly_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per project-hour-model-provider
+		unique().on(
+			table.projectId,
+			table.hourTimestamp,
+			table.usedModel,
+			table.usedProvider,
+		),
+		// Index for dashboard queries (project + time range)
+		index("project_hourly_model_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("project_hourly_model_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);

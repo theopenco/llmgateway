@@ -27,6 +27,11 @@ import { hasErrorCode } from "@llmgateway/models";
 import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
 
 import {
+	backfillProjectHourlyStatsIfNeeded,
+	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
+	refreshProjectHourlyStats,
+} from "./services/project-stats-aggregator.js";
+import {
 	backfillHistoryIfNeeded,
 	calculateAggregatedStatistics,
 	calculateCurrentMinuteHistory,
@@ -857,6 +862,7 @@ let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
 let currentMinuteIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
+let projectStatsIntervalId: NodeJS.Timeout | null = null;
 let activeLoops = 0;
 let stopFailed = false;
 
@@ -1047,6 +1053,18 @@ export async function startWorker() {
 			);
 		});
 
+	// Backfill project hourly stats if needed (for dashboard aggregations)
+	void backfillProjectHourlyStatsIfNeeded()
+		.then(() => {
+			logger.info("Project hourly stats backfill check completed");
+		})
+		.catch((error) => {
+			logger.error(
+				"Error during project hourly stats backfill",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		});
+
 	// Start statistics calculator
 	logger.info("Starting statistics calculator...");
 	logger.info("- Minutely history: runs at the first second of every minute");
@@ -1175,6 +1193,27 @@ export async function startWorker() {
 
 	scheduleAggregatedStats();
 
+	// Start project hourly stats refresh (for dashboard aggregations)
+	logger.info(
+		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
+	);
+
+	refreshProjectHourlyStats().catch((error) => {
+		logger.error(
+			"Error in initial project hourly stats refresh",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	});
+
+	projectStatsIntervalId = setInterval(() => {
+		refreshProjectHourlyStats().catch((error) => {
+			logger.error(
+				"Error in interval project hourly stats refresh",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		});
+	}, PROJECT_STATS_REFRESH_INTERVAL_SECONDS * 1000);
+
 	// Start all parallel worker loops
 	void runLogQueueLoop();
 	void runAutoTopUpLoop();
@@ -1208,6 +1247,12 @@ export async function stopWorker(): Promise<boolean> {
 		clearInterval(aggregatedIntervalId);
 		aggregatedIntervalId = null;
 		logger.info("Aggregated statistics calculator stopped");
+	}
+
+	if (projectStatsIntervalId) {
+		clearInterval(projectStatsIntervalId);
+		projectStatsIntervalId = null;
+		logger.info("Project hourly stats refresh stopped");
 	}
 
 	// Wait for all loops to finish by polling activeLoops counter
