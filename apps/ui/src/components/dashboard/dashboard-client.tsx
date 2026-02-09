@@ -170,7 +170,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		let topModel = "";
 		let topProvider = "";
 		let topCost = 0;
-		for (const [model, { cost, provider }] of modelCostMap) {
+		for (const [model, { cost, provider }] of Array.from(modelCostMap)) {
 			if (cost > topCost) {
 				topCost = cost;
 				topModel = model;
