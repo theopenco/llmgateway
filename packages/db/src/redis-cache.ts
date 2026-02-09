@@ -57,7 +57,7 @@ export class RedisCache extends Cache {
 				}
 			}
 
-			logger.debug(`Cache hit for key: ${key}`, { tables });
+			logger.trace(`Cache hit for key: ${key}`, { tables });
 			return parsed.data;
 		} catch (error) {
 			logger.error(
@@ -115,7 +115,7 @@ export class RedisCache extends Cache {
 			}
 
 			await pipeline.exec();
-			logger.debug(`Cached query result for key: ${hashedQuery}`, {
+			logger.trace(`Cached query result for key: ${hashedQuery}`, {
 				tables,
 				tags: config?.tags,
 				isTag,
@@ -149,7 +149,7 @@ export class RedisCache extends Cache {
 				await this.invalidateByTables(tables);
 			}
 
-			logger.debug("Cache invalidated on mutation", { tables, tags });
+			logger.trace("Cache invalidated on mutation", { tables, tags });
 		} catch (error) {
 			logger.error(
 				"Error invalidating cache on mutation",
@@ -289,7 +289,7 @@ export class RedisCache extends Cache {
 				}
 				await pipeline.exec();
 
-				logger.debug(`Invalidated ${keysArray.length} cache entries`, {
+				logger.trace(`Invalidated ${keysArray.length} cache entries`, {
 					tables,
 				});
 			}

@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
 			{
 				userAgent: "*",
 				allow: "/",
-				disallow: ["/dashboard/", "/api/", "/login", "/signup", "/onboarding"],
+				disallow: ["/dashboard/", "/api/", "/onboarding"],
 			},
 		],
 		sitemap: "https://llmgateway.io/sitemap.xml",

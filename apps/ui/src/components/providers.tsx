@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { PostHogProvider } from "posthog-js/react";
-import { useMemo, useEffect } from "react";
+import { Suspense, useMemo, useEffect } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
 import { ReferralHandler } from "@/components/referral-handler";
@@ -102,7 +102,9 @@ export function Providers({ children, config }: ProvidersProps) {
 				</QueryClientProvider>
 				<Toaster />
 				<SonnerToaster richColors position="bottom-right" />
-				<ReferralHandler />
+				<Suspense>
+					<ReferralHandler />
+				</Suspense>
 			</ThemeProvider>
 		</AppConfigProvider>
 	);
