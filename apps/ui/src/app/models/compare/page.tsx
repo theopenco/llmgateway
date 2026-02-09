@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { ModelComparison } from "@/components/models/model-comparison";
@@ -26,7 +28,9 @@ export default function ModelsComparePage() {
 			<Navbar />
 			<main className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4">
-					<ModelComparison />
+					<Suspense>
+						<ModelComparison />
+					</Suspense>
 				</div>
 			</main>
 			<Footer />

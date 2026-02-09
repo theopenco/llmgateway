@@ -691,6 +691,10 @@ export interface paths {
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 requestCost: number | null;
+                                imageInputTokens: string | null;
+                                imageOutputTokens: string | null;
+                                imageInputCost: number | null;
+                                imageOutputCost: number | null;
                                 estimatedCost: boolean | null;
                                 canceled: boolean | null;
                                 streamed: boolean | null;
@@ -817,6 +821,8 @@ export interface paths {
                                 outputCost: number;
                                 requestCost: number;
                                 dataStorageCost: number;
+                                imageInputCost: number;
+                                imageOutputCost: number;
                                 errorCount: number;
                                 errorRate: number;
                                 cacheCount: number;

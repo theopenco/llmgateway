@@ -399,6 +399,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										<div>{log.reasoningTokens}</div>
 									</>
 								)}
+								{log.imageInputTokens && Number(log.imageInputTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Input Tokens
+										</div>
+										<div>{log.imageInputTokens}</div>
+									</>
+								)}
+								{log.imageOutputTokens && Number(log.imageOutputTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Output Tokens
+										</div>
+										<div>{log.imageOutputTokens}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">
 									Original Finish Reason
 								</div>
@@ -473,6 +489,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 											Native Web Search Cost
 										</div>
 										<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
+									</>
+								)}
+								{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Input Cost
+										</div>
+										<div>{`$${Number(log.imageInputCost).toFixed(8)}`}</div>
+									</>
+								)}
+								{!!log.imageOutputCost && Number(log.imageOutputCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Output Cost
+										</div>
+										<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
 									</>
 								)}
 								<div className="text-muted-foreground">Inference Total</div>

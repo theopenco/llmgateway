@@ -292,4 +292,96 @@ describe("calculateCosts", () => {
 		expect(result.outputCost).toBeCloseTo(0.005); // 500 * 10.0e-6
 		expect(result.totalCost).toBeCloseTo(0.00625); // 0.00125 + 0.005
 	});
+
+	it("should track image input tokens and costs separately", () => {
+		// Test with gemini-3-pro-image-preview which has imageInputPrice
+		const result = calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000, // text prompt tokens
+			500, // completion tokens
+			null, // no cached tokens
+			undefined,
+			null, // no reasoning tokens
+			0, // no output images
+			undefined, // no image size
+			2, // 2 input images
+		);
+
+		// Each input image is 560 tokens at $2/1M = $0.00112 per image
+		expect(result.imageInputTokens).toBe(1120); // 2 * 560
+		expect(result.imageInputCost).toBeCloseTo(0.00224); // 1120 * 2e-6
+		// promptTokens should NOT include image tokens
+		expect(result.promptTokens).toBe(1000);
+		expect(result.inputCost).toBeGreaterThan(0);
+		// totalCost should include image input cost
+		expect(result.totalCost).toBeGreaterThan(
+			(result.inputCost ?? 0) + (result.outputCost ?? 0),
+		);
+	});
+
+	it("should track image output tokens and costs separately", () => {
+		// Test with gemini-3-pro-image-preview for image output
+		const result = calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000, // text prompt tokens
+			2500, // completion tokens (includes 1120 * 2 = 2240 image tokens for 2 images)
+			null, // no cached tokens
+			undefined,
+			null, // no reasoning tokens
+			2, // 2 output images
+			"1K", // 1K image size = 1120 tokens per image
+			0, // no input images
+		);
+
+		// Each 1K output image is 1120 tokens at $120/1M
+		expect(result.imageOutputTokens).toBe(2240); // 2 * 1120
+		expect(result.imageOutputCost).toBeCloseTo(0.2688); // 2240 * 120e-6
+		// outputCost should only contain text portion (2500 - 2240 = 260 text tokens)
+		expect(result.outputCost).toBeCloseTo(0.00104); // 260 * 4e-6 (standard output price)
+		// totalCost should include both text output cost and image output cost
+		expect(result.totalCost).toBeCloseTo(
+			(result.inputCost ?? 0) +
+				(result.outputCost ?? 0) +
+				(result.imageOutputCost ?? 0),
+		);
+	});
+
+	it("should return null for all image fields when no images", () => {
+		const result = calculateCosts("gpt-4", "openai", 100, 50, null);
+
+		expect(result.imageInputTokens).toBeNull();
+		expect(result.imageOutputTokens).toBeNull();
+		expect(result.imageInputCost).toBeNull();
+		expect(result.imageOutputCost).toBeNull();
+	});
+
+	it("should include image costs in totalCost sum", () => {
+		// Test that totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost + imageInputCost + imageOutputCost
+		const result = calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000, // text prompt tokens
+			2500, // completion tokens
+			null, // no cached tokens
+			undefined,
+			null, // no reasoning tokens
+			2, // 2 output images
+			"1K", // 1K image size
+			1, // 1 input image
+		);
+
+		// Calculate expected total
+		const expectedTotal =
+			(result.inputCost ?? 0) +
+			(result.outputCost ?? 0) +
+			(result.cachedInputCost ?? 0) +
+			(result.requestCost ?? 0) +
+			(result.webSearchCost ?? 0) +
+			(result.imageInputCost ?? 0) +
+			(result.imageOutputCost ?? 0);
+
+		expect(result.totalCost).toBeCloseTo(expectedTotal);
+	});
 });

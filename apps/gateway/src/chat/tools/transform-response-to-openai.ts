@@ -7,6 +7,8 @@ export interface CostData {
 	cachedInputCost: number | null;
 	requestCost: number | null;
 	webSearchCost: number | null;
+	imageInputCost: number | null;
+	imageOutputCost: number | null;
 	totalCost: number | null;
 }
 
@@ -45,6 +47,8 @@ function buildUsageObject(
 			cost_usd_cached_input: costs.cachedInputCost,
 			cost_usd_request: costs.requestCost,
 			cost_usd_web_search: costs.webSearchCost,
+			cost_usd_image_input: costs.imageInputCost,
+			cost_usd_image_output: costs.imageOutputCost,
 		}),
 		...(showUpgradeMessage && {
 			info: "upgrade to pro to include usd cost breakdown",
@@ -266,6 +270,8 @@ export function transformResponseToOpenai(
 							cost_usd_output: costs.outputCost,
 							cost_usd_cached_input: costs.cachedInputCost,
 							cost_usd_request: costs.requestCost,
+							cost_usd_image_input: costs.imageInputCost,
+							cost_usd_image_output: costs.imageOutputCost,
 						};
 					}
 					if (showUpgradeMessage) {
@@ -388,6 +394,8 @@ export function transformResponseToOpenai(
 								cost_usd_output: costs.outputCost,
 								cost_usd_cached_input: costs.cachedInputCost,
 								cost_usd_request: costs.requestCost,
+								cost_usd_image_input: costs.imageInputCost,
+								cost_usd_image_output: costs.imageOutputCost,
 							};
 						}
 						if (showUpgradeMessage) {
@@ -486,6 +494,8 @@ export function transformResponseToOpenai(
 								cost_usd_output: costs.outputCost,
 								cost_usd_cached_input: costs.cachedInputCost,
 								cost_usd_request: costs.requestCost,
+								cost_usd_image_input: costs.imageInputCost,
+								cost_usd_image_output: costs.imageOutputCost,
 							};
 						}
 						if (showUpgradeMessage) {
@@ -569,6 +579,8 @@ export function transformResponseToOpenai(
 								cost_usd_output: costs.outputCost,
 								cost_usd_cached_input: costs.cachedInputCost,
 								cost_usd_request: costs.requestCost,
+								cost_usd_image_input: costs.imageInputCost,
+								cost_usd_image_output: costs.imageOutputCost,
 							};
 						}
 						if (showUpgradeMessage) {
@@ -619,6 +631,8 @@ export function transformResponseToOpenai(
 							cost_usd_output: costs.outputCost,
 							cost_usd_cached_input: costs.cachedInputCost,
 							cost_usd_request: costs.requestCost,
+							cost_usd_image_input: costs.imageInputCost,
+							cost_usd_image_output: costs.imageOutputCost,
 						};
 					}
 					if (showUpgradeMessage) {

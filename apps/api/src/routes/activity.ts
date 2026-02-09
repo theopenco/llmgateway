@@ -33,6 +33,8 @@ const dailyActivitySchema = z.object({
 	outputCost: z.number(),
 	requestCost: z.number(),
 	dataStorageCost: z.number(),
+	imageInputCost: z.number(),
+	imageOutputCost: z.number(),
 	errorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
@@ -153,6 +155,14 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(${tables.log.dataStorageCost}), 0)`.as(
 					"dataStorageCost",
 				),
+			imageInputCost:
+				sql<number>`COALESCE(SUM(${tables.log.imageInputCost}), 0)`.as(
+					"imageInputCost",
+				),
+			imageOutputCost:
+				sql<number>`COALESCE(SUM(${tables.log.imageOutputCost}), 0)`.as(
+					"imageOutputCost",
+				),
 			errorCount:
 				sql<number>`SUM(CASE WHEN ${tables.log.hasError} = true THEN 1 ELSE 0 END)`.as(
 					"errorCount",
@@ -253,6 +263,8 @@ activity.openapi(getActivity, async (c) => {
 		const outputCost = Number(day.outputCost);
 		const requestCost = Number(day.requestCost);
 		const dataStorageCost = Number(day.dataStorageCost);
+		const imageInputCost = Number(day.imageInputCost);
+		const imageOutputCost = Number(day.imageOutputCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
@@ -271,6 +283,8 @@ activity.openapi(getActivity, async (c) => {
 			outputCost,
 			requestCost,
 			dataStorageCost,
+			imageInputCost,
+			imageOutputCost,
 			errorCount,
 			errorRate,
 			cacheCount,
