@@ -12,7 +12,13 @@
  *   DATABASE_URL - PostgreSQL connection string
  */
 
-import { db, tables, shortid } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
+import { customAlphabet } from "nanoid";
+
+const generate = customAlphabet(
+	"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+);
+const shortid = (size = 20) => generate(size);
 
 // Model configurations with realistic distributions
 const MODELS = [
