@@ -516,10 +516,9 @@ chat.openapi(completions, async (c) => {
 		organization.devPlan !== "none" &&
 		!organization.devPlanAllowAllModels
 	) {
-		const modelDef = models.find((m) => m.id === requestedModel);
-		if (modelDef && !isCodingModel(modelDef)) {
+		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
-				message: `Model ${requestedModel} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 			});
 		}
 	}
@@ -551,7 +550,7 @@ chat.openapi(completions, async (c) => {
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
-		requestedModel,
+		modelInfo.id,
 		requestedProvider,
 	);
 	if (!iamValidation.allowed) {
