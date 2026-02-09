@@ -3797,36 +3797,42 @@ chat.openapi(completions, async (c) => {
 										finish_reason: null,
 									},
 								],
-								usage: {
-									prompt_tokens: Math.max(
+								usage: (() => {
+									// Only add image input tokens for providers that
+									// exclude them from upstream usage (Google)
+									const providerExcludesImageInput =
+										usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian";
+									const imageInputAdj = providerExcludesImageInput
+										? inputImageCount * 560
+										: 0;
+									const adjPrompt = Math.max(
 										1,
 										Math.round(
 											promptTokens && promptTokens > 0
-												? promptTokens + inputImageCount * 560
-												: (calculatedPromptTokens || 1) + inputImageCount * 560,
+												? promptTokens + imageInputAdj
+												: (calculatedPromptTokens || 1) + imageInputAdj,
 										),
-									),
-									completion_tokens: Math.round(
+									);
+									const adjCompletion = Math.round(
 										completionTokens || calculatedCompletionTokens || 0,
-									),
-									total_tokens: Math.round(
-										totalTokens ||
-											calculatedTotalTokens ||
-											Math.max(
-												1,
-												(promptTokens && promptTokens > 0
-													? promptTokens + inputImageCount * 560
-													: (calculatedPromptTokens || 1) +
-														inputImageCount * 560) +
-													(completionTokens || calculatedCompletionTokens || 0),
-											),
-									),
-									...(cachedTokens !== null && {
-										prompt_tokens_details: {
-											cached_tokens: cachedTokens,
-										},
-									}),
-								},
+									);
+									return {
+										prompt_tokens: adjPrompt,
+										completion_tokens: adjCompletion,
+										total_tokens: Math.round(
+											totalTokens ||
+												calculatedTotalTokens ||
+												Math.max(1, adjPrompt + adjCompletion),
+										),
+										...(cachedTokens !== null && {
+											prompt_tokens_details: {
+												cached_tokens: cachedTokens,
+											},
+										}),
+									};
+								})(),
 							};
 
 							await writeSSEAndCache({
@@ -3905,12 +3911,15 @@ chat.openapi(completions, async (c) => {
 								project.organizationId,
 							);
 
-				// Include image input tokens in prompt/total for consistent accounting
-				if (costs.imageInputTokens) {
-					calculatedPromptTokens =
-						(calculatedPromptTokens || 0) + costs.imageInputTokens;
-					calculatedTotalTokens =
-						(calculatedTotalTokens || 0) + costs.imageInputTokens;
+				// Use costs.promptTokens as canonical value (includes image input
+				// tokens for providers that exclude them from upstream usage)
+				if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+					const promptDelta =
+						(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+					if (promptDelta > 0) {
+						calculatedPromptTokens = costs.promptTokens;
+						calculatedTotalTokens = (calculatedTotalTokens || 0) + promptDelta;
+					}
 				}
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
@@ -4715,15 +4724,19 @@ chat.openapi(completions, async (c) => {
 		project.organizationId,
 	);
 
-	// Include image input tokens in prompt/total for consistent accounting
-	if (costs.imageInputTokens) {
-		calculatedPromptTokens =
-			(calculatedPromptTokens || 0) + costs.imageInputTokens;
-		totalTokens = (
-			(calculatedPromptTokens || 0) +
-			(calculatedCompletionTokens || 0) +
-			(calculatedReasoningTokens || 0)
-		).toString();
+	// Use costs.promptTokens as canonical value (includes image input
+	// tokens for providers that exclude them from upstream usage)
+	if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+		const promptDelta =
+			(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+		if (promptDelta > 0) {
+			calculatedPromptTokens = costs.promptTokens;
+			totalTokens = (
+				(calculatedPromptTokens || 0) +
+				(calculatedCompletionTokens || 0) +
+				(calculatedReasoningTokens || 0)
+			).toString();
+		}
 	}
 
 	// Transform response to OpenAI format for non-OpenAI providers
