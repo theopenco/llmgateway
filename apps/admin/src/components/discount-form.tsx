@@ -26,9 +26,11 @@ import {
 
 import { getProviderIcon } from "@llmgateway/shared";
 
+import type { ProviderModelMapping } from "@/lib/admin-discounts";
+
 interface DiscountFormProps {
 	providers: Array<{ id: string; name: string }>;
-	models: Array<{ id: string; name: string; family: string }>;
+	mappings: ProviderModelMapping[];
 	onSubmit: (data: {
 		provider: string | null;
 		model: string | null;
@@ -39,7 +41,7 @@ interface DiscountFormProps {
 
 export function DiscountForm({
 	providers,
-	models,
+	mappings,
 	onSubmit,
 }: DiscountFormProps) {
 	const router = useRouter();
@@ -52,6 +54,40 @@ export function DiscountForm({
 	const [discountPercent, setDiscountPercent] = useState("");
 	const [reason, setReason] = useState("");
 
+	// Filter mappings by selected provider
+	const filteredMappings = useMemo(() => {
+		if (provider === "__all__") {
+			return mappings;
+		}
+		return mappings.filter((m) => m.providerId === provider);
+	}, [provider, mappings]);
+
+	// Get unique models for the filtered mappings (deduplicate by modelId)
+	const availableModels = useMemo(() => {
+		const uniqueModels = new Map<
+			string,
+			{
+				modelId: string;
+				modelName: string;
+				rootModelName: string;
+				family: string;
+			}
+		>();
+		for (const mapping of filteredMappings) {
+			if (!uniqueModels.has(mapping.modelId)) {
+				uniqueModels.set(mapping.modelId, {
+					modelId: mapping.modelId,
+					modelName: mapping.modelName,
+					rootModelName: mapping.rootModelName,
+					family: mapping.family,
+				});
+			}
+		}
+		return Array.from(uniqueModels.values()).sort((a, b) =>
+			a.rootModelName.localeCompare(b.rootModelName),
+		);
+	}, [filteredMappings]);
+
 	const selectedProvider = useMemo(() => {
 		if (provider === "__all__") {
 			return null;
@@ -63,8 +99,14 @@ export function DiscountForm({
 		if (model === "__all__") {
 			return null;
 		}
-		return models.find((m) => m.id === model);
-	}, [model, models]);
+		return availableModels.find((m) => m.modelId === model);
+	}, [model, availableModels]);
+
+	// Reset model when provider changes
+	const handleProviderChange = (newProvider: string) => {
+		setProvider(newProvider);
+		setModel("__all__");
+	};
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -123,7 +165,7 @@ export function DiscountForm({
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>
-						<Select value={provider} onValueChange={setProvider}>
+						<Select value={provider} onValueChange={handleProviderChange}>
 							<SelectTrigger className="w-full">
 								<SelectValue>
 									{selectedProvider ? (
@@ -162,24 +204,29 @@ export function DiscountForm({
 							<SelectTrigger className="w-full">
 								<SelectValue>
 									{selectedModel
-										? `${selectedModel.name} (${selectedModel.family})`
+										? `${selectedModel.rootModelName} (${selectedModel.modelId})`
 										: "All Models"}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="__all__">All Models</SelectItem>
-								{models.map((m) => (
-									<SelectItem key={m.id} value={m.id}>
+								{availableModels.map((m) => (
+									<SelectItem key={m.modelId} value={m.modelId}>
 										<span className="truncate">
-											{m.name}{" "}
+											{m.rootModelName}{" "}
 											<span className="text-muted-foreground">
-												({m.family})
+												({m.modelId})
 											</span>
 										</span>
 									</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
+						{provider !== "__all__" && (
+							<p className="text-xs text-muted-foreground">
+								Showing models available for {selectedProvider?.name}
+							</p>
+						)}
 					</div>
 
 					<div className="space-y-2">

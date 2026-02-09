@@ -753,8 +753,31 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 
 // Get valid provider IDs as a Set for O(1) lookup
 const validProviderIds = new Set<string>(providers.map((p) => p.id));
-// Get valid model IDs as a Set for O(1) lookup
-const validModelIds = new Set<string>(models.map((m) => m.id));
+
+// Build a map of provider -> Set of valid model names for that provider
+// This includes both root model IDs and provider-specific modelNames
+const providerModelMappings = new Map<string, Set<string>>();
+for (const model of models) {
+	for (const mapping of model.providers) {
+		if (!providerModelMappings.has(mapping.providerId)) {
+			providerModelMappings.set(mapping.providerId, new Set<string>());
+		}
+		const modelSet = providerModelMappings.get(mapping.providerId)!;
+		// Add the provider-specific model name
+		modelSet.add(mapping.modelName);
+		// Also add the root model ID for backwards compatibility
+		modelSet.add(model.id);
+	}
+}
+
+// Get all valid model names (union of all provider model names + root IDs)
+const validModelIds = new Set<string>();
+for (const model of models) {
+	validModelIds.add(model.id);
+	for (const mapping of model.providers) {
+		validModelIds.add(mapping.modelName);
+	}
+}
 
 const discountSchema = z.object({
 	id: z.string(),
@@ -960,10 +983,14 @@ const getAvailableProvidersAndModels = createRoute({
 									name: z.string(),
 								}),
 							),
-							models: z.array(
+							mappings: z.array(
 								z.object({
-									id: z.string(),
-									name: z.string(),
+									providerId: z.string(),
+									providerName: z.string(),
+									modelId: z.string(),
+									modelName: z.string(),
+									rootModelId: z.string(),
+									rootModelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -971,7 +998,8 @@ const getAvailableProvidersAndModels = createRoute({
 						.openapi({}),
 				},
 			},
-			description: "Available providers and models for discount selection.",
+			description:
+				"Available providers and provider/model mappings for discount selection.",
 		},
 	},
 });
@@ -1017,8 +1045,21 @@ function validateProviderAndModel(
 	}
 
 	// Validate model if specified
-	if (model && !validModelIds.has(model)) {
-		return { error: `Invalid model: ${model}` };
+	if (model) {
+		// If provider is specified, check that the model is valid for that provider
+		if (provider) {
+			const providerModels = providerModelMappings.get(provider);
+			if (!providerModels || !providerModels.has(model)) {
+				return {
+					error: `Invalid model "${model}" for provider "${provider}"`,
+				};
+			}
+		} else {
+			// No provider specified, just check model is valid globally
+			if (!validModelIds.has(model)) {
+				return { error: `Invalid model: ${model}` };
+			}
+		}
 	}
 
 	return {};
@@ -1222,15 +1263,37 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
+	// Build mappings from all models and their providers
+	const mappings: Array<{
+		providerId: string;
+		providerName: string;
+		modelId: string;
+		modelName: string;
+		rootModelId: string;
+		rootModelName: string;
+		family: string;
+	}> = [];
+
+	for (const model of models) {
+		for (const mapping of model.providers) {
+			const provider = providers.find((p) => p.id === mapping.providerId);
+			if (provider) {
+				mappings.push({
+					providerId: mapping.providerId,
+					providerName: provider.name,
+					modelId: mapping.modelName, // The provider-specific model name
+					modelName: mapping.modelName,
+					rootModelId: model.id, // The root model ID
+					rootModelName: (model as { name?: string }).name || model.id,
+					family: model.family,
+				});
+			}
+		}
+	}
+
 	return c.json({
 		providers: providers.map((p) => ({ id: p.id, name: p.name })),
-		models: (
-			models as Array<{ id: string; name?: string; family: string }>
-		).map((m) => ({
-			id: m.id,
-			name: m.name || m.id,
-			family: m.family,
-		})),
+		mappings,
 	});
 });
 

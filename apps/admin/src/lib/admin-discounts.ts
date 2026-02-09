@@ -19,9 +19,19 @@ export interface DiscountsListResponse {
 	total: number;
 }
 
+export interface ProviderModelMapping {
+	providerId: string;
+	providerName: string;
+	modelId: string;
+	modelName: string;
+	rootModelId: string;
+	rootModelName: string;
+	family: string;
+}
+
 export interface DiscountOptions {
 	providers: Array<{ id: string; name: string }>;
-	models: Array<{ id: string; name: string; family: string }>;
+	mappings: ProviderModelMapping[];
 }
 
 export interface CreateDiscountData {

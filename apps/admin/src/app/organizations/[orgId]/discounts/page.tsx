@@ -150,7 +150,7 @@ export default async function OrganizationDiscountsPage({
 				{options && (
 					<DiscountForm
 						providers={options.providers}
-						models={options.models}
+						mappings={options.mappings}
 						onSubmit={handleCreateDiscount}
 					/>
 				)}

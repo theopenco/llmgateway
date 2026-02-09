@@ -30,18 +30,19 @@ export interface EffectiveDiscount {
  * Uses the cached database client (cdb) which has Drizzle's cache layer.
  *
  * Precedence (highest to lowest):
- * 1. Org + Provider + Model discount
+ * 1. Org + Provider + Model discount (checks both root model ID and provider model name)
  * 2. Org + Provider discount (all models)
  * 3. Org + Model discount (all providers)
- * 4. Global + Provider + Model discount
+ * 4. Global + Provider + Model discount (checks both root model ID and provider model name)
  * 5. Global + Provider discount
  * 6. Global + Model discount
  * 7. Hardcoded model discount (fallback)
  *
  * @param organizationId - The organization ID (null for global only)
  * @param provider - The provider ID
- * @param model - The model ID
+ * @param model - The root model ID (e.g., "gpt-4o-mini")
  * @param hardcodedDiscount - The hardcoded discount from model definition (0-1)
+ * @param providerModelName - The provider-specific model name (e.g., "gpt-4o-mini-2024-07-18")
  * @returns The effective discount to apply
  */
 export async function getEffectiveDiscount(
@@ -49,6 +50,7 @@ export async function getEffectiveDiscount(
 	provider: string,
 	model: string,
 	hardcodedDiscount = 0,
+	providerModelName?: string,
 ): Promise<EffectiveDiscount> {
 	try {
 		const now = new Date();
@@ -58,6 +60,12 @@ export async function getEffectiveDiscount(
 			isNull(discountTable.expiresAt),
 			gte(discountTable.expiresAt, now),
 		);
+
+		// Build model matching condition - match either root model ID or provider model name
+		const modelConditions = [eq(discountTable.model, model)];
+		if (providerModelName && providerModelName !== model) {
+			modelConditions.push(eq(discountTable.model, providerModelName));
+		}
 
 		// Query all potentially matching discounts
 		// We'll filter in code to determine precedence
@@ -85,10 +93,24 @@ export async function getEffectiveDiscount(
 						eq(discountTable.provider, provider),
 						isNull(discountTable.provider),
 					),
-					// Either matches model or is null (all models)
-					or(eq(discountTable.model, model), isNull(discountTable.model)),
+					// Either matches model (root ID or provider model name) or is null (all models)
+					or(...modelConditions, isNull(discountTable.model)),
 				),
 			);
+
+		// Helper to check if a discount's model matches (root ID or provider model name)
+		const modelMatches = (discountModel: string | null): boolean => {
+			if (discountModel === null) {
+				return false;
+			}
+			if (discountModel === model) {
+				return true;
+			}
+			if (providerModelName && discountModel === providerModelName) {
+				return true;
+			}
+			return false;
+		};
 
 		// Find highest precedence discount
 		// Order: org-specific > global, more specific > less specific
@@ -99,7 +121,7 @@ export async function getEffectiveDiscount(
 				(d) =>
 					d.organizationId === organizationId &&
 					d.provider === provider &&
-					d.model === model,
+					modelMatches(d.model),
 			);
 			if (orgProviderModel) {
 				return {
@@ -129,7 +151,7 @@ export async function getEffectiveDiscount(
 				(d) =>
 					d.organizationId === organizationId &&
 					d.provider === null &&
-					d.model === model,
+					modelMatches(d.model),
 			);
 			if (orgModel) {
 				return {
@@ -145,7 +167,7 @@ export async function getEffectiveDiscount(
 			(d) =>
 				d.organizationId === null &&
 				d.provider === provider &&
-				d.model === model,
+				modelMatches(d.model),
 		);
 		if (globalProviderModel) {
 			return {
@@ -173,7 +195,9 @@ export async function getEffectiveDiscount(
 		// 6. Global + Model (any provider)
 		const globalModel = discounts.find(
 			(d) =>
-				d.organizationId === null && d.provider === null && d.model === model,
+				d.organizationId === null &&
+				d.provider === null &&
+				modelMatches(d.model),
 		);
 		if (globalModel) {
 			return {

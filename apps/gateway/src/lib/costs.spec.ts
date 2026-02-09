@@ -293,9 +293,9 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(0.00625); // 0.00125 + 0.005
 	});
 
-	it("should track image input tokens and costs separately", () => {
+	it("should track image input tokens and costs separately", async () => {
 		// Test with gemini-3-pro-image-preview which has imageInputPrice
-		const result = calculateCosts(
+		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
 			1000, // text prompt tokens
@@ -320,9 +320,9 @@ describe("calculateCosts", () => {
 		);
 	});
 
-	it("should track image output tokens and costs separately", () => {
+	it("should track image output tokens and costs separately", async () => {
 		// Test with gemini-3-pro-image-preview for image output
-		const result = calculateCosts(
+		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
 			1000, // text prompt tokens
@@ -348,8 +348,8 @@ describe("calculateCosts", () => {
 		);
 	});
 
-	it("should return null for all image fields when no images", () => {
-		const result = calculateCosts("gpt-4", "openai", 100, 50, null);
+	it("should return null for all image fields when no images", async () => {
+		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 
 		expect(result.imageInputTokens).toBeNull();
 		expect(result.imageOutputTokens).toBeNull();
@@ -357,9 +357,9 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeNull();
 	});
 
-	it("should include image costs in totalCost sum", () => {
+	it("should include image costs in totalCost sum", async () => {
 		// Test that totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost + imageInputCost + imageOutputCost
-		const result = calculateCosts(
+		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
 			1000, // text prompt tokens

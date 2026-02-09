@@ -129,7 +129,7 @@ export default async function GlobalDiscountsPage() {
 				{options && (
 					<DiscountForm
 						providers={options.providers}
-						models={options.models}
+						mappings={options.mappings}
 						onSubmit={handleCreateDiscount}
 					/>
 				)}
