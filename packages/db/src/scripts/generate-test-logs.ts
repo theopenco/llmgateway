@@ -1,19 +1,22 @@
+/* eslint-disable no-console */
 /**
  * Script to generate random test logs for local development.
  * This helps test dashboards and visualizations with realistic data.
  *
  * Usage:
- *   npx tsx scripts/generate-test-logs.ts <count> <projectId> <apiKeyId> <organizationId>
+ *   pnpm --filter @llmgateway/db generate-test-logs 1000 proj_123 key_456 org_789
  *
- * Example:
- *   npx tsx scripts/generate-test-logs.ts 1000 proj_123 key_456 org_789
+ * Or from packages/db:
+ *   pnpm generate-test-logs 1000 proj_123 key_456 org_789
  *
  * Environment:
  *   DATABASE_URL - PostgreSQL connection string
  */
 
-import { db, tables } from "@llmgateway/db";
 import { customAlphabet } from "nanoid";
+
+import { db } from "@/db.js";
+import { log } from "@/schema.js";
 
 const generate = customAlphabet(
 	"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -135,9 +138,7 @@ function generateLog(
 	const finishReason = weightedRandom(FINISH_REASONS);
 
 	// Add variance to token counts (50-150% of average)
-	const inputTokens = Math.round(
-		model.avgInputTokens * randomFloat(0.5, 1.5),
-	);
+	const inputTokens = Math.round(model.avgInputTokens * randomFloat(0.5, 1.5));
 	const outputTokens = Math.round(
 		model.avgOutputTokens * randomFloat(0.5, 1.5),
 	);
@@ -212,18 +213,18 @@ async function main() {
 
 	if (args.length < 4) {
 		console.log(
-			"Usage: npx tsx scripts/generate-test-logs.ts <count> <projectId> <apiKeyId> <organizationId> [daysBack]",
+			"Usage: pnpm generate-test-logs <count> <projectId> <apiKeyId> <organizationId> [daysBack]",
 		);
 		console.log("\nExample:");
-		console.log(
-			"  npx tsx scripts/generate-test-logs.ts 1000 proj_123 key_456 org_789 30",
-		);
+		console.log("  pnpm generate-test-logs 1000 proj_123 key_456 org_789 30");
 		console.log("\nArguments:");
 		console.log("  count          - Number of logs to generate");
 		console.log("  projectId      - Project ID to associate logs with");
 		console.log("  apiKeyId       - API Key ID to associate logs with");
 		console.log("  organizationId - Organization ID to associate logs with");
-		console.log("  daysBack       - How many days back to spread logs (default: 30)");
+		console.log(
+			"  daysBack       - How many days back to spread logs (default: 30)",
+		);
 		process.exit(1);
 	}
 
@@ -254,32 +255,14 @@ async function main() {
 			generateLog(projectId, apiKeyId, organizationId, daysBack),
 		);
 
-		await db.insert(tables.log).values(logs);
+		await db.insert(log).values(logs);
 		generated += batchCount;
 
 		const progress = Math.round((generated / count) * 100);
 		console.log(`  Progress: ${generated}/${count} (${progress}%)`);
 	}
 
-	console.log("\nDone! Generated logs summary:");
-
-	// Print summary stats
-	const modelCounts: Record<string, number> = {};
-	const logs = Array.from({ length: Math.min(count, 10000) }, () =>
-		generateLog(projectId, apiKeyId, organizationId, daysBack),
-	);
-	for (const log of logs) {
-		modelCounts[log.usedModel] = (modelCounts[log.usedModel] || 0) + 1;
-	}
-
-	console.log("\nModel distribution (sample):");
-	for (const [model, modelCount] of Object.entries(modelCounts).sort(
-		(a, b) => b[1] - a[1],
-	)) {
-		const pct = ((modelCount / logs.length) * 100).toFixed(1);
-		console.log(`  ${model}: ${pct}%`);
-	}
-
+	console.log("\nDone!");
 	process.exit(0);
 }
 
