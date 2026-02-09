@@ -8,6 +8,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
+	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
 
 import { app } from "./index.js";
@@ -29,6 +30,7 @@ export async function deleteAll() {
 		db.delete(projectHourlyStats),
 		db.delete(projectHourlyModelStats),
 		db.delete(apiKeyHourlyStats),
+		db.delete(apiKeyHourlyModelStats),
 	]);
 
 	await Promise.all([
@@ -46,17 +48,20 @@ export async function deleteAll() {
 }
 
 /**
- * Helper function to round a date to the start of its hour
+ * Helper function to round a date to the start of its hour in UTC
+ * Uses UTC to match PostgreSQL's date_trunc behavior
  */
 function roundToHourStart(date: Date): Date {
 	return new Date(
-		date.getFullYear(),
-		date.getMonth(),
-		date.getDate(),
-		date.getHours(),
-		0,
-		0,
-		0,
+		Date.UTC(
+			date.getUTCFullYear(),
+			date.getUTCMonth(),
+			date.getUTCDate(),
+			date.getUTCHours(),
+			0,
+			0,
+			0,
+		),
 	);
 }
 
@@ -294,6 +299,54 @@ export async function aggregateLogsForTesting() {
 				})
 				.onConflictDoUpdate({
 					target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
+					set: {
+						...statsFields,
+						updatedAt: new Date(),
+					},
+				});
+		}
+
+		// Aggregate API key hourly model stats
+		const apiKeyModelStats = await db
+			.select({
+				apiKeyId: tables.log.apiKeyId,
+				usedModel: tables.log.usedModel,
+				usedProvider: tables.log.usedProvider,
+				...getCommonAggregationFields(),
+			})
+			.from(tables.log)
+			.where(
+				and(
+					sql`${tables.log.projectId} = ${projectId}`,
+					gte(tables.log.createdAt, hourTimestamp),
+					lt(tables.log.createdAt, hourEnd),
+				),
+			)
+			.groupBy(
+				tables.log.apiKeyId,
+				tables.log.usedModel,
+				tables.log.usedProvider,
+			);
+
+		for (const stat of apiKeyModelStats) {
+			const { apiKeyId, usedModel, usedProvider, ...statsFields } = stat;
+			await db
+				.insert(apiKeyHourlyModelStats)
+				.values({
+					apiKeyId,
+					projectId,
+					hourTimestamp,
+					usedModel,
+					usedProvider,
+					...statsFields,
+				})
+				.onConflictDoUpdate({
+					target: [
+						apiKeyHourlyModelStats.apiKeyId,
+						apiKeyHourlyModelStats.hourTimestamp,
+						apiKeyHourlyModelStats.usedModel,
+						apiKeyHourlyModelStats.usedProvider,
+					],
 					set: {
 						...statsFields,
 						updatedAt: new Date(),

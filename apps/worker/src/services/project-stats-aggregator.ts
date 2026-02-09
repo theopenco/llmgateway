@@ -4,6 +4,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
+	apiKeyHourlyModelStats,
 	sql,
 	gte,
 	lt,
@@ -17,17 +18,20 @@ export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
 	Number(process.env.PROJECT_STATS_REFRESH_INTERVAL_SECONDS) || 60;
 
 /**
- * Helper function to round any date to the start of its hour (00 minutes, 00 seconds, 00 milliseconds)
+ * Helper function to round any date to the start of its hour in UTC (00 minutes, 00 seconds, 00 milliseconds)
+ * Uses UTC to match PostgreSQL's date_trunc behavior
  */
 function roundToHourStart(date: Date): Date {
 	return new Date(
-		date.getFullYear(),
-		date.getMonth(),
-		date.getDate(),
-		date.getHours(),
-		0,
-		0,
-		0,
+		Date.UTC(
+			date.getUTCFullYear(),
+			date.getUTCMonth(),
+			date.getUTCDate(),
+			date.getUTCHours(),
+			0,
+			0,
+			0,
+		),
 	);
 }
 
@@ -287,6 +291,60 @@ async function recalculateApiKeyHourlyStats(
 }
 
 /**
+ * Calculate and store hourly API key model statistics for a specific project and hour
+ */
+async function recalculateApiKeyHourlyModelStats(
+	projectId: string,
+	hourTimestamp: Date,
+) {
+	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
+	const database = db;
+
+	const apiKeyModelStats = await database
+		.select({
+			apiKeyId: log.apiKeyId,
+			usedModel: log.usedModel,
+			usedProvider: log.usedProvider,
+			...getCommonAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				gte(log.createdAt, hourTimestamp),
+				lt(log.createdAt, hourEnd),
+			),
+		)
+		.groupBy(log.apiKeyId, log.usedModel, log.usedProvider);
+
+	for (const stat of apiKeyModelStats) {
+		const { apiKeyId, usedModel, usedProvider, ...statsFields } = stat;
+		await database
+			.insert(apiKeyHourlyModelStats)
+			.values({
+				apiKeyId,
+				projectId,
+				hourTimestamp,
+				usedModel,
+				usedProvider,
+				...statsFields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					apiKeyHourlyModelStats.apiKeyId,
+					apiKeyHourlyModelStats.hourTimestamp,
+					apiKeyHourlyModelStats.usedModel,
+					apiKeyHourlyModelStats.usedProvider,
+				],
+				set: {
+					...statsFields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+}
+
+/**
  * Process unprocessed logs and update aggregation tables
  */
 export async function processUnprocessedLogs() {
@@ -331,6 +389,7 @@ export async function processUnprocessedLogs() {
 			await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
 			await recalculateProjectHourlyModelStats(bucket.projectId, hourTimestamp);
 			await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
+			await recalculateApiKeyHourlyModelStats(bucket.projectId, hourTimestamp);
 
 			// Mark logs as processed
 			const result = await database
@@ -394,6 +453,7 @@ export async function refreshCurrentHourStats() {
 			await recalculateProjectHourlyStats(projectId, currentHourStart);
 			await recalculateProjectHourlyModelStats(projectId, currentHourStart);
 			await recalculateApiKeyHourlyStats(projectId, currentHourStart);
+			await recalculateApiKeyHourlyModelStats(projectId, currentHourStart);
 		}
 
 		logger.debug(
