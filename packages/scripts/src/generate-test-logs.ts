@@ -19,6 +19,7 @@ const generate = customAlphabet(
 const shortid = (size = 20) => generate(size);
 
 // Model configurations with realistic distributions
+// discount is applied to smaller/cheaper models (0.3 = 30% discount)
 const MODELS = [
 	{
 		id: "gpt-4o",
@@ -28,6 +29,7 @@ const MODELS = [
 		avgOutputTokens: 300,
 		inputCostPer1k: 0.005,
 		outputCostPer1k: 0.015,
+		discount: 0, // No discount for premium model
 	},
 	{
 		id: "gpt-4o-mini",
@@ -37,6 +39,7 @@ const MODELS = [
 		avgOutputTokens: 250,
 		inputCostPer1k: 0.00015,
 		outputCostPer1k: 0.0006,
+		discount: 0.3, // 30% discount for smaller model
 	},
 	{
 		id: "claude-3-5-sonnet-20241022",
@@ -46,6 +49,7 @@ const MODELS = [
 		avgOutputTokens: 400,
 		inputCostPer1k: 0.003,
 		outputCostPer1k: 0.015,
+		discount: 0, // No discount for premium model
 	},
 	{
 		id: "claude-3-5-haiku-20241022",
@@ -55,6 +59,7 @@ const MODELS = [
 		avgOutputTokens: 200,
 		inputCostPer1k: 0.0008,
 		outputCostPer1k: 0.004,
+		discount: 0.3, // 30% discount for smaller model
 	},
 	{
 		id: "gemini-2.5-pro",
@@ -64,6 +69,7 @@ const MODELS = [
 		avgOutputTokens: 350,
 		inputCostPer1k: 0.00125,
 		outputCostPer1k: 0.005,
+		discount: 0, // No discount for premium model
 	},
 	{
 		id: "gemini-2.5-flash",
@@ -73,6 +79,7 @@ const MODELS = [
 		avgOutputTokens: 200,
 		inputCostPer1k: 0.000075,
 		outputCostPer1k: 0.0003,
+		discount: 0.3, // 30% discount for smaller model
 	},
 	{
 		id: "deepseek-chat",
@@ -82,6 +89,7 @@ const MODELS = [
 		avgOutputTokens: 300,
 		inputCostPer1k: 0.00014,
 		outputCostPer1k: 0.00028,
+		discount: 0.3, // 30% discount for smaller model
 	},
 ];
 
@@ -139,10 +147,17 @@ function generateLog(
 	);
 	const totalTokens = inputTokens + outputTokens;
 
-	// Calculate costs
-	const inputCost = (inputTokens / 1000) * model.inputCostPer1k;
-	const outputCost = (outputTokens / 1000) * model.outputCostPer1k;
-	const cost = inputCost + outputCost;
+	// Calculate costs (before discount)
+	const inputCostBeforeDiscount = (inputTokens / 1000) * model.inputCostPer1k;
+	const outputCostBeforeDiscount = (outputTokens / 1000) * model.outputCostPer1k;
+	const costBeforeDiscount = inputCostBeforeDiscount + outputCostBeforeDiscount;
+
+	// Apply discount if model has one
+	const discount = model.discount;
+	const discountMultiplier = 1 - discount;
+	const inputCost = inputCostBeforeDiscount * discountMultiplier;
+	const outputCost = outputCostBeforeDiscount * discountMultiplier;
+	const cost = costBeforeDiscount * discountMultiplier;
 
 	// Random duration (100ms - 5000ms, with most being fast)
 	const duration = Math.round(
@@ -188,6 +203,7 @@ function generateLog(
 		inputCost,
 		outputCost,
 		requestCost: 0,
+		discount,
 		hasError,
 		finishReason: finishReason.reason,
 		unifiedFinishReason: finishReason.reason,
