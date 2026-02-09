@@ -481,6 +481,7 @@ export const log = pgTable(
 			}>;
 		}>(),
 		processedAt: timestamp(),
+		statsAggregatedAt: timestamp(), // When this log was included in hourly stats aggregation
 		rawRequest: jsonb(),
 		rawResponse: jsonb(),
 		upstreamRequest: jsonb(),
@@ -522,6 +523,10 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+		// Partial index for stats aggregation: only indexes logs not yet aggregated
+		index("log_stats_aggregated_at_null_idx")
+			.on(table.projectId, table.createdAt)
+			.where(sql`stats_aggregated_at IS NULL`),
 	],
 );
 

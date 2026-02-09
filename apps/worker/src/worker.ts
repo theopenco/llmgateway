@@ -27,7 +27,6 @@ import { hasErrorCode } from "@llmgateway/models";
 import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
 
 import {
-	backfillProjectHourlyStatsIfNeeded,
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
@@ -1049,18 +1048,6 @@ export async function startWorker() {
 		.catch((error) => {
 			logger.error(
 				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-
-	// Backfill project hourly stats if needed (for dashboard aggregations)
-	void backfillProjectHourlyStatsIfNeeded()
-		.then(() => {
-			logger.info("Project hourly stats backfill check completed");
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during project hourly stats backfill",
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		});

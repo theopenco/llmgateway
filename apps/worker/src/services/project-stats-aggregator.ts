@@ -7,16 +7,13 @@ import {
 	gte,
 	lt,
 	and,
+	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 // Configuration for project stats refresh interval (defaults to 60 seconds)
 export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
 	Number(process.env.PROJECT_STATS_REFRESH_INTERVAL_SECONDS) || 60;
-
-// Configuration for backfill duration in hours (defaults to 24 hours)
-const PROJECT_STATS_BACKFILL_HOURS =
-	Number(process.env.PROJECT_STATS_BACKFILL_HOURS) || 24;
 
 /**
  * Helper function to round any date to the start of its hour (00 minutes, 00 seconds, 00 milliseconds)
@@ -41,30 +38,19 @@ function getCurrentHourStart(): Date {
 }
 
 /**
- * Helper function to get the previous hour start
+ * Calculate and store hourly statistics for a specific project and hour
+ * This recalculates the entire hour from the raw log table
  */
-function getPreviousHourStart(): Date {
-	const currentHour = getCurrentHourStart();
-	return new Date(currentHour.getTime() - 60 * 60 * 1000);
-}
-
-/**
- * Calculate and store hourly statistics for all projects for a specific hour
- * @param targetHour The specific hour to calculate stats for
- */
-async function calculateProjectHourlyStatsForHour(targetHour: Date) {
-	const roundedTargetHour = roundToHourStart(targetHour);
-	const hourEnd = new Date(roundedTargetHour.getTime() + 60 * 60 * 1000);
+async function recalculateProjectHourlyStats(
+	projectId: string,
+	hourTimestamp: Date,
+) {
+	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
-	logger.debug(
-		`Calculating project hourly stats for ${roundedTargetHour.toISOString()}`,
-	);
-
-	// Aggregate logs by project for this hour
-	const projectStats = await database
+	// Aggregate all logs for this project and hour
+	const [projectStats] = await database
 		.select({
-			projectId: log.projectId,
 			requestCount: sql<number>`count(*)::int`.as("requestCount"),
 			errorCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -124,79 +110,75 @@ async function calculateProjectHourlyStatsForHour(targetHour: Date) {
 		})
 		.from(log)
 		.where(
-			and(gte(log.createdAt, roundedTargetHour), lt(log.createdAt, hourEnd)),
-		)
-		.groupBy(log.projectId);
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				gte(log.createdAt, hourTimestamp),
+				lt(log.createdAt, hourEnd),
+			),
+		);
 
-	// Upsert project hourly stats
-	for (const stat of projectStats) {
-		await database
-			.insert(projectHourlyStats)
-			.values({
-				projectId: stat.projectId,
-				hourTimestamp: roundedTargetHour,
-				requestCount: stat.requestCount,
-				errorCount: stat.errorCount,
-				cacheCount: stat.cacheCount,
-				inputTokens: stat.inputTokens,
-				outputTokens: stat.outputTokens,
-				totalTokens: stat.totalTokens,
-				reasoningTokens: stat.reasoningTokens,
-				cachedTokens: stat.cachedTokens,
-				cost: stat.cost,
-				inputCost: stat.inputCost,
-				outputCost: stat.outputCost,
-				requestCost: stat.requestCost,
-				dataStorageCost: stat.dataStorageCost,
-				serviceFee: stat.serviceFee,
-				discountSavings: stat.discountSavings,
-			})
-			.onConflictDoUpdate({
-				target: [
-					projectHourlyStats.projectId,
-					projectHourlyStats.hourTimestamp,
-				],
-				set: {
-					requestCount: stat.requestCount,
-					errorCount: stat.errorCount,
-					cacheCount: stat.cacheCount,
-					inputTokens: stat.inputTokens,
-					outputTokens: stat.outputTokens,
-					totalTokens: stat.totalTokens,
-					reasoningTokens: stat.reasoningTokens,
-					cachedTokens: stat.cachedTokens,
-					cost: stat.cost,
-					inputCost: stat.inputCost,
-					outputCost: stat.outputCost,
-					requestCost: stat.requestCost,
-					dataStorageCost: stat.dataStorageCost,
-					serviceFee: stat.serviceFee,
-					discountSavings: stat.discountSavings,
-					updatedAt: new Date(),
-				},
-			});
+	if (!projectStats || projectStats.requestCount === 0) {
+		return;
 	}
 
-	return projectStats.length;
+	// Upsert project hourly stats
+	await database
+		.insert(projectHourlyStats)
+		.values({
+			projectId,
+			hourTimestamp,
+			requestCount: projectStats.requestCount,
+			errorCount: projectStats.errorCount,
+			cacheCount: projectStats.cacheCount,
+			inputTokens: projectStats.inputTokens,
+			outputTokens: projectStats.outputTokens,
+			totalTokens: projectStats.totalTokens,
+			reasoningTokens: projectStats.reasoningTokens,
+			cachedTokens: projectStats.cachedTokens,
+			cost: projectStats.cost,
+			inputCost: projectStats.inputCost,
+			outputCost: projectStats.outputCost,
+			requestCost: projectStats.requestCost,
+			dataStorageCost: projectStats.dataStorageCost,
+			serviceFee: projectStats.serviceFee,
+			discountSavings: projectStats.discountSavings,
+		})
+		.onConflictDoUpdate({
+			target: [projectHourlyStats.projectId, projectHourlyStats.hourTimestamp],
+			set: {
+				requestCount: projectStats.requestCount,
+				errorCount: projectStats.errorCount,
+				cacheCount: projectStats.cacheCount,
+				inputTokens: projectStats.inputTokens,
+				outputTokens: projectStats.outputTokens,
+				totalTokens: projectStats.totalTokens,
+				reasoningTokens: projectStats.reasoningTokens,
+				cachedTokens: projectStats.cachedTokens,
+				cost: projectStats.cost,
+				inputCost: projectStats.inputCost,
+				outputCost: projectStats.outputCost,
+				requestCost: projectStats.requestCost,
+				dataStorageCost: projectStats.dataStorageCost,
+				serviceFee: projectStats.serviceFee,
+				discountSavings: projectStats.discountSavings,
+				updatedAt: new Date(),
+			},
+		});
 }
 
 /**
- * Calculate and store hourly model statistics for all projects for a specific hour
- * @param targetHour The specific hour to calculate stats for
+ * Calculate and store hourly model statistics for a specific project and hour
  */
-async function calculateProjectHourlyModelStatsForHour(targetHour: Date) {
-	const roundedTargetHour = roundToHourStart(targetHour);
-	const hourEnd = new Date(roundedTargetHour.getTime() + 60 * 60 * 1000);
+async function recalculateProjectHourlyModelStats(
+	projectId: string,
+	hourTimestamp: Date,
+) {
+	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
-	logger.debug(
-		`Calculating project hourly model stats for ${roundedTargetHour.toISOString()}`,
-	);
-
-	// Aggregate logs by project, model, and provider for this hour
+	// Aggregate logs by model and provider for this project and hour
 	const modelStats = await database
 		.select({
-			projectId: log.projectId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
 			requestCount: sql<number>`count(*)::int`.as("requestCount"),
@@ -230,17 +212,21 @@ async function calculateProjectHourlyModelStatsForHour(targetHour: Date) {
 		})
 		.from(log)
 		.where(
-			and(gte(log.createdAt, roundedTargetHour), lt(log.createdAt, hourEnd)),
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				gte(log.createdAt, hourTimestamp),
+				lt(log.createdAt, hourEnd),
+			),
 		)
-		.groupBy(log.projectId, log.usedModel, log.usedProvider);
+		.groupBy(log.usedModel, log.usedProvider);
 
-	// Upsert project hourly model stats
+	// Upsert each model's stats
 	for (const stat of modelStats) {
 		await database
 			.insert(projectHourlyModelStats)
 			.values({
-				projectId: stat.projectId,
-				hourTimestamp: roundedTargetHour,
+				projectId,
+				hourTimestamp,
 				usedModel: stat.usedModel,
 				usedProvider: stat.usedProvider,
 				requestCount: stat.requestCount,
@@ -274,39 +260,93 @@ async function calculateProjectHourlyModelStatsForHour(targetHour: Date) {
 				},
 			});
 	}
-
-	return modelStats.length;
 }
 
 /**
- * Refresh project hourly stats for the current hour and previous hour
- * Previous hour is also refreshed to handle logs that arrived just after the hour boundary
+ * Process unprocessed logs and update aggregation tables
+ * This finds logs where statsAggregatedAt is NULL, determines which hour buckets
+ * need recalculation, recalculates them, and marks the logs as processed.
  */
-export async function refreshProjectHourlyStats() {
-	const currentHour = getCurrentHourStart();
-	const previousHour = getPreviousHourStart();
+export async function processUnprocessedLogs() {
+	const database = db;
+	const now = new Date();
+	const currentHourStart = getCurrentHourStart();
 
-	logger.debug("Starting project hourly stats refresh...");
+	logger.debug("Processing unprocessed logs for stats aggregation...");
 
 	try {
-		// Refresh current hour (for real-time data)
-		const currentProjectCount =
-			await calculateProjectHourlyStatsForHour(currentHour);
-		const currentModelCount =
-			await calculateProjectHourlyModelStatsForHour(currentHour);
+		// Find distinct project-hour combinations that have unprocessed logs
+		// Only process hours that are complete (not the current hour)
+		const unprocessedBuckets = await database
+			.select({
+				projectId: log.projectId,
+				hourTimestamp: sql<Date>`date_trunc('hour', ${log.createdAt})`.as(
+					"hourTimestamp",
+				),
+			})
+			.from(log)
+			.where(
+				and(
+					isNull(log.statsAggregatedAt),
+					lt(log.createdAt, currentHourStart), // Only process completed hours
+				),
+			)
+			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
+			.limit(100); // Process up to 100 buckets per cycle to avoid long-running transactions
 
-		// Refresh previous hour (to catch late-arriving logs)
-		const previousProjectCount =
-			await calculateProjectHourlyStatsForHour(previousHour);
-		const previousModelCount =
-			await calculateProjectHourlyModelStatsForHour(previousHour);
+		if (unprocessedBuckets.length === 0) {
+			logger.debug("No unprocessed logs found for stats aggregation");
+			return { bucketsProcessed: 0, logsMarked: 0 };
+		}
 
-		logger.debug(
-			`Project hourly stats refresh complete. Current hour: ${currentProjectCount} projects, ${currentModelCount} model entries. Previous hour: ${previousProjectCount} projects, ${previousModelCount} model entries.`,
+		logger.info(
+			`Found ${unprocessedBuckets.length} project-hour buckets with unprocessed logs`,
 		);
+
+		let totalLogsMarked = 0;
+
+		// Process each bucket
+		for (const bucket of unprocessedBuckets) {
+			const hourTimestamp = new Date(bucket.hourTimestamp);
+			const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
+
+			// Recalculate aggregations for this project-hour
+			await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
+			await recalculateProjectHourlyModelStats(bucket.projectId, hourTimestamp);
+
+			// Mark logs in this bucket as processed
+			const result = await database
+				.update(log)
+				.set({ statsAggregatedAt: now })
+				.where(
+					and(
+						sql`${log.projectId} = ${bucket.projectId}`,
+						gte(log.createdAt, hourTimestamp),
+						lt(log.createdAt, hourEnd),
+						isNull(log.statsAggregatedAt),
+					),
+				);
+
+			// Count affected rows (drizzle returns the updated rows)
+			const affectedRows = Array.isArray(result) ? result.length : 0;
+			totalLogsMarked += affectedRows;
+
+			logger.debug(
+				`Processed bucket ${bucket.projectId}/${hourTimestamp.toISOString()}, marked logs as aggregated`,
+			);
+		}
+
+		logger.info(
+			`Stats aggregation complete: ${unprocessedBuckets.length} buckets processed`,
+		);
+
+		return {
+			bucketsProcessed: unprocessedBuckets.length,
+			logsMarked: totalLogsMarked,
+		};
 	} catch (error) {
 		logger.error(
-			"Error refreshing project hourly stats",
+			"Error processing unprocessed logs for stats aggregation",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw error;
@@ -314,85 +354,63 @@ export async function refreshProjectHourlyStats() {
 }
 
 /**
- * Backfill project hourly stats for missing hours
- * Called on worker startup
+ * Refresh the current hour's stats (for real-time dashboard data)
+ * This is separate from processUnprocessedLogs because the current hour
+ * is always incomplete and needs continuous updates.
  */
-export async function backfillProjectHourlyStatsIfNeeded() {
-	logger.info("Checking for missing project hourly stats to backfill...");
+export async function refreshCurrentHourStats() {
+	const database = db;
+	const currentHourStart = getCurrentHourStart();
+
+	logger.debug(
+		`Refreshing current hour stats for ${currentHourStart.toISOString()}`,
+	);
 
 	try {
-		const database = db;
+		// Find all projects that have logs in the current hour
+		const projectsWithCurrentHourLogs = await database
+			.select({
+				projectId: log.projectId,
+			})
+			.from(log)
+			.where(gte(log.createdAt, currentHourStart))
+			.groupBy(log.projectId);
 
-		// Get the most recent hourly stats entry
-		const latestStats = await database
-			.select({ hourTimestamp: projectHourlyStats.hourTimestamp })
-			.from(projectHourlyStats)
-			.orderBy(sql`${projectHourlyStats.hourTimestamp} DESC`)
-			.limit(1);
-
-		const previousHour = getPreviousHourStart();
-		const backfillStartHour = new Date(
-			Date.now() - PROJECT_STATS_BACKFILL_HOURS * 60 * 60 * 1000,
-		);
-		const backfillStartRounded = roundToHourStart(backfillStartHour);
-
-		let startFromHour: Date;
-
-		if (latestStats.length === 0) {
-			// No existing stats, start from backfill start
-			logger.info(
-				`No existing project hourly stats found. Starting backfill from ${backfillStartRounded.toISOString()}`,
-			);
-			startFromHour = backfillStartRounded;
-		} else {
-			const lastHour = latestStats[0]!.hourTimestamp;
-			const hoursBehind = Math.floor(
-				(previousHour.getTime() - lastHour.getTime()) / (60 * 60 * 1000),
-			);
-
-			if (hoursBehind > 1) {
-				// We're missing some hours, backfill from after the last recorded hour
-				logger.info(
-					`Found gap of ${hoursBehind} hours. Backfilling from ${lastHour.toISOString()}`,
-				);
-				startFromHour = new Date(lastHour.getTime() + 60 * 60 * 1000);
-			} else {
-				logger.info(
-					`Project hourly stats are up to date. Last entry: ${lastHour.toISOString()}`,
-				);
-				return;
-			}
+		for (const { projectId } of projectsWithCurrentHourLogs) {
+			await recalculateProjectHourlyStats(projectId, currentHourStart);
+			await recalculateProjectHourlyModelStats(projectId, currentHourStart);
 		}
 
-		// Backfill each missing hour
-		let hour = startFromHour;
-		let hoursProcessed = 0;
-		const maxHours = PROJECT_STATS_BACKFILL_HOURS + 1; // Safety limit
-
-		while (hour <= previousHour && hoursProcessed < maxHours) {
-			const projectCount = await calculateProjectHourlyStatsForHour(hour);
-			const modelCount = await calculateProjectHourlyModelStatsForHour(hour);
-
-			logger.info(
-				`Backfilled project hourly stats for ${hour.toISOString()}: ${projectCount} projects, ${modelCount} model entries`,
-			);
-
-			hour = new Date(hour.getTime() + 60 * 60 * 1000);
-			hoursProcessed++;
-		}
-
-		if (hoursProcessed >= maxHours) {
-			logger.warn(
-				`Backfill stopped at limit of ${maxHours} hours to prevent excessive processing`,
-			);
-		}
-
-		logger.info(
-			`Project hourly stats backfill complete. Processed ${hoursProcessed} hours.`,
+		logger.debug(
+			`Refreshed current hour stats for ${projectsWithCurrentHourLogs.length} projects`,
 		);
 	} catch (error) {
 		logger.error(
-			"Error during project hourly stats backfill",
+			"Error refreshing current hour stats",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw error;
+	}
+}
+
+/**
+ * Main refresh function called by the worker interval
+ * Processes both unprocessed historical logs and refreshes current hour
+ */
+export async function refreshProjectHourlyStats() {
+	logger.debug("Starting project hourly stats refresh...");
+
+	try {
+		// Process any unprocessed logs from completed hours
+		await processUnprocessedLogs();
+
+		// Refresh current hour for real-time data
+		await refreshCurrentHourStats();
+
+		logger.debug("Project hourly stats refresh complete");
+	} catch (error) {
+		logger.error(
+			"Error refreshing project hourly stats",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw error;

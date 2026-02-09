@@ -42,6 +42,8 @@ CREATE TABLE "project_hourly_stats" (
 	CONSTRAINT "project_hourly_stats_project_id_hour_timestamp_unique" UNIQUE("project_id","hour_timestamp")
 );
 --> statement-breakpoint
+ALTER TABLE "log" ADD COLUMN "stats_aggregated_at" timestamp;--> statement-breakpoint
+CREATE INDEX "log_stats_aggregated_at_null_idx" ON "log" ("project_id","created_at") WHERE stats_aggregated_at IS NULL;--> statement-breakpoint
 CREATE INDEX "project_hourly_model_stats_project_id_hour_timestamp_idx" ON "project_hourly_model_stats" ("project_id","hour_timestamp");--> statement-breakpoint
 CREATE INDEX "project_hourly_model_stats_hour_timestamp_idx" ON "project_hourly_model_stats" ("hour_timestamp");--> statement-breakpoint
 CREATE INDEX "project_hourly_stats_project_id_hour_timestamp_idx" ON "project_hourly_stats" ("project_id","hour_timestamp");--> statement-breakpoint
