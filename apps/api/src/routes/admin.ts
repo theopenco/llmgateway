@@ -16,6 +16,8 @@ import {
 	or,
 	sql,
 	tables,
+	projectHourlyStats,
+	projectHourlyModelStats,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -467,62 +469,87 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let mostUsedModelCost = 0;
 
 	if (projectIds.length > 0) {
-		const rows = await db
+		// Query aggregated project stats for totals
+		const [totals] = await db
 			.select({
-				usedModel: tables.log.usedModel,
-				usedProvider: tables.log.usedProvider,
-				requestsCount: sql<number>`COUNT(*)`.as("requestsCount"),
+				totalRequests:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+						"totalRequests",
+					),
 				inputTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.promptTokens} AS INTEGER)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.inputTokens} AS INTEGER)), 0)`.as(
 						"inputTokens",
 					),
 				outputTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.completionTokens} AS INTEGER)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.outputTokens} AS INTEGER)), 0)`.as(
 						"outputTokens",
 					),
 				cachedTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.cachedTokens} AS INTEGER)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS INTEGER)), 0)`.as(
 						"cachedTokens",
 					),
 				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS INTEGER)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as(
+				totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
 					"totalCost",
 				),
-				inputCost: sql<number>`COALESCE(SUM(${tables.log.inputCost}), 0)`.as(
-					"inputCost",
-				),
-				outputCost: sql<number>`COALESCE(SUM(${tables.log.outputCost}), 0)`.as(
-					"outputCost",
-				),
-				cachedCost:
-					sql<number>`COALESCE(SUM(${tables.log.cachedInputCost}), 0)`.as(
-						"cachedCost",
+				inputCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+						"inputCost",
+					),
+				outputCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+						"outputCost",
 					),
 			})
-			.from(tables.log)
+			.from(projectHourlyStats)
 			.where(
 				and(
-					inArray(tables.log.projectId, projectIds),
-					gte(tables.log.createdAt, startDate),
-					lt(tables.log.createdAt, now),
+					inArray(projectHourlyStats.projectId, projectIds),
+					gte(projectHourlyStats.hourTimestamp, startDate),
+					lt(projectHourlyStats.hourTimestamp, now),
+				),
+			);
+
+		if (totals) {
+			totalRequests = Number(totals.totalRequests) || 0;
+			totalTokens = Number(totals.totalTokens) || 0;
+			totalCost = Number(totals.totalCost) || 0;
+			inputTokens = Number(totals.inputTokens) || 0;
+			inputCost = Number(totals.inputCost) || 0;
+			outputTokens = Number(totals.outputTokens) || 0;
+			outputCost = Number(totals.outputCost) || 0;
+			cachedTokens = Number(totals.cachedTokens) || 0;
+			// cachedCost is not stored in aggregation tables, estimate from cachedTokens
+			cachedCost = 0;
+		}
+
+		// Query model stats for most used model (by cost)
+		const modelRows = await db
+			.select({
+				usedModel: projectHourlyModelStats.usedModel,
+				usedProvider: projectHourlyModelStats.usedProvider,
+				totalCost:
+					sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+						"totalCost",
+					),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					inArray(projectHourlyModelStats.projectId, projectIds),
+					gte(projectHourlyModelStats.hourTimestamp, startDate),
+					lt(projectHourlyModelStats.hourTimestamp, now),
 				),
 			)
-			.groupBy(tables.log.usedModel, tables.log.usedProvider);
+			.groupBy(
+				projectHourlyModelStats.usedModel,
+				projectHourlyModelStats.usedProvider,
+			);
 
-		for (const row of rows) {
-			totalRequests += Number(row.requestsCount) || 0;
-			totalTokens += Number(row.totalTokens) || 0;
-			totalCost += Number(row.totalCost) || 0;
-			inputTokens += Number(row.inputTokens) || 0;
-			inputCost += Number(row.inputCost) || 0;
-			outputTokens += Number(row.outputTokens) || 0;
-			outputCost += Number(row.outputCost) || 0;
-			cachedTokens += Number(row.cachedTokens) || 0;
-			cachedCost += Number(row.cachedCost) || 0;
-
+		for (const row of modelRows) {
 			const rowCost = Number(row.totalCost) || 0;
 			if (rowCost > mostUsedModelCost) {
 				mostUsedModelCost = rowCost;

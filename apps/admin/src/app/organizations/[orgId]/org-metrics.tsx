@@ -7,7 +7,7 @@ import {
 	Loader2,
 	Server,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -90,7 +90,7 @@ function MetricCard({
 
 export function OrgMetricsSection({ orgId }: { orgId: string }) {
 	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
-	const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [window, setWindow] = useState<TokenWindow>("1d");
 
 	const loadMetrics = useCallback(
@@ -103,35 +103,14 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 		[orgId],
 	);
 
-	const handleWindowChange = useCallback(
-		(w: TokenWindow) => {
-			setWindow(w);
-			loadMetrics(w);
-		},
-		[loadMetrics],
-	);
+	// Load metrics automatically on mount
+	useEffect(() => {
+		loadMetrics(window);
+	}, [loadMetrics, window]);
 
-	if (!metrics && !loading) {
-		return (
-			<section className="space-y-4">
-				<div className="flex items-center justify-between">
-					<h2 className="text-lg font-semibold">Usage Metrics</h2>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => loadMetrics(window)}
-					>
-						<Activity className="mr-2 h-4 w-4" />
-						Load Usage Data
-					</Button>
-				</div>
-				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					Click &quot;Load Usage Data&quot; to fetch usage metrics. This queries
-					the logs table which may be slow for orgs with lots of data.
-				</div>
-			</section>
-		);
-	}
+	const handleWindowChange = useCallback((w: TokenWindow) => {
+		setWindow(w);
+	}, []);
 
 	if (loading) {
 		return (
@@ -146,7 +125,14 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 	}
 
 	if (!metrics) {
-		return null;
+		return (
+			<section className="space-y-4">
+				<h2 className="text-lg font-semibold">Usage Metrics</h2>
+				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
+					No usage data available.
+				</div>
+			</section>
+		);
 	}
 
 	const windowLabel = window === "7d" ? "Last 7 days" : "Last 24 hours";
