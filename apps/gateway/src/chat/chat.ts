@@ -3071,17 +3071,14 @@ chat.openapi(completions, async (c) => {
 											streamingCosts.completionTokens ||
 											finalCompletionTokens ||
 											0,
-										total_tokens: (() => {
-											const fallbackTotal =
-												(streamingCosts.promptTokens ||
-													finalPromptTokens ||
-													0) +
+										total_tokens: Math.max(
+											1,
+											(streamingCosts.promptTokens || finalPromptTokens || 0) +
 												(streamingCosts.completionTokens ||
 													finalCompletionTokens ||
 													0) +
-												(reasoningTokens || 0);
-											return Math.max(1, finalTotalTokens ?? fallbackTotal);
-										})(),
+												(reasoningTokens || 0),
+										),
 										...(shouldIncludeCosts && {
 											cost_usd_total: streamingCosts.totalCost,
 											cost_usd_input: streamingCosts.inputCost,
@@ -3821,10 +3818,9 @@ chat.openapi(completions, async (c) => {
 									return {
 										prompt_tokens: adjPrompt,
 										completion_tokens: adjCompletion,
-										total_tokens: Math.round(
-											totalTokens ||
-												calculatedTotalTokens ||
-												Math.max(1, adjPrompt + adjCompletion),
+										total_tokens: Math.max(
+											1,
+											Math.round(adjPrompt + adjCompletion),
 										),
 										...(cachedTokens !== null && {
 											prompt_tokens_details: {
