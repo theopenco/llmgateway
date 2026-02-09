@@ -299,12 +299,6 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	const inputImageCount =
-		modelInput === "gemini-3-pro-image-preview"
-			? countInputImages(messages)
-			: 0;
-
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
 
@@ -377,6 +371,12 @@ chat.openapi(completions, async (c) => {
 	const parseResult = parseModelInput(modelInput);
 	const requestedModel = parseResult.requestedModel;
 	const customProviderName = parseResult.customProviderName;
+
+	// Count input images from messages for cost calculation
+	const inputImageCount =
+		requestedModel === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
 	// Resolve model info and filter deactivated providers
 	const modelInfoResult = resolveModelInfo(
