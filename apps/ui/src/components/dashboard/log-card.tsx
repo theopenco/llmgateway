@@ -13,10 +13,12 @@ import {
 	Info,
 	Package,
 	Link as LinkIcon,
+	ExternalLink,
 	Plug,
 	Sparkles,
 	Zap,
 } from "lucide-react";
+import Link from "next/link";
 import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
@@ -31,7 +33,15 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
-export function LogCard({ log }: { log: Partial<Log> }) {
+export function LogCard({
+	log,
+	orgId,
+	projectId,
+}: {
+	log: Partial<Log>;
+	orgId?: string;
+	projectId?: string;
+}) {
 	// Determine if retention was enabled based on dataStorageCost
 	// If dataStorageCost is 0 or null/undefined, retention was disabled
 	const retentionEnabled =
@@ -187,16 +197,26 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 							<Clock className="h-3.5 w-3.5" />
 							<span>{formatDuration(log.duration ?? 0)}</span>
 						</div>
-						<div className="flex items-center gap-1">
-							<Coins className="h-3.5 w-3.5" />
-							<span>
-								{log.cost
-									? `$${log.cost.toFixed(6)}`
-									: log.cached
-										? "$0"
-										: "$0"}
-							</span>
-						</div>
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<div className="flex items-center gap-1">
+										<Coins className="h-3.5 w-3.5" />
+										<span>
+											{log.cost
+												? `$${log.cost.toFixed(6)}`
+												: log.cached
+													? "$0"
+													: "$0"}
+										</span>
+										<Info className="h-3 w-3 text-muted-foreground/50" />
+									</div>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p>Provider cost — not deducted from your balance</p>
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
 						{log.source && (
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5" />
@@ -214,19 +234,32 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						<span className="ml-auto">{formattedTime}</span>
 					</div>
 				</div>
-				<Button
-					variant="ghost"
-					size="sm"
-					className="h-8 w-8 p-0"
-					onClick={toggleExpand}
-				>
-					{isExpanded ? (
-						<ChevronUp className="h-4 w-4" />
-					) : (
-						<ChevronDown className="h-4 w-4" />
+				<div className="flex items-center gap-1">
+					{orgId && projectId && log.id && (
+						<Button asChild variant="ghost" size="sm" className="h-8 w-8 p-0">
+							<Link
+								href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
+								prefetch={false}
+							>
+								<ExternalLink className="h-4 w-4" />
+								<span className="sr-only">View details</span>
+							</Link>
+						</Button>
 					)}
-					<span className="sr-only">Toggle details</span>
-				</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-8 w-8 p-0"
+						onClick={toggleExpand}
+					>
+						{isExpanded ? (
+							<ChevronUp className="h-4 w-4" />
+						) : (
+							<ChevronDown className="h-4 w-4" />
+						)}
+						<span className="sr-only">Toggle details</span>
+					</Button>
+				</div>
 			</div>
 
 			{isExpanded && (
@@ -460,96 +493,99 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 						</div>
 					</div>
 					<div className="grid gap-4 md:grid-cols-2">
-						<div className="space-y-2">
+						<div className="space-y-3">
 							<h4 className="text-sm font-medium">Cost Information</h4>
-							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
-								<div className="text-muted-foreground">Input Cost</div>
+							<div className="rounded-md border p-3 space-y-3">
 								<div>
-									{log.inputCost ? `$${log.inputCost.toFixed(8)}` : "$0"}
-								</div>
-								<div className="text-muted-foreground">Output Cost</div>
-								<div>
-									{log.outputCost ? `$${log.outputCost.toFixed(8)}` : "$0"}
-								</div>
-								{!!log.cachedInputCost && Number(log.cachedInputCost) > 0 && (
-									<>
-										<div className="text-muted-foreground">
-											Cached Input Cost
-										</div>
-										<div className="">{`$${Number(log.cachedInputCost).toFixed(8)}`}</div>
-									</>
-								)}
-								<div className="text-muted-foreground">Request Cost</div>
-								<div>
-									{log.requestCost ? `$${log.requestCost.toFixed(8)}` : "$0"}
-								</div>
-								{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
-									<>
-										<div className="text-muted-foreground">
-											Native Web Search Cost
-										</div>
-										<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
-									</>
-								)}
-								{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
-									<>
-										<div className="text-muted-foreground">
-											Image Input Cost
-										</div>
-										<div>{`$${Number(log.imageInputCost).toFixed(8)}`}</div>
-									</>
-								)}
-								{!!log.imageOutputCost && Number(log.imageOutputCost) > 0 && (
-									<>
-										<div className="text-muted-foreground">
-											Image Output Cost
-										</div>
-										<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
-									</>
-								)}
-								<div className="text-muted-foreground">Inference Total</div>
-								<div className="font-medium">
-									{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
-								</div>
-								{log.discount && log.discount !== 1 && (
-									<>
-										<div className="text-muted-foreground">
-											Discount Applied
-										</div>
-										<div className="font-medium text-green-600">
-											{(log.discount * 100).toFixed(0)}% off
-										</div>
-									</>
-								)}
-								{log.pricingTier && (
-									<>
-										<div className="text-muted-foreground">Pricing Tier</div>
-										<div>{log.pricingTier}</div>
-									</>
-								)}
-								<div className="text-muted-foreground col-span-2 border-t pt-2 mt-1 text-xs">
-									LLM Gateway Costs
-								</div>
-								<div className="text-muted-foreground">Data Storage</div>
-								<div>
-									{log.dataStorageCost
-										? `$${Number(log.dataStorageCost).toFixed(8)}`
-										: "$0"}
-								</div>
-								{log.usedMode === "api-keys" && (
-									<>
-										<div className="text-muted-foreground">
-											API Key Fee (1%)
-										</div>
+									<p className="text-xs text-muted-foreground mb-2">
+										Provider pricing — not deducted from your balance
+									</p>
+									<div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+										<div>Input Cost</div>
 										<div>
-											{log.serviceFee
-												? `$${Number(log.serviceFee).toFixed(8)}`
-												: log.cost
-													? `$${(Number(log.cost) * 0.01).toFixed(8)}`
-													: "$0"}
+											{log.inputCost ? `$${log.inputCost.toFixed(8)}` : "$0"}
 										</div>
-									</>
-								)}
+										<div>Output Cost</div>
+										<div>
+											{log.outputCost ? `$${log.outputCost.toFixed(8)}` : "$0"}
+										</div>
+										{!!log.cachedInputCost &&
+											Number(log.cachedInputCost) > 0 && (
+												<>
+													<div>Cached Input Cost</div>
+													<div>{`$${Number(log.cachedInputCost).toFixed(8)}`}</div>
+												</>
+											)}
+										<div>Request Cost</div>
+										<div>
+											{log.requestCost
+												? `$${log.requestCost.toFixed(8)}`
+												: "$0"}
+										</div>
+										{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
+											<>
+												<div>Native Web Search Cost</div>
+												<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
+											</>
+										)}
+										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
+											<>
+												<div>Image Input Cost</div>
+												<div>{`$${Number(log.imageInputCost).toFixed(8)}`}</div>
+											</>
+										)}
+										{!!log.imageOutputCost &&
+											Number(log.imageOutputCost) > 0 && (
+												<>
+													<div>Image Output Cost</div>
+													<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
+												</>
+											)}
+										<div>Inference Total</div>
+										<div>{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}</div>
+										{log.discount && log.discount !== 1 && (
+											<>
+												<div>Discount Applied</div>
+												<div className="text-green-600">
+													{(log.discount * 100).toFixed(0)}% off
+												</div>
+											</>
+										)}
+										{log.pricingTier && (
+											<>
+												<div>Pricing Tier</div>
+												<div>{log.pricingTier}</div>
+											</>
+										)}
+									</div>
+								</div>
+								<div className="border-t pt-3">
+									<p className="text-xs font-medium mb-2">
+										Billed to your organization
+									</p>
+									<div className="grid grid-cols-2 gap-2 text-sm">
+										<div className="text-muted-foreground">Data Storage</div>
+										<div className="font-medium">
+											{log.dataStorageCost
+												? `$${Number(log.dataStorageCost).toFixed(8)}`
+												: "$0"}
+										</div>
+										{log.usedMode === "api-keys" && (
+											<>
+												<div className="text-muted-foreground">
+													API Key Fee (1%)
+												</div>
+												<div className="font-medium">
+													{log.serviceFee
+														? `$${Number(log.serviceFee).toFixed(8)}`
+														: log.cost
+															? `$${(Number(log.cost) * 0.01).toFixed(8)}`
+															: "$0"}
+												</div>
+											</>
+										)}
+									</div>
+								</div>
 							</div>
 						</div>
 						<div className="space-y-2">

@@ -39,11 +39,19 @@ export function TopUpCreditsButton() {
 }
 
 interface TopUpCreditsDialogProps {
-	children: React.ReactNode;
+	children?: React.ReactNode;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }
 
-export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
-	const [open, setOpen] = useState(false);
+export function TopUpCreditsDialog({
+	children,
+	open: controlledOpen,
+	onOpenChange: controlledOnOpenChange,
+}: TopUpCreditsDialogProps) {
+	const [internalOpen, setInternalOpen] = useState(false);
+	const open = controlledOpen ?? internalOpen;
+	const setOpen = controlledOnOpenChange ?? setInternalOpen;
 	const [step, setStep] = useState<
 		"amount" | "payment" | "select-payment" | "confirm-payment" | "success"
 	>("amount");
@@ -97,7 +105,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
-			<DialogTrigger asChild>{children}</DialogTrigger>
+			{children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
 			<DialogContent className="sm:max-w-[500px]">
 				{step === "amount" ? (
 					<AmountStep

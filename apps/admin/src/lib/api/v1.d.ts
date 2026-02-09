@@ -569,6 +569,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/logs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Single log entry */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            log: {
+                                id: string;
+                                requestId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                organizationId: string;
+                                projectId: string;
+                                apiKeyId: string;
+                                duration: number;
+                                requestedModel: string;
+                                requestedProvider: string | null;
+                                usedModel: string;
+                                usedProvider: string;
+                                responseSize: number;
+                                content: string | null;
+                                reasoningContent: string | null;
+                                unifiedFinishReason: string | null;
+                                finishReason: string | null;
+                                promptTokens: string | null;
+                                completionTokens: string | null;
+                                totalTokens: string | null;
+                                reasoningTokens: string | null;
+                                messages?: unknown;
+                                temperature: number | null;
+                                maxTokens: number | null;
+                                topP: number | null;
+                                frequencyPenalty: number | null;
+                                presencePenalty: number | null;
+                                reasoningEffort: string | null;
+                                responseFormat?: unknown;
+                                tools: ({
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                        description?: string;
+                                        parameters?: {
+                                            [key: string]: unknown;
+                                        };
+                                    };
+                                } | {
+                                    /** @enum {string} */
+                                    type: "web_search";
+                                    user_location?: {
+                                        city?: string;
+                                        region?: string;
+                                        country?: string;
+                                        timezone?: string;
+                                    };
+                                    /** @enum {string} */
+                                    search_context_size?: "low" | "medium" | "high";
+                                    max_uses?: number;
+                                })[] | null;
+                                toolChoice: "none" | "auto" | "required" | {
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                    };
+                                } | unknown;
+                                toolResults: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                        arguments: string;
+                                    };
+                                }[] | null;
+                                hasError: boolean | null;
+                                errorDetails: {
+                                    statusCode: number;
+                                    statusText: string;
+                                    responseText: string;
+                                } | null;
+                                cost: number | null;
+                                inputCost: number | null;
+                                outputCost: number | null;
+                                requestCost: number | null;
+                                imageInputTokens: string | null;
+                                imageOutputTokens: string | null;
+                                imageInputCost: number | null;
+                                imageOutputCost: number | null;
+                                estimatedCost: boolean | null;
+                                canceled: boolean | null;
+                                streamed: boolean | null;
+                                cached: boolean | null;
+                                customHeaders?: unknown;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string} */
+                                usedMode: "api-keys" | "credits";
+                                source: string | null;
+                                routingMetadata?: {
+                                    availableProviders?: string[];
+                                    selectedProvider?: string;
+                                    selectionReason?: string;
+                                    providerScores?: {
+                                        providerId: string;
+                                        score: number;
+                                        uptime?: number;
+                                        latency?: number;
+                                        price?: number;
+                                    }[];
+                                } | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Log not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/logs": {
         parameters: {
             query?: never;
@@ -815,6 +966,7 @@ export interface paths {
                                 requestCount: number;
                                 inputTokens: number;
                                 outputTokens: number;
+                                cachedTokens: number;
                                 totalTokens: number;
                                 cost: number;
                                 inputCost: number;
@@ -823,6 +975,7 @@ export interface paths {
                                 dataStorageCost: number;
                                 imageInputCost: number;
                                 imageOutputCost: number;
+                                cachedInputCost: number;
                                 errorCount: number;
                                 errorRate: number;
                                 cacheCount: number;

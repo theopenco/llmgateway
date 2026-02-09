@@ -1009,7 +1009,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		if (discountNum > 0) {
 			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
 			return (
-				<div className="flex flex-col justify-items-center">
+				<div className="flex flex-col items-end">
 					<div className="flex items-center gap-1">
 						<span className="line-through text-muted-foreground text-xs">
 							${originalPrice}
