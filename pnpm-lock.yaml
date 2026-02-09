@@ -1296,6 +1296,19 @@ importers:
 
   packages/models: {}
 
+  packages/scripts:
+    dependencies:
+      '@llmgateway/db':
+        specifier: workspace:*
+        version: link:../db
+      nanoid:
+        specifier: 5.1.5
+        version: 5.1.5
+    devDependencies:
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
+
   packages/shared:
     dependencies:
       '@llmgateway/models':

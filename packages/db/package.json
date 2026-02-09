@@ -19,7 +19,6 @@
 		"build": "tsc && resolve-tspaths",
 		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",
-		"generate-test-logs": "tsx src/scripts/generate-test-logs.ts",
 		"lint": "eslint . && prettier --check .",
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
 		"migrations": "pnpm drizzle-kit generate --config drizzle.config.ts",
