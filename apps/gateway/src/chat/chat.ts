@@ -1903,6 +1903,16 @@ chat.openapi(completions, async (c) => {
 			) {
 				presence_penalty = undefined;
 			}
+			if (max_tokens !== undefined && !supported.includes("max_tokens")) {
+				max_tokens = undefined;
+			}
+		}
+	}
+
+	// Anthropic does not allow temperature and top_p to be set simultaneously
+	if (usedProvider === "anthropic") {
+		if (temperature !== undefined && top_p !== undefined) {
+			top_p = undefined;
 		}
 	}
 
