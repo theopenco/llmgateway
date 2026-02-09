@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
-import { createTestUser, deleteAll } from "@/testing.js";
+import {
+	createTestUser,
+	deleteAll,
+	aggregateLogsForTesting,
+} from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -173,6 +177,9 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		// Aggregate logs into the hourly stats tables for the activity endpoint
+		await aggregateLogsForTesting();
 	});
 
 	afterEach(async () => {
@@ -334,6 +341,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -513,6 +522,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -628,6 +639,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -726,6 +739,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -829,6 +844,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -944,6 +961,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1037,6 +1056,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1129,6 +1150,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1202,6 +1225,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1274,6 +1299,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -1452,6 +1479,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
