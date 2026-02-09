@@ -1540,7 +1540,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Available providers and models for discount selection. */
+                /** @description Available providers and provider/model mappings for discount selection. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -1551,9 +1551,13 @@ export interface paths {
                                 id: string;
                                 name: string;
                             }[];
-                            models: {
-                                id: string;
-                                name: string;
+                            mappings: {
+                                providerId: string;
+                                providerName: string;
+                                modelId: string;
+                                modelName: string;
+                                rootModelId: string;
+                                rootModelName: string;
                                 family: string;
                             }[];
                         };
