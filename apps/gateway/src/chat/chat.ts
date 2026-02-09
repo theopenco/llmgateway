@@ -1646,9 +1646,16 @@ chat.openapi(completions, async (c) => {
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
-					promptTokens: promptTokens?.toString() || null,
+					promptTokens:
+						(costs.promptTokens ?? promptTokens)?.toString() || null,
 					completionTokens: completionTokens?.toString() || null,
-					totalTokens: totalTokens?.toString() || null,
+					totalTokens: costs.imageInputTokens
+						? (
+								(costs.promptTokens || promptTokens || 0) +
+								(completionTokens || 0) +
+								(reasoningTokens || 0)
+							).toString()
+						: totalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: false,
@@ -1669,7 +1676,7 @@ chat.openapi(completions, async (c) => {
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						promptTokens,
+						costs.promptTokens ?? promptTokens,
 						cachedTokens,
 						completionTokens,
 						reasoningTokens,
@@ -1785,9 +1792,20 @@ chat.openapi(completions, async (c) => {
 					content: cachedContent || null,
 					reasoningContent: cachedReasoningContent || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
-					promptTokens: cachedResponse.usage?.prompt_tokens || null,
+					promptTokens:
+						(
+							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
+						)?.toString() || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
-					totalTokens: cachedResponse.usage?.total_tokens || null,
+					totalTokens: cachedCosts.imageInputTokens
+						? (
+								(cachedCosts.promptTokens ||
+									cachedResponse.usage?.prompt_tokens ||
+									0) +
+								(cachedResponse.usage?.completion_tokens || 0) +
+								(cachedResponse.usage?.reasoning_tokens || 0)
+							).toString()
+						: cachedResponse.usage?.total_tokens || null,
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
 					cachedTokens:
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
@@ -1809,7 +1827,7 @@ chat.openapi(completions, async (c) => {
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						cachedResponse.usage?.prompt_tokens,
+						cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
 						cachedResponse.usage?.completion_tokens,
 						cachedResponse.usage?.reasoning_tokens,
@@ -2307,11 +2325,15 @@ chat.openapi(completions, async (c) => {
 						reasoningContent: null,
 						finishReason: "canceled",
 						promptTokens: billCancelled
-							? estimatedPromptTokens?.toString()
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
 							: null,
 						completionTokens: billCancelled ? "0" : null,
 						totalTokens: billCancelled
-							? estimatedPromptTokens?.toString()
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
 							: null,
 						reasoningTokens: null,
 						cachedTokens: null,
@@ -2335,7 +2357,7 @@ chat.openapi(completions, async (c) => {
 						discount: cancelledCosts?.discount ?? null,
 						dataStorageCost: billCancelled
 							? calculateDataStorageCost(
-									estimatedPromptTokens,
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens,
 									null,
 									0,
 									null,
@@ -3883,6 +3905,14 @@ chat.openapi(completions, async (c) => {
 								project.organizationId,
 							);
 
+				// Include image input tokens in prompt/total for consistent accounting
+				if (costs.imageInputTokens) {
+					calculatedPromptTokens =
+						(calculatedPromptTokens || 0) + costs.imageInputTokens;
+					calculatedTotalTokens =
+						(calculatedTotalTokens || 0) + costs.imageInputTokens;
+				}
+
 				// Extract plugin IDs for logging (streaming - no healing applied)
 				const streamingPluginIds = plugins?.map((p) => p.id) || [];
 
@@ -4342,9 +4372,13 @@ chat.openapi(completions, async (c) => {
 			content: null,
 			reasoningContent: null,
 			finishReason: "canceled",
-			promptTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			promptTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
 			completionTokens: billCancelled ? "0" : null,
-			totalTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			totalTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
 			reasoningTokens: null,
 			cachedTokens: null,
 			hasError: false,
@@ -4365,7 +4399,7 @@ chat.openapi(completions, async (c) => {
 			discount: cancelledCosts?.discount ?? null,
 			dataStorageCost: billCancelled
 				? calculateDataStorageCost(
-						estimatedPromptTokens,
+						cancelledCosts?.promptTokens ?? estimatedPromptTokens,
 						null,
 						0,
 						null,
@@ -4640,7 +4674,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Estimate tokens if not provided by the API
-	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
+	let { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
 		usedProvider,
 		messages,
 		content,
@@ -4680,6 +4714,17 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 		project.organizationId,
 	);
+
+	// Include image input tokens in prompt/total for consistent accounting
+	if (costs.imageInputTokens) {
+		calculatedPromptTokens =
+			(calculatedPromptTokens || 0) + costs.imageInputTokens;
+		totalTokens = (
+			(calculatedPromptTokens || 0) +
+			(calculatedCompletionTokens || 0) +
+			(calculatedReasoningTokens || 0)
+		).toString();
+	}
 
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Include costs in response for all users

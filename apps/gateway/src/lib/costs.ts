@@ -368,7 +368,9 @@ export async function calculateCosts(
 		imageInputCost: imageInputCost?.toNumber() ?? null,
 		imageOutputCost: imageOutputCost?.toNumber() ?? null,
 		totalCost: totalCost.toNumber(),
-		promptTokens: calculatedPromptTokens,
+		promptTokens: imageInputTokens
+			? (calculatedPromptTokens || 0) + imageInputTokens
+			: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		estimatedCost: isEstimated,
