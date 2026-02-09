@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9b56090b-b8c2-4a25-86b0-5f1d2a12c620",
-  "prevId": "afccd9a7-b9e3-405e-ae16-89d16e6b336d",
+  "id": "f5a21a6b-ce0a-4336-8a2a-460f9bda61ba",
+  "prevId": "44e8e416-2591-4d2f-b69e-c2800caf79d4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -2121,6 +2121,58 @@
       "generated": null,
       "identity": null,
       "name": "web_search_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "image_input_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "image_output_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "image_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "image_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
