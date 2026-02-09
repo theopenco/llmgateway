@@ -188,6 +188,14 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.discountSavings}), 0)`.as(
 						"discountSavings",
 					),
+				imageInputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageInputCost}), 0)`.as(
+						"imageInputCost",
+					),
+				imageOutputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
+						"imageOutputCost",
+					),
 			})
 			.from(apiKeyHourlyStats)
 			.where(
@@ -218,6 +226,8 @@ activity.openapi(getActivity, async (c) => {
 			const errorCount = Number(day.errorCount);
 			const cacheCount = Number(day.cacheCount);
 			const discountSavings = Number(day.discountSavings);
+			const imageInputCost = Number(day.imageInputCost);
+			const imageOutputCost = Number(day.imageOutputCost);
 
 			const errorRate =
 				requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
@@ -235,6 +245,8 @@ activity.openapi(getActivity, async (c) => {
 				outputCost,
 				requestCost,
 				dataStorageCost,
+				imageInputCost,
+				imageOutputCost,
 				errorCount,
 				errorRate,
 				cacheCount,
@@ -290,11 +302,11 @@ activity.openapi(getActivity, async (c) => {
 					"dataStorageCost",
 				),
 			imageInputCost:
-				sql<number>`COALESCE(SUM(${tables.log.imageInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(${projectHourlyStats.imageInputCost}), 0)`.as(
 					"imageInputCost",
 				),
 			imageOutputCost:
-				sql<number>`COALESCE(SUM(${tables.log.imageOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
 					"imageOutputCost",
 				),
 			errorCount:

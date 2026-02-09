@@ -9,7 +9,6 @@ import {
 	gte,
 	lt,
 	and,
-	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -149,6 +148,12 @@ function getCommonAggregationFields() {
 			),
 			0
 		)`.as("discountSavings"),
+		imageInputCost: sql<number>`coalesce(sum(${log.imageInputCost}), 0)`.as(
+			"imageInputCost",
+		),
+		imageOutputCost: sql<number>`coalesce(sum(${log.imageOutputCost}), 0)`.as(
+			"imageOutputCost",
+		),
 	};
 }
 
@@ -345,18 +350,22 @@ async function recalculateApiKeyHourlyModelStats(
 }
 
 /**
- * Process unprocessed logs and update aggregation tables
+ * Process logs from recent hours that may not have aggregation data yet.
+ * Scans the last 24 hours and creates/updates aggregation rows as needed.
  */
-export async function processUnprocessedLogs() {
+export async function processRecentLogs() {
 	const database = db;
-	const now = new Date();
 	const currentHourStart = getCurrentHourStart();
+	// Look back 24 hours for any project-hour buckets that need processing
+	const lookbackStart = new Date(
+		currentHourStart.getTime() - 24 * 60 * 60 * 1000,
+	);
 
-	logger.debug("Processing unprocessed logs for stats aggregation...");
+	logger.debug("Processing recent logs for stats aggregation...");
 
 	try {
-		// Find distinct project-hour combinations that have unprocessed logs
-		const unprocessedBuckets = await database
+		// Find distinct project-hour combinations from recent logs (excluding current hour)
+		const recentBuckets = await database
 			.select({
 				projectId: log.projectId,
 				hourTimestamp: sql<Date>`date_trunc('hour', ${log.createdAt})`.as(
@@ -365,47 +374,31 @@ export async function processUnprocessedLogs() {
 			})
 			.from(log)
 			.where(
-				and(isNull(log.statsAggregatedAt), lt(log.createdAt, currentHourStart)),
+				and(
+					gte(log.createdAt, lookbackStart),
+					lt(log.createdAt, currentHourStart),
+				),
 			)
 			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
 			.limit(100);
 
-		if (unprocessedBuckets.length === 0) {
-			logger.debug("No unprocessed logs found for stats aggregation");
-			return { bucketsProcessed: 0, logsMarked: 0 };
+		if (recentBuckets.length === 0) {
+			logger.debug("No recent logs found for stats aggregation");
+			return { bucketsProcessed: 0 };
 		}
 
 		logger.info(
-			`Found ${unprocessedBuckets.length} project-hour buckets with unprocessed logs`,
+			`Found ${recentBuckets.length} project-hour buckets to process`,
 		);
 
-		let totalLogsMarked = 0;
-
-		for (const bucket of unprocessedBuckets) {
+		for (const bucket of recentBuckets) {
 			const hourTimestamp = new Date(bucket.hourTimestamp);
-			const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 
-			// Recalculate all aggregation tables
+			// Recalculate all aggregation tables for this bucket
 			await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
 			await recalculateProjectHourlyModelStats(bucket.projectId, hourTimestamp);
 			await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
 			await recalculateApiKeyHourlyModelStats(bucket.projectId, hourTimestamp);
-
-			// Mark logs as processed
-			const result = await database
-				.update(log)
-				.set({ statsAggregatedAt: now })
-				.where(
-					and(
-						sql`${log.projectId} = ${bucket.projectId}`,
-						gte(log.createdAt, hourTimestamp),
-						lt(log.createdAt, hourEnd),
-						isNull(log.statsAggregatedAt),
-					),
-				);
-
-			const affectedRows = Array.isArray(result) ? result.length : 0;
-			totalLogsMarked += affectedRows;
 
 			logger.debug(
 				`Processed bucket ${bucket.projectId}/${hourTimestamp.toISOString()}`,
@@ -413,16 +406,15 @@ export async function processUnprocessedLogs() {
 		}
 
 		logger.info(
-			`Stats aggregation complete: ${unprocessedBuckets.length} buckets processed`,
+			`Stats aggregation complete: ${recentBuckets.length} buckets processed`,
 		);
 
 		return {
-			bucketsProcessed: unprocessedBuckets.length,
-			logsMarked: totalLogsMarked,
+			bucketsProcessed: recentBuckets.length,
 		};
 	} catch (error) {
 		logger.error(
-			"Error processing unprocessed logs for stats aggregation",
+			"Error processing recent logs for stats aggregation",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw error;
@@ -475,7 +467,7 @@ export async function refreshProjectHourlyStats() {
 	logger.debug("Starting project hourly stats refresh...");
 
 	try {
-		await processUnprocessedLogs();
+		await processRecentLogs();
 		await refreshCurrentHourStats();
 		logger.debug("Project hourly stats refresh complete");
 	} catch (error) {

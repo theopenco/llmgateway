@@ -170,6 +170,14 @@ function getCommonAggregationFields() {
 			),
 			0
 		)`.as("discountSavings"),
+		imageInputCost:
+			sql<number>`coalesce(sum(${tables.log.imageInputCost}), 0)`.as(
+				"imageInputCost",
+			),
+		imageOutputCost:
+			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
+				"imageOutputCost",
+			),
 	};
 }
 

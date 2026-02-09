@@ -1217,6 +1217,8 @@ export const projectHourlyStats = pgTable(
 		dataStorageCost: real().notNull().default(0),
 		serviceFee: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -1271,6 +1273,8 @@ export const projectHourlyModelStats = pgTable(
 		dataStorageCost: real().notNull().default(0),
 		serviceFee: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -1336,6 +1340,8 @@ export const apiKeyHourlyStats = pgTable(
 		dataStorageCost: real().notNull().default(0),
 		serviceFee: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -1401,6 +1407,8 @@ export const apiKeyHourlyModelStats = pgTable(
 		dataStorageCost: real().notNull().default(0),
 		serviceFee: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider
