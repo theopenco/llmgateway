@@ -119,6 +119,9 @@ importers:
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
+      '@llmgateway/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@radix-ui/react-avatar':
         specifier: 1.1.11
         version: 1.1.11(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

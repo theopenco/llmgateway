@@ -25,7 +25,11 @@ export {
 	type HttpClientConfig,
 } from "./http-client.js";
 
-export { ModelSelector, ProviderIcons } from "./components/index.js";
+export {
+	ModelSelector,
+	ProviderIcons,
+	getProviderIcon,
+} from "./components/index.js";
 
 export { useIsMobile } from "./hooks/use-mobile.js";
 

@@ -746,7 +746,7 @@ export const googleModels = [
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
-				imageInputPrice: 0.0011,
+				imageInputPrice: 2 / 1e6, // $2/1M tokens for image input (560 tokens/image = $0.00112/image)
 				imageOutputPrice: 120 / 1e6,
 				requestPrice: 0,
 				contextSize: 65536,
@@ -764,7 +764,7 @@ export const googleModels = [
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
-				imageInputPrice: 0.0011,
+				imageInputPrice: 2 / 1e6, // $2/1M tokens for image input (560 tokens/image = $0.00112/image)
 				imageOutputPrice: 120 / 1e6,
 				requestPrice: 0,
 				contextSize: 65536,
@@ -782,7 +782,7 @@ export const googleModels = [
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
-				imageInputPrice: 0.0011,
+				imageInputPrice: 2 / 1e6, // $2/1M tokens for image input (560 tokens/image = $0.00112/image)
 				imageOutputPrice: 120 / 1e6,
 				requestPrice: 0,
 				discount: 0.2,

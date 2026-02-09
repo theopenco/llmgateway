@@ -199,6 +199,11 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
+				<Button variant="outline" size="sm" asChild>
+					<Link href={`/organizations/${orgId}/discounts`}>
+						Manage Discounts
+					</Link>
+				</Button>
 			</header>
 
 			<OrgMetricsSection orgId={orgId} />

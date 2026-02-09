@@ -516,10 +516,9 @@ chat.openapi(completions, async (c) => {
 		organization.devPlan !== "none" &&
 		!organization.devPlanAllowAllModels
 	) {
-		const modelDef = models.find((m) => m.id === requestedModel);
-		if (modelDef && !isCodingModel(modelDef)) {
+		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
-				message: `Model ${requestedModel} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 			});
 		}
 	}
@@ -551,7 +550,7 @@ chat.openapi(completions, async (c) => {
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
-		requestedModel,
+		modelInfo.id,
 		requestedProvider,
 	);
 	if (!iamValidation.allowed) {
@@ -1623,7 +1622,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const costs = calculateCosts(
+				const costs = await calculateCosts(
 					usedModel,
 					usedProvider,
 					promptTokens || null,
@@ -1634,6 +1633,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				await insertLog({
@@ -1659,6 +1660,10 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost ?? 0,
 					requestCost: costs.requestCost ?? 0,
 					webSearchCost: costs.webSearchCost ?? 0,
+					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+					imageInputCost: costs.imageInputCost ?? null,
+					imageOutputCost: costs.imageOutputCost ?? null,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
@@ -1747,7 +1752,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const cachedCosts = calculateCosts(
+				const cachedCosts = await calculateCosts(
 					usedModel,
 					usedProvider,
 					cachedResponse.usage?.prompt_tokens || null,
@@ -1758,6 +1763,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				// Estimate cached response size based on content to avoid expensive stringify
@@ -1793,6 +1800,10 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
 					requestCost: cachedCosts.requestCost ?? 0,
 					webSearchCost: cachedCosts.webSearchCost ?? 0,
+					imageInputTokens: cachedCosts.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
+					imageInputCost: cachedCosts.imageInputCost ?? null,
+					imageOutputCost: cachedCosts.imageOutputCost ?? null,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
@@ -2185,6 +2196,10 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2210,7 +2225,9 @@ chat.openapi(completions, async (c) => {
 
 					// Calculate costs for cancelled request if billing is enabled
 					const billCancelled = shouldBillCancelledRequests();
-					let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+					let cancelledCosts: Awaited<
+						ReturnType<typeof calculateCosts>
+					> | null = null;
 					let estimatedPromptTokens: number | null = null;
 
 					if (billCancelled) {
@@ -2226,7 +2243,7 @@ chat.openapi(completions, async (c) => {
 
 						// Calculate costs based on prompt tokens only (no completion yet)
 						// If web search tool was enabled, count it as 1 search for billing
-						cancelledCosts = calculateCosts(
+						cancelledCosts = await calculateCosts(
 							usedModel,
 							usedProvider,
 							estimatedPromptTokens,
@@ -2241,6 +2258,7 @@ chat.openapi(completions, async (c) => {
 							undefined,
 							inputImageCount,
 							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							project.organizationId,
 						);
 					}
 
@@ -2306,6 +2324,12 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
 						requestCost: cancelledCosts?.requestCost ?? null,
 						webSearchCost: cancelledCosts?.webSearchCost ?? null,
+						imageInputTokens:
+							cancelledCosts?.imageInputTokens?.toString() ?? null,
+						imageOutputTokens:
+							cancelledCosts?.imageOutputTokens?.toString() ?? null,
+						imageInputCost: cancelledCosts?.imageInputCost ?? null,
+						imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
 						cost: cancelledCosts?.totalCost ?? null,
 						estimatedCost: cancelledCosts?.estimatedCost ?? false,
 						discount: cancelledCosts?.discount ?? null,
@@ -2412,6 +2436,10 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2571,6 +2599,10 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: null,
 					requestCost: null,
 					webSearchCost: null,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
 					discount: null,
 					dataStorageCost: "0",
 					cached: false,
@@ -2974,7 +3006,7 @@ chat.openapi(completions, async (c) => {
 								finalTotalTokens !== null
 							) {
 								// Calculate costs for streaming response
-								const streamingCosts = calculateCosts(
+								const streamingCosts = await calculateCosts(
 									usedModel,
 									usedProvider,
 									finalPromptTokens,
@@ -2990,6 +3022,7 @@ chat.openapi(completions, async (c) => {
 									image_config?.image_size,
 									inputImageCount,
 									webSearchCount,
+									project.organizationId,
 								);
 
 								// Include costs in response for all users
@@ -3033,6 +3066,8 @@ chat.openapi(completions, async (c) => {
 											cost_usd_output: streamingCosts.outputCost,
 											cost_usd_cached_input: streamingCosts.cachedInputCost,
 											cost_usd_request: streamingCosts.requestCost,
+											cost_usd_image_input: streamingCosts.imageInputCost,
+											cost_usd_image_output: streamingCosts.imageOutputCost,
 										}),
 									},
 								};
@@ -3817,6 +3852,10 @@ chat.openapi(completions, async (c) => {
 								cachedInputCost: null,
 								requestCost: null,
 								webSearchCost: null,
+								imageInputTokens: null,
+								imageOutputTokens: null,
+								imageInputCost: null,
+								imageOutputCost: null,
 								totalCost: null,
 								promptTokens: null,
 								completionTokens: null,
@@ -3825,7 +3864,7 @@ chat.openapi(completions, async (c) => {
 								discount: undefined,
 								pricingTier: undefined,
 							}
-						: calculateCosts(
+						: await calculateCosts(
 								usedModel,
 								usedProvider,
 								calculatedPromptTokens,
@@ -3841,6 +3880,7 @@ chat.openapi(completions, async (c) => {
 								image_config?.image_size,
 								inputImageCount,
 								webSearchCount,
+								project.organizationId,
 							);
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
@@ -3959,6 +3999,10 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+					imageInputCost: costs.imageInputCost ?? null,
+					imageOutputCost: costs.imageOutputCost ?? null,
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount,
@@ -4174,6 +4218,10 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4214,7 +4262,8 @@ chat.openapi(completions, async (c) => {
 
 		// Calculate costs for cancelled request if billing is enabled
 		const billCancelled = shouldBillCancelledRequests();
-		let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+		let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
+			null;
 		let estimatedPromptTokens: number | null = null;
 
 		if (billCancelled) {
@@ -4230,7 +4279,7 @@ chat.openapi(completions, async (c) => {
 
 			// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
 			// If web search tool was enabled, count it as 1 search for billing
-			cancelledCosts = calculateCosts(
+			cancelledCosts = await calculateCosts(
 				usedModel,
 				usedProvider,
 				estimatedPromptTokens,
@@ -4245,6 +4294,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				inputImageCount,
 				webSearchTool ? 1 : null, // Bill for web search if it was enabled
+				project.organizationId,
 			);
 		}
 
@@ -4306,6 +4356,10 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
 			requestCost: cancelledCosts?.requestCost ?? null,
 			webSearchCost: cancelledCosts?.webSearchCost ?? null,
+			imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
+			imageOutputTokens: cancelledCosts?.imageOutputTokens?.toString() ?? null,
+			imageInputCost: cancelledCosts?.imageInputCost ?? null,
+			imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
 			cost: cancelledCosts?.totalCost ?? null,
 			estimatedCost: cancelledCosts?.estimatedCost ?? false,
 			discount: cancelledCosts?.discount ?? null,
@@ -4436,6 +4490,10 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4604,7 +4662,7 @@ chat.openapi(completions, async (c) => {
 			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 		}
 	}
-	const costs = calculateCosts(
+	const costs = await calculateCosts(
 		usedModel,
 		usedProvider,
 		calculatedPromptTokens,
@@ -4620,6 +4678,7 @@ chat.openapi(completions, async (c) => {
 		image_config?.image_size,
 		inputImageCount,
 		webSearchCount,
+		project.organizationId,
 	);
 
 	// Transform response to OpenAI format for non-OpenAI providers
@@ -4651,6 +4710,8 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					imageInputCost: costs.imageInputCost,
+					imageOutputCost: costs.imageOutputCost,
 					totalCost: costs.totalCost,
 				}
 			: null,
@@ -4780,6 +4841,10 @@ chat.openapi(completions, async (c) => {
 		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
+		imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+		imageInputCost: costs.imageInputCost ?? null,
+		imageOutputCost: costs.imageOutputCost ?? null,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
