@@ -124,3 +124,12 @@
 		@apply font-mono;
 	}
 }
+
+/* Fix cmdk scroll */
+[cmdk-list] {
+	overflow: auto !important;
+}
+
+[cmdk-group] {
+	overflow: visible !important;
+}

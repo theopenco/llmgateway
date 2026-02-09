@@ -3,8 +3,6 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { ApiKey } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
 export default async function IamRulesPage({
 	params,
 }: {

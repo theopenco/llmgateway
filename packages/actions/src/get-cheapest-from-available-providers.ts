@@ -18,6 +18,7 @@ interface ProviderScore<T extends AvailableModelProvider> {
 
 // Scoring weights (totaling 1.0)
 const PRICE_WEIGHT = 0.2;
+const IMAGE_PRICE_WEIGHT = 0.4; // 2x weight for image generation models
 const UPTIME_WEIGHT = 0.5;
 const THROUGHPUT_WEIGHT = 0.2;
 const LATENCY_WEIGHT = 0.1;
@@ -97,11 +98,14 @@ export function getCheapestFromAvailableProviders<
 	T extends AvailableModelProvider,
 >(
 	availableModelProviders: T[],
-	modelWithPricing: ModelWithPricing & { id: string },
+	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 	options?: ProviderSelectionOptions,
 ): ProviderSelectionResult<T> | null {
 	const metricsMap = options?.metricsMap;
 	const isStreaming = options?.isStreaming ?? false;
+	// Use higher price weight for image generation models
+	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
+	const effectivePriceWeight = isImageModel ? IMAGE_PRICE_WEIGHT : PRICE_WEIGHT;
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -234,11 +238,15 @@ export function getCheapestFromAvailableProviders<
 
 		// Calculate base weighted score (lower is better)
 		// When not streaming, latency weight (0.1) is redistributed to other factors
+		// Image generation models use 2x price weight
 		const effectiveLatencyWeight = isStreaming ? LATENCY_WEIGHT : 0;
 		const weightSum =
-			PRICE_WEIGHT + UPTIME_WEIGHT + THROUGHPUT_WEIGHT + effectiveLatencyWeight;
+			effectivePriceWeight +
+			UPTIME_WEIGHT +
+			THROUGHPUT_WEIGHT +
+			effectiveLatencyWeight;
 		const baseScore =
-			(PRICE_WEIGHT / weightSum) * priceScore +
+			(effectivePriceWeight / weightSum) * priceScore +
 			(UPTIME_WEIGHT / weightSum) * uptimeScore +
 			(THROUGHPUT_WEIGHT / weightSum) * throughputScore +
 			(effectiveLatencyWeight / weightSum) * latencyScore;
@@ -296,7 +304,7 @@ export function getCheapestFromAvailableProviders<
  */
 function selectByPriceOnly<T extends AvailableModelProvider>(
 	stableProviders: T[],
-	modelWithPricing: ModelWithPricing & { id: string },
+	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice = Number.MAX_VALUE;

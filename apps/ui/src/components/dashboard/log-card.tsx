@@ -399,6 +399,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										<div>{log.reasoningTokens}</div>
 									</>
 								)}
+								{log.imageInputTokens && Number(log.imageInputTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Input Tokens
+										</div>
+										<div>{log.imageInputTokens}</div>
+									</>
+								)}
+								{log.imageOutputTokens && Number(log.imageOutputTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Output Tokens
+										</div>
+										<div>{log.imageOutputTokens}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">
 									Original Finish Reason
 								</div>
@@ -473,6 +489,22 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 											Native Web Search Cost
 										</div>
 										<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
+									</>
+								)}
+								{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Input Cost
+										</div>
+										<div>{`$${Number(log.imageInputCost).toFixed(8)}`}</div>
+									</>
+								)}
+								{!!log.imageOutputCost && Number(log.imageOutputCost) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Image Output Cost
+										</div>
+										<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
 									</>
 								)}
 								<div className="text-muted-foreground">Inference Total</div>
@@ -812,41 +844,46 @@ export function LogCard({ log }: { log: Partial<Log> }) {
 										</h5>
 										<div className="space-y-2">
 											{Array.isArray(log.toolResults) ? (
-												log.toolResults.map((toolCall, index: number) => (
-													<div
-														key={index}
-														className="rounded-md border p-3 overflow-scroll"
-													>
-														<div className="grid gap-2 text-xs">
-															<div className="flex justify-between">
-																<span className="font-medium">
-																	{toolCall.function?.name ||
-																		"Unknown Function"}
-																</span>
-																<span className="text-muted-foreground">
-																	ID: {toolCall.id || "N/A"}
-																</span>
-															</div>
-															{toolCall.function?.arguments && (
-																<div className="space-y-1">
-																	<div className="text-muted-foreground">
-																		Arguments:
-																	</div>
-																	<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32 text-wrap">
-																		{typeof toolCall.function.arguments ===
-																		"string"
-																			? toolCall.function.arguments
-																			: JSON.stringify(
-																					toolCall.function.arguments,
-																					null,
-																					2,
-																				)}
-																	</pre>
+												log.toolResults
+													.filter(
+														(tc): tc is NonNullable<typeof tc> =>
+															tc !== null && tc !== undefined,
+													)
+													.map((toolCall, index: number) => (
+														<div
+															key={index}
+															className="rounded-md border p-3 overflow-scroll"
+														>
+															<div className="grid gap-2 text-xs">
+																<div className="flex justify-between">
+																	<span className="font-medium">
+																		{toolCall.function?.name ||
+																			"Unknown Function"}
+																	</span>
+																	<span className="text-muted-foreground">
+																		ID: {toolCall.id || "N/A"}
+																	</span>
 																</div>
-															)}
+																{toolCall.function?.arguments && (
+																	<div className="space-y-1">
+																		<div className="text-muted-foreground">
+																			Arguments:
+																		</div>
+																		<pre className="text-xs bg-white dark:bg-gray-900 rounded border p-2 overflow-auto max-h-32 text-wrap">
+																			{typeof toolCall.function.arguments ===
+																			"string"
+																				? toolCall.function.arguments
+																				: JSON.stringify(
+																						toolCall.function.arguments,
+																						null,
+																						2,
+																					)}
+																		</pre>
+																	</div>
+																)}
+															</div>
 														</div>
-													</div>
-												))
+													))
 											) : (
 												<div className="rounded-md border p-3">
 													<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words">

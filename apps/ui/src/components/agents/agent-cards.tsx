@@ -8,6 +8,7 @@ import {
 	Copy,
 	Check,
 	Github,
+	UserSearch,
 	Wrench,
 	Zap,
 } from "lucide-react";
@@ -39,6 +40,16 @@ const agents: Agent[] = [
 		tags: ["TypeScript", "AI SDK", "OpenAI"],
 		gradient: "from-sky-500/20 via-cyan-500/20 to-teal-500/20",
 		featured: true,
+	},
+	{
+		name: "Lead Agent",
+		description:
+			"A CLI AI agent that researches a person by name or email and produces a structured profile summary including bio, role, background, and social links. Optionally posts results to Discord via webhook.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/lead-agent",
+		icon: UserSearch,
+		capabilities: ["Web Search", "Profile Research", "Discord Integration"],
+		tags: ["TypeScript", "AI SDK", "Perplexity"],
+		gradient: "from-violet-500/20 via-purple-500/20 to-fuchsia-500/20",
 	},
 ];
 

@@ -1,6 +1,6 @@
 "use client";
 import { animate } from "motion/react";
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -32,6 +32,21 @@ const GlowingEffect = memo(
 		const containerRef = useRef<HTMLDivElement>(null);
 		const lastPosition = useRef({ x: 0, y: 0 });
 		const animationFrameRef = useRef<number>(0);
+		const [isVisible, setIsVisible] = useState(false);
+
+		useEffect(() => {
+			const element = containerRef.current;
+			if (!element || disabled) {
+				return;
+			}
+
+			const observer = new IntersectionObserver(
+				([entry]) => setIsVisible(entry.isIntersecting),
+				{ rootMargin: "100px" },
+			);
+			observer.observe(element);
+			return () => observer.disconnect();
+		}, [disabled]);
 
 		const handleMove = useCallback(
 			(e?: MouseEvent | { x: number; y: number }) => {
@@ -104,7 +119,7 @@ const GlowingEffect = memo(
 		);
 
 		useEffect(() => {
-			if (disabled) {
+			if (disabled || !isVisible) {
 				return;
 			}
 
@@ -123,7 +138,7 @@ const GlowingEffect = memo(
 				window.removeEventListener("scroll", handleScroll);
 				document.body.removeEventListener("pointermove", handlePointerMove);
 			};
-		}, [handleMove, disabled]);
+		}, [handleMove, disabled, isVisible]);
 
 		return (
 			<>

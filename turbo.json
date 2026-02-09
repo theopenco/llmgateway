@@ -6,8 +6,8 @@
 	},
 	"dangerouslyDisablePackageManagerCheck": true,
 	"globalDependencies": [
-		".npmrc",
 		".tool-versions",
+		".npmrc",
 		"turbo.json",
 		"package.json",
 		"pnpm-lock.yaml",

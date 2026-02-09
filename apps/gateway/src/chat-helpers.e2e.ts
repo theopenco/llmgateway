@@ -33,8 +33,17 @@ export const specifiedModels = testModelsEnv
 	? testModelsEnv.split(",").map((m) => m.trim())
 	: null;
 
+// Parse TEST_PROVIDERS environment variable (filter by provider name)
+export const testProvidersEnv = process.env.TEST_PROVIDERS;
+export const specifiedProviders = testProvidersEnv
+	? testProvidersEnv.split(",").map((p) => p.trim())
+	: null;
+
 if (specifiedModels) {
 	console.log(`TEST_MODELS specified: ${specifiedModels.join(", ")}`);
+}
+if (specifiedProviders) {
+	console.log(`TEST_PROVIDERS specified: ${specifiedProviders.join(", ")}`);
 }
 
 // Filter models based on test skip/only property
@@ -84,7 +93,16 @@ export const filteredModels = models
 			return true;
 		}
 
-		// 2. Model is specified in TEST_MODELS
+		// 2. Model is specified in TEST_MODELS or TEST_PROVIDERS
+		if (specifiedProviders) {
+			const modelInTestProviders = model.providers.some(
+				(provider: ProviderModelMapping) =>
+					specifiedProviders.includes(provider.providerId),
+			);
+			if (modelInTestProviders) {
+				return true;
+			}
+		}
 		if (specifiedModels) {
 			const modelInTestModels = model.providers.some(
 				(provider: ProviderModelMapping) => {
@@ -99,7 +117,7 @@ export const filteredModels = models
 
 		return false; // Otherwise, exclude unstable models in non-full mode
 	})
-	// Filter out free models if not in full mode, unless they have test: "only" or are in TEST_MODELS
+	// Filter out free models if not in full mode, unless they have test: "only" or are in TEST_MODELS/TEST_PROVIDERS
 	.filter((model) => {
 		const isFreeModel = (model as ModelDefinition).free;
 		if (!isFreeModel) {
@@ -119,7 +137,16 @@ export const filteredModels = models
 			return true;
 		}
 
-		// 2. Model is specified in TEST_MODELS
+		// 2. Model is specified in TEST_MODELS or TEST_PROVIDERS
+		if (specifiedProviders) {
+			const modelInTestProviders = model.providers.some(
+				(provider: ProviderModelMapping) =>
+					specifiedProviders.includes(provider.providerId),
+			);
+			if (modelInTestProviders) {
+				return true;
+			}
+		}
 		if (specifiedModels) {
 			const modelInTestModels = model.providers.some(
 				(provider: ProviderModelMapping) => {
@@ -134,15 +161,17 @@ export const filteredModels = models
 
 		return false; // Otherwise, exclude free models in non-full mode
 	})
-	// Filter by TEST_MODELS if specified
+	// Filter by TEST_MODELS or TEST_PROVIDERS if specified
 	.filter((model) => {
-		if (!specifiedModels) {
+		if (!specifiedModels && !specifiedProviders) {
 			return true;
 		}
-		// Check if any provider/model combination from this model matches TEST_MODELS
 		return model.providers.some((provider: ProviderModelMapping) => {
+			if (specifiedProviders) {
+				return specifiedProviders.includes(provider.providerId);
+			}
 			const providerModelId = `${provider.providerId}/${model.id}`;
-			return specifiedModels.includes(providerModelId);
+			return specifiedModels!.includes(providerModelId);
 		});
 	});
 
@@ -181,21 +210,27 @@ export const testModels = filteredModels
 				continue;
 			}
 
-			// Filter by TEST_MODELS if specified
-			if (specifiedModels) {
-				const providerModelId = `${provider.providerId}/${model.id}`;
-				if (!specifiedModels.includes(providerModelId)) {
-					continue;
+			// Filter by TEST_MODELS or TEST_PROVIDERS if specified
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					const providerModelId = `${provider.providerId}/${model.id}`;
+					if (!specifiedModels!.includes(providerModelId)) {
+						continue;
+					}
 				}
-				// TEST_MODELS takes precedence over test: "skip", so don't skip if model is in TEST_MODELS
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
 			} else {
-				// Skip providers marked with test: "skip" (only when TEST_MODELS is not specified)
+				// Skip providers marked with test: "skip" (only when TEST_MODELS/TEST_PROVIDERS is not specified)
 				if (provider.test === "skip") {
 					continue;
 				}
 			}
 
-			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS
+			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS/TEST_PROVIDERS
 			if (
 				(provider.stability === "unstable" ||
 					provider.stability === "experimental") &&
@@ -203,12 +238,16 @@ export const testModels = filteredModels
 			) {
 				// Allow if provider has test: "only"
 				if (provider.test !== "only") {
-					// Allow if model is specified in TEST_MODELS
-					if (!specifiedModels) {
-						continue;
-					}
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels.includes(providerModelId)) {
+					if (specifiedProviders) {
+						if (!specifiedProviders.includes(provider.providerId)) {
+							continue;
+						}
+					} else if (specifiedModels) {
+						const providerModelId = `${provider.providerId}/${model.id}`;
+						if (!specifiedModels.includes(providerModelId)) {
+							continue;
+						}
+					} else {
 						continue;
 					}
 				}
@@ -253,15 +292,21 @@ export const providerModels = filteredModels
 				continue;
 			}
 
-			// Filter by TEST_MODELS if specified
-			if (specifiedModels) {
-				const providerModelId = `${provider.providerId}/${model.id}`;
-				if (!specifiedModels.includes(providerModelId)) {
-					continue;
+			// Filter by TEST_MODELS or TEST_PROVIDERS if specified
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					const providerModelId = `${provider.providerId}/${model.id}`;
+					if (!specifiedModels!.includes(providerModelId)) {
+						continue;
+					}
 				}
-				// TEST_MODELS takes precedence over test: "skip", so don't skip if model is in TEST_MODELS
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
 			} else {
-				// Skip providers marked with test: "skip" (only when TEST_MODELS is not specified)
+				// Skip providers marked with test: "skip" (only when TEST_MODELS/TEST_PROVIDERS is not specified)
 				if (provider.test === "skip") {
 					continue;
 				}

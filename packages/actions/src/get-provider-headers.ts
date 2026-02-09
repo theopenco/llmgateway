@@ -30,6 +30,10 @@ export function getProviderHeaders(
 		case "google-ai-studio":
 		case "google-vertex":
 			return {};
+		case "obsidian":
+			return {
+				Authorization: `Bearer ${token}`,
+			};
 		case "aws-bedrock":
 			return {
 				Authorization: `Bearer ${token}`,

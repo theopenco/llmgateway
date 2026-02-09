@@ -14,8 +14,6 @@ export interface GatewayModel {
 	architecture?: { input_modalities?: string[] };
 }
 
-export const dynamic = "force-dynamic";
-
 export default async function ChatPage({
 	searchParams,
 }: {

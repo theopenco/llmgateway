@@ -299,12 +299,6 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	const inputImageCount =
-		modelInput === "gemini-3-pro-image-preview"
-			? countInputImages(messages)
-			: 0;
-
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
@@ -412,6 +406,12 @@ chat.openapi(completions, async (c) => {
 	const requestedModel = parseResult.requestedModel;
 	const customProviderName = parseResult.customProviderName;
 
+	// Count input images from messages for cost calculation
+	const inputImageCount =
+		requestedModel === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
+
 	// Resolve model info and filter deactivated providers
 	const modelInfoResult = resolveModelInfo(
 		requestedModel,
@@ -477,12 +477,18 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Fetch organization for coding model restriction check
+	// Fetch organization for coding model restriction check and credit validation
 	const organization = await findOrganizationById(project.organizationId);
+
+	if (!organization) {
+		throw new HTTPException(500, {
+			message: "Could not find organization",
+		});
+	}
 
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
-	if (organization?.plan === "enterprise") {
+	if (organization.plan === "enterprise") {
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
 			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
@@ -544,10 +550,9 @@ chat.openapi(completions, async (c) => {
 		organization.devPlan !== "none" &&
 		!organization.devPlanAllowAllModels
 	) {
-		const modelDef = models.find((m) => m.id === requestedModel);
-		if (modelDef && !isCodingModel(modelDef)) {
+		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
-				message: `Model ${requestedModel} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 			});
 		}
 	}
@@ -580,12 +585,14 @@ chat.openapi(completions, async (c) => {
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
-		requestedModel,
+		modelInfo.id,
 		requestedProvider,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
 	}
+	// IAM allowed providers - used to filter available providers during routing
+	const iamAllowedProviders = iamValidation.allowedProviders;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -708,8 +715,15 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Check if any of the model's providers are available
-			const availableModelProviders = modelDef.providers.filter((provider) =>
-				availableProviders.includes(provider.providerId),
+			// Note: We don't filter by iamAllowedProviders here because it was computed
+			// for the "auto" model, not the actual models being considered for selection
+			const availableModelProviders = modelDef.providers.filter(
+				(provider) =>
+					availableProviders.includes(provider.providerId) &&
+					// Filter by IAM allowed providers only for non-auto models
+					(requestedModel === "auto" ||
+						!iamAllowedProviders ||
+						iamAllowedProviders.includes(provider.providerId)),
 			);
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
@@ -944,6 +958,13 @@ chat.openapi(completions, async (c) => {
 						if (provider.providerId === usedProvider) {
 							return false;
 						}
+						// Filter by IAM allowed providers
+						if (
+							iamAllowedProviders &&
+							!iamAllowedProviders.includes(provider.providerId)
+						) {
+							return false;
+						}
 						// If web search tool is requested, only include providers that support it
 						if (webSearchTool) {
 							if ((provider as ProviderModelMapping).webSearch !== true) {
@@ -1084,6 +1105,13 @@ chat.openapi(completions, async (c) => {
 				if (!availableProviders.includes(provider.providerId)) {
 					return false;
 				}
+				// Filter by IAM allowed providers
+				if (
+					iamAllowedProviders &&
+					!iamAllowedProviders.includes(provider.providerId)
+				) {
+					return false;
+				}
 				// If web search tool is requested, only include providers that support it
 				if (webSearchTool) {
 					if ((provider as ProviderModelMapping).webSearch !== true) {
@@ -1099,7 +1127,7 @@ chat.openapi(completions, async (c) => {
 						return false;
 					}
 				}
-				// If JSON schema output is requested, only include providers that support it
+				// If JSON schema output is requested, also include providers that support it
 				if (response_format?.type === "json_schema") {
 					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
 						return false;
@@ -1339,35 +1367,26 @@ chat.openapi(completions, async (c) => {
 
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
-		// Check if the organization has enough credits using cached helper function
-		const orgForCredits = await findOrganizationById(project.organizationId);
-
-		if (!orgForCredits) {
-			throw new HTTPException(500, {
-				message: "Could not find organization",
-			});
-		}
-
 		// Check both regular credits AND dev plan credits
-		const regularCredits = parseFloat(orgForCredits.credits || "0");
+		const regularCredits = parseFloat(organization.credits || "0");
 		const devPlanCreditsRemaining =
-			orgForCredits.devPlan !== "none"
-				? parseFloat(orgForCredits.devPlanCreditsLimit || "0") -
-					parseFloat(orgForCredits.devPlanCreditsUsed || "0")
+			organization.devPlan !== "none"
+				? parseFloat(organization.devPlanCreditsLimit || "0") -
+					parseFloat(organization.devPlanCreditsUsed || "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
-			if (orgForCredits.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-				const renewalDate = orgForCredits.devPlanExpiresAt
-					? new Date(orgForCredits.devPlanExpiresAt).toLocaleDateString()
+			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+				const renewalDate = organization.devPlanExpiresAt
+					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
 					: "your next billing date";
 				throw new HTTPException(402, {
 					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 				});
 			}
 			throw new HTTPException(402, {
-				message: "Organization has insufficient credits",
+				message: `Organization ${organization.id} has insufficient credits`,
 			});
 		}
 
@@ -1390,22 +1409,12 @@ chat.openapi(completions, async (c) => {
 			usedToken = providerKey.token;
 		} else {
 			// No API key available, fall back to credits
-			const orgForHybridCredits = await findOrganizationById(
-				project.organizationId,
-			);
-
-			if (!orgForHybridCredits) {
-				throw new HTTPException(500, {
-					message: "Could not find organization",
-				});
-			}
-
 			// Check both regular credits AND dev plan credits
-			const regularCredits = parseFloat(orgForHybridCredits.credits || "0");
+			const regularCredits = parseFloat(organization.credits || "0");
 			const devPlanCreditsRemaining =
-				orgForHybridCredits.devPlan !== "none"
-					? parseFloat(orgForHybridCredits.devPlanCreditsLimit || "0") -
-						parseFloat(orgForHybridCredits.devPlanCreditsUsed || "0")
+				organization.devPlan !== "none"
+					? parseFloat(organization.devPlanCreditsLimit || "0") -
+						parseFloat(organization.devPlanCreditsUsed || "0")
 					: 0;
 			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1413,14 +1422,9 @@ chat.openapi(completions, async (c) => {
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree(modelInfo as ModelDefinition)
 			) {
-				if (
-					orgForHybridCredits.devPlan !== "none" &&
-					devPlanCreditsRemaining <= 0
-				) {
-					const renewalDate = orgForHybridCredits.devPlanExpiresAt
-						? new Date(
-								orgForHybridCredits.devPlanExpiresAt,
-							).toLocaleDateString()
+				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+					const renewalDate = organization.devPlanExpiresAt
+						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
 						: "your next billing date";
 					throw new HTTPException(402, {
 						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
@@ -1662,7 +1666,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const costs = calculateCosts(
+				const costs = await calculateCosts(
 					usedModel,
 					usedProvider,
 					promptTokens || null,
@@ -1673,6 +1677,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				await insertLog({
@@ -1684,9 +1690,16 @@ chat.openapi(completions, async (c) => {
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
-					promptTokens: promptTokens?.toString() || null,
+					promptTokens:
+						(costs.promptTokens ?? promptTokens)?.toString() || null,
 					completionTokens: completionTokens?.toString() || null,
-					totalTokens: totalTokens?.toString() || null,
+					totalTokens: costs.imageInputTokens
+						? (
+								(costs.promptTokens || promptTokens || 0) +
+								(completionTokens || 0) +
+								(reasoningTokens || 0)
+							).toString()
+						: totalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: false,
@@ -1698,12 +1711,16 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost ?? 0,
 					requestCost: costs.requestCost ?? 0,
 					webSearchCost: costs.webSearchCost ?? 0,
+					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+					imageInputCost: costs.imageInputCost ?? null,
+					imageOutputCost: costs.imageOutputCost ?? null,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						promptTokens,
+						costs.promptTokens ?? promptTokens,
 						cachedTokens,
 						completionTokens,
 						reasoningTokens,
@@ -1787,7 +1804,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const cachedCosts = calculateCosts(
+				const cachedCosts = await calculateCosts(
 					usedModel,
 					usedProvider,
 					cachedResponse.usage?.prompt_tokens || null,
@@ -1798,6 +1815,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				// Estimate cached response size based on content to avoid expensive stringify
@@ -1818,9 +1837,20 @@ chat.openapi(completions, async (c) => {
 					content: cachedContent || null,
 					reasoningContent: cachedReasoningContent || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
-					promptTokens: cachedResponse.usage?.prompt_tokens || null,
+					promptTokens:
+						(
+							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
+						)?.toString() || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
-					totalTokens: cachedResponse.usage?.total_tokens || null,
+					totalTokens: cachedCosts.imageInputTokens
+						? (
+								(cachedCosts.promptTokens ||
+									cachedResponse.usage?.prompt_tokens ||
+									0) +
+								(cachedResponse.usage?.completion_tokens || 0) +
+								(cachedResponse.usage?.reasoning_tokens || 0)
+							).toString()
+						: cachedResponse.usage?.total_tokens || null,
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
 					cachedTokens:
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
@@ -1833,12 +1863,16 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
 					requestCost: cachedCosts.requestCost ?? 0,
 					webSearchCost: cachedCosts.webSearchCost ?? 0,
+					imageInputTokens: cachedCosts.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
+					imageInputCost: cachedCosts.imageInputCost ?? null,
+					imageOutputCost: cachedCosts.imageOutputCost ?? null,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						cachedResponse.usage?.prompt_tokens,
+						cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
 						cachedResponse.usage?.completion_tokens,
 						cachedResponse.usage?.reasoning_tokens,
@@ -1906,13 +1940,56 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Strip unsupported parameters based on model's supportedParameters
+	if (finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		);
+		const supported = (providerMapping as ProviderModelMapping | undefined)
+			?.supportedParameters;
+		if (supported && supported.length > 0) {
+			if (temperature !== undefined && !supported.includes("temperature")) {
+				temperature = undefined;
+			}
+			if (top_p !== undefined && !supported.includes("top_p")) {
+				top_p = undefined;
+			}
+			if (
+				frequency_penalty !== undefined &&
+				!supported.includes("frequency_penalty")
+			) {
+				frequency_penalty = undefined;
+			}
+			if (
+				presence_penalty !== undefined &&
+				!supported.includes("presence_penalty")
+			) {
+				presence_penalty = undefined;
+			}
+			if (max_tokens !== undefined && !supported.includes("max_tokens")) {
+				max_tokens = undefined;
+			}
+		}
+	}
+
+	// Anthropic does not allow temperature and top_p to be set simultaneously
+	if (usedProvider === "anthropic") {
+		if (temperature !== undefined && top_p !== undefined) {
+			top_p = undefined;
+		}
+	}
+
 	// Check if the request can be canceled
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+	if (
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "obsidian"
+	) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -2223,6 +2300,10 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2248,7 +2329,9 @@ chat.openapi(completions, async (c) => {
 
 					// Calculate costs for cancelled request if billing is enabled
 					const billCancelled = shouldBillCancelledRequests();
-					let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+					let cancelledCosts: Awaited<
+						ReturnType<typeof calculateCosts>
+					> | null = null;
 					let estimatedPromptTokens: number | null = null;
 
 					if (billCancelled) {
@@ -2264,7 +2347,7 @@ chat.openapi(completions, async (c) => {
 
 						// Calculate costs based on prompt tokens only (no completion yet)
 						// If web search tool was enabled, count it as 1 search for billing
-						cancelledCosts = calculateCosts(
+						cancelledCosts = await calculateCosts(
 							usedModel,
 							usedProvider,
 							estimatedPromptTokens,
@@ -2279,6 +2362,7 @@ chat.openapi(completions, async (c) => {
 							undefined,
 							inputImageCount,
 							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							project.organizationId,
 						);
 					}
 
@@ -2328,11 +2412,15 @@ chat.openapi(completions, async (c) => {
 						reasoningContent: null,
 						finishReason: "canceled",
 						promptTokens: billCancelled
-							? estimatedPromptTokens?.toString()
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
 							: null,
 						completionTokens: billCancelled ? "0" : null,
 						totalTokens: billCancelled
-							? estimatedPromptTokens?.toString()
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
 							: null,
 						reasoningTokens: null,
 						cachedTokens: null,
@@ -2345,12 +2433,18 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
 						requestCost: cancelledCosts?.requestCost ?? null,
 						webSearchCost: cancelledCosts?.webSearchCost ?? null,
+						imageInputTokens:
+							cancelledCosts?.imageInputTokens?.toString() ?? null,
+						imageOutputTokens:
+							cancelledCosts?.imageOutputTokens?.toString() ?? null,
+						imageInputCost: cancelledCosts?.imageInputCost ?? null,
+						imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
 						cost: cancelledCosts?.totalCost ?? null,
 						estimatedCost: cancelledCosts?.estimatedCost ?? false,
 						discount: cancelledCosts?.discount ?? null,
 						dataStorageCost: billCancelled
 							? calculateDataStorageCost(
-									estimatedPromptTokens,
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens,
 									null,
 									0,
 									null,
@@ -2452,6 +2546,10 @@ chat.openapi(completions, async (c) => {
 						cachedInputCost: null,
 						requestCost: null,
 						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
 						discount: null,
 						dataStorageCost: "0",
 						cached: false,
@@ -2612,6 +2710,10 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: null,
 					requestCost: null,
 					webSearchCost: null,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
 					discount: null,
 					dataStorageCost: "0",
 					cached: false,
@@ -3015,7 +3117,7 @@ chat.openapi(completions, async (c) => {
 								finalTotalTokens !== null
 							) {
 								// Calculate costs for streaming response
-								const streamingCosts = calculateCosts(
+								const streamingCosts = await calculateCosts(
 									usedModel,
 									usedProvider,
 									finalPromptTokens,
@@ -3031,6 +3133,7 @@ chat.openapi(completions, async (c) => {
 									image_config?.image_size,
 									inputImageCount,
 									webSearchCount,
+									project.organizationId,
 								);
 
 								// Include costs in response for all users
@@ -3057,23 +3160,22 @@ chat.openapi(completions, async (c) => {
 											streamingCosts.completionTokens ||
 											finalCompletionTokens ||
 											0,
-										total_tokens: (() => {
-											const fallbackTotal =
-												(streamingCosts.promptTokens ||
-													finalPromptTokens ||
-													0) +
+										total_tokens: Math.max(
+											1,
+											(streamingCosts.promptTokens || finalPromptTokens || 0) +
 												(streamingCosts.completionTokens ||
 													finalCompletionTokens ||
 													0) +
-												(reasoningTokens || 0);
-											return Math.max(1, finalTotalTokens ?? fallbackTotal);
-										})(),
+												(reasoningTokens || 0),
+										),
 										...(shouldIncludeCosts && {
 											cost_usd_total: streamingCosts.totalCost,
 											cost_usd_input: streamingCosts.inputCost,
 											cost_usd_output: streamingCosts.outputCost,
 											cost_usd_cached_input: streamingCosts.cachedInputCost,
 											cost_usd_request: streamingCosts.requestCost,
+											cost_usd_image_input: streamingCosts.imageInputCost,
+											cost_usd_image_output: streamingCosts.imageOutputCost,
 										}),
 									},
 								};
@@ -3327,7 +3429,8 @@ chat.openapi(completions, async (c) => {
 							// Track image data size for Google providers (for token estimation)
 							if (
 								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
+								usedProvider === "google-vertex" ||
+								usedProvider === "obsidian"
 							) {
 								const parts = data.candidates?.[0]?.content?.parts || [];
 								for (const part of parts) {
@@ -3353,7 +3456,8 @@ chat.openapi(completions, async (c) => {
 								}
 							} else if (
 								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
+								usedProvider === "google-vertex" ||
+								usedProvider === "obsidian"
 							) {
 								// For Google, count when grounding metadata is present
 								if (data.candidates?.[0]?.groundingMetadata) {
@@ -3447,6 +3551,7 @@ chat.openapi(completions, async (c) => {
 							switch (usedProvider) {
 								case "google-ai-studio":
 								case "google-vertex":
+								case "obsidian":
 									// Preserve original Google finish reason for logging
 									if (data.promptFeedback?.blockReason) {
 										finishReason = data.promptFeedback.blockReason;
@@ -3778,36 +3883,41 @@ chat.openapi(completions, async (c) => {
 										finish_reason: null,
 									},
 								],
-								usage: {
-									prompt_tokens: Math.max(
+								usage: (() => {
+									// Only add image input tokens for providers that
+									// exclude them from upstream usage (Google)
+									const providerExcludesImageInput =
+										usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian";
+									const imageInputAdj = providerExcludesImageInput
+										? inputImageCount * 560
+										: 0;
+									const adjPrompt = Math.max(
 										1,
 										Math.round(
 											promptTokens && promptTokens > 0
-												? promptTokens + inputImageCount * 560
-												: (calculatedPromptTokens || 1) + inputImageCount * 560,
+												? promptTokens + imageInputAdj
+												: (calculatedPromptTokens || 1) + imageInputAdj,
 										),
-									),
-									completion_tokens: Math.round(
+									);
+									const adjCompletion = Math.round(
 										completionTokens || calculatedCompletionTokens || 0,
-									),
-									total_tokens: Math.round(
-										totalTokens ||
-											calculatedTotalTokens ||
-											Math.max(
-												1,
-												(promptTokens && promptTokens > 0
-													? promptTokens + inputImageCount * 560
-													: (calculatedPromptTokens || 1) +
-														inputImageCount * 560) +
-													(completionTokens || calculatedCompletionTokens || 0),
-											),
-									),
-									...(cachedTokens !== null && {
-										prompt_tokens_details: {
-											cached_tokens: cachedTokens,
-										},
-									}),
-								},
+									);
+									return {
+										prompt_tokens: adjPrompt,
+										completion_tokens: adjCompletion,
+										total_tokens: Math.max(
+											1,
+											Math.round(adjPrompt + adjCompletion),
+										),
+										...(cachedTokens !== null && {
+											prompt_tokens_details: {
+												cached_tokens: cachedTokens,
+											},
+										}),
+									};
+								})(),
 							};
 
 							await writeSSEAndCache({
@@ -3855,6 +3965,10 @@ chat.openapi(completions, async (c) => {
 								cachedInputCost: null,
 								requestCost: null,
 								webSearchCost: null,
+								imageInputTokens: null,
+								imageOutputTokens: null,
+								imageInputCost: null,
+								imageOutputCost: null,
 								totalCost: null,
 								promptTokens: null,
 								completionTokens: null,
@@ -3863,7 +3977,7 @@ chat.openapi(completions, async (c) => {
 								discount: undefined,
 								pricingTier: undefined,
 							}
-						: calculateCosts(
+						: await calculateCosts(
 								usedModel,
 								usedProvider,
 								calculatedPromptTokens,
@@ -3879,7 +3993,19 @@ chat.openapi(completions, async (c) => {
 								image_config?.image_size,
 								inputImageCount,
 								webSearchCount,
+								project.organizationId,
 							);
+
+				// Use costs.promptTokens as canonical value (includes image input
+				// tokens for providers that exclude them from upstream usage)
+				if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+					const promptDelta =
+						(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+					if (promptDelta > 0) {
+						calculatedPromptTokens = costs.promptTokens;
+						calculatedTotalTokens = (calculatedTotalTokens || 0) + promptDelta;
+					}
+				}
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
 				const streamingPluginIds = plugins?.map((p) => p.id) || [];
@@ -3998,6 +4124,10 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+					imageInputCost: costs.imageInputCost ?? null,
+					imageOutputCost: costs.imageOutputCost ?? null,
 					cost: costs.totalCost,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount,
@@ -4214,6 +4344,10 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4254,7 +4388,8 @@ chat.openapi(completions, async (c) => {
 
 		// Calculate costs for cancelled request if billing is enabled
 		const billCancelled = shouldBillCancelledRequests();
-		let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
+		let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
+			null;
 		let estimatedPromptTokens: number | null = null;
 
 		if (billCancelled) {
@@ -4270,7 +4405,7 @@ chat.openapi(completions, async (c) => {
 
 			// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
 			// If web search tool was enabled, count it as 1 search for billing
-			cancelledCosts = calculateCosts(
+			cancelledCosts = await calculateCosts(
 				usedModel,
 				usedProvider,
 				estimatedPromptTokens,
@@ -4285,6 +4420,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				inputImageCount,
 				webSearchTool ? 1 : null, // Bill for web search if it was enabled
+				project.organizationId,
 			);
 		}
 
@@ -4333,9 +4469,13 @@ chat.openapi(completions, async (c) => {
 			content: null,
 			reasoningContent: null,
 			finishReason: "canceled",
-			promptTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			promptTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
 			completionTokens: billCancelled ? "0" : null,
-			totalTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			totalTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
 			reasoningTokens: null,
 			cachedTokens: null,
 			hasError: false,
@@ -4347,12 +4487,16 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
 			requestCost: cancelledCosts?.requestCost ?? null,
 			webSearchCost: cancelledCosts?.webSearchCost ?? null,
+			imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
+			imageOutputTokens: cancelledCosts?.imageOutputTokens?.toString() ?? null,
+			imageInputCost: cancelledCosts?.imageInputCost ?? null,
+			imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
 			cost: cancelledCosts?.totalCost ?? null,
 			estimatedCost: cancelledCosts?.estimatedCost ?? false,
 			discount: cancelledCosts?.discount ?? null,
 			dataStorageCost: billCancelled
 				? calculateDataStorageCost(
-						estimatedPromptTokens,
+						cancelledCosts?.promptTokens ?? estimatedPromptTokens,
 						null,
 						0,
 						null,
@@ -4478,6 +4622,10 @@ chat.openapi(completions, async (c) => {
 			cachedInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
 			estimatedCost: false,
 			discount: null,
 			dataStorageCost: "0",
@@ -4549,7 +4697,7 @@ chat.openapi(completions, async (c) => {
 		images,
 		annotations,
 		webSearchCount,
-	} = parseProviderResponse(usedProvider, json, messages);
+	} = parseProviderResponse(usedProvider, usedModel, json, messages);
 
 	// Apply response healing if enabled and response_format is json_object or json_schema
 	const responseHealingEnabled = plugins?.some(
@@ -4584,7 +4732,11 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Enhanced logging for Google models to debug missing responses
-	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+	if (
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "obsidian"
+	) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
 			usedModel,
@@ -4620,7 +4772,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Estimate tokens if not provided by the API
-	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
+	let { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
 		usedProvider,
 		messages,
 		content,
@@ -4642,7 +4794,7 @@ chat.openapi(completions, async (c) => {
 			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 		}
 	}
-	const costs = calculateCosts(
+	const costs = await calculateCosts(
 		usedModel,
 		usedProvider,
 		calculatedPromptTokens,
@@ -4658,7 +4810,23 @@ chat.openapi(completions, async (c) => {
 		image_config?.image_size,
 		inputImageCount,
 		webSearchCount,
+		project.organizationId,
 	);
+
+	// Use costs.promptTokens as canonical value (includes image input
+	// tokens for providers that exclude them from upstream usage)
+	if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+		const promptDelta =
+			(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+		if (promptDelta > 0) {
+			calculatedPromptTokens = costs.promptTokens;
+			totalTokens = (
+				(calculatedPromptTokens || 0) +
+				(calculatedCompletionTokens || 0) +
+				(calculatedReasoningTokens || 0)
+			).toString();
+		}
+	}
 
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Include costs in response for all users
@@ -4689,6 +4857,8 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					imageInputCost: costs.imageInputCost,
+					imageOutputCost: costs.imageOutputCost,
 					totalCost: costs.totalCost,
 				}
 			: null,
@@ -4740,7 +4910,9 @@ chat.openapi(completions, async (c) => {
 	// For Google, check for original finish reasons that indicate content filtering
 	// These include both finishReason values and promptFeedback.blockReason values
 	const isGoogleContentFilter =
-		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
+		(usedProvider === "google-ai-studio" ||
+			usedProvider === "google-vertex" ||
+			usedProvider === "obsidian") &&
 		(finishReason === "SAFETY" ||
 			finishReason === "PROHIBITED_CONTENT" ||
 			finishReason === "RECITATION" ||
@@ -4817,6 +4989,10 @@ chat.openapi(completions, async (c) => {
 		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
+		imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+		imageInputCost: costs.imageInputCost ?? null,
+		imageOutputCost: costs.imageOutputCost ?? null,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,

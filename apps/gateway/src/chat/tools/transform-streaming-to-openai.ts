@@ -249,7 +249,8 @@ export function transformStreamingToOpenai(
 		}
 
 		case "google-ai-studio":
-		case "google-vertex": {
+		case "google-vertex":
+		case "obsidian": {
 			const mapFinishReason = (
 				finishReason?: string,
 				hasFunctionCalls?: boolean,
@@ -1086,6 +1087,7 @@ export function transformStreamingToOpenai(
 
 		case "mistral":
 		case "novita":
+		case "routeway":
 		case "zai": {
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(data, usedModel);

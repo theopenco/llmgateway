@@ -452,6 +452,10 @@ export const log = pgTable(
 		cachedInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		imageInputTokens: decimal(),
+		imageOutputTokens: decimal(),
+		imageInputCost: real(),
+		imageOutputCost: real(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		serviceFee: real(),
@@ -1129,5 +1133,45 @@ export const guardrailViolation = pgTable(
 			table.ruleId,
 			table.createdAt,
 		),
+	],
+);
+
+// Discount - Admin-configurable discounts for providers/models
+// Can be global (organizationId = null) or org-specific
+export const discount = pgTable(
+	"discount",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Scope: null = global discount, otherwise org-specific
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// Target: provider-only, model-only, or both
+		// null provider = applies to all providers
+		provider: text(),
+		// null model = applies to all models (of provider if specified)
+		model: text(),
+		// Discount value (0-1, where 0.3 = 30% off, user pays 70%)
+		discountPercent: decimal().notNull(),
+		// Optional metadata
+		reason: text(),
+		expiresAt: timestamp(),
+	},
+	(table) => [
+		// Unique constraint: one discount per org+provider+model combo
+		// Using COALESCE to handle nulls in unique constraint
+		unique("discount_org_provider_model_unique").on(
+			table.organizationId,
+			table.provider,
+			table.model,
+		),
+		index("discount_organization_id_idx").on(table.organizationId),
+		index("discount_provider_idx").on(table.provider),
+		index("discount_model_idx").on(table.model),
 	],
 );

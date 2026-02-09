@@ -188,6 +188,7 @@ const ModelTableRow = React.memo(
 		onToggleExpand,
 		onCopy,
 		onNavigate,
+		formatPrice,
 	}: {
 		row: FlattenedModelRow;
 		isExpanded: boolean;
@@ -195,6 +196,10 @@ const ModelTableRow = React.memo(
 		onToggleExpand: () => void;
 		onCopy: (text: string, e: React.MouseEvent) => void;
 		onNavigate: () => void;
+		formatPrice: (
+			price: string | null | undefined,
+			discount?: string | null,
+		) => React.ReactNode;
 	}) => {
 		const { ProviderIcon } = row;
 
@@ -273,26 +278,17 @@ const ModelTableRow = React.memo(
 
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.inputPrice !== null &&
-						row.provider.inputPrice !== undefined
-							? `$${(parseFloat(row.provider.inputPrice) * 1e6).toFixed(2)}`
-							: "—"}
+						{formatPrice(row.provider.inputPrice, row.provider.discount)}
 					</TableCell>
 
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.outputPrice !== null &&
-						row.provider.outputPrice !== undefined
-							? `$${(parseFloat(row.provider.outputPrice) * 1e6).toFixed(2)}`
-							: "—"}
+						{formatPrice(row.provider.outputPrice, row.provider.discount)}
 					</TableCell>
 
 					{/* Cache Read Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.cachedInputPrice !== null &&
-						row.provider.cachedInputPrice !== undefined
-							? `$${(parseFloat(row.provider.cachedInputPrice) * 1e6).toFixed(2)}`
-							: "—"}
+						{formatPrice(row.provider.cachedInputPrice, row.provider.discount)}
 					</TableCell>
 
 					{/* Features Column */}
@@ -1568,6 +1564,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
 									)
 								}
+								formatPrice={formatPrice}
 							/>
 						))}
 					</TableBody>

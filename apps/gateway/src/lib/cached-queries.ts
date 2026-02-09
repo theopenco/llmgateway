@@ -15,6 +15,7 @@ import {
 	eq,
 	inArray,
 	cdb as db,
+	db as uncachedDb,
 	apiKey as apiKeyTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
 	organization as organizationTable,
@@ -73,7 +74,23 @@ export async function findProjectById(
 }
 
 /**
+ * Find an organization by ID without cache (for fresh credit checks)
+ */
+export async function findOrganizationByIdUncached(
+	id: string,
+): Promise<Organization | undefined> {
+	const results = await uncachedDb
+		.select()
+		.from(organizationTable)
+		.where(eq(organizationTable.id, id))
+		.limit(1);
+	return results[0];
+}
+
+/**
  * Find an organization by ID (cacheable)
+ * When the organization has 0 credits, refetch without cache to ensure
+ * no delay in reflecting topups and usage updates.
  */
 export async function findOrganizationById(
 	id: string,
@@ -83,7 +100,24 @@ export async function findOrganizationById(
 		.from(organizationTable)
 		.where(eq(organizationTable.id, id))
 		.limit(1);
-	return results[0];
+	const org = results[0];
+
+	// If org has 0 or negative credits, refetch without cache
+	// to ensure topups are reflected immediately
+	if (org) {
+		const regularCredits = parseFloat(org.credits || "0");
+		const devPlanCreditsUsed = parseFloat(org.devPlanCreditsUsed || "0");
+		const devPlanCreditsLimit = parseFloat(org.devPlanCreditsLimit || "0");
+		const devPlanCreditsRemaining =
+			org.devPlan !== "none" ? devPlanCreditsLimit - devPlanCreditsUsed : 0;
+		const totalCredits = regularCredits + devPlanCreditsRemaining;
+
+		if (totalCredits <= 0) {
+			return await findOrganizationByIdUncached(id);
+		}
+	}
+
+	return org;
 }
 
 /**

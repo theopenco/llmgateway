@@ -62,6 +62,7 @@ export const openaiModels = [
 				vision: true,
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
+				supportedParameters: ["max_tokens", "response_format"],
 			},
 		],
 	},
@@ -87,6 +88,7 @@ export const openaiModels = [
 				vision: true,
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
+				supportedParameters: ["max_tokens", "response_format"],
 			},
 		],
 	},
@@ -490,6 +492,7 @@ export const openaiModels = [
 				tools: false,
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportedParameters: ["reasoning_effort", "response_format"],
 			},
 			{
 				test: "skip",
@@ -530,6 +533,7 @@ export const openaiModels = [
 				tools: false,
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportedParameters: ["reasoning_effort", "response_format"],
 			},
 			{
 				test: "skip",
@@ -585,6 +589,14 @@ export const openaiModels = [
 				tools: true,
 				reasoning: true,
 				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
 			},
 			{
 				test: "skip",

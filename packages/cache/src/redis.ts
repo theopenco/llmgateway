@@ -24,10 +24,10 @@ export async function publishToQueue(
 	try {
 		await redisClient.lpush(queue, JSON.stringify(message));
 	} catch (error) {
-		logger.error(
-			"Error publishing to queue",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Error publishing to queue", {
+			error: error instanceof Error ? error : new Error(String(error)),
+			item: message,
+		});
 		throw error;
 	}
 }

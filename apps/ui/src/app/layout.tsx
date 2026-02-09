@@ -17,6 +17,7 @@ const inter = Inter({
 const geistMono = Geist_Mono({
 	variable: "--font-mono",
 	subsets: ["latin"],
+	display: "swap",
 });
 
 export const dynamic = "force-dynamic";
@@ -127,6 +128,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
+				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<script
 					type="application/ld+json"
 					dangerouslySetInnerHTML={{

@@ -12,7 +12,7 @@ const Command = React.forwardRef<
 	<CommandPrimitive
 		ref={ref}
 		className={cn(
-			"flex h-full w-full flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground",
+			"flex h-full w-full flex-col rounded-md bg-popover text-popover-foreground",
 			className,
 		)}
 		{...props}
@@ -44,7 +44,7 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
 	<CommandPrimitive.List
 		ref={ref}
-		className={cn("max-h-60 overflow-y-auto p-1", className)}
+		className={cn("max-h-[300px] overflow-auto", className)}
 		{...props}
 	/>
 ));
@@ -69,7 +69,7 @@ const CommandGroup = React.forwardRef<
 	<CommandPrimitive.Group
 		ref={ref}
 		className={cn(
-			"overflow-hidden p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
+			"p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
 			className,
 		)}
 		{...props}

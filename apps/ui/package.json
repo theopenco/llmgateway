@@ -15,6 +15,12 @@
 		"lint": "eslint . && prettier --check .",
 		"start": "next start"
 	},
+	"browserslist": [
+		"chrome >= 92",
+		"edge >= 92",
+		"firefox >= 90",
+		"safari >= 15.4"
+	],
 	"dependencies": {
 		"@content-collections/core": "0.11.1",
 		"@content-collections/next": "0.2.9",

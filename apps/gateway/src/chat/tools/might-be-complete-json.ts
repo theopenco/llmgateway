@@ -27,19 +27,42 @@ export function mightBeCompleteJson(str: string): boolean {
 		return false;
 	}
 
-	// Quick bracket count (doesn't account for strings, but catches obvious imbalances)
+	// Count brackets/braces, skipping content inside strings
 	let braces = 0;
 	let brackets = 0;
-	for (const c of trimmed) {
-		if (c === "{") {
-			braces++;
-		} else if (c === "}") {
-			braces--;
-		} else if (c === "[") {
-			brackets++;
-		} else if (c === "]") {
-			brackets--;
+	let inString = false;
+	let i = 0;
+
+	while (i < trimmed.length) {
+		const c = trimmed[i];
+
+		if (inString) {
+			if (c === "\\") {
+				// Skip escaped character
+				i += 2;
+				continue;
+			} else if (c === '"') {
+				inString = false;
+			}
+		} else {
+			if (c === '"') {
+				inString = true;
+			} else if (c === "{") {
+				braces++;
+			} else if (c === "}") {
+				braces--;
+			} else if (c === "[") {
+				brackets++;
+			} else if (c === "]") {
+				brackets--;
+			}
 		}
+		i++;
+	}
+
+	// If still in string, the JSON is incomplete
+	if (inString) {
+		return false;
 	}
 
 	return braces === 0 && brackets === 0;

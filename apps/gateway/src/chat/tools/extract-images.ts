@@ -7,7 +7,8 @@ import type { Provider } from "@llmgateway/models";
 export function extractImages(data: any, provider: Provider): ImageObject[] {
 	switch (provider) {
 		case "google-ai-studio":
-		case "google-vertex": {
+		case "google-vertex":
+		case "obsidian": {
 			const parts = data.candidates?.[0]?.content?.parts || [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
 			return imageParts.map(

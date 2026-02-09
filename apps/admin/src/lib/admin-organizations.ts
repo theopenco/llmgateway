@@ -1,3 +1,5 @@
+"use server";
+
 import { cookies } from "next/headers";
 
 import { fetchServerData } from "./server-api";
@@ -9,6 +11,7 @@ export interface Organization {
 	plan: string;
 	devPlan: string;
 	credits: string;
+	totalCreditsAllTime?: string;
 	createdAt: string;
 	status: string | null;
 }
@@ -16,6 +19,7 @@ export interface Organization {
 export interface OrganizationsListResponse {
 	organizations: Organization[];
 	total: number;
+	totalCredits: string;
 	limit: number;
 	offset: number;
 }
@@ -38,7 +42,7 @@ export interface OrganizationMetrics {
 	cachedCost: number;
 	mostUsedModel: string | null;
 	mostUsedProvider: string | null;
-	mostUsedModelRequestCount: number;
+	mostUsedModelCost: number;
 }
 
 export interface Transaction {
@@ -53,8 +57,44 @@ export interface Transaction {
 }
 
 export interface TransactionsListResponse {
+	organization: Organization;
 	transactions: Transaction[];
 	total: number;
+	limit: number;
+	offset: number;
+}
+
+export interface Project {
+	id: string;
+	name: string;
+	mode: string;
+	status: string | null;
+	cachingEnabled: boolean;
+	createdAt: string;
+}
+
+export interface ProjectsListResponse {
+	projects: Project[];
+	total: number;
+}
+
+export interface ApiKey {
+	id: string;
+	token: string;
+	description: string;
+	status: string | null;
+	usage: string;
+	usageLimit: string | null;
+	projectId: string;
+	projectName: string;
+	createdAt: string;
+}
+
+export interface ApiKeysListResponse {
+	apiKeys: ApiKey[];
+	total: number;
+	limit: number;
+	offset: number;
 }
 
 async function hasSession(): Promise<boolean> {
@@ -114,11 +154,9 @@ export async function getOrganizationMetrics(
 	window: TokenWindow = "1d",
 ): Promise<OrganizationMetrics | null> {
 	if (!(await hasSession())) {
-		console.log("[getOrganizationMetrics] No session found");
 		return null;
 	}
 
-	console.log("[getOrganizationMetrics] Fetching metrics for org:", orgId);
 	const data = await fetchServerData<OrganizationMetrics>(
 		"GET",
 		"/admin/organizations/{orgId}",
@@ -133,23 +171,50 @@ export async function getOrganizationMetrics(
 			},
 		},
 	);
-	console.log("[getOrganizationMetrics] Result:", data ? "success" : "null");
 
 	return data;
 }
 
 export async function getOrganizationTransactions(
 	orgId: string,
+	params?: {
+		limit?: number;
+		offset?: number;
+	},
 ): Promise<TransactionsListResponse | null> {
 	if (!(await hasSession())) {
-		console.log("[getOrganizationTransactions] No session found");
 		return null;
 	}
 
-	// Cast needed as this endpoint may not be in generated types yet
 	const data = await fetchServerData<TransactionsListResponse>(
 		"GET",
 		"/admin/organizations/{orgId}/transactions" as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: {
+					orgId,
+				},
+				query: {
+					limit: params?.limit ?? 25,
+					offset: params?.offset ?? 0,
+				},
+			},
+		},
+	);
+
+	return data;
+}
+
+export async function getOrganizationProjects(
+	orgId: string,
+): Promise<ProjectsListResponse | null> {
+	if (!(await hasSession())) {
+		return null;
+	}
+
+	const data = await fetchServerData<ProjectsListResponse>(
+		"GET",
+		"/admin/organizations/{orgId}/projects" as "/admin/organizations/{orgId}",
 		{
 			params: {
 				path: {
@@ -160,4 +225,41 @@ export async function getOrganizationTransactions(
 	);
 
 	return data;
+}
+
+export async function getOrganizationApiKeys(
+	orgId: string,
+	params?: {
+		limit?: number;
+		offset?: number;
+	},
+): Promise<ApiKeysListResponse | null> {
+	if (!(await hasSession())) {
+		return null;
+	}
+
+	const data = await fetchServerData<ApiKeysListResponse>(
+		"GET",
+		"/admin/organizations/{orgId}/api-keys" as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: {
+					orgId,
+				},
+				query: {
+					limit: params?.limit ?? 25,
+					offset: params?.offset ?? 0,
+				},
+			},
+		},
+	);
+
+	return data;
+}
+
+export async function loadMetricsAction(
+	orgId: string,
+	window: TokenWindow,
+): Promise<OrganizationMetrics | null> {
+	return await getOrganizationMetrics(orgId, window);
 }

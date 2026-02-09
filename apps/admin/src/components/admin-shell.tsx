@@ -1,7 +1,13 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, LayoutDashboard, LogOut, Menu } from "lucide-react";
+import {
+	Building2,
+	LayoutDashboard,
+	LogOut,
+	Menu,
+	Percent,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -70,6 +76,7 @@ export function AdminShell({ children }: AdminShellProps) {
 
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
+	const isDiscounts = pathname === "/discounts";
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -120,6 +127,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isOrganizations} size="lg">
 										<Building2 className="h-4 w-4" />
 										<span>Organizations</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/discounts" className="block">
+									<SidebarMenuButton isActive={isDiscounts} size="lg">
+										<Percent className="h-4 w-4" />
+										<span>Global Discounts</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

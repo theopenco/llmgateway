@@ -133,11 +133,11 @@ export function Hero({
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
 										<Link
-											href="/changelog/gemini-3-pro-preview-support"
+											href="/changelog/agents-templates-cli"
 											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
 											<span className="text-foreground text-sm">
-												Gemini 3 is live with a 20% discount
+												AI Agent skills, Agents, Templates & CLI
 											</span>
 											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
 
@@ -319,42 +319,52 @@ export function Hero({
 								</AnimatedGroup>
 							)}
 
-							<AnimatedGroup
-								variants={{
-									container: {
-										visible: {
-											transition: {
-												staggerChildren: 0.05,
-												delayChildren: 0.75,
-											},
-										},
-									},
-									...transitionVariants,
-								}}
-							>
-								<div className="relative -mr-56 mt-8 overflow-hidden px-2 sm:mr-0 sm:mt-12 md:mt-20">
-									<div
-										aria-hidden
-										className="bg-linear-to-b to-background absolute inset-0 z-10 from-transparent from-35%"
+							<div className="relative -mr-56 mt-8 overflow-hidden px-2 sm:mr-0 sm:mt-12 md:mt-20">
+								<div
+									aria-hidden
+									className="bg-linear-to-b to-background absolute inset-0 z-10 from-transparent from-35%"
+								/>
+								<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
+									<Image
+										className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
+										src="/new-hero.webp"
+										alt="LLM Gateway dashboard showing analytics and API usage"
+										width={2240}
+										height={1224}
+										sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
+										priority
+									/>
+									<Image
+										className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
+										src="/new-hero-light.webp"
+										alt="LLM Gateway dashboard showing analytics and API usage"
+										width={2240}
+										height={1228}
+										sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
+										priority
 									/>
 									<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
 										<Image
 											className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
-											src="/new-hero.png"
+											src="/new-hero.webp"
 											alt="LLM Gateway dashboard showing analytics and API usage"
-											width={2696}
-											height={1386}
+											width={2240}
+											height={1224}
+											sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
+											priority
 										/>
 										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
-											src="/new-hero-light.png"
+											src="/new-hero-light.webp"
 											alt="LLM Gateway dashboard showing analytics and API usage"
-											width={2696}
-											height={1386}
+											width={2240}
+											height={1228}
+											sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
+											priority
 										/>
 									</div>
 								</div>
-							</AnimatedGroup>
+							</div>
 						</div>
 					</section>
 					<section className="bg-background pb-16 pt-16 md:pb-32">

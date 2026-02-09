@@ -2,8 +2,6 @@ import { fetchServerData } from "@/lib/server-api";
 
 import { ReferralsClient } from "./referrals-client";
 
-export const dynamic = "force-dynamic";
-
 interface Transaction {
 	id: string;
 	createdAt: string;
