@@ -1151,6 +1151,19 @@ export const projectHourlyStats = pgTable(
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
 		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
 		// Token counts
 		inputTokens: decimal().notNull().default("0"),
 		outputTokens: decimal().notNull().default("0"),
@@ -1197,14 +1210,33 @@ export const projectHourlyModelStats = pgTable(
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
 		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
 		// Token counts
 		inputTokens: decimal().notNull().default("0"),
 		outputTokens: decimal().notNull().default("0"),
 		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -1223,5 +1255,68 @@ export const projectHourlyModelStats = pgTable(
 		index("project_hourly_model_stats_hour_timestamp_idx").on(
 			table.hourTimestamp,
 		),
+	],
+);
+
+// API key hourly statistics aggregation - for per-key breakdown queries
+export const apiKeyHourlyStats = pgTable(
+	"api_key_hourly_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for efficient queries
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per api-key-hour
+		unique().on(table.apiKeyId, table.hourTimestamp),
+		// Index for dashboard queries (api key + time range)
+		index("api_key_hourly_stats_api_key_id_hour_timestamp_idx").on(
+			table.apiKeyId,
+			table.hourTimestamp,
+		),
+		// Index for project-level queries (all keys in a project)
+		index("api_key_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("api_key_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
 	],
 );

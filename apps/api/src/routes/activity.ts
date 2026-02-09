@@ -7,7 +7,6 @@ import { getUserOrganizationIds } from "@/utils/authorization.js";
 import {
 	db,
 	sql,
-	tables,
 	inArray,
 	and,
 	gte,
@@ -15,6 +14,7 @@ import {
 	eq,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	apiKeyHourlyStats,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -133,131 +133,77 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// If filtering by apiKeyId, we need to fall back to raw log table queries
-	// since aggregation tables don't track per-API-key stats
+	// If filtering by apiKeyId, use the apiKeyHourlyStats aggregation table
 	if (apiKeyId) {
-		// Query daily aggregated data from raw logs (fallback for apiKeyId filter)
-		const dailyAggregates = await db
+		// Query daily aggregated data from apiKeyHourlyStats table
+		const hourlyAggregates = await db
 			.select({
-				date: sql<string>`DATE(${tables.log.createdAt})`.as("date"),
-				requestCount: sql<number>`COUNT(*)`.as("requestCount"),
+				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
 				inputTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.promptTokens} AS NUMERIC)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
 						"inputTokens",
 					),
 				outputTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.completionTokens} AS NUMERIC)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
 						"outputTokens",
 					),
 				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
-				inputCost: sql<number>`COALESCE(SUM(${tables.log.inputCost}), 0)`.as(
-					"inputCost",
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					"cost",
 				),
-				outputCost: sql<number>`COALESCE(SUM(${tables.log.outputCost}), 0)`.as(
-					"outputCost",
-				),
+				inputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.inputCost}), 0)`.as(
+						"inputCost",
+					),
+				outputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.outputCost}), 0)`.as(
+						"outputCost",
+					),
 				requestCost:
-					sql<number>`COALESCE(SUM(${tables.log.requestCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCost}), 0)`.as(
 						"requestCost",
 					),
 				dataStorageCost:
-					sql<number>`COALESCE(SUM(${tables.log.dataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.dataStorageCost}), 0)`.as(
 						"dataStorageCost",
 					),
 				errorCount:
-					sql<number>`SUM(CASE WHEN ${tables.log.hasError} = true THEN 1 ELSE 0 END)`.as(
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
 						"errorCount",
 					),
 				cacheCount:
-					sql<number>`SUM(CASE WHEN ${tables.log.cached} = true THEN 1 ELSE 0 END)`.as(
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
 						"cacheCount",
 					),
-				discountSavings: sql<number>`COALESCE(
-					SUM(
-						CASE
-							WHEN ${tables.log.discount} > 0 AND ${tables.log.discount} < 1
-							THEN ${tables.log.cost} * ${tables.log.discount} / (1 - ${tables.log.discount})
-							ELSE 0
-						END
+				discountSavings:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.discountSavings}), 0)`.as(
+						"discountSavings",
 					),
-					0
-				)`.as("discountSavings"),
 			})
-			.from(tables.log)
+			.from(apiKeyHourlyStats)
 			.where(
 				and(
-					inArray(tables.log.projectId, projectIds),
-					gte(tables.log.createdAt, startDate),
-					lte(tables.log.createdAt, endDate),
-					eq(tables.log.apiKeyId, apiKeyId),
+					eq(apiKeyHourlyStats.apiKeyId, apiKeyId),
+					inArray(apiKeyHourlyStats.projectId, projectIds),
+					gte(apiKeyHourlyStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(sql`DATE(${tables.log.createdAt})`)
-			.orderBy(sql`DATE(${tables.log.createdAt}) ASC`);
+			.groupBy(sql`DATE(${apiKeyHourlyStats.hourTimestamp})`)
+			.orderBy(sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`);
 
-		// Query model breakdown data from raw logs
-		const modelBreakdowns = await db
-			.select({
-				date: sql<string>`DATE(${tables.log.createdAt})`.as("date"),
-				usedModel: tables.log.usedModel,
-				usedProvider: tables.log.usedProvider,
-				requestCount: sql<number>`COUNT(*)`.as("requestCount"),
-				inputTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.promptTokens} AS NUMERIC)), 0)`.as(
-						"inputTokens",
-					),
-				outputTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.completionTokens} AS NUMERIC)), 0)`.as(
-						"outputTokens",
-					),
-				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0)`.as(
-						"totalTokens",
-					),
-				cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
-			})
-			.from(tables.log)
-			.where(
-				and(
-					inArray(tables.log.projectId, projectIds),
-					gte(tables.log.createdAt, startDate),
-					lte(tables.log.createdAt, endDate),
-					eq(tables.log.apiKeyId, apiKeyId),
-				),
-			)
-			.groupBy(
-				sql`DATE(${tables.log.createdAt}), ${tables.log.usedModel}, ${tables.log.usedProvider}`,
-			)
-			.orderBy(
-				sql`DATE(${tables.log.createdAt}) ASC, ${tables.log.usedModel} ASC`,
-			);
-
-		// Create a map to organize model breakdowns by date
-		const modelBreakdownByDate = new Map<
-			string,
-			z.infer<typeof modelUsageSchema>[]
-		>();
-		for (const breakdown of modelBreakdowns) {
-			if (!modelBreakdownByDate.has(breakdown.date)) {
-				modelBreakdownByDate.set(breakdown.date, []);
-			}
-			modelBreakdownByDate.get(breakdown.date)!.push({
-				id: breakdown.usedModel || "unknown",
-				provider: breakdown.usedProvider || "unknown",
-				requestCount: Number(breakdown.requestCount),
-				inputTokens: Number(breakdown.inputTokens),
-				outputTokens: Number(breakdown.outputTokens),
-				totalTokens: Number(breakdown.totalTokens),
-				cost: Number(breakdown.cost),
-			});
-		}
+		// Note: We don't have per-apikey-model aggregation, so model breakdown is empty for apiKeyId filter
+		// This is a tradeoff to avoid exploding cardinality (apiKey * model * provider * hour)
 
 		// Process daily aggregates and add calculated fields
-		const activityData = dailyAggregates.map((day) => {
+		const activityData = hourlyAggregates.map((day) => {
 			const requestCount = Number(day.requestCount);
 			const inputTokens = Number(day.inputTokens);
 			const outputTokens = Number(day.outputTokens);
@@ -292,7 +238,7 @@ activity.openapi(getActivity, async (c) => {
 				cacheCount,
 				cacheRate,
 				discountSavings,
-				modelBreakdown: modelBreakdownByDate.get(day.date) || [],
+				modelBreakdown: [], // No per-apikey model breakdown to avoid cardinality explosion
 			};
 		});
 

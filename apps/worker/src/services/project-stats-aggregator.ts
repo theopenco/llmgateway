@@ -3,6 +3,7 @@ import {
 	log,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	apiKeyHourlyStats,
 	sql,
 	gte,
 	lt,
@@ -38,8 +39,117 @@ function getCurrentHourStart(): Date {
 }
 
 /**
+ * Common aggregation select fields for all stats tables
+ */
+function getCommonAggregationFields() {
+	return {
+		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		errorCount:
+			sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
+				"errorCount",
+			),
+		cacheCount:
+			sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
+				"cacheCount",
+			),
+		streamedCount:
+			sql<number>`sum(case when ${log.streamed} = true then 1 else 0 end)::int`.as(
+				"streamedCount",
+			),
+		nonStreamedCount:
+			sql<number>`sum(case when ${log.streamed} = false or ${log.streamed} is null then 1 else 0 end)::int`.as(
+				"nonStreamedCount",
+			),
+		// Unified finish reason counts
+		completedCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
+				"completedCount",
+			),
+		lengthLimitCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'length_limit' then 1 else 0 end)::int`.as(
+				"lengthLimitCount",
+			),
+		contentFilterCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'content_filter' then 1 else 0 end)::int`.as(
+				"contentFilterCount",
+			),
+		toolCallsCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'tool_calls' then 1 else 0 end)::int`.as(
+				"toolCallsCount",
+			),
+		canceledCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'canceled' then 1 else 0 end)::int`.as(
+				"canceledCount",
+			),
+		unknownFinishCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null then 1 else 0 end)::int`.as(
+				"unknownFinishCount",
+			),
+		// Error type counts
+		clientErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'client_error' then 1 else 0 end)::int`.as(
+				"clientErrorCount",
+			),
+		gatewayErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+				"gatewayErrorCount",
+			),
+		upstreamErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+				"upstreamErrorCount",
+			),
+		// Token counts
+		inputTokens:
+			sql<string>`coalesce(sum(cast(${log.promptTokens} as numeric)), 0)`.as(
+				"inputTokens",
+			),
+		outputTokens:
+			sql<string>`coalesce(sum(cast(${log.completionTokens} as numeric)), 0)`.as(
+				"outputTokens",
+			),
+		totalTokens:
+			sql<string>`coalesce(sum(cast(${log.totalTokens} as numeric)), 0)`.as(
+				"totalTokens",
+			),
+		reasoningTokens:
+			sql<string>`coalesce(sum(cast(${log.reasoningTokens} as numeric)), 0)`.as(
+				"reasoningTokens",
+			),
+		cachedTokens:
+			sql<string>`coalesce(sum(cast(${log.cachedTokens} as numeric)), 0)`.as(
+				"cachedTokens",
+			),
+		// Costs
+		cost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("cost"),
+		inputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as("inputCost"),
+		outputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
+			"outputCost",
+		),
+		requestCost: sql<number>`coalesce(sum(${log.requestCost}), 0)`.as(
+			"requestCost",
+		),
+		dataStorageCost:
+			sql<number>`coalesce(sum(cast(${log.dataStorageCost} as real)), 0)`.as(
+				"dataStorageCost",
+			),
+		serviceFee: sql<number>`coalesce(sum(${log.serviceFee}), 0)`.as(
+			"serviceFee",
+		),
+		discountSavings: sql<number>`coalesce(
+			sum(
+				case
+					when ${log.discount} > 0 and ${log.discount} < 1
+					then ${log.cost} * ${log.discount} / (1 - ${log.discount})
+					else 0
+				end
+			),
+			0
+		)`.as("discountSavings"),
+	};
+}
+
+/**
  * Calculate and store hourly statistics for a specific project and hour
- * This recalculates the entire hour from the raw log table
  */
 async function recalculateProjectHourlyStats(
 	projectId: string,
@@ -48,66 +158,8 @@ async function recalculateProjectHourlyStats(
 	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
-	// Aggregate all logs for this project and hour
-	const [projectStats] = await database
-		.select({
-			requestCount: sql<number>`count(*)::int`.as("requestCount"),
-			errorCount:
-				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
-					"errorCount",
-				),
-			cacheCount:
-				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
-					"cacheCount",
-				),
-			inputTokens:
-				sql<string>`coalesce(sum(cast(${log.promptTokens} as numeric)), 0)`.as(
-					"inputTokens",
-				),
-			outputTokens:
-				sql<string>`coalesce(sum(cast(${log.completionTokens} as numeric)), 0)`.as(
-					"outputTokens",
-				),
-			totalTokens:
-				sql<string>`coalesce(sum(cast(${log.totalTokens} as numeric)), 0)`.as(
-					"totalTokens",
-				),
-			reasoningTokens:
-				sql<string>`coalesce(sum(cast(${log.reasoningTokens} as numeric)), 0)`.as(
-					"reasoningTokens",
-				),
-			cachedTokens:
-				sql<string>`coalesce(sum(cast(${log.cachedTokens} as numeric)), 0)`.as(
-					"cachedTokens",
-				),
-			cost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("cost"),
-			inputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as(
-				"inputCost",
-			),
-			outputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
-				"outputCost",
-			),
-			requestCost: sql<number>`coalesce(sum(${log.requestCost}), 0)`.as(
-				"requestCost",
-			),
-			dataStorageCost:
-				sql<number>`coalesce(sum(cast(${log.dataStorageCost} as real)), 0)`.as(
-					"dataStorageCost",
-				),
-			serviceFee: sql<number>`coalesce(sum(${log.serviceFee}), 0)`.as(
-				"serviceFee",
-			),
-			discountSavings: sql<number>`coalesce(
-				sum(
-					case
-						when ${log.discount} > 0 and ${log.discount} < 1
-						then ${log.cost} * ${log.discount} / (1 - ${log.discount})
-						else 0
-					end
-				),
-				0
-			)`.as("discountSavings"),
-		})
+	const [stats] = await database
+		.select(getCommonAggregationFields())
 		.from(log)
 		.where(
 			and(
@@ -117,50 +169,21 @@ async function recalculateProjectHourlyStats(
 			),
 		);
 
-	if (!projectStats || projectStats.requestCount === 0) {
+	if (!stats || stats.requestCount === 0) {
 		return;
 	}
 
-	// Upsert project hourly stats
 	await database
 		.insert(projectHourlyStats)
 		.values({
 			projectId,
 			hourTimestamp,
-			requestCount: projectStats.requestCount,
-			errorCount: projectStats.errorCount,
-			cacheCount: projectStats.cacheCount,
-			inputTokens: projectStats.inputTokens,
-			outputTokens: projectStats.outputTokens,
-			totalTokens: projectStats.totalTokens,
-			reasoningTokens: projectStats.reasoningTokens,
-			cachedTokens: projectStats.cachedTokens,
-			cost: projectStats.cost,
-			inputCost: projectStats.inputCost,
-			outputCost: projectStats.outputCost,
-			requestCost: projectStats.requestCost,
-			dataStorageCost: projectStats.dataStorageCost,
-			serviceFee: projectStats.serviceFee,
-			discountSavings: projectStats.discountSavings,
+			...stats,
 		})
 		.onConflictDoUpdate({
 			target: [projectHourlyStats.projectId, projectHourlyStats.hourTimestamp],
 			set: {
-				requestCount: projectStats.requestCount,
-				errorCount: projectStats.errorCount,
-				cacheCount: projectStats.cacheCount,
-				inputTokens: projectStats.inputTokens,
-				outputTokens: projectStats.outputTokens,
-				totalTokens: projectStats.totalTokens,
-				reasoningTokens: projectStats.reasoningTokens,
-				cachedTokens: projectStats.cachedTokens,
-				cost: projectStats.cost,
-				inputCost: projectStats.inputCost,
-				outputCost: projectStats.outputCost,
-				requestCost: projectStats.requestCost,
-				dataStorageCost: projectStats.dataStorageCost,
-				serviceFee: projectStats.serviceFee,
-				discountSavings: projectStats.discountSavings,
+				...stats,
 				updatedAt: new Date(),
 			},
 		});
@@ -176,39 +199,11 @@ async function recalculateProjectHourlyModelStats(
 	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
-	// Aggregate logs by model and provider for this project and hour
 	const modelStats = await database
 		.select({
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			requestCount: sql<number>`count(*)::int`.as("requestCount"),
-			errorCount:
-				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
-					"errorCount",
-				),
-			cacheCount:
-				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
-					"cacheCount",
-				),
-			inputTokens:
-				sql<string>`coalesce(sum(cast(${log.promptTokens} as numeric)), 0)`.as(
-					"inputTokens",
-				),
-			outputTokens:
-				sql<string>`coalesce(sum(cast(${log.completionTokens} as numeric)), 0)`.as(
-					"outputTokens",
-				),
-			totalTokens:
-				sql<string>`coalesce(sum(cast(${log.totalTokens} as numeric)), 0)`.as(
-					"totalTokens",
-				),
-			cost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("cost"),
-			inputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as(
-				"inputCost",
-			),
-			outputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
-				"outputCost",
-			),
+			...getCommonAggregationFields(),
 		})
 		.from(log)
 		.where(
@@ -220,24 +215,16 @@ async function recalculateProjectHourlyModelStats(
 		)
 		.groupBy(log.usedModel, log.usedProvider);
 
-	// Upsert each model's stats
 	for (const stat of modelStats) {
+		const { usedModel, usedProvider, ...statsFields } = stat;
 		await database
 			.insert(projectHourlyModelStats)
 			.values({
 				projectId,
 				hourTimestamp,
-				usedModel: stat.usedModel,
-				usedProvider: stat.usedProvider,
-				requestCount: stat.requestCount,
-				errorCount: stat.errorCount,
-				cacheCount: stat.cacheCount,
-				inputTokens: stat.inputTokens,
-				outputTokens: stat.outputTokens,
-				totalTokens: stat.totalTokens,
-				cost: stat.cost,
-				inputCost: stat.inputCost,
-				outputCost: stat.outputCost,
+				usedModel,
+				usedProvider,
+				...statsFields,
 			})
 			.onConflictDoUpdate({
 				target: [
@@ -247,15 +234,52 @@ async function recalculateProjectHourlyModelStats(
 					projectHourlyModelStats.usedProvider,
 				],
 				set: {
-					requestCount: stat.requestCount,
-					errorCount: stat.errorCount,
-					cacheCount: stat.cacheCount,
-					inputTokens: stat.inputTokens,
-					outputTokens: stat.outputTokens,
-					totalTokens: stat.totalTokens,
-					cost: stat.cost,
-					inputCost: stat.inputCost,
-					outputCost: stat.outputCost,
+					...statsFields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+}
+
+/**
+ * Calculate and store hourly API key statistics for a specific project and hour
+ */
+async function recalculateApiKeyHourlyStats(
+	projectId: string,
+	hourTimestamp: Date,
+) {
+	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
+	const database = db;
+
+	const apiKeyStats = await database
+		.select({
+			apiKeyId: log.apiKeyId,
+			...getCommonAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				gte(log.createdAt, hourTimestamp),
+				lt(log.createdAt, hourEnd),
+			),
+		)
+		.groupBy(log.apiKeyId);
+
+	for (const stat of apiKeyStats) {
+		const { apiKeyId, ...statsFields } = stat;
+		await database
+			.insert(apiKeyHourlyStats)
+			.values({
+				apiKeyId,
+				projectId,
+				hourTimestamp,
+				...statsFields,
+			})
+			.onConflictDoUpdate({
+				target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
+				set: {
+					...statsFields,
 					updatedAt: new Date(),
 				},
 			});
@@ -264,8 +288,6 @@ async function recalculateProjectHourlyModelStats(
 
 /**
  * Process unprocessed logs and update aggregation tables
- * This finds logs where statsAggregatedAt is NULL, determines which hour buckets
- * need recalculation, recalculates them, and marks the logs as processed.
  */
 export async function processUnprocessedLogs() {
 	const database = db;
@@ -276,7 +298,6 @@ export async function processUnprocessedLogs() {
 
 	try {
 		// Find distinct project-hour combinations that have unprocessed logs
-		// Only process hours that are complete (not the current hour)
 		const unprocessedBuckets = await database
 			.select({
 				projectId: log.projectId,
@@ -286,13 +307,10 @@ export async function processUnprocessedLogs() {
 			})
 			.from(log)
 			.where(
-				and(
-					isNull(log.statsAggregatedAt),
-					lt(log.createdAt, currentHourStart), // Only process completed hours
-				),
+				and(isNull(log.statsAggregatedAt), lt(log.createdAt, currentHourStart)),
 			)
 			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
-			.limit(100); // Process up to 100 buckets per cycle to avoid long-running transactions
+			.limit(100);
 
 		if (unprocessedBuckets.length === 0) {
 			logger.debug("No unprocessed logs found for stats aggregation");
@@ -305,16 +323,16 @@ export async function processUnprocessedLogs() {
 
 		let totalLogsMarked = 0;
 
-		// Process each bucket
 		for (const bucket of unprocessedBuckets) {
 			const hourTimestamp = new Date(bucket.hourTimestamp);
 			const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 
-			// Recalculate aggregations for this project-hour
+			// Recalculate all aggregation tables
 			await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
 			await recalculateProjectHourlyModelStats(bucket.projectId, hourTimestamp);
+			await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
 
-			// Mark logs in this bucket as processed
+			// Mark logs as processed
 			const result = await database
 				.update(log)
 				.set({ statsAggregatedAt: now })
@@ -327,12 +345,11 @@ export async function processUnprocessedLogs() {
 					),
 				);
 
-			// Count affected rows (drizzle returns the updated rows)
 			const affectedRows = Array.isArray(result) ? result.length : 0;
 			totalLogsMarked += affectedRows;
 
 			logger.debug(
-				`Processed bucket ${bucket.projectId}/${hourTimestamp.toISOString()}, marked logs as aggregated`,
+				`Processed bucket ${bucket.projectId}/${hourTimestamp.toISOString()}`,
 			);
 		}
 
@@ -355,8 +372,6 @@ export async function processUnprocessedLogs() {
 
 /**
  * Refresh the current hour's stats (for real-time dashboard data)
- * This is separate from processUnprocessedLogs because the current hour
- * is always incomplete and needs continuous updates.
  */
 export async function refreshCurrentHourStats() {
 	const database = db;
@@ -367,7 +382,6 @@ export async function refreshCurrentHourStats() {
 	);
 
 	try {
-		// Find all projects that have logs in the current hour
 		const projectsWithCurrentHourLogs = await database
 			.select({
 				projectId: log.projectId,
@@ -379,6 +393,7 @@ export async function refreshCurrentHourStats() {
 		for (const { projectId } of projectsWithCurrentHourLogs) {
 			await recalculateProjectHourlyStats(projectId, currentHourStart);
 			await recalculateProjectHourlyModelStats(projectId, currentHourStart);
+			await recalculateApiKeyHourlyStats(projectId, currentHourStart);
 		}
 
 		logger.debug(
@@ -395,18 +410,13 @@ export async function refreshCurrentHourStats() {
 
 /**
  * Main refresh function called by the worker interval
- * Processes both unprocessed historical logs and refreshes current hour
  */
 export async function refreshProjectHourlyStats() {
 	logger.debug("Starting project hourly stats refresh...");
 
 	try {
-		// Process any unprocessed logs from completed hours
 		await processUnprocessedLogs();
-
-		// Refresh current hour for real-time data
 		await refreshCurrentHourStats();
-
 		logger.debug("Project hourly stats refresh complete");
 	} catch (error) {
 		logger.error(
