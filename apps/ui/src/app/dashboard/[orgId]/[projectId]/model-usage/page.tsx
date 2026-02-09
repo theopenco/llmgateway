@@ -3,8 +3,6 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { ActivitT } from "@/types/activity";
 
-export const dynamic = "force-dynamic";
-
 export default async function ModelUsagePage({
 	params,
 	searchParams,
