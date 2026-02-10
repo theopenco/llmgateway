@@ -6,8 +6,6 @@ import {
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	sql,
-	gte,
-	lt,
 	and,
 	isNull,
 } from "@llmgateway/db";
@@ -18,28 +16,32 @@ export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
 	Number(process.env.PROJECT_STATS_REFRESH_INTERVAL_SECONDS) || 60;
 
 /**
- * Helper function to round any date to the start of its hour in UTC (00 minutes, 00 seconds, 00 milliseconds)
- * Uses UTC to match PostgreSQL's date_trunc behavior
+ * Format a JS Date as a UTC timestamp string (YYYY-MM-DD HH:MM:SS).
+ * Avoids the pg driver's local-timezone interpretation of `timestamp without timezone`
+ * by keeping timestamps as strings and casting via `::timestamp` in SQL.
  */
-function roundToHourStart(date: Date): Date {
-	return new Date(
-		Date.UTC(
-			date.getUTCFullYear(),
-			date.getUTCMonth(),
-			date.getUTCDate(),
-			date.getUTCHours(),
-			0,
-			0,
-			0,
-		),
-	);
+function formatUTCTimestamp(date: Date): string {
+	return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
 /**
- * Helper function to get the current hour start
+ * Get the current hour start as a UTC timestamp string
  */
-function getCurrentHourStart(): Date {
-	return roundToHourStart(new Date());
+function getCurrentHourStart(): string {
+	const now = new Date();
+	return formatUTCTimestamp(
+		new Date(
+			Date.UTC(
+				now.getUTCFullYear(),
+				now.getUTCMonth(),
+				now.getUTCDate(),
+				now.getUTCHours(),
+				0,
+				0,
+				0,
+			),
+		),
+	);
 }
 
 /**
@@ -195,13 +197,13 @@ function getCommonAggregationFields() {
 }
 
 /**
- * Calculate and store hourly statistics for a specific project and hour
+ * Calculate and store hourly statistics for a specific project and hour.
+ * hourTimestamp is a UTC string (YYYY-MM-DD HH:MM:SS) to avoid JS Date timezone issues.
  */
 async function recalculateProjectHourlyStats(
 	projectId: string,
-	hourTimestamp: Date,
+	hourTimestamp: string,
 ) {
-	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
 	const [stats] = await database
@@ -210,8 +212,8 @@ async function recalculateProjectHourlyStats(
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
-				gte(log.createdAt, hourTimestamp),
-				lt(log.createdAt, hourEnd),
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
 			),
 		);
 
@@ -223,7 +225,7 @@ async function recalculateProjectHourlyStats(
 		.insert(projectHourlyStats)
 		.values({
 			projectId,
-			hourTimestamp,
+			hourTimestamp: sql`${hourTimestamp}::timestamp`,
 			...stats,
 		})
 		.onConflictDoUpdate({
@@ -240,9 +242,8 @@ async function recalculateProjectHourlyStats(
  */
 async function recalculateProjectHourlyModelStats(
 	projectId: string,
-	hourTimestamp: Date,
+	hourTimestamp: string,
 ) {
-	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
 	const modelStats = await database
@@ -255,8 +256,8 @@ async function recalculateProjectHourlyModelStats(
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
-				gte(log.createdAt, hourTimestamp),
-				lt(log.createdAt, hourEnd),
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
 			),
 		)
 		.groupBy(log.usedModel, log.usedProvider);
@@ -267,7 +268,7 @@ async function recalculateProjectHourlyModelStats(
 			.insert(projectHourlyModelStats)
 			.values({
 				projectId,
-				hourTimestamp,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
 				usedModel,
 				usedProvider,
 				...statsFields,
@@ -292,9 +293,8 @@ async function recalculateProjectHourlyModelStats(
  */
 async function recalculateApiKeyHourlyStats(
 	projectId: string,
-	hourTimestamp: Date,
+	hourTimestamp: string,
 ) {
-	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
 	const apiKeyStats = await database
@@ -306,8 +306,8 @@ async function recalculateApiKeyHourlyStats(
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
-				gte(log.createdAt, hourTimestamp),
-				lt(log.createdAt, hourEnd),
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
 			),
 		)
 		.groupBy(log.apiKeyId);
@@ -319,7 +319,7 @@ async function recalculateApiKeyHourlyStats(
 			.values({
 				apiKeyId,
 				projectId,
-				hourTimestamp,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
 				...statsFields,
 			})
 			.onConflictDoUpdate({
@@ -337,9 +337,8 @@ async function recalculateApiKeyHourlyStats(
  */
 async function recalculateApiKeyHourlyModelStats(
 	projectId: string,
-	hourTimestamp: Date,
+	hourTimestamp: string,
 ) {
-	const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
 	const database = db;
 
 	const apiKeyModelStats = await database
@@ -353,8 +352,8 @@ async function recalculateApiKeyHourlyModelStats(
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
-				gte(log.createdAt, hourTimestamp),
-				lt(log.createdAt, hourEnd),
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
 			),
 		)
 		.groupBy(log.apiKeyId, log.usedModel, log.usedProvider);
@@ -366,7 +365,7 @@ async function recalculateApiKeyHourlyModelStats(
 			.values({
 				apiKeyId,
 				projectId,
-				hourTimestamp,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
 				usedModel,
 				usedProvider,
 				...statsFields,
@@ -415,22 +414,22 @@ export async function processRecentLogs() {
 		if (STATS_BACKFILL_ENABLED) {
 			const backfillStart =
 				STATS_BACKFILL_DAYS > 0
-					? new Date(
-							currentHourStart.getTime() -
-								STATS_BACKFILL_DAYS * 24 * 60 * 60 * 1000,
+					? formatUTCTimestamp(
+							new Date(Date.now() - STATS_BACKFILL_DAYS * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
 
 			logger.info(
-				`[backfill] Scanning for unprocessed buckets (lookback: ${backfillStart ? backfillStart.toISOString() : "unlimited"})`,
+				`[backfill] Scanning for unprocessed buckets (lookback: ${backfillStart ?? "unlimited"})`,
 			);
 
 			const backfillBuckets = await database
 				.select({
 					projectId: log.projectId,
-					hourTimestamp: sql<Date>`date_trunc('hour', ${log.createdAt})`.as(
-						"hourTimestamp",
-					),
+					hourTimestamp:
+						sql<string>`to_char(date_trunc('hour', ${log.createdAt}), 'YYYY-MM-DD HH24:MI:SS')`.as(
+							"hourTimestamp",
+						),
 				})
 				.from(log)
 				.leftJoin(
@@ -442,9 +441,11 @@ export async function processRecentLogs() {
 				)
 				.where(
 					and(
-						lt(log.createdAt, currentHourStart),
+						sql`${log.createdAt} < ${currentHourStart}::timestamp`,
 						isNull(projectHourlyStats.projectId),
-						backfillStart ? gte(log.createdAt, backfillStart) : undefined,
+						backfillStart
+							? sql`${log.createdAt} >= ${backfillStart}::timestamp`
+							: undefined,
 					),
 				)
 				.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
@@ -452,33 +453,32 @@ export async function processRecentLogs() {
 				.limit(STATS_BATCH_SIZE);
 
 			if (backfillBuckets.length > 0) {
-				const bucketDates = backfillBuckets.map((b) =>
-					new Date(b.hourTimestamp).getTime(),
-				);
-				const oldestBucket = new Date(Math.min(...bucketDates));
-				const newestBucket = new Date(Math.max(...bucketDates));
-
 				logger.info(
-					`[backfill] Found ${backfillBuckets.length} unprocessed project-hour buckets (oldest: ${oldestBucket.toISOString()}, newest: ${newestBucket.toISOString()})`,
+					`[backfill] Found ${backfillBuckets.length} unprocessed project-hour buckets (oldest: ${backfillBuckets[0].hourTimestamp}, newest: ${backfillBuckets[backfillBuckets.length - 1].hourTimestamp})`,
 				);
 
 				for (let i = 0; i < backfillBuckets.length; i++) {
 					const bucket = backfillBuckets[i];
-					const hourTimestamp = new Date(bucket.hourTimestamp);
 
-					await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
+					await recalculateProjectHourlyStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
 					await recalculateProjectHourlyModelStats(
 						bucket.projectId,
-						hourTimestamp,
+						bucket.hourTimestamp,
 					);
-					await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
+					await recalculateApiKeyHourlyStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
 					await recalculateApiKeyHourlyModelStats(
 						bucket.projectId,
-						hourTimestamp,
+						bucket.hourTimestamp,
 					);
 
 					logger.info(
-						`[backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: project=${bucket.projectId} hour=${hourTimestamp.toISOString()}`,
+						`[backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
 					);
 				}
 
@@ -505,26 +505,28 @@ export async function processRecentLogs() {
 		if (STATS_STALE_ENABLED) {
 			const staleStart =
 				STATS_STALE_DAYS > 0
-					? new Date(
-							currentHourStart.getTime() -
-								STATS_STALE_DAYS * 24 * 60 * 60 * 1000,
+					? formatUTCTimestamp(
+							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
 
 			logger.info(
-				`[stale] Scanning for stale buckets (lookback: ${staleStart ? staleStart.toISOString() : "unlimited"})`,
+				`[stale] Scanning for stale buckets (lookback: ${staleStart ?? "unlimited"})`,
 			);
 
 			const staleBuckets = await database
 				.select({
 					projectId: projectHourlyStats.projectId,
-					hourTimestamp: projectHourlyStats.hourTimestamp,
+					hourTimestamp:
+						sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+							"hourTimestamp",
+						),
 				})
 				.from(projectHourlyStats)
 				.where(
 					and(
 						staleStart
-							? gte(projectHourlyStats.hourTimestamp, staleStart)
+							? sql`${projectHourlyStats.hourTimestamp} >= ${staleStart}::timestamp`
 							: undefined,
 						sql`EXISTS (
 							SELECT 1 FROM ${log}
@@ -540,33 +542,32 @@ export async function processRecentLogs() {
 				.limit(STATS_BATCH_SIZE);
 
 			if (staleBuckets.length > 0) {
-				const bucketDates = staleBuckets.map((b) =>
-					new Date(b.hourTimestamp).getTime(),
-				);
-				const oldestStale = new Date(Math.min(...bucketDates));
-				const newestStale = new Date(Math.max(...bucketDates));
-
 				logger.info(
-					`[stale] Found ${staleBuckets.length} stale project-hour buckets with new logs (oldest: ${oldestStale.toISOString()}, newest: ${newestStale.toISOString()})`,
+					`[stale] Found ${staleBuckets.length} stale project-hour buckets with new logs (oldest: ${staleBuckets[0].hourTimestamp}, newest: ${staleBuckets[staleBuckets.length - 1].hourTimestamp})`,
 				);
 
 				for (let i = 0; i < staleBuckets.length; i++) {
 					const bucket = staleBuckets[i];
-					const hourTimestamp = new Date(bucket.hourTimestamp);
 
-					await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
+					await recalculateProjectHourlyStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
 					await recalculateProjectHourlyModelStats(
 						bucket.projectId,
-						hourTimestamp,
+						bucket.hourTimestamp,
 					);
-					await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
+					await recalculateApiKeyHourlyStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
 					await recalculateApiKeyHourlyModelStats(
 						bucket.projectId,
-						hourTimestamp,
+						bucket.hourTimestamp,
 					);
 
 					logger.info(
-						`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${hourTimestamp.toISOString()}`,
+						`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
 					);
 				}
 
@@ -605,9 +606,7 @@ export async function refreshCurrentHourStats() {
 	const database = db;
 	const currentHourStart = getCurrentHourStart();
 
-	logger.info(
-		`Refreshing current hour stats for ${currentHourStart.toISOString()}`,
-	);
+	logger.info(`Refreshing current hour stats for ${currentHourStart}`);
 
 	try {
 		const projectsWithCurrentHourLogs = await database
@@ -615,7 +614,7 @@ export async function refreshCurrentHourStats() {
 				projectId: log.projectId,
 			})
 			.from(log)
-			.where(gte(log.createdAt, currentHourStart))
+			.where(sql`${log.createdAt} >= ${currentHourStart}::timestamp`)
 			.groupBy(log.projectId);
 
 		for (const { projectId } of projectsWithCurrentHourLogs) {
@@ -626,7 +625,7 @@ export async function refreshCurrentHourStats() {
 		}
 
 		logger.info(
-			`Refreshed current hour stats (${currentHourStart.toISOString()}) for ${projectsWithCurrentHourLogs.length} projects`,
+			`Refreshed current hour stats (${currentHourStart}) for ${projectsWithCurrentHourLogs.length} projects`,
 		);
 	} catch (error) {
 		logger.error(
