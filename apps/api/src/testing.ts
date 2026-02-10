@@ -2,9 +2,6 @@ import {
 	db,
 	tables,
 	sql,
-	gte,
-	lt,
-	and,
 	projectHourlyStats,
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
@@ -45,24 +42,6 @@ export async function deleteAll() {
 		db.delete(tables.session),
 		db.delete(tables.verification),
 	]);
-}
-
-/**
- * Helper function to round a date to the start of its hour in UTC
- * Uses UTC to match PostgreSQL's date_trunc behavior
- */
-function roundToHourStart(date: Date): Date {
-	return new Date(
-		Date.UTC(
-			date.getUTCFullYear(),
-			date.getUTCMonth(),
-			date.getUTCDate(),
-			date.getUTCHours(),
-			0,
-			0,
-			0,
-		),
-	);
 }
 
 /**
@@ -178,52 +157,55 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
 				"imageOutputCost",
 			),
+		cachedInputCost:
+			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
+				"cachedInputCost",
+			),
 	};
 }
 
 /**
  * Aggregates logs into the hourly stats tables for testing purposes.
  * This mimics what the worker does in production.
+ *
+ * Uses single-query aggregation (grouping by project+hour in one SELECT)
+ * to avoid timezone issues when round-tripping timestamps through JS Date objects.
+ * The hourTimestamp is returned as a string and passed back via sql`` to avoid
+ * the pg driver's local-timezone interpretation of `timestamp without timezone`.
  */
 export async function aggregateLogsForTesting() {
-	// Find all distinct project-hour combinations in the logs
-	const buckets = await db
+	// Clear existing aggregation data to ensure a clean state
+	await Promise.all([
+		db.delete(projectHourlyStats),
+		db.delete(projectHourlyModelStats),
+		db.delete(apiKeyHourlyStats),
+		db.delete(apiKeyHourlyModelStats),
+	]);
+
+	const hourTrunc = sql`date_trunc('hour', ${tables.log.createdAt})`;
+
+	// Project hourly stats - aggregate in a single query
+	const projectStats = await db
 		.select({
 			projectId: tables.log.projectId,
-			hourTimestamp: sql<Date>`date_trunc('hour', ${tables.log.createdAt})`.as(
-				"hourTimestamp",
-			),
+			hourTimestamp:
+				sql<string>`to_char(${hourTrunc}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+					"hourTimestamp",
+				),
+			...getCommonAggregationFields(),
 		})
 		.from(tables.log)
-		.groupBy(
-			tables.log.projectId,
-			sql`date_trunc('hour', ${tables.log.createdAt})`,
-		);
+		.groupBy(tables.log.projectId, hourTrunc);
 
-	for (const bucket of buckets) {
-		const hourTimestamp = roundToHourStart(new Date(bucket.hourTimestamp));
-		const hourEnd = new Date(hourTimestamp.getTime() + 60 * 60 * 1000);
-		const projectId = bucket.projectId;
-
-		// Aggregate project hourly stats
-		const [projectStats] = await db
-			.select(getCommonAggregationFields())
-			.from(tables.log)
-			.where(
-				and(
-					sql`${tables.log.projectId} = ${projectId}`,
-					gte(tables.log.createdAt, hourTimestamp),
-					lt(tables.log.createdAt, hourEnd),
-				),
-			);
-
-		if (projectStats && projectStats.requestCount > 0) {
+	for (const stats of projectStats) {
+		const { projectId, hourTimestamp, ...fields } = stats;
+		if (fields.requestCount > 0) {
 			await db
 				.insert(projectHourlyStats)
 				.values({
 					projectId,
-					hourTimestamp,
-					...projectStats,
+					hourTimestamp: sql`${hourTimestamp}::timestamp`,
+					...fields,
 				})
 				.onConflictDoUpdate({
 					target: [
@@ -231,136 +213,145 @@ export async function aggregateLogsForTesting() {
 						projectHourlyStats.hourTimestamp,
 					],
 					set: {
-						...projectStats,
+						...fields,
 						updatedAt: new Date(),
 					},
 				});
 		}
+	}
 
-		// Aggregate project hourly model stats
-		const modelStats = await db
-			.select({
-				usedModel: tables.log.usedModel,
-				usedProvider: tables.log.usedProvider,
-				...getCommonAggregationFields(),
-			})
-			.from(tables.log)
-			.where(
-				and(
-					sql`${tables.log.projectId} = ${projectId}`,
-					gte(tables.log.createdAt, hourTimestamp),
-					lt(tables.log.createdAt, hourEnd),
+	// Project hourly model stats
+	const modelStats = await db
+		.select({
+			projectId: tables.log.projectId,
+			hourTimestamp:
+				sql<string>`to_char(${hourTrunc}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+					"hourTimestamp",
 				),
-			)
-			.groupBy(tables.log.usedModel, tables.log.usedProvider);
+			usedModel: tables.log.usedModel,
+			usedProvider: tables.log.usedProvider,
+			...getCommonAggregationFields(),
+		})
+		.from(tables.log)
+		.groupBy(
+			tables.log.projectId,
+			hourTrunc,
+			tables.log.usedModel,
+			tables.log.usedProvider,
+		);
 
-		for (const stat of modelStats) {
-			const { usedModel, usedProvider, ...statsFields } = stat;
-			await db
-				.insert(projectHourlyModelStats)
-				.values({
-					projectId,
-					hourTimestamp,
-					usedModel,
-					usedProvider,
-					...statsFields,
-				})
-				.onConflictDoUpdate({
-					target: [
-						projectHourlyModelStats.projectId,
-						projectHourlyModelStats.hourTimestamp,
-						projectHourlyModelStats.usedModel,
-						projectHourlyModelStats.usedProvider,
-					],
-					set: {
-						...statsFields,
-						updatedAt: new Date(),
-					},
-				});
-		}
-
-		// Aggregate API key hourly stats
-		const apiKeyStats = await db
-			.select({
-				apiKeyId: tables.log.apiKeyId,
-				...getCommonAggregationFields(),
+	for (const stat of modelStats) {
+		const { projectId, hourTimestamp, usedModel, usedProvider, ...fields } =
+			stat;
+		await db
+			.insert(projectHourlyModelStats)
+			.values({
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				usedModel,
+				usedProvider,
+				...fields,
 			})
-			.from(tables.log)
-			.where(
-				and(
-					sql`${tables.log.projectId} = ${projectId}`,
-					gte(tables.log.createdAt, hourTimestamp),
-					lt(tables.log.createdAt, hourEnd),
+			.onConflictDoUpdate({
+				target: [
+					projectHourlyModelStats.projectId,
+					projectHourlyModelStats.hourTimestamp,
+					projectHourlyModelStats.usedModel,
+					projectHourlyModelStats.usedProvider,
+				],
+				set: {
+					...fields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+
+	// API key hourly stats
+	const apiKeyStats = await db
+		.select({
+			apiKeyId: tables.log.apiKeyId,
+			projectId: tables.log.projectId,
+			hourTimestamp:
+				sql<string>`to_char(${hourTrunc}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+					"hourTimestamp",
 				),
-			)
-			.groupBy(tables.log.apiKeyId);
+			...getCommonAggregationFields(),
+		})
+		.from(tables.log)
+		.groupBy(tables.log.apiKeyId, tables.log.projectId, hourTrunc);
 
-		for (const stat of apiKeyStats) {
-			const { apiKeyId, ...statsFields } = stat;
-			await db
-				.insert(apiKeyHourlyStats)
-				.values({
-					apiKeyId,
-					projectId,
-					hourTimestamp,
-					...statsFields,
-				})
-				.onConflictDoUpdate({
-					target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
-					set: {
-						...statsFields,
-						updatedAt: new Date(),
-					},
-				});
-		}
-
-		// Aggregate API key hourly model stats
-		const apiKeyModelStats = await db
-			.select({
-				apiKeyId: tables.log.apiKeyId,
-				usedModel: tables.log.usedModel,
-				usedProvider: tables.log.usedProvider,
-				...getCommonAggregationFields(),
+	for (const stat of apiKeyStats) {
+		const { apiKeyId, projectId, hourTimestamp, ...fields } = stat;
+		await db
+			.insert(apiKeyHourlyStats)
+			.values({
+				apiKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				...fields,
 			})
-			.from(tables.log)
-			.where(
-				and(
-					sql`${tables.log.projectId} = ${projectId}`,
-					gte(tables.log.createdAt, hourTimestamp),
-					lt(tables.log.createdAt, hourEnd),
-				),
-			)
-			.groupBy(
-				tables.log.apiKeyId,
-				tables.log.usedModel,
-				tables.log.usedProvider,
-			);
+			.onConflictDoUpdate({
+				target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
+				set: {
+					...fields,
+					updatedAt: new Date(),
+				},
+			});
+	}
 
-		for (const stat of apiKeyModelStats) {
-			const { apiKeyId, usedModel, usedProvider, ...statsFields } = stat;
-			await db
-				.insert(apiKeyHourlyModelStats)
-				.values({
-					apiKeyId,
-					projectId,
-					hourTimestamp,
-					usedModel,
-					usedProvider,
-					...statsFields,
-				})
-				.onConflictDoUpdate({
-					target: [
-						apiKeyHourlyModelStats.apiKeyId,
-						apiKeyHourlyModelStats.hourTimestamp,
-						apiKeyHourlyModelStats.usedModel,
-						apiKeyHourlyModelStats.usedProvider,
-					],
-					set: {
-						...statsFields,
-						updatedAt: new Date(),
-					},
-				});
-		}
+	// API key hourly model stats
+	const apiKeyModelStats = await db
+		.select({
+			apiKeyId: tables.log.apiKeyId,
+			projectId: tables.log.projectId,
+			hourTimestamp:
+				sql<string>`to_char(${hourTrunc}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+					"hourTimestamp",
+				),
+			usedModel: tables.log.usedModel,
+			usedProvider: tables.log.usedProvider,
+			...getCommonAggregationFields(),
+		})
+		.from(tables.log)
+		.groupBy(
+			tables.log.apiKeyId,
+			tables.log.projectId,
+			hourTrunc,
+			tables.log.usedModel,
+			tables.log.usedProvider,
+		);
+
+	for (const stat of apiKeyModelStats) {
+		const {
+			apiKeyId,
+			projectId,
+			hourTimestamp,
+			usedModel,
+			usedProvider,
+			...fields
+		} = stat;
+		await db
+			.insert(apiKeyHourlyModelStats)
+			.values({
+				apiKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				usedModel,
+				usedProvider,
+				...fields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					apiKeyHourlyModelStats.apiKeyId,
+					apiKeyHourlyModelStats.hourTimestamp,
+					apiKeyHourlyModelStats.usedModel,
+					apiKeyHourlyModelStats.usedProvider,
+				],
+				set: {
+					...fields,
+					updatedAt: new Date(),
+				},
+			});
 	}
 }
 

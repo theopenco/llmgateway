@@ -243,6 +243,14 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
 			},
 			{
 				providerId: "bytedance",

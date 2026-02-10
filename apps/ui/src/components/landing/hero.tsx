@@ -319,52 +319,44 @@ export function Hero({
 								</AnimatedGroup>
 							)}
 
-							<div className="relative -mr-56 mt-8 overflow-hidden px-2 sm:mr-0 sm:mt-12 md:mt-20">
-								<div
-									aria-hidden
-									className="bg-linear-to-b to-background absolute inset-0 z-10 from-transparent from-35%"
-								/>
-								<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
-									<Image
-										className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
-										src="/new-hero.webp"
-										alt="LLM Gateway dashboard showing analytics and API usage"
-										width={2240}
-										height={1224}
-										sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
-										priority
-									/>
-									<Image
-										className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
-										src="/new-hero-light.webp"
-										alt="LLM Gateway dashboard showing analytics and API usage"
-										width={2240}
-										height={1228}
-										sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
-										priority
+							<AnimatedGroup
+								variants={{
+									container: {
+										visible: {
+											transition: {
+												staggerChildren: 0.05,
+												delayChildren: 0.75,
+											},
+										},
+									},
+									...transitionVariants,
+								}}
+							>
+								<div className="relative -mr-56 mt-8 overflow-hidden px-2 sm:mr-0 sm:mt-12 md:mt-20">
+									<div
+										aria-hidden
+										className="bg-linear-to-b to-background absolute inset-0 z-10 from-transparent from-35%"
 									/>
 									<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
 										<Image
 											className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
-											src="/new-hero.webp"
+											src="/new-hero.png"
 											alt="LLM Gateway dashboard showing analytics and API usage"
-											width={2240}
-											height={1224}
-											sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
+											width={2696}
+											height={1386}
 											priority
 										/>
 										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
-											src="/new-hero-light.webp"
+											src="/new-hero-light.png"
 											alt="LLM Gateway dashboard showing analytics and API usage"
-											width={2240}
-											height={1228}
-											sizes="(max-width: 768px) 95vw, (max-width: 1280px) 90vw, 1120px"
+											width={2696}
+											height={1386}
 											priority
 										/>
 									</div>
 								</div>
-							</div>
+							</AnimatedGroup>
 						</div>
 					</section>
 					<section className="bg-background pb-16 pt-16 md:pb-32">

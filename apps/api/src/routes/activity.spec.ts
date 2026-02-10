@@ -872,6 +872,7 @@ describe("activity endpoint", () => {
 
 	test("GET /activity should return zero error rate and cache rate when no requests", async () => {
 		await db.delete(tables.log);
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {

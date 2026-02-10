@@ -4,9 +4,6 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { LogsData } from "@/types/activity";
 
-// Force dynamic rendering since this page uses server-side data fetching with cookies
-export const dynamic = "force-dynamic";
-
 export default async function ActivityPage({
 	params,
 	searchParams,
@@ -23,7 +20,7 @@ export default async function ActivityPage({
 		limit?: string;
 	}>;
 }) {
-	const { projectId } = await params;
+	const { orgId, projectId } = await params;
 	const searchParamsData = await searchParams;
 
 	// Build query parameters for logs - same as client-side
@@ -81,6 +78,7 @@ export default async function ActivityPage({
 							<RecentLogs
 								initialData={initialLogsData || undefined}
 								projectId={projectId}
+								orgId={orgId}
 							/>
 						</CardContent>
 					</Card>

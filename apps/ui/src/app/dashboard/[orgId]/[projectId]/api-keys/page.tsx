@@ -3,9 +3,6 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { ApiKey } from "@/lib/types";
 
-// Force dynamic rendering since this page uses server-side data fetching with cookies
-export const dynamic = "force-dynamic";
-
 export default async function ApiKeysPage({
 	params,
 }: {

@@ -299,12 +299,6 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	const inputImageCount =
-		modelInput === "gemini-3-pro-image-preview"
-			? countInputImages(messages)
-			: 0;
-
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	let reasoning_effort = validationResult.data.reasoning_effort;
 
@@ -377,6 +371,12 @@ chat.openapi(completions, async (c) => {
 	const parseResult = parseModelInput(modelInput);
 	const requestedModel = parseResult.requestedModel;
 	const customProviderName = parseResult.customProviderName;
+
+	// Count input images from messages for cost calculation
+	const inputImageCount =
+		requestedModel === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
 	// Resolve model info and filter deactivated providers
 	const modelInfoResult = resolveModelInfo(
@@ -1646,9 +1646,16 @@ chat.openapi(completions, async (c) => {
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
-					promptTokens: promptTokens?.toString() || null,
+					promptTokens:
+						(costs.promptTokens ?? promptTokens)?.toString() || null,
 					completionTokens: completionTokens?.toString() || null,
-					totalTokens: totalTokens?.toString() || null,
+					totalTokens: costs.imageInputTokens
+						? (
+								(costs.promptTokens || promptTokens || 0) +
+								(completionTokens || 0) +
+								(reasoningTokens || 0)
+							).toString()
+						: totalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: false,
@@ -1669,7 +1676,7 @@ chat.openapi(completions, async (c) => {
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						promptTokens,
+						costs.promptTokens ?? promptTokens,
 						cachedTokens,
 						completionTokens,
 						reasoningTokens,
@@ -1785,9 +1792,20 @@ chat.openapi(completions, async (c) => {
 					content: cachedContent || null,
 					reasoningContent: cachedReasoningContent || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
-					promptTokens: cachedResponse.usage?.prompt_tokens || null,
+					promptTokens:
+						(
+							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
+						)?.toString() || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
-					totalTokens: cachedResponse.usage?.total_tokens || null,
+					totalTokens: cachedCosts.imageInputTokens
+						? (
+								(cachedCosts.promptTokens ||
+									cachedResponse.usage?.prompt_tokens ||
+									0) +
+								(cachedResponse.usage?.completion_tokens || 0) +
+								(cachedResponse.usage?.reasoning_tokens || 0)
+							).toString()
+						: cachedResponse.usage?.total_tokens || null,
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
 					cachedTokens:
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
@@ -1809,7 +1827,7 @@ chat.openapi(completions, async (c) => {
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						cachedResponse.usage?.prompt_tokens,
+						cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
 						cachedResponse.usage?.completion_tokens,
 						cachedResponse.usage?.reasoning_tokens,
@@ -1874,6 +1892,45 @@ chat.openapi(completions, async (c) => {
 					message: `Model ${usedModel} with provider ${usedProvider} does not support the effort parameter. Try using provider 'anthropic' instead.`,
 				});
 			}
+		}
+	}
+
+	// Strip unsupported parameters based on model's supportedParameters
+	if (finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		);
+		const supported = (providerMapping as ProviderModelMapping | undefined)
+			?.supportedParameters;
+		if (supported && supported.length > 0) {
+			if (temperature !== undefined && !supported.includes("temperature")) {
+				temperature = undefined;
+			}
+			if (top_p !== undefined && !supported.includes("top_p")) {
+				top_p = undefined;
+			}
+			if (
+				frequency_penalty !== undefined &&
+				!supported.includes("frequency_penalty")
+			) {
+				frequency_penalty = undefined;
+			}
+			if (
+				presence_penalty !== undefined &&
+				!supported.includes("presence_penalty")
+			) {
+				presence_penalty = undefined;
+			}
+			if (max_tokens !== undefined && !supported.includes("max_tokens")) {
+				max_tokens = undefined;
+			}
+		}
+	}
+
+	// Anthropic does not allow temperature and top_p to be set simultaneously
+	if (usedProvider === "anthropic") {
+		if (temperature !== undefined && top_p !== undefined) {
+			top_p = undefined;
 		}
 	}
 
@@ -2307,11 +2364,15 @@ chat.openapi(completions, async (c) => {
 						reasoningContent: null,
 						finishReason: "canceled",
 						promptTokens: billCancelled
-							? estimatedPromptTokens?.toString()
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
 							: null,
 						completionTokens: billCancelled ? "0" : null,
 						totalTokens: billCancelled
-							? estimatedPromptTokens?.toString()
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
 							: null,
 						reasoningTokens: null,
 						cachedTokens: null,
@@ -2335,7 +2396,7 @@ chat.openapi(completions, async (c) => {
 						discount: cancelledCosts?.discount ?? null,
 						dataStorageCost: billCancelled
 							? calculateDataStorageCost(
-									estimatedPromptTokens,
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens,
 									null,
 									0,
 									null,
@@ -3049,17 +3110,14 @@ chat.openapi(completions, async (c) => {
 											streamingCosts.completionTokens ||
 											finalCompletionTokens ||
 											0,
-										total_tokens: (() => {
-											const fallbackTotal =
-												(streamingCosts.promptTokens ||
-													finalPromptTokens ||
-													0) +
+										total_tokens: Math.max(
+											1,
+											(streamingCosts.promptTokens || finalPromptTokens || 0) +
 												(streamingCosts.completionTokens ||
 													finalCompletionTokens ||
 													0) +
-												(reasoningTokens || 0);
-											return Math.max(1, finalTotalTokens ?? fallbackTotal);
-										})(),
+												(reasoningTokens || 0),
+										),
 										...(shouldIncludeCosts && {
 											cost_usd_total: streamingCosts.totalCost,
 											cost_usd_input: streamingCosts.inputCost,
@@ -3775,36 +3833,41 @@ chat.openapi(completions, async (c) => {
 										finish_reason: null,
 									},
 								],
-								usage: {
-									prompt_tokens: Math.max(
+								usage: (() => {
+									// Only add image input tokens for providers that
+									// exclude them from upstream usage (Google)
+									const providerExcludesImageInput =
+										usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian";
+									const imageInputAdj = providerExcludesImageInput
+										? inputImageCount * 560
+										: 0;
+									const adjPrompt = Math.max(
 										1,
 										Math.round(
 											promptTokens && promptTokens > 0
-												? promptTokens + inputImageCount * 560
-												: (calculatedPromptTokens || 1) + inputImageCount * 560,
+												? promptTokens + imageInputAdj
+												: (calculatedPromptTokens || 1) + imageInputAdj,
 										),
-									),
-									completion_tokens: Math.round(
+									);
+									const adjCompletion = Math.round(
 										completionTokens || calculatedCompletionTokens || 0,
-									),
-									total_tokens: Math.round(
-										totalTokens ||
-											calculatedTotalTokens ||
-											Math.max(
-												1,
-												(promptTokens && promptTokens > 0
-													? promptTokens + inputImageCount * 560
-													: (calculatedPromptTokens || 1) +
-														inputImageCount * 560) +
-													(completionTokens || calculatedCompletionTokens || 0),
-											),
-									),
-									...(cachedTokens !== null && {
-										prompt_tokens_details: {
-											cached_tokens: cachedTokens,
-										},
-									}),
-								},
+									);
+									return {
+										prompt_tokens: adjPrompt,
+										completion_tokens: adjCompletion,
+										total_tokens: Math.max(
+											1,
+											Math.round(adjPrompt + adjCompletion),
+										),
+										...(cachedTokens !== null && {
+											prompt_tokens_details: {
+												cached_tokens: cachedTokens,
+											},
+										}),
+									};
+								})(),
 							};
 
 							await writeSSEAndCache({
@@ -3882,6 +3945,17 @@ chat.openapi(completions, async (c) => {
 								webSearchCount,
 								project.organizationId,
 							);
+
+				// Use costs.promptTokens as canonical value (includes image input
+				// tokens for providers that exclude them from upstream usage)
+				if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+					const promptDelta =
+						(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+					if (promptDelta > 0) {
+						calculatedPromptTokens = costs.promptTokens;
+						calculatedTotalTokens = (calculatedTotalTokens || 0) + promptDelta;
+					}
+				}
 
 				// Extract plugin IDs for logging (streaming - no healing applied)
 				const streamingPluginIds = plugins?.map((p) => p.id) || [];
@@ -4342,9 +4416,13 @@ chat.openapi(completions, async (c) => {
 			content: null,
 			reasoningContent: null,
 			finishReason: "canceled",
-			promptTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			promptTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
 			completionTokens: billCancelled ? "0" : null,
-			totalTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
+			totalTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
 			reasoningTokens: null,
 			cachedTokens: null,
 			hasError: false,
@@ -4365,7 +4443,7 @@ chat.openapi(completions, async (c) => {
 			discount: cancelledCosts?.discount ?? null,
 			dataStorageCost: billCancelled
 				? calculateDataStorageCost(
-						estimatedPromptTokens,
+						cancelledCosts?.promptTokens ?? estimatedPromptTokens,
 						null,
 						0,
 						null,
@@ -4640,7 +4718,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Estimate tokens if not provided by the API
-	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
+	let { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
 		usedProvider,
 		messages,
 		content,
@@ -4680,6 +4758,21 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 		project.organizationId,
 	);
+
+	// Use costs.promptTokens as canonical value (includes image input
+	// tokens for providers that exclude them from upstream usage)
+	if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+		const promptDelta =
+			(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+		if (promptDelta > 0) {
+			calculatedPromptTokens = costs.promptTokens;
+			totalTokens = (
+				(calculatedPromptTokens || 0) +
+				(calculatedCompletionTokens || 0) +
+				(calculatedReasoningTokens || 0)
+			).toString();
+		}
+	}
 
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Include costs in response for all users

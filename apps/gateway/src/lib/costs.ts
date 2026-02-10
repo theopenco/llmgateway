@@ -368,7 +368,16 @@ export async function calculateCosts(
 		imageInputCost: imageInputCost?.toNumber() ?? null,
 		imageOutputCost: imageOutputCost?.toNumber() ?? null,
 		totalCost: totalCost.toNumber(),
-		promptTokens: calculatedPromptTokens,
+		// Only add image input tokens to promptTokens for providers whose upstream
+		// usage excludes them (Google). Other providers (OpenAI, xAI) already
+		// include image tokens in their reported prompt_tokens.
+		promptTokens:
+			imageInputTokens &&
+			(provider === "google-ai-studio" ||
+				provider === "google-vertex" ||
+				provider === "obsidian")
+				? (calculatedPromptTokens || 0) + imageInputTokens
+				: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		estimatedCost: isEstimated,

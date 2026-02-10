@@ -203,6 +203,12 @@ export const moonshotModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
 			},
 		],
 	},

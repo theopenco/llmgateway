@@ -15,6 +15,7 @@ export interface DailyActivity {
 	requestCount: number;
 	inputTokens: number;
 	outputTokens: number;
+	cachedTokens: number;
 	totalTokens: number;
 	cost: number;
 	outputCost: number;
@@ -23,6 +24,7 @@ export interface DailyActivity {
 	dataStorageCost: number;
 	imageInputCost: number;
 	imageOutputCost: number;
+	cachedInputCost: number;
 	errorCount: number;
 	errorRate: number;
 	cacheCount: number;
@@ -42,6 +44,7 @@ export type ActivitT =
 				requestCount: number;
 				inputTokens: number;
 				outputTokens: number;
+				cachedTokens: number;
 				totalTokens: number;
 				cost: number;
 				inputCost: number;
@@ -50,6 +53,7 @@ export type ActivitT =
 				dataStorageCost: number;
 				imageInputCost: number;
 				imageOutputCost: number;
+				cachedInputCost: number;
 				errorCount: number;
 				errorRate: number;
 				cacheCount: number;
