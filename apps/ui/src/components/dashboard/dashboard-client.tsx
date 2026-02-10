@@ -24,7 +24,6 @@ import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
-import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
@@ -35,13 +34,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/lib/components/select";
 import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
@@ -60,12 +52,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	// Get days from URL params, fallback to initialDays, then to 7
 	const daysParam = searchParams.get("days");
 	const days = (daysParam === "30" ? 30 : 7) as 7 | 30;
-
-	// Get metric type from URL params, default to "costs"
-	const metricParam = searchParams.get("metric");
-	const metric = (metricParam === "requests" ? "requests" : "costs") as
-		| "costs"
-		| "requests";
 
 	// If no days param exists, add it to the URL immediately
 	useEffect(() => {
@@ -121,13 +107,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const updateDaysInUrl = (newDays: 7 | 30) => {
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("days", String(newDays));
-		router.push(`${buildUrl()}?${params.toString()}`);
-	};
-
-	// Function to update URL with new metric parameter
-	const updateMetricInUrl = (newMetric: "costs" | "requests") => {
-		const params = new URLSearchParams(searchParams.toString());
-		params.set("metric", newMetric);
 		router.push(`${buildUrl()}?${params.toString()}`);
 	};
 
@@ -485,61 +464,20 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 						/>
 					</div>
 					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
+						className={cn({
 							"pointer-events-none opacity-20": shouldShowGetStartedState,
 						})}
 					>
-						<Card className="col-span-4">
-							<CardHeader>
-								<div className="flex items-start justify-between">
-									<div className="flex-1">
-										<CardTitle>Usage Overview</CardTitle>
-										<CardDescription>
-											{metric === "costs"
-												? "Provider pricing for reference — not deducted from your balance"
-												: "Total Requests"}
-											{selectedProject && (
-												<span className="block mt-1 text-sm">
-													Filtered by project: {selectedProject.name}
-												</span>
-											)}
-										</CardDescription>
-									</div>
-									<Select value={metric} onValueChange={updateMetricInUrl}>
-										<SelectTrigger className="w-[140px]">
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="costs">Costs</SelectItem>
-											<SelectItem value="requests">Requests</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-							</CardHeader>
-							<CardContent className="pl-2">
-								<Overview
-									data={activityData}
-									isLoading={isLoading}
-									days={days}
-									metric={metric}
-								/>
-							</CardContent>
-						</Card>
-						<Card className="col-span-3">
+						<Card>
 							<CardHeader>
 								<CardTitle>Quick Actions</CardTitle>
 								<CardDescription>
 									Common tasks you might want to perform
 								</CardDescription>
 							</CardHeader>
-							<CardContent className="space-y-2">
+							<CardContent className="flex flex-wrap gap-2">
 								{quickActions.map((action) => (
-									<Button
-										key={action.href}
-										asChild
-										variant="outline"
-										className="w-full justify-start"
-									>
+									<Button key={action.href} asChild variant="outline">
 										<Link
 											href={
 												action.href === "provider-keys"
