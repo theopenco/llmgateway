@@ -3591,6 +3591,56 @@ chat.openapi(completions, async (c) => {
 			} catch (error) {
 				if (error instanceof Error && error.name === "AbortError") {
 					canceled = true;
+				} else if (isTimeoutError(error)) {
+					const errorMessage =
+						error instanceof Error ? error.message : "Stream reading timeout";
+					logger.warn("Stream reading timeout", {
+						error: errorMessage,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+
+					try {
+						await stream.writeSSE({
+							event: "error",
+							data: JSON.stringify({
+								error: {
+									message: `Upstream provider timeout: ${errorMessage}`,
+									type: "upstream_timeout",
+									param: null,
+									code: "timeout",
+								},
+							}),
+							id: String(eventId++),
+						});
+						await stream.writeSSE({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+						doneSent = true;
+					} catch (sseError) {
+						logger.error(
+							"Failed to send timeout error SSE",
+							sseError instanceof Error
+								? sseError
+								: new Error(String(sseError)),
+						);
+					}
+
+					streamingError = {
+						message: errorMessage,
+						type: "upstream_timeout",
+						code: "timeout",
+						details: {
+							name: "TimeoutError",
+							timestamp: new Date().toISOString(),
+							provider: usedProvider,
+							model: usedModel,
+						},
+					};
 				} else {
 					logger.error(
 						"Error reading stream",
@@ -3645,7 +3695,11 @@ chat.openapi(completions, async (c) => {
 				}
 			} finally {
 				// Clean up the reader to prevent file descriptor leaks
-				await reader.cancel();
+				try {
+					await reader.cancel();
+				} catch {
+					// Ignore errors from cancel - the stream may already be aborted due to timeout
+				}
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 
