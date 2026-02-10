@@ -2587,7 +2587,34 @@ chat.openapi(completions, async (c) => {
 						data: JSON.stringify(contentFilterChunk),
 						id: String(eventId++),
 					});
+
+					// Send a usage chunk for SDK compatibility (stream_options: { include_usage: true })
+					const contentFilterUsageChunk = {
+						id: `chatcmpl-${Date.now()}`,
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: `${usedProvider}/${baseModelName}`,
+						choices: [
+							{
+								index: 0,
+								delta: {},
+								finish_reason: null,
+							},
+						],
+						usage: {
+							prompt_tokens: 0,
+							completion_tokens: 0,
+							total_tokens: 0,
+						},
+					};
+
 					await writeSSEAndCache({
+						data: JSON.stringify(contentFilterUsageChunk),
+						id: String(eventId++),
+					});
+
+					await writeSSEAndCache({
+						event: "done",
 						data: "[DONE]",
 						id: String(eventId++),
 					});
