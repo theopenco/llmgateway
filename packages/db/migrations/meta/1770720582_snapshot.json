@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3817fdb8-3ade-4054-a8b8-43a4189256be",
-  "prevId": "742ab22b-3f9b-4cad-935e-83c05956fed5",
+  "id": "db4b212f-e700-4117-acfc-f55f777e92db",
+  "prevId": "e5fcbbc1-a429-4cb2-9b9d-329dc6387ffc",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -1084,6 +1084,22 @@
       "table": "api_key_hourly_model_stats"
     },
     {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "cached_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -1611,6 +1627,22 @@
       "generated": null,
       "identity": null,
       "name": "image_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "cached_input_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -6772,6 +6804,22 @@
       "table": "project_hourly_model_stats"
     },
     {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "cached_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -7286,6 +7334,22 @@
       "generated": null,
       "identity": null,
       "name": "image_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "cached_input_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
