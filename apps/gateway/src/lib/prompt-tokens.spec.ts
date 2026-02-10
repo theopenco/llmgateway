@@ -8,7 +8,7 @@ describe("Prompt token calculation", () => {
 	describe("estimateTokensFromContent", () => {
 		it("should estimate tokens from content length", () => {
 			expect(estimateTokensFromContent("Hello world")).toBe(3); // 11 chars / 4 = 2.75, rounded to 3
-			expect(estimateTokensFromContent("")).toBe(1); // Always at least 1
+			expect(estimateTokensFromContent("")).toBe(0); // Empty content = 0 tokens
 			expect(
 				estimateTokensFromContent(
 					"A very long message that should result in more tokens",
@@ -16,8 +16,11 @@ describe("Prompt token calculation", () => {
 			).toBe(13); // 53 chars / 4 = 13.25, rounded to 13
 		});
 
-		it("should always return at least 1 token", () => {
-			expect(estimateTokensFromContent("")).toBe(1);
+		it("should return 0 for empty content", () => {
+			expect(estimateTokensFromContent("")).toBe(0);
+		});
+
+		it("should return at least 1 token for non-empty content", () => {
 			expect(estimateTokensFromContent("A")).toBe(1);
 		});
 	});
