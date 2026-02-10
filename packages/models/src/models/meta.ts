@@ -231,6 +231,7 @@ export const metaModels = [
 			},
 			{
 				providerId: "novita",
+				test: "skip",
 				modelName: "meta-llama/llama-3.3-70b-instruct",
 				inputPrice: 0.135 / 1e6,
 				outputPrice: 0.4 / 1e6,

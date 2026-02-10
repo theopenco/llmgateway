@@ -635,6 +635,21 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "canopywave",
+				deactivatedAt: new Date("2026-02-01"),
+				modelName: "qwen/qwen3-coder-480b-a35b-instruct",
+				inputPrice: 0.3 / 1e6,
+				outputPrice: 1.3 / 1e6,
+				discount: 0.75,
+				requestPrice: 0,
+				contextSize: 262144,
+				maxOutput: 65536,
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -883,6 +898,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "canopywave",
+				deactivatedAt: new Date("2026-02-01"),
 				modelName: "qwen/qwen3-coder",
 				inputPrice: 0.22 / 1e6,
 				outputPrice: 0.95 / 1e6,
