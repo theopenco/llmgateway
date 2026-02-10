@@ -16,12 +16,15 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	throughput?: number;
 }
 
-// Scoring weights (totaling 1.0)
-const PRICE_WEIGHT = 0.2;
-const IMAGE_PRICE_WEIGHT = 0.4; // 2x weight for image generation models
+// Scoring weights
+// With ratio-based scoring, throughput/latency differences are naturally amplified
+// (e.g., 6x faster = score of 5.0), so these weights are kept low to avoid
+// dominating price and uptime. Price/uptime differences are typically smaller ratios.
+const PRICE_WEIGHT = 0.3;
+const IMAGE_PRICE_WEIGHT = 0.5; // Higher weight for image generation models
 const UPTIME_WEIGHT = 0.5;
-const THROUGHPUT_WEIGHT = 0.2;
-const LATENCY_WEIGHT = 0.1;
+const THROUGHPUT_WEIGHT = 0.05;
+const LATENCY_WEIGHT = 0.025;
 
 // Uptime threshold below which exponential penalty kicks in
 const UPTIME_PENALTY_THRESHOLD = 95;
@@ -183,57 +186,48 @@ export function getCheapestFromAvailableProviders<
 		});
 	}
 
-	// Find min/max values for normalization
+	// Find best values for ratio-based scoring
+	// Instead of min-max normalization (which loses magnitude of differences),
+	// we use ratios against the best value so actual proportional differences
+	// are preserved. e.g., a provider 50% cheaper scores much better than one 5% cheaper.
 	const prices = providerScores.map((p) => p.price);
 	const minPrice = Math.min(...prices);
-	const maxPrice = Math.max(...prices);
 
 	const uptimes = providerScores.map((p) => p.uptime ?? DEFAULT_UPTIME);
-	const minUptime = Math.min(...uptimes);
 	const maxUptime = Math.max(...uptimes);
 
 	const throughputs = providerScores.map(
 		(p) => p.throughput ?? DEFAULT_THROUGHPUT,
 	);
-	const minThroughput = Math.min(...throughputs);
 	const maxThroughput = Math.max(...throughputs);
 
 	const latencies = providerScores.map((p) => p.latency ?? DEFAULT_LATENCY);
 	const minLatency = Math.min(...latencies);
-	const maxLatency = Math.max(...latencies);
 
-	// Calculate normalized scores
+	// Calculate ratio-based scores
 	for (const providerScore of providerScores) {
-		// Normalize price (0 = cheapest, 1 = most expensive)
-		const priceRange = maxPrice - minPrice;
-		const priceScore =
-			priceRange > 0 ? (providerScore.price - minPrice) / priceRange : 0;
+		// Price ratio: 0 = cheapest, 0.5 = 50% more expensive, 1.0 = 2x more expensive
+		// This preserves the actual magnitude of price differences
+		const priceScore = minPrice > 0 ? providerScore.price / minPrice - 1 : 0;
 
-		// Normalize uptime (0 = best uptime, 1 = worst uptime)
-		// Uses relative comparison between providers
+		// Uptime ratio: 0 = best uptime, proportional penalty for worse uptime
 		const uptime = providerScore.uptime ?? DEFAULT_UPTIME;
-		const uptimeRange = maxUptime - minUptime;
-		const uptimeScore =
-			uptimeRange > 0 ? (maxUptime - uptime) / uptimeRange : 0;
+		const uptimeScore = uptime > 0 ? maxUptime / uptime - 1 : 1;
 
 		// Calculate exponential penalty for truly unstable providers
 		const uptimePenalty = calculateUptimePenalty(uptime);
 
-		// Normalize throughput (0 = fastest, 1 = slowest)
-		// Higher throughput is better, so we invert
+		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower
+		// This preserves the actual magnitude of throughput differences
 		const throughput = providerScore.throughput ?? DEFAULT_THROUGHPUT;
-		const throughputRange = maxThroughput - minThroughput;
-		const throughputScore =
-			throughputRange > 0 ? (maxThroughput - throughput) / throughputRange : 0;
+		const throughputScore = throughput > 0 ? maxThroughput / throughput - 1 : 1;
 
-		// Normalize latency (0 = fastest, 1 = slowest)
+		// Latency ratio: 0 = fastest, proportional penalty for slower
 		// Only consider latency for streaming requests since it's only measured there
 		let latencyScore = 0;
 		if (isStreaming) {
 			const latency = providerScore.latency ?? DEFAULT_LATENCY;
-			const latencyRange = maxLatency - minLatency;
-			latencyScore =
-				latencyRange > 0 ? (latency - minLatency) / latencyRange : 0;
+			latencyScore = minLatency > 0 ? latency / minLatency - 1 : 0;
 		}
 
 		// Calculate base weighted score (lower is better)
