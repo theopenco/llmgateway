@@ -523,7 +523,7 @@ export async function batchProcessLogs(): Promise<void> {
 				const row = schema.parse(raw);
 
 				// Log each processed log with JSON format
-				logger.trace("Processing log", {
+				logger.info("Processing log", {
 					kind: "log-process",
 					status: row.hasError ? "error" : row.cached ? "cached" : "success",
 					logId: row.id,
