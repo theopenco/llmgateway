@@ -421,35 +421,30 @@ export async function processRecentLogs() {
 						)
 					: undefined;
 
-			// Find the frontier: the hour after the latest processed hour, or backfillStart/earliest log
-			const fallback = backfillStart ?? formatUTCTimestamp(new Date(0));
-			const frontierResult = await database.execute<{
-				frontier: string;
-			}>(sql`
-				SELECT coalesce(
-					to_char(
-						(SELECT max(${projectHourlyStats.hourTimestamp}) FROM ${projectHourlyStats}) + interval '1 hour',
-						'YYYY-MM-DD HH24:MI:SS'
-					),
-					${fallback}
-				) AS frontier
-			`);
-			const frontier = frontierResult.rows[0].frontier;
+			const rangeStart = backfillStart ?? formatUTCTimestamp(new Date(0));
 
 			logger.info(
-				`[backfill] Scanning from frontier ${frontier} (lookback: ${backfillStart ?? "unlimited"})`,
+				`[backfill] Scanning for unprocessed hours (range: ${rangeStart} to ${currentHourStart})`,
 			);
 
-			// Generate hour slots from the frontier to currentHourStart, limited by batch size
+			// Find hours with gaps: generate all hours in the backfill window,
+			// then exclude hours that already have stats rows.
+			// This is fast because generate_series is instant and the NOT EXISTS
+			// checks against the small project_hourly_stats table (indexed).
 			const hoursToProcess = await database.execute<{
 				hour_timestamp: string;
 			}>(sql`
 				SELECT to_char(h, 'YYYY-MM-DD HH24:MI:SS') AS hour_timestamp
 				FROM generate_series(
-					${frontier}::timestamp,
+					${rangeStart}::timestamp,
 					${currentHourStart}::timestamp - interval '1 hour',
 					interval '1 hour'
 				) AS h
+				WHERE NOT EXISTS (
+					SELECT 1 FROM ${projectHourlyStats}
+					WHERE ${projectHourlyStats.hourTimestamp} = h
+				)
+				ORDER BY h ASC
 				LIMIT ${STATS_BATCH_SIZE}
 			`);
 
