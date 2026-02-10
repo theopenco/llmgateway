@@ -861,7 +861,6 @@ let shouldStop = false;
 let minutelyIntervalId: NodeJS.Timeout | null = null;
 let currentMinuteIntervalId: NodeJS.Timeout | null = null;
 let aggregatedIntervalId: NodeJS.Timeout | null = null;
-let projectStatsIntervalId: NodeJS.Timeout | null = null;
 let activeLoops = 0;
 let stopFailed = false;
 
@@ -967,6 +966,42 @@ async function runBatchProcessLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Batch process loop stopped");
+	}
+}
+
+async function runProjectStatsLoop() {
+	activeLoops++;
+	const interval = PROJECT_STATS_REFRESH_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting project stats loop (interval: ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await refreshProjectHourlyStats();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in project stats loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Project stats loop stopped");
 	}
 }
 
@@ -1185,21 +1220,7 @@ export async function startWorker() {
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
 	);
 
-	refreshProjectHourlyStats().catch((error) => {
-		logger.error(
-			"Error in initial project hourly stats refresh",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	projectStatsIntervalId = setInterval(() => {
-		refreshProjectHourlyStats().catch((error) => {
-			logger.error(
-				"Error in interval project hourly stats refresh",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-	}, PROJECT_STATS_REFRESH_INTERVAL_SECONDS * 1000);
+	void runProjectStatsLoop();
 
 	// Start all parallel worker loops
 	void runLogQueueLoop();
@@ -1234,12 +1255,6 @@ export async function stopWorker(): Promise<boolean> {
 		clearInterval(aggregatedIntervalId);
 		aggregatedIntervalId = null;
 		logger.info("Aggregated statistics calculator stopped");
-	}
-
-	if (projectStatsIntervalId) {
-		clearInterval(projectStatsIntervalId);
-		projectStatsIntervalId = null;
-		logger.info("Project hourly stats refresh stopped");
 	}
 
 	// Wait for all loops to finish by polling activeLoops counter

@@ -401,16 +401,104 @@ const STATS_STALE_ENABLED = process.env.STATS_STALE_ENABLED !== "false";
 const STATS_STALE_DAYS = Number(process.env.STATS_STALE_DAYS) || 7;
 
 /**
- * Process all logs that haven't been aggregated yet (backfill) and re-process
- * stale buckets where new logs arrived after the last aggregation.
+ * Re-aggregate stale buckets (where new logs arrived after the last aggregation)
+ * and backfill historical buckets that have no stats rows yet.
  */
-export async function processRecentLogs() {
+export async function aggregateHistoricalStats() {
 	const database = db;
 	const currentHourStart = getCurrentHourStart();
 	let totalBucketsProcessed = 0;
 
 	try {
-		// Phase 1: Backfill - find project-hour buckets that have NO stats rows yet
+		// Phase 1: Re-process stale buckets where new logs arrived after the last aggregation.
+		// This runs first so that recently-active hours stay accurate even while
+		// a large backfill is in progress.
+		// Iterates over the small project_hourly_stats table and uses a correlated
+		// subquery to check if any log in that bucket is newer than updatedAt.
+		// This leverages the (project_id, created_at) index for fast lookups.
+		if (STATS_STALE_ENABLED) {
+			const staleStart =
+				STATS_STALE_DAYS > 0
+					? formatUTCTimestamp(
+							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
+						)
+					: undefined;
+
+			logger.info(
+				`[stale] Scanning for stale buckets (lookback: ${staleStart ?? "unlimited"})`,
+			);
+
+			const staleBuckets = await database
+				.select({
+					projectId: projectHourlyStats.projectId,
+					hourTimestamp:
+						sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+							"hourTimestamp",
+						),
+				})
+				.from(projectHourlyStats)
+				.where(
+					and(
+						staleStart
+							? sql`${projectHourlyStats.hourTimestamp} >= ${staleStart}::timestamp`
+							: undefined,
+						sql`EXISTS (
+							SELECT 1 FROM ${log}
+							WHERE ${log.projectId} = ${projectHourlyStats.projectId}
+								AND ${log.createdAt} >= ${projectHourlyStats.hourTimestamp}
+								AND ${log.createdAt} < ${projectHourlyStats.hourTimestamp} + interval '1 hour'
+								AND ${log.createdAt} > ${projectHourlyStats.updatedAt}
+							LIMIT 1
+						)`,
+					),
+				)
+				.orderBy(projectHourlyStats.hourTimestamp)
+				.limit(STATS_BATCH_SIZE);
+
+			if (staleBuckets.length > 0) {
+				logger.info(
+					`[stale] Found ${staleBuckets.length} stale project-hour buckets with new logs (oldest: ${staleBuckets[0].hourTimestamp}, newest: ${staleBuckets[staleBuckets.length - 1].hourTimestamp})`,
+				);
+
+				for (let i = 0; i < staleBuckets.length; i++) {
+					const bucket = staleBuckets[i];
+
+					await recalculateProjectHourlyStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
+					await recalculateProjectHourlyModelStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
+					await recalculateApiKeyHourlyStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
+					await recalculateApiKeyHourlyModelStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
+
+					logger.info(
+						`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
+					);
+				}
+
+				totalBucketsProcessed += staleBuckets.length;
+
+				if (staleBuckets.length === STATS_BATCH_SIZE) {
+					logger.info(
+						`[stale] Batch limit reached (${STATS_BATCH_SIZE}), more stale buckets may remain — will continue in next run`,
+					);
+				}
+			} else {
+				logger.debug("[stale] No stale buckets found");
+			}
+		}
+
+		// Phase 2: Backfill - find project-hour buckets that have NO stats rows yet.
+		// This runs after stale detection so that live data is always prioritised.
 		if (STATS_BACKFILL_ENABLED) {
 			const backfillStart =
 				STATS_BACKFILL_DAYS > 0
@@ -498,91 +586,6 @@ export async function processRecentLogs() {
 			}
 		}
 
-		// Phase 2: Re-process stale buckets where new logs arrived after the last aggregation.
-		// Iterates over the small project_hourly_stats table and uses a correlated
-		// subquery to check if any log in that bucket is newer than updatedAt.
-		// This leverages the (project_id, created_at) index for fast lookups.
-		if (STATS_STALE_ENABLED) {
-			const staleStart =
-				STATS_STALE_DAYS > 0
-					? formatUTCTimestamp(
-							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
-						)
-					: undefined;
-
-			logger.info(
-				`[stale] Scanning for stale buckets (lookback: ${staleStart ?? "unlimited"})`,
-			);
-
-			const staleBuckets = await database
-				.select({
-					projectId: projectHourlyStats.projectId,
-					hourTimestamp:
-						sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD HH24:MI:SS')`.as(
-							"hourTimestamp",
-						),
-				})
-				.from(projectHourlyStats)
-				.where(
-					and(
-						staleStart
-							? sql`${projectHourlyStats.hourTimestamp} >= ${staleStart}::timestamp`
-							: undefined,
-						sql`EXISTS (
-							SELECT 1 FROM ${log}
-							WHERE ${log.projectId} = ${projectHourlyStats.projectId}
-								AND ${log.createdAt} >= ${projectHourlyStats.hourTimestamp}
-								AND ${log.createdAt} < ${projectHourlyStats.hourTimestamp} + interval '1 hour'
-								AND ${log.createdAt} > ${projectHourlyStats.updatedAt}
-							LIMIT 1
-						)`,
-					),
-				)
-				.orderBy(projectHourlyStats.hourTimestamp)
-				.limit(STATS_BATCH_SIZE);
-
-			if (staleBuckets.length > 0) {
-				logger.info(
-					`[stale] Found ${staleBuckets.length} stale project-hour buckets with new logs (oldest: ${staleBuckets[0].hourTimestamp}, newest: ${staleBuckets[staleBuckets.length - 1].hourTimestamp})`,
-				);
-
-				for (let i = 0; i < staleBuckets.length; i++) {
-					const bucket = staleBuckets[i];
-
-					await recalculateProjectHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateProjectHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-
-					logger.info(
-						`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
-					);
-				}
-
-				totalBucketsProcessed += staleBuckets.length;
-
-				if (staleBuckets.length === STATS_BATCH_SIZE) {
-					logger.info(
-						`[stale] Batch limit reached (${STATS_BATCH_SIZE}), more stale buckets may remain — will continue in next run`,
-					);
-				}
-			} else {
-				logger.debug("[stale] No stale buckets found");
-			}
-		}
-
 		logger.info(
 			`Stats aggregation complete: ${totalBucketsProcessed} total buckets processed`,
 		);
@@ -637,15 +640,31 @@ export async function refreshCurrentHourStats() {
 }
 
 /**
- * Main refresh function called by the worker interval
+ * Main refresh function called by the worker interval.
+ * Order: current hour (live) → stale detection → backfill (slow).
+ * This ensures live dashboard data is always fresh, even when backfill
+ * is working through a large volume of historical buckets.
  */
 export async function refreshProjectHourlyStats() {
-	logger.debug("Starting project hourly stats refresh...");
+	const start = Date.now();
+	logger.info("Starting project hourly stats refresh...");
 
 	try {
-		await processRecentLogs();
+		// 1. Refresh current hour first — keeps the live dashboard up-to-date
+		const liveStart = Date.now();
 		await refreshCurrentHourStats();
-		logger.debug("Project hourly stats refresh complete");
+		logger.info(`Current hour stats refresh took ${Date.now() - liveStart}ms`);
+
+		// 2. Stale detection + backfill (stale runs first inside aggregateHistoricalStats)
+		const recentStart = Date.now();
+		await aggregateHistoricalStats();
+		logger.info(
+			`Stale detection + backfill took ${Date.now() - recentStart}ms`,
+		);
+
+		logger.info(
+			`Project hourly stats refresh complete in ${Date.now() - start}ms`,
+		);
 	} catch (error) {
 		logger.error(
 			"Error refreshing project hourly stats",
