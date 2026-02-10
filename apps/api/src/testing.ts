@@ -161,6 +161,39 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
 				"cachedInputCost",
 			),
+		// Per-mode breakdowns
+		creditsRequestCount:
+			sql<number>`sum(case when ${tables.log.usedMode} = 'credits' then 1 else 0 end)::int`.as(
+				"creditsRequestCount",
+			),
+		apiKeysRequestCount:
+			sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' then 1 else 0 end)::int`.as(
+				"apiKeysRequestCount",
+			),
+		creditsCost:
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then ${tables.log.cost} else 0 end), 0)`.as(
+				"creditsCost",
+			),
+		apiKeysCost:
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then ${tables.log.cost} else 0 end), 0)`.as(
+				"apiKeysCost",
+			),
+		creditsServiceFee:
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then ${tables.log.serviceFee} else 0 end), 0)`.as(
+				"creditsServiceFee",
+			),
+		apiKeysServiceFee:
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then ${tables.log.serviceFee} else 0 end), 0)`.as(
+				"apiKeysServiceFee",
+			),
+		creditsDataStorageCost:
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(
+				"creditsDataStorageCost",
+			),
+		apiKeysDataStorageCost:
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(
+				"apiKeysDataStorageCost",
+			),
 	};
 }
 

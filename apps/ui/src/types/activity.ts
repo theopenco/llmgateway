@@ -30,6 +30,14 @@ export interface DailyActivity {
 	cacheCount: number;
 	cacheRate: number;
 	discountSavings: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
+	creditsServiceFee: number;
+	apiKeysServiceFee: number;
+	creditsDataStorageCost: number;
+	apiKeysDataStorageCost: number;
 	modelBreakdown: ActivityModelUsage[];
 }
 
@@ -59,6 +67,14 @@ export type ActivitT =
 				cacheCount: number;
 				cacheRate: number;
 				discountSavings: number;
+				creditsRequestCount: number;
+				apiKeysRequestCount: number;
+				creditsCost: number;
+				apiKeysCost: number;
+				creditsServiceFee: number;
+				apiKeysServiceFee: number;
+				creditsDataStorageCost: number;
+				apiKeysDataStorageCost: number;
 				modelBreakdown: ActivityModelUsage[];
 			}[];
 	  }

@@ -54,6 +54,14 @@ const dailyActivitySchema = z.object({
 	cacheCount: z.number(),
 	cacheRate: z.number(),
 	discountSavings: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
+	creditsServiceFee: z.number(),
+	apiKeysServiceFee: z.number(),
+	creditsDataStorageCost: z.number(),
+	apiKeysDataStorageCost: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
 });
 
@@ -207,6 +215,38 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cachedInputCost}), 0)`.as(
 						"cachedInputCost",
 					),
+				creditsRequestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsRequestCount}), 0)`.as(
+						"creditsRequestCount",
+					),
+				apiKeysRequestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysRequestCount}), 0)`.as(
+						"apiKeysRequestCount",
+					),
+				creditsCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsCost}), 0)`.as(
+						"creditsCost",
+					),
+				apiKeysCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysCost}), 0)`.as(
+						"apiKeysCost",
+					),
+				creditsServiceFee:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsServiceFee}), 0)`.as(
+						"creditsServiceFee",
+					),
+				apiKeysServiceFee:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysServiceFee}), 0)`.as(
+						"apiKeysServiceFee",
+					),
+				creditsDataStorageCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsDataStorageCost}), 0)`.as(
+						"creditsDataStorageCost",
+					),
+				apiKeysDataStorageCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysDataStorageCost}), 0)`.as(
+						"apiKeysDataStorageCost",
+					),
 			})
 			.from(apiKeyHourlyStats)
 			.where(
@@ -302,6 +342,15 @@ activity.openapi(getActivity, async (c) => {
 			const imageOutputCost = Number(day.imageOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
 
+			const creditsRequestCount = Number(day.creditsRequestCount);
+			const apiKeysRequestCount = Number(day.apiKeysRequestCount);
+			const creditsCost = Number(day.creditsCost);
+			const apiKeysCost = Number(day.apiKeysCost);
+			const creditsServiceFee = Number(day.creditsServiceFee);
+			const apiKeysServiceFee = Number(day.apiKeysServiceFee);
+			const creditsDataStorageCost = Number(day.creditsDataStorageCost);
+			const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
+
 			const errorRate =
 				requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
 			const cacheRate =
@@ -327,6 +376,14 @@ activity.openapi(getActivity, async (c) => {
 				cacheCount,
 				cacheRate,
 				discountSavings,
+				creditsRequestCount,
+				apiKeysRequestCount,
+				creditsCost,
+				apiKeysCost,
+				creditsServiceFee,
+				apiKeysServiceFee,
+				creditsDataStorageCost,
+				apiKeysDataStorageCost,
 				modelBreakdown: modelBreakdownByDate.get(day.date) || [],
 			};
 		});
@@ -403,6 +460,38 @@ activity.openapi(getActivity, async (c) => {
 			discountSavings:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
 					"discountSavings",
+				),
+			creditsRequestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsRequestCount}), 0)`.as(
+					"creditsRequestCount",
+				),
+			apiKeysRequestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysRequestCount}), 0)`.as(
+					"apiKeysRequestCount",
+				),
+			creditsCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0)`.as(
+					"creditsCost",
+				),
+			apiKeysCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysCost}), 0)`.as(
+					"apiKeysCost",
+				),
+			creditsServiceFee:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsServiceFee}), 0)`.as(
+					"creditsServiceFee",
+				),
+			apiKeysServiceFee:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysServiceFee}), 0)`.as(
+					"apiKeysServiceFee",
+				),
+			creditsDataStorageCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsDataStorageCost}), 0)`.as(
+					"creditsDataStorageCost",
+				),
+			apiKeysDataStorageCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`.as(
+					"apiKeysDataStorageCost",
 				),
 		})
 		.from(projectHourlyStats)
@@ -499,6 +588,15 @@ activity.openapi(getActivity, async (c) => {
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
 
+		const creditsRequestCount = Number(day.creditsRequestCount);
+		const apiKeysRequestCount = Number(day.apiKeysRequestCount);
+		const creditsCost = Number(day.creditsCost);
+		const apiKeysCost = Number(day.apiKeysCost);
+		const creditsServiceFee = Number(day.creditsServiceFee);
+		const apiKeysServiceFee = Number(day.apiKeysServiceFee);
+		const creditsDataStorageCost = Number(day.creditsDataStorageCost);
+		const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
+
 		const errorRate = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
 		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
 
@@ -522,6 +620,14 @@ activity.openapi(getActivity, async (c) => {
 			cacheCount,
 			cacheRate,
 			discountSavings,
+			creditsRequestCount,
+			apiKeysRequestCount,
+			creditsCost,
+			apiKeysCost,
+			creditsServiceFee,
+			apiKeysServiceFee,
+			creditsDataStorageCost,
+			apiKeysDataStorageCost,
 			modelBreakdown: modelBreakdownByDate.get(day.date) || [],
 		};
 	});

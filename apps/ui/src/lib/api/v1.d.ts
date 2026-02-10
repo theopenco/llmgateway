@@ -981,6 +981,14 @@ export interface paths {
                                 cacheCount: number;
                                 cacheRate: number;
                                 discountSavings: number;
+                                creditsRequestCount: number;
+                                apiKeysRequestCount: number;
+                                creditsCost: number;
+                                apiKeysCost: number;
+                                creditsServiceFee: number;
+                                apiKeysServiceFee: number;
+                                creditsDataStorageCost: number;
+                                apiKeysDataStorageCost: number;
                                 modelBreakdown: {
                                     id: string;
                                     provider: string;
