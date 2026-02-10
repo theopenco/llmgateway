@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "da8b9a5f-76d0-423b-a9f6-4328c3d2c37f",
+  "id": "0cc932b3-1121-42eb-8399-2d8ac4000313",
   "prevId": "e5fcbbc1-a429-4cb2-9b9d-329dc6387ffc",
   "ddl": [
     {
@@ -1100,6 +1100,134 @@
       "table": "api_key_hourly_model_stats"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -1643,6 +1771,134 @@
       "generated": null,
       "identity": null,
       "name": "cached_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -6820,6 +7076,134 @@
       "table": "project_hourly_model_stats"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -7350,6 +7734,134 @@
       "generated": null,
       "identity": null,
       "name": "cached_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_service_fee",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "credits_data_storage_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "api_keys_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"

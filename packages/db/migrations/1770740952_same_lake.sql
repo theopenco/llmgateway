@@ -36,6 +36,14 @@ CREATE TABLE "api_key_hourly_model_stats" (
 	"image_input_cost" real DEFAULT 0 NOT NULL,
 	"image_output_cost" real DEFAULT 0 NOT NULL,
 	"cached_input_cost" real DEFAULT 0 NOT NULL,
+	"credits_request_count" integer DEFAULT 0 NOT NULL,
+	"api_keys_request_count" integer DEFAULT 0 NOT NULL,
+	"credits_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_cost" real DEFAULT 0 NOT NULL,
+	"credits_service_fee" real DEFAULT 0 NOT NULL,
+	"api_keys_service_fee" real DEFAULT 0 NOT NULL,
+	"credits_data_storage_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_data_storage_cost" real DEFAULT 0 NOT NULL,
 	CONSTRAINT "api_key_hourly_model_stats_api_key_id_hour_timestamp_used_model_used_provider_unique" UNIQUE("api_key_id","hour_timestamp","used_model","used_provider")
 );
 --> statement-breakpoint
@@ -75,6 +83,14 @@ CREATE TABLE "api_key_hourly_stats" (
 	"image_input_cost" real DEFAULT 0 NOT NULL,
 	"image_output_cost" real DEFAULT 0 NOT NULL,
 	"cached_input_cost" real DEFAULT 0 NOT NULL,
+	"credits_request_count" integer DEFAULT 0 NOT NULL,
+	"api_keys_request_count" integer DEFAULT 0 NOT NULL,
+	"credits_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_cost" real DEFAULT 0 NOT NULL,
+	"credits_service_fee" real DEFAULT 0 NOT NULL,
+	"api_keys_service_fee" real DEFAULT 0 NOT NULL,
+	"credits_data_storage_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_data_storage_cost" real DEFAULT 0 NOT NULL,
 	CONSTRAINT "api_key_hourly_stats_api_key_id_hour_timestamp_unique" UNIQUE("api_key_id","hour_timestamp")
 );
 --> statement-breakpoint
@@ -115,6 +131,14 @@ CREATE TABLE "project_hourly_model_stats" (
 	"image_input_cost" real DEFAULT 0 NOT NULL,
 	"image_output_cost" real DEFAULT 0 NOT NULL,
 	"cached_input_cost" real DEFAULT 0 NOT NULL,
+	"credits_request_count" integer DEFAULT 0 NOT NULL,
+	"api_keys_request_count" integer DEFAULT 0 NOT NULL,
+	"credits_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_cost" real DEFAULT 0 NOT NULL,
+	"credits_service_fee" real DEFAULT 0 NOT NULL,
+	"api_keys_service_fee" real DEFAULT 0 NOT NULL,
+	"credits_data_storage_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_data_storage_cost" real DEFAULT 0 NOT NULL,
 	CONSTRAINT "project_hourly_model_stats_project_id_hour_timestamp_used_model_used_provider_unique" UNIQUE("project_id","hour_timestamp","used_model","used_provider")
 );
 --> statement-breakpoint
@@ -153,6 +177,14 @@ CREATE TABLE "project_hourly_stats" (
 	"image_input_cost" real DEFAULT 0 NOT NULL,
 	"image_output_cost" real DEFAULT 0 NOT NULL,
 	"cached_input_cost" real DEFAULT 0 NOT NULL,
+	"credits_request_count" integer DEFAULT 0 NOT NULL,
+	"api_keys_request_count" integer DEFAULT 0 NOT NULL,
+	"credits_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_cost" real DEFAULT 0 NOT NULL,
+	"credits_service_fee" real DEFAULT 0 NOT NULL,
+	"api_keys_service_fee" real DEFAULT 0 NOT NULL,
+	"credits_data_storage_cost" real DEFAULT 0 NOT NULL,
+	"api_keys_data_storage_cost" real DEFAULT 0 NOT NULL,
 	CONSTRAINT "project_hourly_stats_project_id_hour_timestamp_unique" UNIQUE("project_id","hour_timestamp")
 );
 --> statement-breakpoint
