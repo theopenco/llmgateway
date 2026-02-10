@@ -858,11 +858,24 @@ export async function processLogQueue(): Promise<void> {
 
 let isWorkerRunning = false;
 let shouldStop = false;
-let minutelyIntervalId: NodeJS.Timeout | null = null;
-let currentMinuteIntervalId: NodeJS.Timeout | null = null;
-let aggregatedIntervalId: NodeJS.Timeout | null = null;
 let activeLoops = 0;
 let stopFailed = false;
+
+/**
+ * Sleep that can be interrupted by shouldStop.
+ * Breaks long delays into short chunks so loops exit promptly on shutdown.
+ */
+async function interruptibleSleep(ms: number): Promise<void> {
+	const chunkMs = 500;
+	let remaining = ms;
+	// eslint-disable-next-line no-unmodified-loop-condition
+	while (remaining > 0 && !shouldStop) {
+		await new Promise((resolve) => {
+			setTimeout(resolve, Math.min(remaining, chunkMs));
+		});
+		remaining -= chunkMs;
+	}
+}
 
 // Independent worker loops
 async function runLogQueueLoop() {
@@ -966,6 +979,150 @@ async function runBatchProcessLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Batch process loop stopped");
+	}
+}
+
+async function runMinutelyHistoryLoop() {
+	activeLoops++;
+	logger.info(
+		"Starting minutely history loop (every 60s, aligned to minute boundary)...",
+	);
+
+	try {
+		// Initial run immediately
+		try {
+			await calculateMinutelyHistory();
+		} catch (error) {
+			logger.error(
+				"Error in initial minutely history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			// Calculate delay to next minute boundary
+			const now = new Date();
+			const nextMinute = new Date(
+				now.getFullYear(),
+				now.getMonth(),
+				now.getDate(),
+				now.getHours(),
+				now.getMinutes() + 1,
+				0,
+				50, // 50ms buffer
+			);
+			const delay = nextMinute.getTime() - now.getTime();
+
+			await interruptibleSleep(delay);
+
+			if (shouldStop) {
+				break;
+			}
+
+			try {
+				await calculateMinutelyHistory();
+			} catch (error) {
+				logger.error(
+					"Error in minutely history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Minutely history loop stopped");
+	}
+}
+
+async function runCurrentMinuteHistoryLoop() {
+	activeLoops++;
+	const interval = CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting current minute history loop (interval: ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await calculateCurrentMinuteHistory();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in current minute history loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Current minute history loop stopped");
+	}
+}
+
+async function runAggregatedStatsLoop() {
+	activeLoops++;
+	logger.info(
+		"Starting aggregated stats loop (every 5min, aligned to 5-min boundary)...",
+	);
+
+	try {
+		// Initial run immediately
+		try {
+			await calculateAggregatedStatistics();
+		} catch (error) {
+			logger.error(
+				"Error in initial aggregated statistics calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			// Calculate delay to next 5-minute boundary
+			const now = new Date();
+			const currentMinute = now.getMinutes();
+			const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
+			const nextRun = new Date(now);
+			nextRun.setSeconds(0, 100); // 100ms buffer
+			if (nextFiveMinuteMark >= 60) {
+				nextRun.setMinutes(0);
+				nextRun.setHours(nextRun.getHours() + 1);
+			} else {
+				nextRun.setMinutes(nextFiveMinuteMark);
+			}
+
+			const delay = nextRun.getTime() - now.getTime();
+
+			await interruptibleSleep(delay);
+
+			if (shouldStop) {
+				break;
+			}
+
+			try {
+				await calculateAggregatedStatistics();
+			} catch (error) {
+				logger.error(
+					"Error in aggregated statistics calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Aggregated stats loop stopped");
 	}
 }
 
@@ -1087,8 +1244,8 @@ export async function startWorker() {
 			);
 		});
 
-	// Start statistics calculator
-	logger.info("Starting statistics calculator...");
+	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
+	logger.info("Starting worker loops...");
 	logger.info("- Minutely history: runs at the first second of every minute");
 	logger.info(
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
@@ -1096,133 +1253,14 @@ export async function startWorker() {
 	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
-
-	// Start minutely history calculation (runs at the beginning of every minute)
-	calculateMinutelyHistory().catch((error) => {
-		logger.error(
-			"Error in initial minutely history calculation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	// Calculate delay to next minute's first second
-	const scheduleMinutelyHistory = () => {
-		const now = new Date();
-		const nextMinute = new Date(
-			now.getFullYear(),
-			now.getMonth(),
-			now.getDate(),
-			now.getHours(),
-			now.getMinutes() + 1,
-			0, // 0 seconds
-			50, // 50ms buffer to ensure we're past the second boundary
-		);
-		const delayToNextMinute = nextMinute.getTime() - now.getTime();
-
-		setTimeout(() => {
-			calculateMinutelyHistory().catch((error) => {
-				logger.error(
-					"Error in scheduled minutely history calculation",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			});
-			// After the first run, schedule it to repeat every minute at the first second
-			minutelyIntervalId = setInterval(
-				() => {
-					calculateMinutelyHistory().catch((error) => {
-						logger.error(
-							"Error in interval minutely history calculation",
-							error instanceof Error ? error : new Error(String(error)),
-						);
-					});
-				},
-				60 * 1000, // 1 minute
-			);
-		}, delayToNextMinute);
-	};
-
-	scheduleMinutelyHistory();
-
-	// Start current minute history calculation (runs every N seconds for real-time metrics)
-	calculateCurrentMinuteHistory().catch((error) => {
-		logger.error(
-			"Error in initial current minute history calculation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	currentMinuteIntervalId = setInterval(() => {
-		calculateCurrentMinuteHistory().catch((error) => {
-			logger.error(
-				"Error in interval current minute history calculation",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-	}, CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000);
-
-	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
-	calculateAggregatedStatistics().catch((error) => {
-		logger.error(
-			"Error in initial aggregated statistics calculation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	// Calculate delay to next 5-minute boundary (0, 5, 10, 15, etc.)
-	const scheduleAggregatedStats = () => {
-		const now = new Date();
-		const currentMinute = now.getMinutes();
-		const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
-		const nextRun = new Date(
-			now.getFullYear(),
-			now.getMonth(),
-			now.getDate(),
-			now.getHours(),
-			nextFiveMinuteMark,
-			0, // 0 seconds
-			100, // 100ms buffer
-		);
-
-		// Handle hour rollover
-		if (nextFiveMinuteMark >= 60) {
-			nextRun.setHours(nextRun.getHours() + 1);
-			nextRun.setMinutes(0);
-		}
-
-		const delayToNext = nextRun.getTime() - now.getTime();
-
-		setTimeout(() => {
-			calculateAggregatedStatistics().catch((error) => {
-				logger.error(
-					"Error in scheduled aggregated statistics calculation",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			});
-			// After the first run, schedule it to repeat every 5 minutes
-			aggregatedIntervalId = setInterval(
-				() => {
-					calculateAggregatedStatistics().catch((error) => {
-						logger.error(
-							"Error in interval aggregated statistics calculation",
-							error instanceof Error ? error : new Error(String(error)),
-						);
-					});
-				},
-				5 * 60 * 1000, // 5 minutes
-			);
-		}, delayToNext);
-	};
-
-	scheduleAggregatedStats();
-
-	// Start project hourly stats refresh (for dashboard aggregations)
 	logger.info(
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
 	);
 
+	void runMinutelyHistoryLoop();
+	void runCurrentMinuteHistoryLoop();
+	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
-
-	// Start all parallel worker loops
 	void runLogQueueLoop();
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
@@ -1237,25 +1275,6 @@ export async function stopWorker(): Promise<boolean> {
 
 	logger.info("Stopping worker...");
 	shouldStop = true;
-
-	// Stop statistics calculator intervals
-	if (minutelyIntervalId) {
-		clearInterval(minutelyIntervalId);
-		minutelyIntervalId = null;
-		logger.info("Minutely history calculator stopped");
-	}
-
-	if (currentMinuteIntervalId) {
-		clearInterval(currentMinuteIntervalId);
-		currentMinuteIntervalId = null;
-		logger.info("Current minute history calculator stopped");
-	}
-
-	if (aggregatedIntervalId) {
-		clearInterval(aggregatedIntervalId);
-		aggregatedIntervalId = null;
-		logger.info("Aggregated statistics calculator stopped");
-	}
 
 	// Wait for all loops to finish by polling activeLoops counter
 	const maxWaitTime = 15000; // 15 seconds timeout
