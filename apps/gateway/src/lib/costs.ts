@@ -306,8 +306,15 @@ export async function calculateCosts(
 		.times(inputPrice)
 		.times(discountMultiplier);
 
-	// For Google models, reasoning tokens are billed at the output token rate
-	const totalOutputTokens = calculatedCompletionTokens + (reasoningTokens || 0);
+	// For Google models, completionTokens already includes reasoning tokens
+	// (merged during extraction). For other providers, add reasoning separately.
+	const isGoogleProvider =
+		provider === "google-ai-studio" ||
+		provider === "google-vertex" ||
+		provider === "obsidian";
+	const totalOutputTokens = isGoogleProvider
+		? calculatedCompletionTokens
+		: calculatedCompletionTokens + (reasoningTokens || 0);
 
 	// Calculate output cost, handling separate image output pricing if applicable
 	let outputCost: Decimal;

@@ -254,25 +254,27 @@ describe("calculateCosts", () => {
 
 	it("should include reasoning tokens in output cost calculation", async () => {
 		// Test with Google model that has reasoning tokens
+		// For Google providers, completionTokens already includes reasoning
+		// (merged during token extraction), so we pass 700 = 500 output + 200 reasoning
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
 			1000,
-			500,
+			700, // completionTokens includes reasoning for Google
 			null,
 			undefined,
-			200, // 200 reasoning tokens
+			200, // 200 reasoning tokens (for display, not added again)
 		);
 
 		// For Google: gemini-2.5-pro
 		// inputPrice: 1.25 / 1e6
 		// outputPrice: 10.0 / 1e6
-		// Total output tokens should be 500 + 200 = 700
+		// Total output tokens = 700 (completionTokens already includes reasoning)
 		expect(result.inputCost).toBeCloseTo(0.00125); // 1000 * 1.25e-6
 		expect(result.outputCost).toBeCloseTo(0.007); // 700 * 10.0e-6
 		expect(result.totalCost).toBeCloseTo(0.00825); // 0.00125 + 0.007
 		expect(result.promptTokens).toBe(1000);
-		expect(result.completionTokens).toBe(500);
+		expect(result.completionTokens).toBe(700);
 		expect(result.estimatedCost).toBe(false);
 	});
 

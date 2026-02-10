@@ -3,6 +3,7 @@ import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
+import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -309,9 +310,21 @@ export function transformStreamingToOpenai(
 						? usageMetadata.promptTokenCount
 						: calculatePromptTokensFromMessages(messagesForFallback);
 
-				const completionTokenCount = usageMetadata.candidatesTokenCount || 0;
+				const rawCandidates = usageMetadata.candidatesTokenCount || 0;
 
 				const reasoningTokenCount = usageMetadata.thoughtsTokenCount || 0;
+
+				// Adjust for inconsistent Google API behavior where
+				// candidatesTokenCount may already include thoughtsTokenCount
+				const adjustedCandidates = adjustGoogleCandidateTokens(
+					rawCandidates,
+					reasoningTokenCount,
+					promptTokenCount,
+					usageMetadata.totalTokenCount,
+				);
+
+				// completionTokenCount includes reasoning for correct totals
+				const completionTokenCount = adjustedCandidates + reasoningTokenCount;
 
 				const toolUsePromptTokenCount =
 					usageMetadata.toolUsePromptTokenCount || 0;
@@ -321,13 +334,7 @@ export function transformStreamingToOpenai(
 					usageMetadata.cachedContentTokenCount || 0;
 
 				const totalTokenCount =
-					typeof usageMetadata.totalTokenCount === "number" &&
-					usageMetadata.totalTokenCount > 0
-						? usageMetadata.totalTokenCount
-						: promptTokenCount +
-							completionTokenCount +
-							reasoningTokenCount +
-							toolUsePromptTokenCount;
+					promptTokenCount + completionTokenCount + toolUsePromptTokenCount;
 
 				const usage: any = {
 					prompt_tokens: promptTokenCount,
