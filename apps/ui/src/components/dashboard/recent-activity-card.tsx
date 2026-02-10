@@ -80,7 +80,12 @@ export function RecentActivityCard({
 								</p>
 							</div>
 							<div className="text-right">
-								<p className="font-semibold">${day.cost.toFixed(4)}</p>
+								<p className="font-semibold text-muted-foreground">
+									${day.cost.toFixed(4)}
+								</p>
+								<p className="text-xs text-muted-foreground">
+									inference (ref.)
+								</p>
 								{day.discountSavings > 0 && (
 									<p className="text-xs text-emerald-600">
 										-${day.discountSavings.toFixed(4)} saved

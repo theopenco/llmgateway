@@ -27,6 +27,7 @@ const dailyActivitySchema = z.object({
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
+	cachedTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
 	inputCost: z.number(),
@@ -35,6 +36,7 @@ const dailyActivitySchema = z.object({
 	dataStorageCost: z.number(),
 	imageInputCost: z.number(),
 	imageOutputCost: z.number(),
+	cachedInputCost: z.number(),
 	errorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
@@ -137,6 +139,10 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.log.completionTokens} AS NUMERIC)), 0)`.as(
 					"outputTokens",
 				),
+			cachedTokens:
+				sql<number>`COALESCE(SUM(CAST(${tables.log.cachedTokens} AS NUMERIC)), 0)`.as(
+					"cachedTokens",
+				),
 			totalTokens:
 				sql<number>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
@@ -162,6 +168,10 @@ activity.openapi(getActivity, async (c) => {
 			imageOutputCost:
 				sql<number>`COALESCE(SUM(${tables.log.imageOutputCost}), 0)`.as(
 					"imageOutputCost",
+				),
+			cachedInputCost:
+				sql<number>`COALESCE(SUM(${tables.log.cachedInputCost}), 0)`.as(
+					"cachedInputCost",
 				),
 			errorCount:
 				sql<number>`SUM(CASE WHEN ${tables.log.hasError} = true THEN 1 ELSE 0 END)`.as(
@@ -257,6 +267,7 @@ activity.openapi(getActivity, async (c) => {
 		const requestCount = Number(day.requestCount);
 		const inputTokens = Number(day.inputTokens);
 		const outputTokens = Number(day.outputTokens);
+		const cachedTokens = Number(day.cachedTokens);
 		const totalTokens = Number(day.totalTokens);
 		const cost = Number(day.cost);
 		const inputCost = Number(day.inputCost);
@@ -265,6 +276,7 @@ activity.openapi(getActivity, async (c) => {
 		const dataStorageCost = Number(day.dataStorageCost);
 		const imageInputCost = Number(day.imageInputCost);
 		const imageOutputCost = Number(day.imageOutputCost);
+		const cachedInputCost = Number(day.cachedInputCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
@@ -277,6 +289,7 @@ activity.openapi(getActivity, async (c) => {
 			requestCount,
 			inputTokens,
 			outputTokens,
+			cachedTokens,
 			totalTokens,
 			cost,
 			inputCost,
@@ -285,6 +298,7 @@ activity.openapi(getActivity, async (c) => {
 			dataStorageCost,
 			imageInputCost,
 			imageOutputCost,
+			cachedInputCost,
 			errorCount,
 			errorRate,
 			cacheCount,

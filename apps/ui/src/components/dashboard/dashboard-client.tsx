@@ -11,6 +11,9 @@ import {
 	BarChart3,
 	ChartColumnBig,
 	TrendingDown,
+	ArrowDownToLine,
+	Server,
+	Crown,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -145,8 +148,37 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
 	const totalSavings =
 		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
+	const totalInputTokens =
+		activityData.reduce((sum, day) => sum + day.inputTokens, 0) || 0;
+	const totalCachedTokens =
+		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) || 0;
 	const avgCostPer1kTokens =
 		totalTokens > 0 ? (totalCost / totalTokens) * 1000 : 0;
+
+	const { mostUsedModel, mostUsedProvider } = (() => {
+		const modelCostMap = new Map<string, { cost: number; provider: string }>();
+		for (const day of activityData) {
+			for (const m of day.modelBreakdown) {
+				const existing = modelCostMap.get(m.id);
+				if (existing) {
+					existing.cost += m.cost;
+				} else {
+					modelCostMap.set(m.id, { cost: m.cost, provider: m.provider });
+				}
+			}
+		}
+		let topModel = "";
+		let topProvider = "";
+		let topCost = 0;
+		for (const [model, { cost, provider }] of Array.from(modelCostMap)) {
+			if (cost > topCost) {
+				topCost = cost;
+				topModel = model;
+				topProvider = provider;
+			}
+		}
+		return { mostUsedModel: topModel, mostUsedProvider: topProvider };
+	})();
 
 	const quickActions = [
 		{
@@ -388,12 +420,12 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							accent="blue"
 						/>
 						<MetricCard
-							label="Inference Cost"
+							label="Inference Cost (reference)"
 							value={isLoading ? "Loading..." : `$${totalCost.toFixed(2)}`}
 							subtitle={
 								isLoading
 									? "–"
-									: `$${totalInputCost.toFixed(
+									: `Not deducted • $${totalInputCost.toFixed(
 											2,
 										)} input • $${totalOutputCost.toFixed(2)} output${
 											totalRequestCost > 0
@@ -424,6 +456,33 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							icon={<CircleDollarSign className="h-4 w-4" />}
 							accent="blue"
 						/>
+						<MetricCard
+							label="Input Tokens"
+							value={isLoading ? "Loading..." : formatTokens(totalInputTokens)}
+							subtitle={isLoading ? "–" : `Last ${days} days`}
+							icon={<ArrowDownToLine className="h-4 w-4" />}
+							accent="purple"
+						/>
+						<MetricCard
+							label="Cached Tokens"
+							value={isLoading ? "Loading..." : formatTokens(totalCachedTokens)}
+							subtitle={isLoading ? "–" : `Last ${days} days`}
+							icon={<Server className="h-4 w-4" />}
+							accent="green"
+						/>
+						<MetricCard
+							label="Most Used Model"
+							value={isLoading ? "Loading..." : mostUsedModel || "—"}
+							subtitle={
+								isLoading
+									? "–"
+									: mostUsedProvider
+										? `Provider: ${mostUsedProvider}`
+										: `Last ${days} days`
+							}
+							icon={<Crown className="h-4 w-4" />}
+							accent="purple"
+						/>
 					</div>
 					<div
 						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
@@ -436,7 +495,9 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 									<div className="flex-1">
 										<CardTitle>Usage Overview</CardTitle>
 										<CardDescription>
-											{metric === "costs" ? "Total Costs" : "Total Requests"}
+											{metric === "costs"
+												? "Provider pricing for reference — not deducted from your balance"
+												: "Total Requests"}
 											{selectedProject && (
 												<span className="block mt-1 text-sm">
 													Filtered by project: {selectedProject.name}

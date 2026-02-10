@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
@@ -118,6 +119,7 @@ export default function ChatPageClient({
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [showTopUp, setShowTopUp] = useState(false);
 
 	// MCP servers management
 	const {
@@ -618,6 +620,11 @@ export default function ChatPageClient({
 			image_url: { url: string };
 		}>,
 	) => {
+		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+			setShowTopUp(true);
+			return;
+		}
+
 		setError(null);
 		setIsLoading(true);
 
@@ -1061,6 +1068,7 @@ export default function ChatPageClient({
 					</div>
 				</div>
 			</div>
+			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
 	);

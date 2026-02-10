@@ -38,20 +38,23 @@ const CustomTooltip = ({
 				</p>
 				{metric === "costs" ? (
 					<>
-						<p className="text-sm">
-							<span className="font-medium">
-								${payload[0]?.value.toFixed(4)}
-							</span>{" "}
-							Cost
-						</p>
-						{payload[1] && payload[1].value > 0 && (
-							<p className="text-sm text-green-600">
-								<span className="font-medium">
-									${payload[1].value.toFixed(4)}
-								</span>{" "}
-								Saved
+						{payload.map((entry) => (
+							<p key={entry.dataKey} className="text-sm">
+								<span
+									className="inline-block w-2 h-2 rounded-full mr-1.5"
+									style={{
+										backgroundColor:
+											entry.dataKey === "inputCost"
+												? "#3b82f6"
+												: entry.dataKey === "outputCost"
+													? "#f59e0b"
+													: "#10b981",
+									}}
+								/>
+								<span className="font-medium">${entry.value.toFixed(4)}</span>{" "}
+								{entry.name}
 							</p>
-						)}
+						))}
 					</>
 				) : (
 					<p className="text-sm">
@@ -102,14 +105,18 @@ export function Overview({
 
 	// Fill in the chart data with all dates, using zero values for missing dates
 	const chartData = dateRange.map((date) => {
-		if (dataByDate.has(date)) {
+		const day = dataByDate.get(date);
+		if (day) {
 			return {
 				date,
 				name: format(parseISO(date), "MMM d"),
-				total: dataByDate.get(date)!.requestCount,
-				tokens: dataByDate.get(date)!.totalTokens,
-				cost: dataByDate.get(date)!.cost,
-				savings: dataByDate.get(date)!.discountSavings,
+				total: day.requestCount,
+				tokens: day.totalTokens,
+				cost: day.cost,
+				inputCost: day.inputCost,
+				outputCost: day.outputCost,
+				cachedInputCost: day.cachedInputCost ?? 0,
+				savings: day.discountSavings,
 			};
 		}
 
@@ -119,6 +126,9 @@ export function Overview({
 			total: 0,
 			tokens: 0,
 			cost: 0,
+			inputCost: 0,
+			outputCost: 0,
+			cachedInputCost: 0,
 			savings: 0,
 		};
 	});
@@ -175,17 +185,25 @@ export function Overview({
 					<>
 						<Line
 							type="monotone"
-							dataKey="cost"
-							name="Cost"
+							dataKey="inputCost"
+							name="Input"
 							stroke="#3b82f6"
 							strokeWidth={2}
 							dot={false}
 						/>
 						<Line
 							type="monotone"
-							dataKey="savings"
-							name="Savings"
-							stroke="#16a34a"
+							dataKey="outputCost"
+							name="Output"
+							stroke="#f59e0b"
+							strokeWidth={2}
+							dot={false}
+						/>
+						<Line
+							type="monotone"
+							dataKey="cachedInputCost"
+							name="Cached Input"
+							stroke="#10b981"
 							strokeWidth={2}
 							dot={false}
 						/>
