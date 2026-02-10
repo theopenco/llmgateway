@@ -9,6 +9,7 @@ import {
 	gte,
 	lt,
 	and,
+	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -352,22 +353,102 @@ async function recalculateApiKeyHourlyModelStats(
 	}
 }
 
+// Number of hours to always re-process to catch late-arriving logs from queue lag
+const RECENT_REPROCESS_HOURS =
+	Number(process.env.STATS_RECENT_REPROCESS_HOURS) || 3;
+
+// Batch size for backfill processing per run
+const BACKFILL_BATCH_SIZE =
+	Number(process.env.STATS_BACKFILL_BATCH_SIZE) || 100;
+
 /**
- * Process logs from recent hours that may not have aggregation data yet.
- * Scans the last 24 hours and creates/updates aggregation rows as needed.
+ * Process all logs that haven't been aggregated yet (backfill) and re-process
+ * recent hours to catch late-arriving logs from queue processing lag.
  */
 export async function processRecentLogs() {
 	const database = db;
 	const currentHourStart = getCurrentHourStart();
-	// Look back 24 hours for any project-hour buckets that need processing
-	const lookbackStart = new Date(
-		currentHourStart.getTime() - 24 * 60 * 60 * 1000,
-	);
-
-	logger.debug("Processing recent logs for stats aggregation...");
+	let totalBucketsProcessed = 0;
 
 	try {
-		// Find distinct project-hour combinations from recent logs (excluding current hour)
+		// Phase 1: Backfill - find project-hour buckets that have NO stats rows yet
+		// This has no date limit, so it processes all historical data
+		const backfillBuckets = await database
+			.select({
+				projectId: log.projectId,
+				hourTimestamp: sql<Date>`date_trunc('hour', ${log.createdAt})`.as(
+					"hourTimestamp",
+				),
+			})
+			.from(log)
+			.leftJoin(
+				projectHourlyStats,
+				and(
+					sql`${projectHourlyStats.projectId} = ${log.projectId}`,
+					sql`${projectHourlyStats.hourTimestamp} = date_trunc('hour', ${log.createdAt})`,
+				),
+			)
+			.where(
+				and(
+					lt(log.createdAt, currentHourStart),
+					isNull(projectHourlyStats.projectId),
+				),
+			)
+			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
+			.orderBy(sql`date_trunc('hour', ${log.createdAt}) ASC`)
+			.limit(BACKFILL_BATCH_SIZE);
+
+		if (backfillBuckets.length > 0) {
+			const bucketDates = backfillBuckets.map((b) =>
+				new Date(b.hourTimestamp).getTime(),
+			);
+			const oldestBucket = new Date(Math.min(...bucketDates));
+			const newestBucket = new Date(Math.max(...bucketDates));
+
+			logger.info(
+				`[backfill] Found ${backfillBuckets.length} unprocessed project-hour buckets (oldest: ${oldestBucket.toISOString()}, newest: ${newestBucket.toISOString()})`,
+			);
+
+			for (let i = 0; i < backfillBuckets.length; i++) {
+				const bucket = backfillBuckets[i];
+				const hourTimestamp = new Date(bucket.hourTimestamp);
+
+				await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
+				await recalculateProjectHourlyModelStats(
+					bucket.projectId,
+					hourTimestamp,
+				);
+				await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
+				await recalculateApiKeyHourlyModelStats(
+					bucket.projectId,
+					hourTimestamp,
+				);
+
+				logger.info(
+					`[backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: project=${bucket.projectId} hour=${hourTimestamp.toISOString()}`,
+				);
+			}
+
+			totalBucketsProcessed += backfillBuckets.length;
+
+			if (backfillBuckets.length === BACKFILL_BATCH_SIZE) {
+				logger.info(
+					`[backfill] Batch limit reached (${BACKFILL_BATCH_SIZE}), more unprocessed buckets may remain — will continue in next run`,
+				);
+			} else {
+				logger.info(
+					`[backfill] Complete: ${backfillBuckets.length} buckets processed`,
+				);
+			}
+		} else {
+			logger.debug("[backfill] No unprocessed buckets found");
+		}
+
+		// Phase 2: Re-process recent hours to catch late-arriving logs from queue lag
+		const reprocessStart = new Date(
+			currentHourStart.getTime() - RECENT_REPROCESS_HOURS * 60 * 60 * 1000,
+		);
+
 		const recentBuckets = await database
 			.select({
 				projectId: log.projectId,
@@ -378,46 +459,52 @@ export async function processRecentLogs() {
 			.from(log)
 			.where(
 				and(
-					gte(log.createdAt, lookbackStart),
+					gte(log.createdAt, reprocessStart),
 					lt(log.createdAt, currentHourStart),
 				),
 			)
-			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
-			.limit(100);
+			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`);
 
-		if (recentBuckets.length === 0) {
-			logger.debug("No recent logs found for stats aggregation");
-			return { bucketsProcessed: 0 };
-		}
-
-		logger.info(
-			`Found ${recentBuckets.length} project-hour buckets to process`,
-		);
-
-		for (const bucket of recentBuckets) {
-			const hourTimestamp = new Date(bucket.hourTimestamp);
-
-			// Recalculate all aggregation tables for this bucket
-			await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
-			await recalculateProjectHourlyModelStats(bucket.projectId, hourTimestamp);
-			await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
-			await recalculateApiKeyHourlyModelStats(bucket.projectId, hourTimestamp);
-
-			logger.debug(
-				`Processed bucket ${bucket.projectId}/${hourTimestamp.toISOString()}`,
+		if (recentBuckets.length > 0) {
+			logger.info(
+				`[recent] Re-processing ${recentBuckets.length} project-hour buckets from last ${RECENT_REPROCESS_HOURS} hours (${reprocessStart.toISOString()} to ${currentHourStart.toISOString()})`,
 			);
+
+			for (let i = 0; i < recentBuckets.length; i++) {
+				const bucket = recentBuckets[i];
+				const hourTimestamp = new Date(bucket.hourTimestamp);
+
+				await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
+				await recalculateProjectHourlyModelStats(
+					bucket.projectId,
+					hourTimestamp,
+				);
+				await recalculateApiKeyHourlyStats(bucket.projectId, hourTimestamp);
+				await recalculateApiKeyHourlyModelStats(
+					bucket.projectId,
+					hourTimestamp,
+				);
+
+				logger.info(
+					`[recent] Processed bucket ${i + 1}/${recentBuckets.length}: project=${bucket.projectId} hour=${hourTimestamp.toISOString()}`,
+				);
+			}
+
+			totalBucketsProcessed += recentBuckets.length;
+		} else {
+			logger.debug("[recent] No recent buckets to re-process");
 		}
 
 		logger.info(
-			`Stats aggregation complete: ${recentBuckets.length} buckets processed`,
+			`Stats aggregation complete: ${totalBucketsProcessed} total buckets processed`,
 		);
 
 		return {
-			bucketsProcessed: recentBuckets.length,
+			bucketsProcessed: totalBucketsProcessed,
 		};
 	} catch (error) {
 		logger.error(
-			"Error processing recent logs for stats aggregation",
+			"Error processing logs for stats aggregation",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw error;
@@ -431,7 +518,7 @@ export async function refreshCurrentHourStats() {
 	const database = db;
 	const currentHourStart = getCurrentHourStart();
 
-	logger.debug(
+	logger.info(
 		`Refreshing current hour stats for ${currentHourStart.toISOString()}`,
 	);
 
@@ -451,8 +538,8 @@ export async function refreshCurrentHourStats() {
 			await recalculateApiKeyHourlyModelStats(projectId, currentHourStart);
 		}
 
-		logger.debug(
-			`Refreshed current hour stats for ${projectsWithCurrentHourLogs.length} projects`,
+		logger.info(
+			`Refreshed current hour stats (${currentHourStart.toISOString()}) for ${projectsWithCurrentHourLogs.length} projects`,
 		);
 	} catch (error) {
 		logger.error(
