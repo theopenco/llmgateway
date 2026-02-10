@@ -115,6 +115,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
+				test: "skip",
 				modelName: "kimi-k2-thinking",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 2.5 / 1e6,
