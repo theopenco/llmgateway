@@ -37,7 +37,6 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "moonshot",
-				test: "skip",
 				modelName: "kimi-k2-0711-preview",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 2.5 / 1e6,
@@ -52,7 +51,6 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "moonshot",
-				test: "skip",
 				modelName: "kimi-k2-0905-preview",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 2.5 / 1e6,
@@ -117,7 +115,6 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				test: "skip",
 				modelName: "kimi-k2-thinking",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 2.5 / 1e6,
@@ -171,7 +168,6 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				test: "skip",
 				modelName: "kimi-k2-thinking-turbo",
 				inputPrice: 1.15 / 1e6,
 				outputPrice: 8.0 / 1e6,
@@ -197,7 +193,6 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				test: "skip",
 				modelName: "kimi-k2.5",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 3.0 / 1e6,
