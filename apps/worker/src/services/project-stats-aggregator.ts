@@ -7,7 +7,6 @@ import {
 	apiKeyHourlyModelStats,
 	sql,
 	and,
-	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -410,7 +409,10 @@ export async function processRecentLogs() {
 	let totalBucketsProcessed = 0;
 
 	try {
-		// Phase 1: Backfill - find project-hour buckets that have NO stats rows yet
+		// Phase 1: Backfill — iterate hours sequentially from the frontier.
+		// Instead of scanning all logs with a LEFT JOIN (slow on large tables),
+		// we find the last processed hour and walk forward, processing each hour
+		// individually using the created_at index for fast lookups.
 		if (STATS_BACKFILL_ENABLED) {
 			const backfillStart =
 				STATS_BACKFILL_DAYS > 0
@@ -419,82 +421,85 @@ export async function processRecentLogs() {
 						)
 					: undefined;
 
+			// Find the frontier: the hour after the latest processed hour, or backfillStart/earliest log
+			const fallback = backfillStart ?? formatUTCTimestamp(new Date(0));
+			const frontierResult = await database.execute<{
+				frontier: string;
+			}>(sql`
+				SELECT coalesce(
+					to_char(
+						(SELECT max(${projectHourlyStats.hourTimestamp}) FROM ${projectHourlyStats}) + interval '1 hour',
+						'YYYY-MM-DD HH24:MI:SS'
+					),
+					${fallback}
+				) AS frontier
+			`);
+			const frontier = frontierResult.rows[0].frontier;
+
 			logger.info(
-				`[backfill] Scanning for unprocessed buckets (lookback: ${backfillStart ?? "unlimited"})`,
+				`[backfill] Scanning from frontier ${frontier} (lookback: ${backfillStart ?? "unlimited"})`,
 			);
 
-			const backfillBuckets = await database
-				.select({
-					projectId: log.projectId,
-					hourTimestamp:
-						sql<string>`to_char(date_trunc('hour', ${log.createdAt}), 'YYYY-MM-DD HH24:MI:SS')`.as(
-							"hourTimestamp",
-						),
-				})
-				.from(log)
-				.leftJoin(
-					projectHourlyStats,
-					and(
-						sql`${projectHourlyStats.projectId} = ${log.projectId}`,
-						sql`${projectHourlyStats.hourTimestamp} = date_trunc('hour', ${log.createdAt})`,
-					),
-				)
-				.where(
-					and(
-						sql`${log.createdAt} < ${currentHourStart}::timestamp`,
-						isNull(projectHourlyStats.projectId),
-						backfillStart
-							? sql`${log.createdAt} >= ${backfillStart}::timestamp`
-							: undefined,
-					),
-				)
-				.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
-				.orderBy(sql`date_trunc('hour', ${log.createdAt}) ASC`)
-				.limit(STATS_BATCH_SIZE);
+			// Generate hour slots from the frontier to currentHourStart, limited by batch size
+			const hoursToProcess = await database.execute<{
+				hour_timestamp: string;
+			}>(sql`
+				SELECT to_char(h, 'YYYY-MM-DD HH24:MI:SS') AS hour_timestamp
+				FROM generate_series(
+					${frontier}::timestamp,
+					${currentHourStart}::timestamp - interval '1 hour',
+					interval '1 hour'
+				) AS h
+				LIMIT ${STATS_BATCH_SIZE}
+			`);
 
-			if (backfillBuckets.length > 0) {
+			if (hoursToProcess.rows.length > 0) {
 				logger.info(
-					`[backfill] Found ${backfillBuckets.length} unprocessed project-hour buckets (oldest: ${backfillBuckets[0].hourTimestamp}, newest: ${backfillBuckets[backfillBuckets.length - 1].hourTimestamp})`,
+					`[backfill] Processing ${hoursToProcess.rows.length} hours (${hoursToProcess.rows[0].hour_timestamp} to ${hoursToProcess.rows[hoursToProcess.rows.length - 1].hour_timestamp})`,
 				);
 
-				for (let i = 0; i < backfillBuckets.length; i++) {
-					const bucket = backfillBuckets[i];
+				for (let i = 0; i < hoursToProcess.rows.length; i++) {
+					const hourTimestamp = hoursToProcess.rows[i].hour_timestamp;
 
-					await recalculateProjectHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateProjectHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
+					// Find all projects with logs in this hour
+					const projects = await database
+						.selectDistinct({ projectId: log.projectId })
+						.from(log)
+						.where(
+							and(
+								sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+								sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+							),
+						);
+
+					if (projects.length === 0) {
+						continue;
+					}
+
+					for (const { projectId } of projects) {
+						await recalculateProjectHourlyStats(projectId, hourTimestamp);
+						await recalculateProjectHourlyModelStats(projectId, hourTimestamp);
+						await recalculateApiKeyHourlyStats(projectId, hourTimestamp);
+						await recalculateApiKeyHourlyModelStats(projectId, hourTimestamp);
+					}
 
 					logger.info(
-						`[backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
+						`[backfill] Processed hour ${i + 1}/${hoursToProcess.rows.length}: ${hourTimestamp} (${projects.length} projects)`,
 					);
+					totalBucketsProcessed++;
 				}
 
-				totalBucketsProcessed += backfillBuckets.length;
-
-				if (backfillBuckets.length === STATS_BATCH_SIZE) {
+				if (hoursToProcess.rows.length === STATS_BATCH_SIZE) {
 					logger.info(
-						`[backfill] Batch limit reached (${STATS_BATCH_SIZE}), more unprocessed buckets may remain — will continue in next run`,
+						`[backfill] Batch limit reached (${STATS_BATCH_SIZE}), more hours may remain — will continue in next run`,
 					);
 				} else {
 					logger.info(
-						`[backfill] Complete: ${backfillBuckets.length} buckets processed`,
+						`[backfill] Complete: ${hoursToProcess.rows.length} hours processed`,
 					);
 				}
 			} else {
-				logger.debug("[backfill] No unprocessed buckets found");
+				logger.debug("[backfill] No unprocessed hours found");
 			}
 		}
 
@@ -636,10 +641,20 @@ export async function refreshCurrentHourStats() {
 	}
 }
 
+let isRunning = false;
+
 /**
- * Main refresh function called by the worker interval
+ * Main refresh function called by the worker interval.
+ * Guarded against concurrent execution — if a previous run is still in progress,
+ * the new invocation is skipped to prevent overlapping DB queries.
  */
 export async function refreshProjectHourlyStats() {
+	if (isRunning) {
+		logger.debug("Project hourly stats refresh already in progress, skipping");
+		return;
+	}
+
+	isRunning = true;
 	logger.debug("Starting project hourly stats refresh...");
 
 	try {
@@ -652,5 +667,7 @@ export async function refreshProjectHourlyStats() {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw error;
+	} finally {
+		isRunning = false;
 	}
 }
