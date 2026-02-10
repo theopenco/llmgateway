@@ -15,6 +15,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
+	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -219,8 +220,68 @@ activity.openapi(getActivity, async (c) => {
 			.groupBy(sql`DATE(${apiKeyHourlyStats.hourTimestamp})`)
 			.orderBy(sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`);
 
-		// Note: We don't have per-apikey-model aggregation, so model breakdown is empty for apiKeyId filter
-		// This is a tradeoff to avoid exploding cardinality (apiKey * model * provider * hour)
+		// Query model breakdown from apiKeyHourlyModelStats table
+		const modelBreakdowns = await db
+			.select({
+				date: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
+					"date",
+				),
+				usedModel: apiKeyHourlyModelStats.usedModel,
+				usedProvider: apiKeyHourlyModelStats.usedProvider,
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
+				inputTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"inputTokens",
+					),
+				outputTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"outputTokens",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"totalTokens",
+					),
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+					"cost",
+				),
+			})
+			.from(apiKeyHourlyModelStats)
+			.where(
+				and(
+					eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId),
+					inArray(apiKeyHourlyModelStats.projectId, projectIds),
+					gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(
+				sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}), ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+			)
+			.orderBy(
+				sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}) ASC, ${apiKeyHourlyModelStats.usedModel} ASC`,
+			);
+
+		const modelBreakdownByDate = new Map<
+			string,
+			z.infer<typeof modelUsageSchema>[]
+		>();
+		for (const breakdown of modelBreakdowns) {
+			if (!modelBreakdownByDate.has(breakdown.date)) {
+				modelBreakdownByDate.set(breakdown.date, []);
+			}
+			modelBreakdownByDate.get(breakdown.date)!.push({
+				id: breakdown.usedModel || "unknown",
+				provider: breakdown.usedProvider || "unknown",
+				requestCount: Number(breakdown.requestCount),
+				inputTokens: Number(breakdown.inputTokens),
+				outputTokens: Number(breakdown.outputTokens),
+				totalTokens: Number(breakdown.totalTokens),
+				cost: Number(breakdown.cost),
+			});
+		}
 
 		// Process daily aggregates and add calculated fields
 		const activityData = hourlyAggregates.map((day) => {
@@ -266,7 +327,7 @@ activity.openapi(getActivity, async (c) => {
 				cacheCount,
 				cacheRate,
 				discountSavings,
-				modelBreakdown: [], // No per-apikey model breakdown to avoid cardinality explosion
+				modelBreakdown: modelBreakdownByDate.get(day.date) || [],
 			};
 		});
 

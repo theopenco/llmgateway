@@ -20,6 +20,7 @@ const shortid = (size = 20) => generate(size);
 
 // Model configurations with realistic distributions
 // discount is applied to smaller/cheaper models (0.3 = 30% discount)
+// cachedInputCostPer1k is typically 50% of input cost (or 0 if model doesn't support caching)
 const MODELS = [
 	{
 		id: "gpt-4o",
@@ -29,7 +30,9 @@ const MODELS = [
 		avgOutputTokens: 300,
 		inputCostPer1k: 0.005,
 		outputCostPer1k: 0.015,
-		discount: 0, // No discount for premium model
+		cachedInputCostPer1k: 0.0025,
+		cacheChance: 0.35,
+		discount: 0,
 	},
 	{
 		id: "gpt-4o-mini",
@@ -39,7 +42,9 @@ const MODELS = [
 		avgOutputTokens: 250,
 		inputCostPer1k: 0.00015,
 		outputCostPer1k: 0.0006,
-		discount: 0.3, // 30% discount for smaller model
+		cachedInputCostPer1k: 0.000075,
+		cacheChance: 0.4,
+		discount: 0.3,
 	},
 	{
 		id: "claude-3-5-sonnet-20241022",
@@ -49,7 +54,9 @@ const MODELS = [
 		avgOutputTokens: 400,
 		inputCostPer1k: 0.003,
 		outputCostPer1k: 0.015,
-		discount: 0, // No discount for premium model
+		cachedInputCostPer1k: 0.0003,
+		cacheChance: 0.3,
+		discount: 0,
 	},
 	{
 		id: "claude-3-5-haiku-20241022",
@@ -59,7 +66,9 @@ const MODELS = [
 		avgOutputTokens: 200,
 		inputCostPer1k: 0.0008,
 		outputCostPer1k: 0.004,
-		discount: 0.3, // 30% discount for smaller model
+		cachedInputCostPer1k: 0.00008,
+		cacheChance: 0.25,
+		discount: 0.3,
 	},
 	{
 		id: "gemini-2.5-pro",
@@ -69,7 +78,9 @@ const MODELS = [
 		avgOutputTokens: 350,
 		inputCostPer1k: 0.00125,
 		outputCostPer1k: 0.005,
-		discount: 0, // No discount for premium model
+		cachedInputCostPer1k: 0.000315,
+		cacheChance: 0.3,
+		discount: 0,
 	},
 	{
 		id: "gemini-2.5-flash",
@@ -79,7 +90,9 @@ const MODELS = [
 		avgOutputTokens: 200,
 		inputCostPer1k: 0.000075,
 		outputCostPer1k: 0.0003,
-		discount: 0.3, // 30% discount for smaller model
+		cachedInputCostPer1k: 0.00001875,
+		cacheChance: 0.35,
+		discount: 0.3,
 	},
 	{
 		id: "deepseek-chat",
@@ -89,7 +102,9 @@ const MODELS = [
 		avgOutputTokens: 300,
 		inputCostPer1k: 0.00014,
 		outputCostPer1k: 0.00028,
-		discount: 0.3, // 30% discount for smaller model
+		cachedInputCostPer1k: 0.000014,
+		cacheChance: 0.2,
+		discount: 0.3,
 	},
 ];
 
@@ -125,6 +140,15 @@ function randomFloat(min: number, max: number): number {
 	return Math.random() * (max - min) + min;
 }
 
+// Log-normal distribution for more realistic heavy-tailed randomness
+// Most values cluster near the median, but occasional large outliers occur
+function logNormalRandom(median: number, sigma: number): number {
+	const u1 = Math.random();
+	const u2 = Math.random();
+	const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+	return median * Math.exp(sigma * z);
+}
+
 function randomDate(daysBack: number): Date {
 	const now = new Date();
 	const msBack = randomInt(0, daysBack * 24 * 60 * 60 * 1000);
@@ -140,28 +164,52 @@ function generateLog(
 	const model = weightedRandom(MODELS);
 	const finishReason = weightedRandom(FINISH_REASONS);
 
-	// Add variance to token counts (50-150% of average)
-	const inputTokens = Math.round(model.avgInputTokens * randomFloat(0.5, 1.5));
-	const outputTokens = Math.round(
-		model.avgOutputTokens * randomFloat(0.5, 1.5),
+	// Use log-normal distribution for wide, realistic variance
+	// sigma=0.8 gives roughly 2x-5x spread in either direction from the median
+	const inputTokens = Math.max(
+		1,
+		Math.round(logNormalRandom(model.avgInputTokens, 0.8)),
 	);
+	const outputTokens = Math.max(
+		1,
+		Math.round(logNormalRandom(model.avgOutputTokens, 0.9)),
+	);
+
+	// Determine if this request has cached input tokens
+	const hasCachedTokens = Math.random() < model.cacheChance;
+	// Cached tokens are a portion (20-80%) of the input tokens
+	const cachedTokens = hasCachedTokens
+		? Math.round(inputTokens * randomFloat(0.2, 0.8))
+		: 0;
+
 	const totalTokens = inputTokens + outputTokens;
 
 	// Calculate costs (before discount)
-	const inputCostBeforeDiscount = (inputTokens / 1000) * model.inputCostPer1k;
-	const outputCostBeforeDiscount = (outputTokens / 1000) * model.outputCostPer1k;
-	const costBeforeDiscount = inputCostBeforeDiscount + outputCostBeforeDiscount;
+	// For cached tokens, use the cheaper cached input price
+	const uncachedInputTokens = inputTokens - cachedTokens;
+	const inputCostBeforeDiscount =
+		(uncachedInputTokens / 1000) * model.inputCostPer1k;
+	const cachedInputCostBeforeDiscount =
+		(cachedTokens / 1000) * model.cachedInputCostPer1k;
+	const outputCostBeforeDiscount =
+		(outputTokens / 1000) * model.outputCostPer1k;
+	const costBeforeDiscount =
+		inputCostBeforeDiscount +
+		cachedInputCostBeforeDiscount +
+		outputCostBeforeDiscount;
 
 	// Apply discount if model has one
 	const discount = model.discount;
 	const discountMultiplier = 1 - discount;
 	const inputCost = inputCostBeforeDiscount * discountMultiplier;
+	const cachedInputCost = cachedInputCostBeforeDiscount * discountMultiplier;
 	const outputCost = outputCostBeforeDiscount * discountMultiplier;
 	const cost = costBeforeDiscount * discountMultiplier;
 
-	// Random duration (100ms - 5000ms, with most being fast)
-	const duration = Math.round(
-		Math.pow(randomFloat(10, 70), 2), // Skewed towards faster responses
+	// Log-normal duration for wide spread (most fast, some very slow)
+	const duration = Math.max(
+		50,
+		Math.round(logNormalRandom(800, 1.0)),
 	);
 
 	// Error states based on finish reason
@@ -173,8 +221,10 @@ function generateLog(
 	const streamed = Math.random() > 0.3; // 70% are streamed
 	const cached = Math.random() > 0.9; // 10% are cached
 
-	// Time to first token (only for streamed, 50-500ms)
-	const timeToFirstToken = streamed ? randomInt(50, 500) : null;
+	// Time to first token (only for streamed, log-normal for variability)
+	const timeToFirstToken = streamed
+		? Math.max(20, Math.round(logNormalRandom(150, 0.7)))
+		: null;
 
 	// Generate date within the specified range
 	const createdAt = randomDate(daysBack);
@@ -195,13 +245,15 @@ function generateLog(
 		requestedProvider: model.provider,
 		usedModel: model.id,
 		usedProvider: model.provider,
-		responseSize: outputTokens * 4, // Rough estimate
+		responseSize: outputTokens * randomInt(3, 6), // Variable bytes-per-token estimate
 		promptTokens: String(inputTokens),
 		completionTokens: String(outputTokens),
 		totalTokens: String(totalTokens),
+		cachedTokens: cachedTokens > 0 ? String(cachedTokens) : null,
 		cost,
 		inputCost,
 		outputCost,
+		cachedInputCost: cachedTokens > 0 ? cachedInputCost : null,
 		requestCost: 0,
 		discount,
 		hasError,
@@ -214,8 +266,8 @@ function generateLog(
 		messages: JSON.stringify([
 			{ role: "user", content: "Test message for visualization" },
 		]),
-		temperature: randomFloat(0, 1),
-		maxTokens: randomInt(100, 4000),
+		temperature: randomFloat(0, 1.5),
+		maxTokens: Math.round(logNormalRandom(2000, 0.6)),
 	};
 }
 

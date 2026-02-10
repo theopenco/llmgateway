@@ -353,10 +353,6 @@ async function recalculateApiKeyHourlyModelStats(
 	}
 }
 
-// Number of hours to always re-process to catch late-arriving logs from queue lag
-const RECENT_REPROCESS_HOURS =
-	Number(process.env.STATS_RECENT_REPROCESS_HOURS) || 3;
-
 // Batch size for backfill processing per run
 const BACKFILL_BATCH_SIZE =
 	Number(process.env.STATS_BACKFILL_BATCH_SIZE) || 100;
@@ -444,12 +440,10 @@ export async function processRecentLogs() {
 			logger.debug("[backfill] No unprocessed buckets found");
 		}
 
-		// Phase 2: Re-process recent hours to catch late-arriving logs from queue lag
-		const reprocessStart = new Date(
-			currentHourStart.getTime() - RECENT_REPROCESS_HOURS * 60 * 60 * 1000,
-		);
-
-		const recentBuckets = await database
+		// Phase 2: Re-process stale buckets where new logs arrived after the last aggregation.
+		// Joins the log table with projectHourlyStats and finds buckets where
+		// the newest log (max createdAt) is newer than the stats row's updatedAt.
+		const staleBuckets = await database
 			.select({
 				projectId: log.projectId,
 				hourTimestamp: sql<Date>`date_trunc('hour', ${log.createdAt})`.as(
@@ -457,21 +451,36 @@ export async function processRecentLogs() {
 				),
 			})
 			.from(log)
-			.where(
+			.innerJoin(
+				projectHourlyStats,
 				and(
-					gte(log.createdAt, reprocessStart),
-					lt(log.createdAt, currentHourStart),
+					sql`${projectHourlyStats.projectId} = ${log.projectId}`,
+					sql`${projectHourlyStats.hourTimestamp} = date_trunc('hour', ${log.createdAt})`,
 				),
 			)
-			.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`);
+			.where(lt(log.createdAt, currentHourStart))
+			.groupBy(
+				log.projectId,
+				sql`date_trunc('hour', ${log.createdAt})`,
+				projectHourlyStats.updatedAt,
+			)
+			.having(sql`max(${log.createdAt}) > ${projectHourlyStats.updatedAt}`)
+			.orderBy(sql`date_trunc('hour', ${log.createdAt}) ASC`)
+			.limit(BACKFILL_BATCH_SIZE);
 
-		if (recentBuckets.length > 0) {
+		if (staleBuckets.length > 0) {
+			const bucketDates = staleBuckets.map((b) =>
+				new Date(b.hourTimestamp).getTime(),
+			);
+			const oldestStale = new Date(Math.min(...bucketDates));
+			const newestStale = new Date(Math.max(...bucketDates));
+
 			logger.info(
-				`[recent] Re-processing ${recentBuckets.length} project-hour buckets from last ${RECENT_REPROCESS_HOURS} hours (${reprocessStart.toISOString()} to ${currentHourStart.toISOString()})`,
+				`[stale] Found ${staleBuckets.length} stale project-hour buckets with new logs (oldest: ${oldestStale.toISOString()}, newest: ${newestStale.toISOString()})`,
 			);
 
-			for (let i = 0; i < recentBuckets.length; i++) {
-				const bucket = recentBuckets[i];
+			for (let i = 0; i < staleBuckets.length; i++) {
+				const bucket = staleBuckets[i];
 				const hourTimestamp = new Date(bucket.hourTimestamp);
 
 				await recalculateProjectHourlyStats(bucket.projectId, hourTimestamp);
@@ -486,13 +495,19 @@ export async function processRecentLogs() {
 				);
 
 				logger.info(
-					`[recent] Processed bucket ${i + 1}/${recentBuckets.length}: project=${bucket.projectId} hour=${hourTimestamp.toISOString()}`,
+					`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${hourTimestamp.toISOString()}`,
 				);
 			}
 
-			totalBucketsProcessed += recentBuckets.length;
+			totalBucketsProcessed += staleBuckets.length;
+
+			if (staleBuckets.length === BACKFILL_BATCH_SIZE) {
+				logger.info(
+					`[stale] Batch limit reached (${BACKFILL_BATCH_SIZE}), more stale buckets may remain — will continue in next run`,
+				);
+			}
 		} else {
-			logger.debug("[recent] No recent buckets to re-process");
+			logger.debug("[stale] No stale buckets found");
 		}
 
 		logger.info(
