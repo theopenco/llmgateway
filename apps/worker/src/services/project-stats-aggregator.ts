@@ -24,23 +24,29 @@ function formatUTCTimestamp(date: Date): string {
 }
 
 /**
- * Get the current hour start as a UTC timestamp string
+ * Truncate a Date to the start of its UTC hour
  */
-function getCurrentHourStart(): string {
-	const now = new Date();
+function truncateToHourUTC(date: Date): string {
 	return formatUTCTimestamp(
 		new Date(
 			Date.UTC(
-				now.getUTCFullYear(),
-				now.getUTCMonth(),
-				now.getUTCDate(),
-				now.getUTCHours(),
+				date.getUTCFullYear(),
+				date.getUTCMonth(),
+				date.getUTCDate(),
+				date.getUTCHours(),
 				0,
 				0,
 				0,
 			),
 		),
 	);
+}
+
+/**
+ * Get the current hour start as a UTC timestamp string
+ */
+function getCurrentHourStart(): string {
+	return truncateToHourUTC(new Date());
 }
 
 /**
@@ -416,7 +422,7 @@ export async function processRecentLogs() {
 		if (STATS_BACKFILL_ENABLED) {
 			const backfillStart =
 				STATS_BACKFILL_DAYS > 0
-					? formatUTCTimestamp(
+					? truncateToHourUTC(
 							new Date(Date.now() - STATS_BACKFILL_DAYS * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
@@ -505,7 +511,7 @@ export async function processRecentLogs() {
 		if (STATS_STALE_ENABLED) {
 			const staleStart =
 				STATS_STALE_DAYS > 0
-					? formatUTCTimestamp(
+					? truncateToHourUTC(
 							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
