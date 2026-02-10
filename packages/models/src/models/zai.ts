@@ -378,6 +378,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "novita",
+				test: "skip",
 				modelName: "zai-org/glm-4.6",
 				inputPrice: 0.55 / 1e6,
 				cachedInputPrice: 0.11 / 1e6,

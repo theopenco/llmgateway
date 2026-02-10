@@ -213,7 +213,11 @@ export function LogCard({
 									</div>
 								</TooltipTrigger>
 								<TooltipContent>
-									<p>Provider cost — not deducted from your balance</p>
+									<p>
+										Provider cost
+										{log.usedMode === "api-keys" &&
+											" — not deducted from your balance"}
+									</p>
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
@@ -498,7 +502,9 @@ export function LogCard({
 							<div className="rounded-md border p-3 space-y-3">
 								<div>
 									<p className="text-xs text-muted-foreground mb-2">
-										Provider pricing — not deducted from your balance
+										Provider pricing
+										{log.usedMode === "api-keys" &&
+											" — not deducted from your balance"}
 									</p>
 									<div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
 										<div>Input Cost</div>

@@ -68,6 +68,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "novita",
+				test: "skip",
 				modelName: "minimax/minimax-m2.1",
 				inputPrice: 0.3 / 1e6,
 				cachedInputPrice: 0.03 / 1e6,

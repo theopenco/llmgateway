@@ -305,7 +305,11 @@ export function LogDetailClient({
 									</div>
 								</TooltipTrigger>
 								<TooltipContent>
-									<p>Provider cost — not deducted from your balance</p>
+									<p>
+										Provider cost
+										{log.usedMode === "api-keys" &&
+											" — not deducted from your balance"}
+									</p>
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
@@ -440,7 +444,9 @@ export function LogDetailClient({
 							<div className="rounded-lg border bg-card p-4 space-y-4">
 								<div>
 									<p className="text-xs text-muted-foreground mb-2">
-										Provider pricing — not deducted from your balance
+										Provider pricing
+										{log.usedMode === "api-keys" &&
+											" — not deducted from your balance"}
 									</p>
 									<div className="text-muted-foreground">
 										<Field
