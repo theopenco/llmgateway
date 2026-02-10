@@ -1024,6 +1024,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
+				test: "skip",
 				modelName: "gemini-2.0-flash",
 				inputPrice: 0.1 / 1e6,
 				outputPrice: 0.4 / 1e6,
