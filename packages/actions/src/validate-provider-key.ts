@@ -34,9 +34,10 @@ export async function validateProviderKey(
 		return { valid: true };
 	}
 
+	let validationModel: string | undefined;
+
 	try {
 		// Determine the validation model first (needed for endpoint URL)
-		let validationModel: string;
 		if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
 			validationModel = providerKeyOptions.azure_validation_model;
 			logger.debug("Using Azure validation model from options", {
@@ -158,6 +159,12 @@ export async function validateProviderKey(
 		const headers = getProviderHeaders(provider, token);
 		headers["Content-Type"] = "application/json";
 
+		logger.debug("Sending provider key validation request", {
+			provider,
+			model: validationModel,
+			endpoint,
+		});
+
 		const response = await fetch(endpoint, {
 			method: "POST",
 			headers,
@@ -166,7 +173,7 @@ export async function validateProviderKey(
 
 		if (!response.ok) {
 			const errorText = await response.text();
-			let errorMessage = `Error from provider: ${response.status} ${response.statusText}`;
+			let errorMessage = `${response.status} ${response.statusText}`;
 
 			try {
 				const errorJson = JSON.parse(errorText);
@@ -176,6 +183,13 @@ export async function validateProviderKey(
 					errorMessage = errorJson.message;
 				}
 			} catch {}
+
+			logger.warn("Provider key validation returned error response", {
+				provider,
+				model: validationModel,
+				statusCode: response.status,
+				error: errorMessage,
+			});
 
 			if (response.status === 401) {
 				return {
@@ -193,11 +207,24 @@ export async function validateProviderKey(
 			};
 		}
 
+		logger.debug("Provider key validation succeeded", {
+			provider,
+			model: validationModel,
+		});
 		return { valid: true, model: validationModel };
 	} catch (error) {
+		const errorMessage =
+			error instanceof Error ? error.message : "Unknown error occurred";
+		logger.error("Provider key validation failed with exception", {
+			provider,
+			model: validationModel,
+			error: errorMessage,
+			stack: error instanceof Error ? error.stack : undefined,
+		});
 		return {
 			valid: false,
-			error: error instanceof Error ? error.message : "Unknown error occurred",
+			error: errorMessage,
+			model: validationModel,
 		};
 	}
 }

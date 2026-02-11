@@ -203,12 +203,19 @@ keysProvider.openapi(create, async (c) => {
 		const errorMessage = validationResult.error || "Upstream server error";
 		logger.warn("Provider key validation failed", {
 			provider,
-			model: validationResult.model,
-			statusCode: validationResult.statusCode,
+			model: validationResult.model ?? "unknown",
+			statusCode: validationResult.statusCode ?? "none",
 			error: errorMessage,
 		});
+
+		const statusPart = validationResult.statusCode
+			? ` (status ${validationResult.statusCode})`
+			: "";
+		const modelPart = validationResult.model
+			? ` using model ${validationResult.model}`
+			: "";
 		throw new HTTPException(500, {
-			message: `Error from provider: ${errorMessage} and status code ${validationResult.statusCode} (using model ${validationResult.model}). Please try again later or contact support.`,
+			message: `Error from provider: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});
 	}
 
