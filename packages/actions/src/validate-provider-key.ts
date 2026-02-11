@@ -127,6 +127,8 @@ export async function validateProviderKey(
 			supportedParameters?.includes("max_tokens") &&
 			providerMapping?.providerId !== "azure";
 
+		const useResponsesApi = endpoint.includes("/responses");
+
 		const payload = await prepareRequestBody(
 			provider,
 			validationModel,
@@ -148,6 +150,9 @@ export async function validateProviderKey(
 			undefined, // sensitive_word_check
 			undefined, // image_config
 			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			useResponsesApi,
 		);
 
 		const headers = getProviderHeaders(provider, token);

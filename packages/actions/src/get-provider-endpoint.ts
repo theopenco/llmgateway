@@ -292,7 +292,14 @@ export function getProviderEndpoint(
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
-				if (model) {
+				const useResponsesApiEnv = getProviderEnvValue(
+					"azure",
+					"useResponsesApi",
+					configIndex,
+					"true",
+				);
+
+				if (model && useResponsesApiEnv !== "false") {
 					const modelDef = models.find(
 						(m) =>
 							m.id === model ||

@@ -393,6 +393,7 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 	webSearchTool?: WebSearchTool,
+	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
@@ -554,15 +555,22 @@ export async function prepareRequestBody(
 	switch (usedProvider) {
 		case "azure":
 		case "openai": {
-			// Check if the model supports responses API
-			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === usedProvider,
-			);
-			const supportsResponsesApi =
-				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-				true;
+			// Determine whether to use Responses API format.
+			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
+			// Otherwise, fall back to checking the model definition.
+			let shouldUseResponsesApi: boolean;
+			if (useResponsesApi !== undefined) {
+				shouldUseResponsesApi = useResponsesApi;
+			} else {
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === usedProvider,
+				);
+				shouldUseResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+			}
 
-			if (supportsResponsesApi) {
+			if (shouldUseResponsesApi) {
 				// Transform to responses API format
 				// gpt-5-pro only supports "high" reasoning effort
 				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
