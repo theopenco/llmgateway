@@ -322,6 +322,14 @@ function transformContentForResponsesApi(content: any, role: string): any {
 		});
 	}
 
+	// Responses API requires content to be a string or array, never null
+	if (content === null || content === undefined) {
+		if (role === "assistant") {
+			return [{ type: "output_text", text: "" }];
+		}
+		return [{ type: "input_text", text: "" }];
+	}
+
 	// Return as-is if not string or array
 	return content;
 }
