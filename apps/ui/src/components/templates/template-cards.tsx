@@ -5,6 +5,7 @@ import {
 	Code2,
 	Copy,
 	Check,
+	ExternalLink,
 	Image as ImageIcon,
 	MessageSquare,
 	PanelTop,
@@ -13,6 +14,7 @@ import {
 	Sparkles,
 	Github,
 } from "lucide-react";
+import Image from "next/image";
 import { useState, useCallback } from "react";
 
 import { Badge } from "@/lib/components/badge";
@@ -23,6 +25,8 @@ interface Template {
 	name: string;
 	description: string;
 	href: string;
+	demoUrl: string;
+	image: string;
 	icon: typeof ImageIcon;
 	tags: string[];
 	gradient: string;
@@ -35,6 +39,8 @@ const templates: Template[] = [
 		description:
 			"Generate stunning images with AI using multiple providers. Supports DALL-E, Stable Diffusion, and more through a unified API.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/image-generation",
+		demoUrl: "https://llm-image-generation.vercel.app",
+		image: "/templates/image-gen.png",
 		icon: ImageIcon,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-violet-500/20 via-fuchsia-500/20 to-pink-500/20",
@@ -45,6 +51,8 @@ const templates: Template[] = [
 		description:
 			"Streaming chat interface with conversation history and model selector. Switch between LLM providers on the fly with real-time token delivery.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/ai-chatbot",
+		demoUrl: "https://llm-ai-chatbot-brown.vercel.app",
+		image: "/templates/chatbot.png",
 		icon: MessageSquare,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-sky-500/20 via-blue-500/20 to-indigo-500/20",
@@ -55,6 +63,8 @@ const templates: Template[] = [
 		description:
 			"AI-powered Open Graph image generator with live preview, multiple themes, and one-click download. Uses structured output to generate title, subtitle, and call-to-action copy.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/og-image-generator",
+		demoUrl: "https://llm-og-image-generator.vercel.app",
+		image: "/templates/og-image.png",
 		icon: PanelTop,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-orange-500/20 via-amber-500/20 to-yellow-500/20",
@@ -64,6 +74,8 @@ const templates: Template[] = [
 		description:
 			"Customer feedback sentiment analysis dashboard. Paste reviews for batch AI analysis with sentiment scores, key themes extraction, and individual review breakdowns.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/feedback-dashboard",
+		demoUrl: "https://llm-feedback-dashboard.vercel.app",
+		image: "/templates/feedback.png",
 		icon: BarChart3,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-emerald-500/20 via-green-500/20 to-teal-500/20",
@@ -73,6 +85,8 @@ const templates: Template[] = [
 		description:
 			"AI writing assistant with text actions including rewrite, summarize, expand, fix grammar, and change tone. Supports multiple tone presets from professional to academic.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/writing-assistant",
+		demoUrl: "https://llm-writing-assistant.vercel.app",
+		image: "/templates/writing-assistant.png",
 		icon: PenLine,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-rose-500/20 via-pink-500/20 to-fuchsia-500/20",
@@ -104,7 +118,7 @@ export function TemplateCards() {
 			{templates.map((template) => (
 				<Card
 					key={template.name}
-					className="group relative overflow-hidden border-0 bg-gradient-to-br from-background to-muted/30 shadow-xl hover:shadow-2xl transition-all duration-500"
+					className="group relative flex flex-col overflow-hidden border-0 bg-gradient-to-br from-background to-muted/30 shadow-xl hover:shadow-2xl transition-all duration-500"
 				>
 					{/* Gradient overlay */}
 					<div
@@ -121,20 +135,29 @@ export function TemplateCards() {
 						</div>
 					)}
 
-					<div className="relative p-6 space-y-6">
-						{/* Icon with animated background */}
-						<div className="relative">
-							<div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-2xl blur-xl opacity-20 group-hover:opacity-40 transition-opacity duration-500" />
-							<div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg">
-								<template.icon className="h-8 w-8 text-white" />
-							</div>
-						</div>
+					{/* Preview image */}
+					<div className="relative aspect-video overflow-hidden">
+						<Image
+							src={template.image}
+							alt={`${template.name} preview`}
+							width={1200}
+							height={675}
+							className="h-full w-full object-cover"
+						/>
+						<div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+					</div>
 
+					<div className="relative flex flex-1 flex-col p-6 space-y-6">
 						{/* Content */}
 						<div className="space-y-3">
-							<h3 className="text-2xl font-bold tracking-tight">
-								{template.name}
-							</h3>
+							<div className="flex items-center gap-3">
+								<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg">
+									<template.icon className="h-5 w-5 text-white" />
+								</div>
+								<h3 className="text-2xl font-bold tracking-tight">
+									{template.name}
+								</h3>
+							</div>
 							<p className="text-muted-foreground leading-relaxed">
 								{template.description}
 							</p>
@@ -155,16 +178,26 @@ export function TemplateCards() {
 						</div>
 
 						{/* Actions */}
-						<div className="flex flex-col sm:flex-row gap-3 pt-2">
+						<div className="flex flex-col sm:flex-row gap-3 pt-2 mt-auto">
 							<Button asChild className="flex-1 gap-2 font-semibold">
+								<a
+									href={template.demoUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<ExternalLink className="h-4 w-4" />
+									Live Demo
+									<ArrowUpRight className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
+								</a>
+							</Button>
+							<Button variant="outline" asChild className="gap-2">
 								<a
 									href={template.href}
 									target="_blank"
 									rel="noopener noreferrer"
 								>
 									<Github className="h-4 w-4" />
-									View on GitHub
-									<ArrowUpRight className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
+									GitHub
 								</a>
 							</Button>
 							<Button
