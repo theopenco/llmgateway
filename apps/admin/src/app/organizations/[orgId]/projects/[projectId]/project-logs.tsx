@@ -91,7 +91,7 @@ function LogRow({ log }: { log: ProjectLogEntry }) {
 					{log.discount && log.discount !== 1 && (
 						<div className="flex items-center gap-1 text-emerald-600">
 							<TrendingDown className="h-3 w-3" />
-							<span>{((1 - log.discount) * 100).toFixed(0)}% off</span>
+							<span>{(log.discount * 100).toFixed(0)}% off</span>
 						</div>
 					)}
 					{log.source && (
