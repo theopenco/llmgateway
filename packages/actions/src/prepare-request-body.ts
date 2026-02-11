@@ -322,44 +322,92 @@ function transformContentForResponsesApi(content: any, role: string): any {
 		});
 	}
 
+	// Responses API requires content to be a string or array, never null
+	if (content === null || content === undefined) {
+		if (role === "assistant") {
+			return [{ type: "output_text", text: "" }];
+		}
+		return [{ type: "input_text", text: "" }];
+	}
+
 	// Return as-is if not string or array
 	return content;
 }
 
 /**
  * Transforms messages for OpenAI's Responses API format.
- * This includes:
- * - Converting content types (text -> input_text/output_text, image_url -> input_image)
- * - Removing unsupported fields (tool_calls, tool_call_id)
- * - Converting tool role to user role
+ * The Responses API uses a flat list of "items" rather than messages:
+ * - Regular messages become items with role/content
+ * - Assistant tool_calls become separate { type: "function_call" } items
+ * - Tool result messages become { type: "function_call_output" } items
+ * Content types are also transformed (text -> input_text/output_text, image_url -> input_image)
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
-	return messages.map((msg: any) => {
-		const transformed: any = {
-			role: msg.role,
-		};
+	const items: any[] = [];
 
-		// Responses API doesn't support 'tool' role - convert to 'user'
-		if (transformed.role === "tool") {
-			transformed.role = "user";
+	for (const msg of messages) {
+		// Tool result messages become function_call_output items
+		if (msg.role === "tool") {
+			if (!msg.tool_call_id) {
+				throw new Error(
+					"tool message is missing tool_call_id, required for Responses API function_call_output",
+				);
+			}
+			const output =
+				typeof msg.content === "string"
+					? msg.content
+					: msg.content !== null && msg.content !== undefined
+						? JSON.stringify(msg.content)
+						: "";
+			items.push({
+				type: "function_call_output",
+				call_id: msg.tool_call_id,
+				output,
+			});
+			continue;
 		}
 
-		// Transform content types
-		transformed.content = transformContentForResponsesApi(
-			msg.content,
-			transformed.role,
-		);
+		// Assistant messages with tool_calls: emit the message, then function_call items
+		if (
+			msg.role === "assistant" &&
+			msg.tool_calls &&
+			msg.tool_calls.length > 0
+		) {
+			// Emit assistant message content if present (preserve empty strings)
+			if (msg.content !== null && msg.content !== undefined) {
+				items.push({
+					role: "assistant",
+					content: transformContentForResponsesApi(msg.content, "assistant"),
+				});
+			}
+
+			// Emit each tool call as a separate function_call item
+			for (const toolCall of msg.tool_calls) {
+				items.push({
+					type: "function_call",
+					call_id: toolCall.id,
+					name: toolCall.function.name,
+					arguments: toolCall.function.arguments,
+				});
+			}
+			continue;
+		}
+
+		// Regular messages: transform content types
+		const transformed: any = {
+			role: msg.role,
+			content: transformContentForResponsesApi(msg.content, msg.role),
+		};
 
 		// Copy name if present (for developer/system messages)
 		if (msg.name) {
 			transformed.name = msg.name;
 		}
 
-		// Note: tool_calls and tool_call_id are intentionally NOT copied
-		// as they are not supported in Responses API input
+		items.push(transformed);
+	}
 
-		return transformed;
-	});
+	return items;
 }
 
 /**
@@ -393,6 +441,7 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 	webSearchTool?: WebSearchTool,
+	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
@@ -552,24 +601,32 @@ export async function prepareRequestBody(
 	}
 
 	switch (usedProvider) {
+		case "azure":
 		case "openai": {
-			// Check if the model supports responses API
-			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === "openai",
-			);
-			const supportsResponsesApi =
-				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-				true;
+			// Determine whether to use Responses API format.
+			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
+			// Otherwise, fall back to checking the model definition.
+			let shouldUseResponsesApi: boolean;
+			if (useResponsesApi !== undefined) {
+				shouldUseResponsesApi = useResponsesApi;
+			} else {
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === usedProvider,
+				);
+				shouldUseResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+			}
 
-			if (supportsResponsesApi) {
+			if (shouldUseResponsesApi) {
 				// Transform to responses API format
 				// gpt-5-pro only supports "high" reasoning effort
 				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
 
 				// Transform messages for responses API:
 				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
-				// - Remove tool_calls and tool_call_id (not supported)
-				// - Convert tool role to user role
+				// - Convert assistant tool_calls to function_call items
+				// - Convert tool role messages to function_call_output items
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
 

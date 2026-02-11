@@ -219,9 +219,10 @@ export default async function OrganizationPage({
 					</div>
 					<div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
 						{projects.map((project) => (
-							<div
+							<Link
 								key={project.id}
-								className="rounded-lg border border-border/60 bg-card p-4"
+								href={`/organizations/${orgId}/projects/${project.id}`}
+								className="rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-border hover:bg-accent/50"
 							>
 								<div className="flex items-start justify-between gap-2">
 									<div>
@@ -245,7 +246,7 @@ export default async function OrganizationPage({
 									)}
 									<span>{formatDate(project.createdAt)}</span>
 								</div>
-							</div>
+							</Link>
 						))}
 					</div>
 				</section>

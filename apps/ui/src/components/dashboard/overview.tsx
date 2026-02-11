@@ -184,7 +184,7 @@ export function Overview({
 				{metric === "costs" ? (
 					<>
 						<Line
-							type="monotone"
+							type="linear"
 							dataKey="inputCost"
 							name="Input"
 							stroke="#3b82f6"
@@ -192,7 +192,7 @@ export function Overview({
 							dot={false}
 						/>
 						<Line
-							type="monotone"
+							type="linear"
 							dataKey="outputCost"
 							name="Output"
 							stroke="#f59e0b"
@@ -200,7 +200,7 @@ export function Overview({
 							dot={false}
 						/>
 						<Line
-							type="monotone"
+							type="linear"
 							dataKey="cachedInputCost"
 							name="Cached Input"
 							stroke="#10b981"
@@ -210,7 +210,7 @@ export function Overview({
 					</>
 				) : (
 					<Line
-						type="monotone"
+						type="linear"
 						dataKey="total"
 						name="Requests"
 						stroke="#3b82f6"

@@ -13,8 +13,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-	loadMetricsAction,
-	type OrganizationMetrics,
+	loadProjectMetricsAction,
+	type ProjectMetrics,
 	type TokenWindow,
 } from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
@@ -108,29 +108,39 @@ function MetricCard({
 	);
 }
 
-export function OrgMetricsSection({ orgId }: { orgId: string }) {
+export function ProjectMetricsSection({
+	orgId,
+	projectId,
+}: {
+	orgId: string;
+	projectId: string;
+}) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
 
-	const window = parseWindow(searchParams.get("window"));
-	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
+	const selectedWindow = parseWindow(searchParams.get("window"));
+	const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
 	const [loading, setLoading] = useState(true);
 
 	const loadMetrics = useCallback(
 		async (w: TokenWindow) => {
 			setLoading(true);
-			const data = await loadMetricsAction(orgId, w);
-			setMetrics(data);
-			setLoading(false);
+			try {
+				const data = await loadProjectMetricsAction(orgId, projectId, w);
+				setMetrics(data);
+			} catch (error) {
+				console.error("Failed to load project metrics:", error);
+			} finally {
+				setLoading(false);
+			}
 		},
-		[orgId],
+		[orgId, projectId],
 	);
 
-	// Load metrics automatically on mount and when window changes
 	useEffect(() => {
-		loadMetrics(window);
-	}, [loadMetrics, window]);
+		loadMetrics(selectedWindow);
+	}, [loadMetrics, selectedWindow]);
 
 	const handleWindowChange = useCallback(
 		(w: TokenWindow) => {
@@ -179,7 +189,7 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 		"90d": "Last 90 days",
 		"365d": "Last 365 days",
 	};
-	const windowLabel = windowLabels[window];
+	const windowLabel = windowLabels[selectedWindow];
 
 	return (
 		<section className="space-y-4">
@@ -192,62 +202,18 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 					</p>
 				</div>
 				<div className="flex items-center gap-1">
-					<Button
-						variant={window === "1h" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("1h")}
-					>
-						1h
-					</Button>
-					<Button
-						variant={window === "4h" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("4h")}
-					>
-						4h
-					</Button>
-					<Button
-						variant={window === "12h" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("12h")}
-					>
-						12h
-					</Button>
-					<Button
-						variant={window === "1d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("1d")}
-					>
-						24h
-					</Button>
-					<Button
-						variant={window === "7d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("7d")}
-					>
-						7d
-					</Button>
-					<Button
-						variant={window === "30d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("30d")}
-					>
-						30d
-					</Button>
-					<Button
-						variant={window === "90d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("90d")}
-					>
-						90d
-					</Button>
-					<Button
-						variant={window === "365d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("365d")}
-					>
-						365d
-					</Button>
+					{(["1h", "4h", "12h", "1d", "7d", "30d", "90d", "365d"] as const).map(
+						(w) => (
+							<Button
+								key={w}
+								variant={selectedWindow === w ? "default" : "outline"}
+								size="sm"
+								onClick={() => handleWindowChange(w)}
+							>
+								{w === "1d" ? "24h" : w}
+							</Button>
+						),
+					)}
 				</div>
 			</div>
 			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

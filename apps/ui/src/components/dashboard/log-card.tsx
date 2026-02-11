@@ -16,6 +16,7 @@ import {
 	ExternalLink,
 	Plug,
 	Sparkles,
+	TrendingDown,
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -213,10 +214,20 @@ export function LogCard({
 									</div>
 								</TooltipTrigger>
 								<TooltipContent>
-									<p>Provider cost — not deducted from your balance</p>
+									<p>
+										Provider cost
+										{log.usedMode === "api-keys" &&
+											" — not deducted from your balance"}
+									</p>
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
+						{log.discount && log.discount !== 1 && (
+							<div className="flex items-center gap-1 text-emerald-600">
+								<TrendingDown className="h-3.5 w-3.5" />
+								<span>{((1 - log.discount) * 100).toFixed(0)}% off</span>
+							</div>
+						)}
 						{log.source && (
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5" />
@@ -498,7 +509,9 @@ export function LogCard({
 							<div className="rounded-md border p-3 space-y-3">
 								<div>
 									<p className="text-xs text-muted-foreground mb-2">
-										Provider pricing — not deducted from your balance
+										Provider pricing
+										{log.usedMode === "api-keys" &&
+											" — not deducted from your balance"}
 									</p>
 									<div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
 										<div>Input Cost</div>
@@ -547,7 +560,7 @@ export function LogCard({
 											<>
 												<div>Discount Applied</div>
 												<div className="text-green-600">
-													{(log.discount * 100).toFixed(0)}% off
+													{((1 - log.discount) * 100).toFixed(0)}% off
 												</div>
 											</>
 										)}

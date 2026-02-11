@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Script to export models to models.dev TOML format
  *
@@ -22,14 +23,14 @@
 import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { models, type ModelDefinition } from "../packages/models/src/models.js";
+import { models, type ModelDefinition } from "@llmgateway/models";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const OUTPUT_DIR = "exports/providers/llmgateway";
 const MODELS_DIR = join(OUTPUT_DIR, "models");
-const LOGO_SOURCE = join(__dirname, "../apps/ui/public/brand/logo-black.svg");
+const LOGO_SOURCE = join(__dirname, "../../../apps/ui/public/brand/logo-black.svg");
 
 interface ModelsDevModel {
 	name: string;

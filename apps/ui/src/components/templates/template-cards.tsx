@@ -6,6 +6,10 @@ import {
 	Copy,
 	Check,
 	Image as ImageIcon,
+	MessageSquare,
+	PanelTop,
+	BarChart3,
+	PenLine,
 	Sparkles,
 	Github,
 } from "lucide-react";
@@ -35,6 +39,43 @@ const templates: Template[] = [
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-violet-500/20 via-fuchsia-500/20 to-pink-500/20",
 		featured: true,
+	},
+	{
+		name: "AI Chatbot",
+		description:
+			"Streaming chat interface with conversation history and model selector. Switch between LLM providers on the fly with real-time token delivery.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/ai-chatbot",
+		icon: MessageSquare,
+		tags: ["TypeScript", "Next.js", "AI SDK"],
+		gradient: "from-sky-500/20 via-blue-500/20 to-indigo-500/20",
+		featured: true,
+	},
+	{
+		name: "OG Image Generator",
+		description:
+			"AI-powered Open Graph image generator with live preview, multiple themes, and one-click download. Uses structured output to generate title, subtitle, and call-to-action copy.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/og-image-generator",
+		icon: PanelTop,
+		tags: ["TypeScript", "Next.js", "AI SDK"],
+		gradient: "from-orange-500/20 via-amber-500/20 to-yellow-500/20",
+	},
+	{
+		name: "Feedback Dashboard",
+		description:
+			"Customer feedback sentiment analysis dashboard. Paste reviews for batch AI analysis with sentiment scores, key themes extraction, and individual review breakdowns.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/feedback-dashboard",
+		icon: BarChart3,
+		tags: ["TypeScript", "Next.js", "AI SDK"],
+		gradient: "from-emerald-500/20 via-green-500/20 to-teal-500/20",
+	},
+	{
+		name: "Writing Assistant",
+		description:
+			"AI writing assistant with text actions including rewrite, summarize, expand, fix grammar, and change tone. Supports multiple tone presets from professional to academic.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/writing-assistant",
+		icon: PenLine,
+		tags: ["TypeScript", "Next.js", "AI SDK"],
+		gradient: "from-rose-500/20 via-pink-500/20 to-fuchsia-500/20",
 	},
 ];
 

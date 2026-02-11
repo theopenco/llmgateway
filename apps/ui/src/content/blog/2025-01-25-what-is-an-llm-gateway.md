@@ -5,6 +5,11 @@ date: 2026-01-25
 title: "What is an LLM Gateway?"
 summary: Learn what an LLM Gateway is, why you need one, and how it simplifies integrating, managing, and deploying large language models in production.
 categories: ["Guides"]
+image:
+  src: "/blog/what-is-an-llm-gateway.png"
+  alt: "What is an LLM Gateway?"
+  width: 1808
+  height: 592
 ---
 
 Large language models power modern AI applications—from chatbots and code assistants to document analysis and automated customer support. But deploying LLMs at scale introduces challenges that most teams aren't prepared for.
