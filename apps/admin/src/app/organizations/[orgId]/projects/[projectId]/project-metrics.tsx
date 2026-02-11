@@ -119,7 +119,7 @@ export function ProjectMetricsSection({
 	const router = useRouter();
 	const pathname = usePathname();
 
-	const window = parseWindow(searchParams.get("window"));
+	const selectedWindow = parseWindow(searchParams.get("window"));
 	const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
 	const [loading, setLoading] = useState(true);
 
@@ -134,8 +134,8 @@ export function ProjectMetricsSection({
 	);
 
 	useEffect(() => {
-		loadMetrics(window);
-	}, [loadMetrics, window]);
+		loadMetrics(selectedWindow);
+	}, [loadMetrics, selectedWindow]);
 
 	const handleWindowChange = useCallback(
 		(w: TokenWindow) => {
@@ -184,7 +184,7 @@ export function ProjectMetricsSection({
 		"90d": "Last 90 days",
 		"365d": "Last 365 days",
 	};
-	const windowLabel = windowLabels[window];
+	const windowLabel = windowLabels[selectedWindow];
 
 	return (
 		<section className="space-y-4">
@@ -201,7 +201,7 @@ export function ProjectMetricsSection({
 						(w) => (
 							<Button
 								key={w}
-								variant={window === w ? "default" : "outline"}
+								variant={selectedWindow === w ? "default" : "outline"}
 								size="sm"
 								onClick={() => handleWindowChange(w)}
 							>

@@ -1110,18 +1110,22 @@ admin.openapi(getProjectLogs, async (c) => {
 			.where(eq(tables.log.id, cursor))
 			.limit(1);
 
-		if (cursorLog.length > 0) {
-			const cursorCreatedAt = cursorLog[0].createdAt;
-			whereConditions.push(
-				or(
-					lt(tables.log.createdAt, cursorCreatedAt),
-					and(
-						eq(tables.log.createdAt, cursorCreatedAt),
-						lt(tables.log.id, cursor),
-					),
-				)!,
-			);
+		if (cursorLog.length === 0) {
+			throw new HTTPException(400, {
+				message: "Invalid or stale cursor",
+			});
 		}
+
+		const cursorCreatedAt = cursorLog[0].createdAt;
+		whereConditions.push(
+			or(
+				lt(tables.log.createdAt, cursorCreatedAt),
+				and(
+					eq(tables.log.createdAt, cursorCreatedAt),
+					lt(tables.log.id, cursor),
+				),
+			),
+		);
 	}
 
 	const logRows = await db

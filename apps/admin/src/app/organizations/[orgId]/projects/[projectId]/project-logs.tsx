@@ -58,7 +58,7 @@ function LogRow({ log }: { log: ProjectLogEntry }) {
 						variant={log.hasError ? "destructive" : "default"}
 						className="flex-shrink-0 text-xs"
 					>
-						{log.unifiedFinishReason}
+						{log.unifiedFinishReason || "—"}
 					</Badge>
 				</div>
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">

@@ -560,7 +560,7 @@ export function LogCard({
 											<>
 												<div>Discount Applied</div>
 												<div className="text-green-600">
-													{(log.discount * 100).toFixed(0)}% off
+													{((1 - log.discount) * 100).toFixed(0)}% off
 												</div>
 											</>
 										)}
