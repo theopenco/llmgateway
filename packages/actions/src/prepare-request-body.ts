@@ -328,38 +328,70 @@ function transformContentForResponsesApi(content: any, role: string): any {
 
 /**
  * Transforms messages for OpenAI's Responses API format.
- * This includes:
- * - Converting content types (text -> input_text/output_text, image_url -> input_image)
- * - Removing unsupported fields (tool_calls, tool_call_id)
- * - Converting tool role to user role
+ * The Responses API uses a flat list of "items" rather than messages:
+ * - Regular messages become items with role/content
+ * - Assistant tool_calls become separate { type: "function_call" } items
+ * - Tool result messages become { type: "function_call_output" } items
+ * Content types are also transformed (text -> input_text/output_text, image_url -> input_image)
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
-	return messages.map((msg: any) => {
-		const transformed: any = {
-			role: msg.role,
-		};
+	const items: any[] = [];
 
-		// Responses API doesn't support 'tool' role - convert to 'user'
-		if (transformed.role === "tool") {
-			transformed.role = "user";
+	for (const msg of messages) {
+		// Tool result messages become function_call_output items
+		if (msg.role === "tool") {
+			items.push({
+				type: "function_call_output",
+				call_id: msg.tool_call_id,
+				output:
+					typeof msg.content === "string"
+						? msg.content
+						: JSON.stringify(msg.content),
+			});
+			continue;
 		}
 
-		// Transform content types
-		transformed.content = transformContentForResponsesApi(
-			msg.content,
-			transformed.role,
-		);
+		// Assistant messages with tool_calls: emit the message, then function_call items
+		if (
+			msg.role === "assistant" &&
+			msg.tool_calls &&
+			msg.tool_calls.length > 0
+		) {
+			// Emit assistant message content if present
+			if (msg.content) {
+				items.push({
+					role: "assistant",
+					content: transformContentForResponsesApi(msg.content, "assistant"),
+				});
+			}
+
+			// Emit each tool call as a separate function_call item
+			for (const toolCall of msg.tool_calls) {
+				items.push({
+					type: "function_call",
+					call_id: toolCall.id,
+					name: toolCall.function.name,
+					arguments: toolCall.function.arguments,
+				});
+			}
+			continue;
+		}
+
+		// Regular messages: transform content types
+		const transformed: any = {
+			role: msg.role,
+			content: transformContentForResponsesApi(msg.content, msg.role),
+		};
 
 		// Copy name if present (for developer/system messages)
 		if (msg.name) {
 			transformed.name = msg.name;
 		}
 
-		// Note: tool_calls and tool_call_id are intentionally NOT copied
-		// as they are not supported in Responses API input
+		items.push(transformed);
+	}
 
-		return transformed;
-	});
+	return items;
 }
 
 /**
@@ -577,8 +609,8 @@ export async function prepareRequestBody(
 
 				// Transform messages for responses API:
 				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
-				// - Remove tool_calls and tool_call_id (not supported)
-				// - Convert tool role to user role
+				// - Convert assistant tool_calls to function_call items
+				// - Convert tool role messages to function_call_output items
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
 

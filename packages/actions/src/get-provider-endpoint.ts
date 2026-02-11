@@ -299,7 +299,7 @@ export function getProviderEndpoint(
 					"true",
 				);
 
-				if (model && useResponsesApiEnv !== "false" && !hasExistingToolCalls) {
+				if (model && useResponsesApiEnv !== "false") {
 					const modelDef = models.find(
 						(m) =>
 							m.id === model ||
@@ -323,10 +323,7 @@ export function getProviderEndpoint(
 		}
 		case "openai": {
 			// Use responses endpoint for models that support responses API
-			// but fall back to chat completions when messages contain existing
-			// tool calls/results, since the Responses API drops tool_call_id
-			// and tool_calls fields during message transformation
-			if (model && !hasExistingToolCalls) {
+			if (model) {
 				// Look up by model ID first, then fall back to provider modelName
 				const modelDef = models.find(
 					(m) =>
