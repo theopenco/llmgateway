@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import initSqlJs, { type Database } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 

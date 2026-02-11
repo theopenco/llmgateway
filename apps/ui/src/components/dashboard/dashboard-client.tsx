@@ -425,7 +425,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							subtitle={
 								isLoading
 									? "–"
-									: `Not deducted • $${totalInputCost.toFixed(
+									: `$${totalInputCost.toFixed(
 											2,
 										)} input • $${totalOutputCost.toFixed(2)} output${
 											totalRequestCost > 0
@@ -496,7 +496,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 										<CardTitle>Usage Overview</CardTitle>
 										<CardDescription>
 											{metric === "costs"
-												? "Provider pricing for reference — not deducted from your balance"
+												? "Provider pricing for reference"
 												: "Total Requests"}
 											{selectedProject && (
 												<span className="block mt-1 text-sm">

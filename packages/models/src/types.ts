@@ -204,9 +204,27 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 }
 
+export interface OpenAIResponsesFunctionCall {
+	type: "function_call";
+	call_id: string;
+	name: string;
+	arguments: string;
+}
+
+export interface OpenAIResponsesFunctionCallOutput {
+	type: "function_call_output";
+	call_id: string;
+	output: string;
+}
+
+export type OpenAIResponsesInputItem =
+	| OpenAIMessage
+	| OpenAIResponsesFunctionCall
+	| OpenAIResponsesFunctionCallOutput;
+
 export interface OpenAIResponsesRequestBody {
 	model: string;
-	input: OpenAIMessage[];
+	input: OpenAIResponsesInputItem[];
 	reasoning: {
 		effort: "minimal" | "low" | "medium" | "high";
 		summary: "detailed";

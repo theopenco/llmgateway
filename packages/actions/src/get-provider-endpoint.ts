@@ -292,6 +292,32 @@ export function getProviderEndpoint(
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
+				const useResponsesApiEnv = getProviderEnvValue(
+					"azure",
+					"useResponsesApi",
+					configIndex,
+					"true",
+				);
+
+				if (model && useResponsesApiEnv !== "false") {
+					const modelDef = models.find(
+						(m) =>
+							m.id === model ||
+							m.providers.some(
+								(p) => p.modelName === model && p.providerId === "azure",
+							),
+					);
+					const providerMapping = modelDef?.providers.find(
+						(p) => p.providerId === "azure",
+					);
+					const supportsResponsesApi =
+						(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+						true;
+
+					if (supportsResponsesApi) {
+						return `${url}/openai/v1/responses`;
+					}
+				}
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}

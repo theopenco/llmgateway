@@ -185,7 +185,7 @@ export function ErrorRateChart({
 						}}
 					/>
 					<Line
-						type="monotone"
+						type="linear"
 						dataKey="errorRate"
 						stroke="currentColor"
 						className="stroke-destructive"

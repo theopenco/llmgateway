@@ -261,6 +261,7 @@ export const providers = [
 			optional: {
 				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
 				apiVersion: "LLM_AZURE_API_VERSION",
+				useResponsesApi: "LLM_AZURE_USE_RESPONSES_API",
 			},
 		},
 		streaming: true,

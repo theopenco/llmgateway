@@ -338,3 +338,195 @@ describe("healAndValidateJson", () => {
 		expect(result.valid).toBe(true);
 	});
 });
+
+describe("healJsonResponse - streaming scenarios", () => {
+	describe("accumulated chunks simulation", () => {
+		it("should heal JSON that arrives in multiple chunks", () => {
+			// Simulates streaming where chunks are: '{"na', 'me": "te', 'st",}'
+			const chunks = ['{"na', 'me": "te', 'st",}'];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("syntax_fix");
+			expect(JSON.parse(result.content)).toEqual({ name: "test" });
+		});
+
+		it("should heal truncated JSON from streaming", () => {
+			// Simulates streaming that got cut off mid-response (at a point where healing is possible)
+			const chunks = ['{"data": {"nested": "value"'];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("truncation_completion");
+			// The healed content should be valid JSON
+			expect(() => JSON.parse(result.content)).not.toThrow();
+			expect(JSON.parse(result.content)).toEqual({ data: { nested: "value" } });
+		});
+
+		it("should heal JSON with markdown wrapper from streaming", () => {
+			// Simulates LLM that outputs markdown-wrapped JSON in chunks
+			const chunks = [
+				"Here is the data:\n```json\n{",
+				'"status": "success"',
+				"}\n```",
+			];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("markdown_extraction");
+			expect(JSON.parse(result.content)).toEqual({ status: "success" });
+		});
+
+		it("should not modify valid accumulated JSON", () => {
+			const chunks = ['{"id": 1, ', '"name": "test"}'];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(false);
+			expect(result.content).toBe(accumulated);
+			expect(JSON.parse(result.content)).toEqual({ id: 1, name: "test" });
+		});
+
+		it("should heal complex nested JSON from streaming with trailing comma", () => {
+			// Trailing comma at the end of a simple array - the healer handles this well
+			const input = '{"numbers": [1, 2, 3,], "name": "test",}';
+
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("syntax_fix");
+			expect(JSON.parse(result.content)).toEqual({
+				numbers: [1, 2, 3],
+				name: "test",
+			});
+		});
+
+		it("should handle empty accumulated content", () => {
+			const accumulated = "";
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(false);
+			expect(result.content).toBe("");
+		});
+
+		it("should heal JSON with mixed content from streaming", () => {
+			// LLM sometimes adds explanatory text around JSON
+			const chunks = [
+				"Based on your request, here is the response: ",
+				'{"result": "success", "count": 42}',
+				" Let me know if you need anything else.",
+			];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("mixed_content_extraction");
+			expect(JSON.parse(result.content)).toEqual({
+				result: "success",
+				count: 42,
+			});
+		});
+
+		it("should heal JSON array that was truncated during streaming", () => {
+			const chunks = ["[1, 2, 3, 4, 5"];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("truncation_completion");
+			expect(JSON.parse(result.content)).toEqual([1, 2, 3, 4, 5]);
+		});
+
+		it("should handle deeply nested truncated JSON from streaming", () => {
+			const chunks = [
+				'{"level1": {"level2": {"level3": {"data": "value"',
+				", ",
+				'"more": true',
+			];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			// Should complete all missing braces
+			const parsed = JSON.parse(result.content);
+			expect(parsed.level1.level2.level3.data).toBe("value");
+		});
+
+		it("should heal JSON with unclosed string from streaming cutoff", () => {
+			const chunks = ['{"message": "Hello, this is an incomplete'];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			// Should close the string and object
+			expect(() => JSON.parse(result.content)).not.toThrow();
+		});
+	});
+
+	describe("edge cases for streaming", () => {
+		it("should handle JSON that looks complete but has extra text after", () => {
+			const accumulated = '{"valid": true} but wait there is more text here';
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({ valid: true });
+		});
+
+		it("should preserve original content when healing fails completely", () => {
+			const accumulated = "This is just plain text with no JSON at all.";
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(false);
+			expect(result.content).toBe(accumulated);
+			expect(result.originalContent).toBe(accumulated);
+		});
+
+		it("should handle multiple JSON objects in stream (extract first valid)", () => {
+			const accumulated = 'First object: {"a": 1} Second object: {"b": 2} End.';
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			// Should extract the first valid JSON object
+			expect(JSON.parse(result.content)).toEqual({ a: 1 });
+		});
+
+		it("should handle JSON with special characters in strings", () => {
+			const chunks = [
+				'{"text": "Line 1\\nLine 2\\tTabbed",',
+				'"path": "C:\\\\Users\\\\test",}',
+			];
+			const accumulated = chunks.join("");
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			const parsed = JSON.parse(result.content);
+			expect(parsed.text).toBe("Line 1\nLine 2\tTabbed");
+			expect(parsed.path).toBe("C:\\Users\\test");
+		});
+
+		it("should handle single quotes from streaming (JavaScript-style)", () => {
+			const accumulated = "{'key': 'value', 'number': 42}";
+
+			const result = healJsonResponse(accumulated);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({ key: "value", number: 42 });
+		});
+	});
+});

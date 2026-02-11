@@ -185,7 +185,7 @@ export function CacheRateChart({
 						}}
 					/>
 					<Line
-						type="monotone"
+						type="linear"
 						dataKey="cacheRate"
 						stroke="currentColor"
 						className="stroke-primary"

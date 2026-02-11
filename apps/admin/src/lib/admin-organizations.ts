@@ -24,7 +24,15 @@ export interface OrganizationsListResponse {
 	offset: number;
 }
 
-export type TokenWindow = "1d" | "7d";
+export type TokenWindow =
+	| "1h"
+	| "4h"
+	| "12h"
+	| "1d"
+	| "7d"
+	| "30d"
+	| "90d"
+	| "365d";
 
 export interface OrganizationMetrics {
 	organization: Organization;
@@ -43,6 +51,7 @@ export interface OrganizationMetrics {
 	mostUsedModel: string | null;
 	mostUsedProvider: string | null;
 	mostUsedModelCost: number;
+	discountSavings: number;
 }
 
 export interface Transaction {

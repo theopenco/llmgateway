@@ -20,7 +20,16 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 
 	useEffect(() => {
 		const param = searchParams.get("window");
-		if (param === "1d" || param === "7d") {
+		if (
+			param === "1h" ||
+			param === "4h" ||
+			param === "12h" ||
+			param === "1d" ||
+			param === "7d" ||
+			param === "30d" ||
+			param === "90d" ||
+			param === "365d"
+		) {
 			setCurrent(param);
 		} else {
 			setCurrent("1d");
@@ -45,6 +54,24 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 	return (
 		<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 p-1 text-xs text-muted-foreground backdrop-blur">
 			<TimeRangeButton
+				label="Last 1 hour"
+				value="1h"
+				current={current}
+				onClick={setWindow}
+			/>
+			<TimeRangeButton
+				label="Last 4 hours"
+				value="4h"
+				current={current}
+				onClick={setWindow}
+			/>
+			<TimeRangeButton
+				label="Last 12 hours"
+				value="12h"
+				current={current}
+				onClick={setWindow}
+			/>
+			<TimeRangeButton
 				label="Last 24 hours"
 				value="1d"
 				current={current}
@@ -53,6 +80,24 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 			<TimeRangeButton
 				label="Last 7 days"
 				value="7d"
+				current={current}
+				onClick={setWindow}
+			/>
+			<TimeRangeButton
+				label="Last 30 days"
+				value="30d"
+				current={current}
+				onClick={setWindow}
+			/>
+			<TimeRangeButton
+				label="Last 90 days"
+				value="90d"
+				current={current}
+				onClick={setWindow}
+			/>
+			<TimeRangeButton
+				label="Last 365 days"
+				value="365d"
 				current={current}
 				onClick={setWindow}
 			/>

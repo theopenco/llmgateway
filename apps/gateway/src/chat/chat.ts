@@ -1280,15 +1280,9 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	// Use the canonical model ID from modelInfo (set before any routing/fallback)
-	// This ensures correct stats tracking when low-uptime fallback changes the provider
-	// Fall back to finalModelInfo.id or usedModel for edge cases like custom providers
-	// Skip modelInfo.id when it's "auto" since that's a routing pseudo-model, not the actual model
-	const modelInfoId = (modelInfo as ModelDefinition)?.id;
-	const baseModelName =
-		(modelInfoId && modelInfoId !== "auto" ? modelInfoId : null) ||
-		finalModelInfo?.id ||
-		usedModel;
+	// Use the canonical model ID from finalModelInfo (looked up after routing)
+	// Fall back to usedModel (raw provider model name) for custom providers
+	const baseModelName = finalModelInfo?.id || usedModel;
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
@@ -1528,6 +1522,8 @@ chat.openapi(completions, async (c) => {
 			message: `Could not use provider: ${usedProvider}. ${error instanceof Error ? error.message : ""}`,
 		});
 	}
+
+	const useResponsesApi = url?.includes("/responses") ?? false;
 
 	if (!url) {
 		throw new HTTPException(400, {
@@ -2080,6 +2076,7 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration,
 		webSearchTool,
 		reasoning_max_tokens,
+		useResponsesApi,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2775,6 +2772,29 @@ chat.openapi(completions, async (c) => {
 			let rawUpstreamData = ""; // Raw data received from upstream provider
 			const isAwsBedrock = usedProvider === "aws-bedrock";
 
+			// Response healing for streaming mode
+			const streamingResponseHealingEnabled = plugins?.some(
+				(p) => p.id === "response-healing",
+			);
+			const streamingIsJsonResponseFormat =
+				response_format?.type === "json_object" ||
+				response_format?.type === "json_schema";
+			const shouldBufferForHealing =
+				streamingResponseHealingEnabled && streamingIsJsonResponseFormat;
+
+			// Buffer for storing chunks when healing is enabled
+			// We need to buffer content, track last chunk info, and replay healed content at the end
+			let bufferedContentChunks: string[] = [];
+			let lastChunkId: string | null = null;
+			let lastChunkModel: string | null = null;
+			let lastChunkCreated: number | null = null;
+			let streamingPluginResults: {
+				responseHealing?: {
+					healed: boolean;
+					healingMethod?: string;
+				};
+			} = {};
+
 			try {
 				while (true) {
 					const { done, value } = await reader.read();
@@ -3369,10 +3389,48 @@ chat.openapi(completions, async (c) => {
 								}
 							}
 
-							await writeSSEAndCache({
-								data: JSON.stringify(transformedData),
-								id: String(eventId++),
-							});
+							// When buffering for healing, strip content from chunks and buffer it
+							// We still send metadata (usage, finish_reason, tool_calls) but buffer text content
+							if (shouldBufferForHealing) {
+								const deltaContent =
+									transformedData.choices?.[0]?.delta?.content;
+								if (deltaContent) {
+									bufferedContentChunks.push(deltaContent);
+									// Store chunk metadata for later use when sending healed content
+									lastChunkId = transformedData.id || lastChunkId;
+									lastChunkModel = transformedData.model || lastChunkModel;
+									lastChunkCreated =
+										transformedData.created || lastChunkCreated;
+								}
+
+								// Create a copy without content in delta for streaming
+								const chunkWithoutContent = JSON.parse(
+									JSON.stringify(transformedData),
+								);
+								if (chunkWithoutContent.choices?.[0]?.delta?.content) {
+									delete chunkWithoutContent.choices[0].delta.content;
+								}
+
+								// Only send chunk if it has meaningful data (not just empty delta)
+								const hasUsage = !!chunkWithoutContent.usage;
+								const hasToolCalls =
+									!!chunkWithoutContent.choices?.[0]?.delta?.tool_calls;
+								const hasFinishReason =
+									!!chunkWithoutContent.choices?.[0]?.finish_reason;
+								const hasRole = !!chunkWithoutContent.choices?.[0]?.delta?.role;
+
+								if (hasUsage || hasToolCalls || hasFinishReason || hasRole) {
+									await writeSSEAndCache({
+										data: JSON.stringify(chunkWithoutContent),
+										id: String(eventId++),
+									});
+								}
+							} else {
+								await writeSSEAndCache({
+									data: JSON.stringify(transformedData),
+									id: String(eventId++),
+								});
+							}
 
 							// Extract usage data from transformedData to update tracking variables
 							if (transformedData.usage && usedProvider === "openai") {
@@ -3641,6 +3699,56 @@ chat.openapi(completions, async (c) => {
 			} catch (error) {
 				if (error instanceof Error && error.name === "AbortError") {
 					canceled = true;
+				} else if (isTimeoutError(error)) {
+					const errorMessage =
+						error instanceof Error ? error.message : "Stream reading timeout";
+					logger.warn("Stream reading timeout", {
+						error: errorMessage,
+						usedProvider,
+						requestedProvider,
+						usedModel,
+						initialRequestedModel,
+					});
+
+					try {
+						await stream.writeSSE({
+							event: "error",
+							data: JSON.stringify({
+								error: {
+									message: `Upstream provider timeout: ${errorMessage}`,
+									type: "upstream_timeout",
+									param: null,
+									code: "timeout",
+								},
+							}),
+							id: String(eventId++),
+						});
+						await stream.writeSSE({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+						doneSent = true;
+					} catch (sseError) {
+						logger.error(
+							"Failed to send timeout error SSE",
+							sseError instanceof Error
+								? sseError
+								: new Error(String(sseError)),
+						);
+					}
+
+					streamingError = {
+						message: errorMessage,
+						type: "upstream_timeout",
+						code: "timeout",
+						details: {
+							name: "TimeoutError",
+							timestamp: new Date().toISOString(),
+							provider: usedProvider,
+							model: usedModel,
+						},
+					};
 				} else {
 					logger.error(
 						"Error reading stream",
@@ -3695,7 +3803,11 @@ chat.openapi(completions, async (c) => {
 				}
 			} finally {
 				// Clean up the reader to prevent file descriptor leaks
-				await reader.cancel();
+				try {
+					await reader.cancel();
+				} catch {
+					// Ignore errors from cancel - the stream may already be aborted due to timeout
+				}
 				// Clean up the event listeners
 				c.req.raw.signal.removeEventListener("abort", onAbort);
 
@@ -3932,6 +4044,82 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					// Send healed content if buffering was enabled
+					if (
+						shouldBufferForHealing &&
+						bufferedContentChunks.length > 0 &&
+						!streamingError
+					) {
+						try {
+							// Combine buffered content and apply healing
+							const bufferedContent = bufferedContentChunks.join("");
+							const healingResult = healJsonResponse(bufferedContent);
+
+							// Store plugin results for logging
+							streamingPluginResults.responseHealing = {
+								healed: healingResult.healed,
+								healingMethod: healingResult.healingMethod,
+							};
+
+							if (healingResult.healed) {
+								logger.debug("Streaming response healing applied", {
+									method: healingResult.healingMethod,
+									originalLength: healingResult.originalContent.length,
+									healedLength: healingResult.content.length,
+								});
+								// Update fullContent with healed version for logging
+								fullContent = healingResult.content;
+							}
+
+							// Send the healed (or original if no healing needed) content as a single chunk
+							const healedContentChunk = {
+								id: lastChunkId || `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: lastChunkCreated || Math.floor(Date.now() / 1000),
+								model: lastChunkModel || usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: {
+											content: healingResult.content,
+										},
+										finish_reason: null,
+									},
+								],
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(healedContentChunk),
+								id: String(eventId++),
+							});
+
+							// Send finish_reason chunk
+							const finishChunk = {
+								id: lastChunkId || `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: lastChunkCreated || Math.floor(Date.now() / 1000),
+								model: lastChunkModel || usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: finishReason || "stop",
+									},
+								],
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(finishChunk),
+								id: String(eventId++),
+							});
+						} catch (error) {
+							logger.error(
+								"Error sending healed content chunk",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+						}
+					}
+
 					// Always send [DONE] at the end of streaming if not already sent
 					if (!doneSent) {
 						try {
@@ -4007,8 +4195,14 @@ chat.openapi(completions, async (c) => {
 					}
 				}
 
-				// Extract plugin IDs for logging (streaming - no healing applied)
+				// Extract plugin IDs for logging
 				const streamingPluginIds = plugins?.map((p) => p.id) || [];
+
+				// Determine plugin results for logging (includes healing results if applicable)
+				const finalPluginResults =
+					Object.keys(streamingPluginResults).length > 0
+						? streamingPluginResults
+						: undefined;
 
 				const baseLogEntry = createLogEntry(
 					requestId,
@@ -4047,7 +4241,7 @@ chat.openapi(completions, async (c) => {
 						? streamingError // Pass structured error as upstream response too
 						: rawUpstreamData, // Raw streaming data received from upstream provider
 					streamingPluginIds,
-					undefined, // No plugin results for streaming
+					finalPluginResults, // Plugin results including healing (if enabled)
 				);
 
 				if (!finishReason && !streamingError && usedProvider === "routeway") {
