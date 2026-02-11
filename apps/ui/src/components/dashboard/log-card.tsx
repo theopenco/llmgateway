@@ -16,6 +16,7 @@ import {
 	ExternalLink,
 	Plug,
 	Sparkles,
+	TrendingDown,
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -221,6 +222,12 @@ export function LogCard({
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
+						{log.discount && log.discount !== 1 && (
+							<div className="flex items-center gap-1 text-emerald-600">
+								<TrendingDown className="h-3.5 w-3.5" />
+								<span>{((1 - log.discount) * 100).toFixed(0)}% off</span>
+							</div>
+						)}
 						{log.source && (
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5" />
