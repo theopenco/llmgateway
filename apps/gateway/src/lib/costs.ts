@@ -292,7 +292,6 @@ export async function calculateCosts(
 		imageInputCost = new Decimal(imageInputTokens)
 			.times(imageInputPrice)
 			.times(discountMultiplier);
-		// Note: We no longer add image tokens to calculatedPromptTokens
 	}
 
 	// Calculate input cost accounting for cached tokens
@@ -302,9 +301,11 @@ export async function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
+	// inputCost includes both text and image input costs when applicable
 	const inputCost = new Decimal(uncachedPromptTokens)
 		.times(inputPrice)
-		.times(discountMultiplier);
+		.times(discountMultiplier)
+		.plus(imageInputCost || 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). For other providers, add reasoning separately.
@@ -329,14 +330,15 @@ export async function calculateCosts(
 		imageOutputTokens = outputImageCount * TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
-		// Text-only output cost
-		outputCost = new Decimal(textTokens)
-			.times(outputPrice)
-			.times(discountMultiplier);
-		// Separate image output cost
+		// Separate image output cost (breakdown field)
 		imageOutputCost = new Decimal(imageOutputTokens)
 			.times(imageOutputPrice)
 			.times(discountMultiplier);
+		// outputCost includes both text and image output costs
+		outputCost = new Decimal(textTokens)
+			.times(outputPrice)
+			.times(discountMultiplier)
+			.plus(imageOutputCost);
 	} else {
 		outputCost = new Decimal(totalOutputTokens)
 			.times(outputPrice)
@@ -356,13 +358,13 @@ export async function calculateCosts(
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
 			: new Decimal(0);
 
+	// Note: inputCost already includes imageInputCost and outputCost already
+	// includes imageOutputCost when applicable, so they are not added separately.
 	const totalCost = inputCost
 		.plus(outputCost)
 		.plus(cachedInputCost)
 		.plus(requestCost)
-		.plus(webSearchCost)
-		.plus(imageInputCost || 0)
-		.plus(imageOutputCost || 0);
+		.plus(webSearchCost);
 
 	return {
 		inputCost: inputCost.toNumber(),
