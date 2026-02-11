@@ -130,19 +130,23 @@ export function ProjectLogsSection({
 				setLoading(true);
 			}
 
-			const data = await loadProjectLogsAction(orgId, projectId, cursor);
+			try {
+				const data = await loadProjectLogsAction(orgId, projectId, cursor);
 
-			if (data) {
-				if (cursor) {
-					setLogs((prev) => [...prev, ...data.logs]);
-				} else {
-					setLogs(data.logs);
+				if (data) {
+					if (cursor) {
+						setLogs((prev) => [...prev, ...data.logs]);
+					} else {
+						setLogs(data.logs);
+					}
+					setPagination(data.pagination);
 				}
-				setPagination(data.pagination);
+			} catch (error) {
+				console.error("Failed to load project logs:", error);
+			} finally {
+				setLoading(false);
+				setLoadingMore(false);
 			}
-
-			setLoading(false);
-			setLoadingMore(false);
 		},
 		[orgId, projectId],
 	);

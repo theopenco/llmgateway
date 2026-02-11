@@ -126,9 +126,14 @@ export function ProjectMetricsSection({
 	const loadMetrics = useCallback(
 		async (w: TokenWindow) => {
 			setLoading(true);
-			const data = await loadProjectMetricsAction(orgId, projectId, w);
-			setMetrics(data);
-			setLoading(false);
+			try {
+				const data = await loadProjectMetricsAction(orgId, projectId, w);
+				setMetrics(data);
+			} catch (error) {
+				console.error("Failed to load project metrics:", error);
+			} finally {
+				setLoading(false);
+			}
 		},
 		[orgId, projectId],
 	);
