@@ -9,6 +9,26 @@ import { getOrganizationProjects } from "@/lib/admin-organizations";
 import { ProjectLogsSection } from "./project-logs";
 import { ProjectMetricsSection } from "./project-metrics";
 
+function SignInPrompt() {
+	return (
+		<div className="flex min-h-screen items-center justify-center px-4">
+			<div className="w-full max-w-md text-center">
+				<div className="mb-8">
+					<h1 className="text-3xl font-semibold tracking-tight">
+						Admin Dashboard
+					</h1>
+					<p className="mt-2 text-sm text-muted-foreground">
+						Sign in to access the admin dashboard
+					</p>
+				</div>
+				<Button asChild size="lg" className="w-full">
+					<Link href="/login">Sign In</Link>
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
 		year: "numeric",
@@ -27,7 +47,7 @@ export default async function ProjectDetailPage({
 	const projectsData = await getOrganizationProjects(orgId);
 
 	if (!projectsData) {
-		notFound();
+		return <SignInPrompt />;
 	}
 
 	const project = projectsData.projects.find((p) => p.id === projectId);
