@@ -340,13 +340,21 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 	for (const msg of messages) {
 		// Tool result messages become function_call_output items
 		if (msg.role === "tool") {
+			if (!msg.tool_call_id) {
+				throw new Error(
+					"tool message is missing tool_call_id, required for Responses API function_call_output",
+				);
+			}
+			const output =
+				typeof msg.content === "string"
+					? msg.content
+					: msg.content !== null && msg.content !== undefined
+						? JSON.stringify(msg.content)
+						: "";
 			items.push({
 				type: "function_call_output",
 				call_id: msg.tool_call_id,
-				output:
-					typeof msg.content === "string"
-						? msg.content
-						: JSON.stringify(msg.content),
+				output,
 			});
 			continue;
 		}
@@ -357,8 +365,8 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 			msg.tool_calls &&
 			msg.tool_calls.length > 0
 		) {
-			// Emit assistant message content if present
-			if (msg.content) {
+			// Emit assistant message content if present (preserve empty strings)
+			if (msg.content !== null && msg.content !== undefined) {
 				items.push({
 					role: "assistant",
 					content: transformContentForResponsesApi(msg.content, "assistant"),
