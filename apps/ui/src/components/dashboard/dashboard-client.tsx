@@ -404,7 +404,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							subtitle={
 								isLoading
 									? "–"
-									: `Not deducted • $${totalInputCost.toFixed(
+									: `$${totalInputCost.toFixed(
 											2,
 										)} input • $${totalOutputCost.toFixed(2)} output${
 											totalRequestCost > 0
