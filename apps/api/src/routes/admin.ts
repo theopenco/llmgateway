@@ -1124,7 +1124,7 @@ admin.openapi(getProjectLogs, async (c) => {
 					eq(tables.log.createdAt, cursorCreatedAt),
 					lt(tables.log.id, cursor),
 				),
-			),
+			)!,
 		);
 	}
 
