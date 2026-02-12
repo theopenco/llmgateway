@@ -7,7 +7,11 @@ import {
 	Code2,
 	Copy,
 	Check,
+	FileText,
 	Github,
+	Mail,
+	ScanText,
+	SmilePlus,
 	UserSearch,
 	Wrench,
 	Zap,
@@ -50,6 +54,46 @@ const agents: Agent[] = [
 		capabilities: ["Web Search", "Profile Research", "Discord Integration"],
 		tags: ["TypeScript", "AI SDK", "Perplexity"],
 		gradient: "from-violet-500/20 via-purple-500/20 to-fuchsia-500/20",
+	},
+	{
+		name: "Changelog Generator",
+		description:
+			"Generates structured changelogs from git history using the Keep a Changelog format. Analyzes git log and diff with tools to produce categorized output (Added, Changed, Fixed).",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/changelog-generator-agent",
+		icon: FileText,
+		capabilities: ["Tool Calling", "Git Analysis", "Structured Output"],
+		tags: ["TypeScript", "AI SDK", "Zod"],
+		gradient: "from-amber-500/20 via-orange-500/20 to-red-500/20",
+	},
+	{
+		name: "Email Drafter",
+		description:
+			"Drafts polished emails from rough notes or bullet points with configurable tone. Returns structured output with subject, body, and sign-off.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/email-drafter-agent",
+		icon: Mail,
+		capabilities: ["Structured Output", "Tone Control", "Text Generation"],
+		tags: ["TypeScript", "AI SDK", "Zod"],
+		gradient: "from-blue-500/20 via-indigo-500/20 to-violet-500/20",
+	},
+	{
+		name: "Sentiment Analyzer",
+		description:
+			"Analyzes text sentiment with confidence scores and key phrase extraction. Supports direct text input or file paths and classifies as positive, negative, neutral, or mixed.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/sentiment-analyzer-agent",
+		icon: SmilePlus,
+		capabilities: ["Sentiment Analysis", "Key Phrases", "File Input"],
+		tags: ["TypeScript", "AI SDK", "Zod"],
+		gradient: "from-emerald-500/20 via-green-500/20 to-teal-500/20",
+	},
+	{
+		name: "Data Extractor",
+		description:
+			"Extracts structured entities from unstructured text including people, organizations, dates, monetary amounts, locations, emails, and phone numbers.",
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/agents/data-extractor-agent",
+		icon: ScanText,
+		capabilities: ["Entity Extraction", "Structured Output", "NLP"],
+		tags: ["TypeScript", "AI SDK", "Zod"],
+		gradient: "from-rose-500/20 via-pink-500/20 to-fuchsia-500/20",
 	},
 ];
 

@@ -806,6 +806,373 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	});
 });
 
+// ==================== Project-Level Endpoints ====================
+
+const projectMetricsSchema = z.object({
+	project: projectSchema,
+	window: tokenWindowSchema,
+	startDate: z.string(),
+	endDate: z.string(),
+	totalRequests: z.number(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
+	inputTokens: z.number(),
+	inputCost: z.number(),
+	outputTokens: z.number(),
+	outputCost: z.number(),
+	cachedTokens: z.number(),
+	cachedCost: z.number(),
+	mostUsedModel: z.string().nullable(),
+	mostUsedProvider: z.string().nullable(),
+	mostUsedModelCost: z.number(),
+	discountSavings: z.number(),
+});
+
+const getProjectMetrics = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/metrics",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			projectId: z.string(),
+		}),
+		query: z.object({
+			window: tokenWindowSchema.default("1d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectMetricsSchema.openapi({}),
+				},
+			},
+			description: "Project metrics.",
+		},
+		404: {
+			description: "Project not found.",
+		},
+	},
+});
+
+admin.openapi(getProjectMetrics, async (c) => {
+	const { orgId, projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const windowParam = query.window ?? "1d";
+
+	// Fetch project and verify it belongs to the organization
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+			organizationId: { eq: orgId },
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	const now = new Date();
+	const windowHours: Record<string, number> = {
+		"1h": 1,
+		"4h": 4,
+		"12h": 12,
+		"1d": 24,
+		"7d": 7 * 24,
+		"30d": 30 * 24,
+		"90d": 90 * 24,
+		"365d": 365 * 24,
+	};
+	const hours = windowHours[windowParam] ?? 24;
+	const startDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+	let totalRequests = 0;
+	let totalTokens = 0;
+	let totalCost = 0;
+	let inputTokens = 0;
+	let inputCost = 0;
+	let outputTokens = 0;
+	let outputCost = 0;
+	let cachedTokens = 0;
+	let cachedCost = 0;
+	let discountSavings = 0;
+	let mostUsedModel: string | null = null;
+	let mostUsedProvider: string | null = null;
+	let mostUsedModelCost = 0;
+
+	const [totals] = await db
+		.select({
+			totalRequests:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+					"totalRequests",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.inputTokens} AS INTEGER)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.outputTokens} AS INTEGER)), 0)`.as(
+					"outputTokens",
+				),
+			cachedTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS INTEGER)), 0)`.as(
+					"cachedTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
+					"totalTokens",
+				),
+			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+				"totalCost",
+			),
+			inputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+					"inputCost",
+				),
+			outputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+					"outputCost",
+				),
+			discountSavings:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+					"discountSavings",
+				),
+			cachedInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+					"cachedInputCost",
+				),
+		})
+		.from(projectHourlyStats)
+		.where(
+			and(
+				eq(projectHourlyStats.projectId, projectId),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+				lt(projectHourlyStats.hourTimestamp, now),
+			),
+		);
+
+	if (totals) {
+		totalRequests = Number(totals.totalRequests) || 0;
+		totalTokens = Number(totals.totalTokens) || 0;
+		totalCost = Number(totals.totalCost) || 0;
+		inputTokens = Number(totals.inputTokens) || 0;
+		inputCost = Number(totals.inputCost) || 0;
+		outputTokens = Number(totals.outputTokens) || 0;
+		outputCost = Number(totals.outputCost) || 0;
+		cachedTokens = Number(totals.cachedTokens) || 0;
+		cachedCost = Number(totals.cachedInputCost) || 0;
+		discountSavings = Number(totals.discountSavings) || 0;
+	}
+
+	// Query model stats for most used model (by cost)
+	const modelRows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			usedProvider: projectHourlyModelStats.usedProvider,
+			totalCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+					"totalCost",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				eq(projectHourlyModelStats.projectId, projectId),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+				lt(projectHourlyModelStats.hourTimestamp, now),
+			),
+		)
+		.groupBy(
+			projectHourlyModelStats.usedModel,
+			projectHourlyModelStats.usedProvider,
+		);
+
+	for (const row of modelRows) {
+		const rowCost = Number(row.totalCost) || 0;
+		if (rowCost > mostUsedModelCost) {
+			mostUsedModelCost = rowCost;
+			mostUsedModel = row.usedModel;
+			mostUsedProvider = row.usedProvider;
+		}
+	}
+
+	return c.json({
+		project: {
+			id: project.id,
+			name: project.name,
+			mode: project.mode,
+			status: project.status,
+			cachingEnabled: project.cachingEnabled,
+			createdAt: project.createdAt.toISOString(),
+		},
+		window: windowParam,
+		startDate: startDate.toISOString(),
+		endDate: now.toISOString(),
+		totalRequests,
+		totalTokens,
+		totalCost,
+		inputTokens,
+		inputCost,
+		outputTokens,
+		outputCost,
+		cachedTokens,
+		cachedCost,
+		mostUsedModel,
+		mostUsedProvider,
+		mostUsedModelCost,
+		discountSavings,
+	});
+});
+
+const logEntrySchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	duration: z.number(),
+	usedModel: z.string(),
+	usedProvider: z.string(),
+	totalTokens: z.string().nullable(),
+	cost: z.number().nullable(),
+	hasError: z.boolean().nullable(),
+	unifiedFinishReason: z.string().nullable(),
+	cached: z.boolean().nullable(),
+	cachedTokens: z.string().nullable(),
+	source: z.string().nullable(),
+	content: z.string().nullable(),
+	usedMode: z.string(),
+	discount: z.number().nullable(),
+});
+
+const projectLogsSchema = z.object({
+	logs: z.array(logEntrySchema),
+	pagination: z.object({
+		nextCursor: z.string().nullable(),
+		hasMore: z.boolean(),
+		limit: z.number(),
+	}),
+});
+
+const getProjectLogs = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/logs",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			projectId: z.string(),
+		}),
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			cursor: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectLogsSchema.openapi({}),
+				},
+			},
+			description: "Project logs.",
+		},
+		404: {
+			description: "Project not found.",
+		},
+	},
+});
+
+admin.openapi(getProjectLogs, async (c) => {
+	const { orgId, projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const { cursor } = query;
+
+	// Verify project belongs to the organization
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+			organizationId: { eq: orgId },
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	const whereConditions = [eq(tables.log.projectId, projectId)];
+
+	if (cursor) {
+		const cursorLog = await db
+			.select({ createdAt: tables.log.createdAt })
+			.from(tables.log)
+			.where(eq(tables.log.id, cursor))
+			.limit(1);
+
+		if (cursorLog.length === 0) {
+			throw new HTTPException(400, {
+				message: "Invalid or stale cursor",
+			});
+		}
+
+		const cursorCreatedAt = cursorLog[0].createdAt;
+		whereConditions.push(
+			or(
+				lt(tables.log.createdAt, cursorCreatedAt),
+				and(
+					eq(tables.log.createdAt, cursorCreatedAt),
+					lt(tables.log.id, cursor),
+				),
+			)!,
+		);
+	}
+
+	const logRows = await db
+		.select({
+			id: tables.log.id,
+			createdAt: tables.log.createdAt,
+			duration: tables.log.duration,
+			usedModel: tables.log.usedModel,
+			usedProvider: tables.log.usedProvider,
+			totalTokens: tables.log.totalTokens,
+			cost: tables.log.cost,
+			hasError: tables.log.hasError,
+			unifiedFinishReason: tables.log.unifiedFinishReason,
+			cached: tables.log.cached,
+			cachedTokens: tables.log.cachedTokens,
+			source: tables.log.source,
+			content: tables.log.content,
+			usedMode: tables.log.usedMode,
+			discount: tables.log.discount,
+		})
+		.from(tables.log)
+		.where(and(...whereConditions))
+		.orderBy(desc(tables.log.createdAt), desc(tables.log.id))
+		.limit(limit + 1);
+
+	const hasMore = logRows.length > limit;
+	const paginatedLogs = hasMore ? logRows.slice(0, limit) : logRows;
+	const nextCursor =
+		hasMore && paginatedLogs.length > 0
+			? paginatedLogs[paginatedLogs.length - 1].id
+			: null;
+
+	return c.json({
+		logs: paginatedLogs.map((l) => ({
+			...l,
+			totalTokens: l.totalTokens ? String(l.totalTokens) : null,
+			cachedTokens: l.cachedTokens ? String(l.cachedTokens) : null,
+			createdAt: l.createdAt.toISOString(),
+		})),
+		pagination: {
+			nextCursor,
+			hasMore,
+			limit,
+		},
+	});
+});
+
 // ==================== Discount Management ====================
 
 // Get valid provider IDs as a Set for O(1) lookup

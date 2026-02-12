@@ -6,12 +6,12 @@ import {
 	Key,
 	KeyRound,
 	Activity,
-	Coins,
 	CircleDollarSign,
 	BarChart3,
 	ChartColumnBig,
 	TrendingDown,
 	ArrowDownToLine,
+	ArrowUpFromLine,
 	Server,
 	Crown,
 } from "lucide-react";
@@ -135,8 +135,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) || 0;
-	const totalTokens =
-		activityData.reduce((sum, day) => sum + day.totalTokens, 0) || 0;
 	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) || 0;
 	const totalInputCost =
 		activityData.reduce((sum, day) => sum + day.inputCost, 0) || 0;
@@ -150,10 +148,12 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
 	const totalInputTokens =
 		activityData.reduce((sum, day) => sum + day.inputTokens, 0) || 0;
+	const totalOutputTokens =
+		activityData.reduce((sum, day) => sum + day.outputTokens, 0) || 0;
 	const totalCachedTokens =
 		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) || 0;
-	const avgCostPer1kTokens =
-		totalTokens > 0 ? (totalCost / totalTokens) * 1000 : 0;
+	const totalCachedInputCost =
+		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) || 0;
 
 	const { mostUsedModel, mostUsedProvider } = (() => {
 		const modelCostMap = new Map<string, { cost: number; provider: string }>();
@@ -377,7 +377,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					)}
 
 					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-3", {
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-4", {
 							"pointer-events-none opacity-20": shouldShowGetStartedState,
 						})}
 					>
@@ -413,21 +413,12 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							accent="purple"
 						/>
 						<MetricCard
-							label="Tokens Used"
-							value={isLoading ? "Loading..." : formatTokens(totalTokens)}
-							subtitle={isLoading ? "–" : `Last ${days} days`}
-							icon={<Coins className="h-4 w-4" />}
-							accent="blue"
-						/>
-						<MetricCard
-							label="Inference Cost (reference)"
+							label="Total Cost"
 							value={isLoading ? "Loading..." : `$${totalCost.toFixed(2)}`}
 							subtitle={
 								isLoading
 									? "–"
-									: `$${totalInputCost.toFixed(
-											2,
-										)} input • $${totalOutputCost.toFixed(2)} output${
+									: `Last ${days} days${
 											totalRequestCost > 0
 												? ` • $${totalRequestCost.toFixed(2)} requests`
 												: ""
@@ -448,25 +439,41 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							accent="green"
 						/>
 						<MetricCard
-							label="Avg cost / 1K tokens"
+							label="Input Tokens & Cost"
 							value={
-								isLoading ? "Loading..." : `$${avgCostPer1kTokens.toFixed(4)}`
+								isLoading
+									? "Loading..."
+									: `${formatTokens(totalInputTokens)} • $${totalInputCost.toFixed(2)}`
 							}
-							subtitle={isLoading ? "–" : `Last ${days} days`}
-							icon={<CircleDollarSign className="h-4 w-4" />}
+							subtitle={isLoading ? "–" : "Prompt tokens and associated cost"}
+							icon={<ArrowDownToLine className="h-4 w-4" />}
 							accent="blue"
 						/>
 						<MetricCard
-							label="Input Tokens"
-							value={isLoading ? "Loading..." : formatTokens(totalInputTokens)}
-							subtitle={isLoading ? "–" : `Last ${days} days`}
-							icon={<ArrowDownToLine className="h-4 w-4" />}
+							label="Output Tokens & Cost"
+							value={
+								isLoading
+									? "Loading..."
+									: `${formatTokens(totalOutputTokens)} • $${totalOutputCost.toFixed(2)}`
+							}
+							subtitle={
+								isLoading ? "–" : "Completion tokens and associated cost"
+							}
+							icon={<ArrowUpFromLine className="h-4 w-4" />}
 							accent="purple"
 						/>
 						<MetricCard
-							label="Cached Tokens"
-							value={isLoading ? "Loading..." : formatTokens(totalCachedTokens)}
-							subtitle={isLoading ? "–" : `Last ${days} days`}
+							label="Cached Tokens & Cost"
+							value={
+								isLoading
+									? "Loading..."
+									: `${formatTokens(totalCachedTokens)} • $${totalCachedInputCost.toFixed(2)}`
+							}
+							subtitle={
+								isLoading
+									? "–"
+									: "Tokens and cost served from cache (if supported)"
+							}
 							icon={<Server className="h-4 w-4" />}
 							accent="green"
 						/>
@@ -481,7 +488,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 										: `Last ${days} days`
 							}
 							icon={<Crown className="h-4 w-4" />}
-							accent="purple"
+							accent="blue"
 						/>
 					</div>
 					<div
