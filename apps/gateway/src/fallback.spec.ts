@@ -763,9 +763,9 @@ describe("fallback and error status code handling", () => {
 				json.metadata.routing[json.metadata.routing.length - 1];
 			expect(lastAttempt).toHaveProperty("succeeded", true);
 
-			// DB log should reflect the final successful provider
-			const logs = await waitForLogs(1);
-			expect(logs.length).toBeGreaterThanOrEqual(1);
+			// DB should have 2 logs: the failed attempt and the successful one
+			const logs = await waitForLogs(2);
+			expect(logs.length).toBeGreaterThanOrEqual(2);
 
 			// Find the successful log (the last one should be the final attempt)
 			const successLog = logs.find(
@@ -792,6 +792,12 @@ describe("fallback and error status code handling", () => {
 					successLog!.routingMetadata!.routing!.length - 1
 				];
 			expect(lastDbAttempt).toHaveProperty("succeeded", true);
+
+			// Find the failed log - it should be marked as retried
+			const failedLog = logs.find((l: Log) => l.hasError);
+			expect(failedLog).toBeDefined();
+			expect(failedLog!.retried).toBe(true);
+			expect(failedLog!.retriedByLogId).toBe(successLog!.id);
 		});
 
 		test("non-streaming: does not retry when X-No-Fallback is set", async () => {
@@ -891,9 +897,9 @@ describe("fallback and error status code handling", () => {
 			// meaning the retry succeeded rather than giving up.
 			expect(streamResult.hasError).toBe(false);
 
-			// DB log should show the successful attempt after retry
-			const logs = await waitForLogs(1);
-			expect(logs.length).toBeGreaterThanOrEqual(1);
+			// DB should have 2 logs: the failed streaming attempt and the successful one
+			const logs = await waitForLogs(2);
+			expect(logs.length).toBeGreaterThanOrEqual(2);
 
 			// Verify routing metadata in log shows all attempts
 			const logWithRouting = logs.find((l: Log) => l.routingMetadata?.routing);
@@ -914,6 +920,13 @@ describe("fallback and error status code handling", () => {
 					logWithRouting!.routingMetadata!.routing!.length - 1
 				];
 			expect(lastStreamAttempt).toHaveProperty("succeeded", true);
+
+			// Find the failed log - it should be marked as retried
+			const successLog = logs.find((l: Log) => !l.hasError);
+			const failedLog = logs.find((l: Log) => l.hasError);
+			expect(failedLog).toBeDefined();
+			expect(failedLog!.retried).toBe(true);
+			expect(failedLog!.retriedByLogId).toBe(successLog!.id);
 		});
 	});
 });

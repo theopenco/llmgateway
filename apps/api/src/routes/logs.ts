@@ -98,9 +98,22 @@ const logSchema = z.object({
 					}),
 				)
 				.optional(),
+			routing: z
+				.array(
+					z.object({
+						provider: z.string(),
+						model: z.string(),
+						status_code: z.number(),
+						error_type: z.string(),
+						succeeded: z.boolean(),
+					}),
+				)
+				.optional(),
 		})
 		.nullable()
 		.optional(),
+	retried: z.boolean().nullable().optional(),
+	retriedByLogId: z.string().nullable().optional(),
 });
 
 // GET /logs/:id - Fetch a single log by ID

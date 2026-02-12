@@ -2212,6 +2212,7 @@ chat.openapi(completions, async (c) => {
 			const routingAttempts: RoutingAttempt[] = [];
 			const failedProviderIds = new Set<string>();
 			let res: Response | undefined;
+			const finalLogId = shortid();
 			for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
 				// Type guard: narrow variables that TypeScript widens due to loop reassignment
 				if (
@@ -2358,6 +2359,19 @@ chat.openapi(completions, async (c) => {
 						// Log the timeout error in the database
 						const timeoutPluginIds = plugins?.map((p) => p.id) || [];
 
+						// Check if we should retry before logging so we can mark the log as retried
+						const willRetryTimeout = shouldRetryRequest({
+							requestedProvider,
+							noFallback,
+							statusCode: 0,
+							retryCount: retryAttempt,
+							remainingProviders:
+								(routingMetadata?.providerScores.length ?? 0) -
+								failedProviderIds.size -
+								1,
+							usedProvider,
+						});
+
 						const baseLogEntry = createLogEntry(
 							requestId,
 							project,
@@ -2427,22 +2441,11 @@ chat.openapi(completions, async (c) => {
 							dataStorageCost: "0",
 							cached: false,
 							toolResults: null,
+							retried: willRetryTimeout,
+							retriedByLogId: willRetryTimeout ? finalLogId : null,
 						});
 
-						// Check if we should retry with a different provider
-						if (
-							shouldRetryRequest({
-								requestedProvider,
-								noFallback,
-								statusCode: 0,
-								retryCount: retryAttempt,
-								remainingProviders:
-									(routingMetadata?.providerScores.length ?? 0) -
-									failedProviderIds.size -
-									1,
-								usedProvider,
-							})
-						) {
+						if (willRetryTimeout) {
 							routingAttempts.push({
 								provider: usedProvider,
 								model: usedModel,
@@ -2629,6 +2632,19 @@ chat.openapi(completions, async (c) => {
 						// Extract plugin IDs for logging (fetch error)
 						const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
 
+						// Check if we should retry before logging so we can mark the log as retried
+						const willRetryFetch = shouldRetryRequest({
+							requestedProvider,
+							noFallback,
+							statusCode: 0,
+							retryCount: retryAttempt,
+							remainingProviders:
+								(routingMetadata?.providerScores.length ?? 0) -
+								failedProviderIds.size -
+								1,
+							usedProvider,
+						});
+
 						const baseLogEntry = createLogEntry(
 							requestId,
 							project,
@@ -2698,6 +2714,8 @@ chat.openapi(completions, async (c) => {
 							dataStorageCost: "0",
 							cached: false,
 							toolResults: null,
+							retried: willRetryFetch,
+							retriedByLogId: willRetryFetch ? finalLogId : null,
 						});
 
 						// Report key health for environment-based tokens
@@ -2705,20 +2723,7 @@ chat.openapi(completions, async (c) => {
 							reportKeyError(envVarName, configIndex, 0);
 						}
 
-						// Check if we should retry with a different provider
-						if (
-							shouldRetryRequest({
-								requestedProvider,
-								noFallback,
-								statusCode: 0,
-								retryCount: retryAttempt,
-								remainingProviders:
-									(routingMetadata?.providerScores.length ?? 0) -
-									failedProviderIds.size -
-									1,
-								usedProvider,
-							})
-						) {
+						if (willRetryFetch) {
 							routingAttempts.push({
 								provider: usedProvider,
 								model: usedModel,
@@ -2780,6 +2785,19 @@ chat.openapi(completions, async (c) => {
 					// Log the request in the database
 					// Extract plugin IDs for logging
 					const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
+
+					// Check if we should retry before logging so we can mark the log as retried
+					const willRetryHttpError = shouldRetryRequest({
+						requestedProvider,
+						noFallback,
+						statusCode: res.status,
+						retryCount: retryAttempt,
+						remainingProviders:
+							(routingMetadata?.providerScores.length ?? 0) -
+							failedProviderIds.size -
+							1,
+						usedProvider,
+					});
 
 					const baseLogEntry = createLogEntry(
 						requestId,
@@ -2853,6 +2871,8 @@ chat.openapi(completions, async (c) => {
 						dataStorageCost: "0",
 						cached: false,
 						toolResults: null,
+						retried: willRetryHttpError,
+						retriedByLogId: willRetryHttpError ? finalLogId : null,
 					});
 
 					// Report key health for environment-based tokens
@@ -2866,20 +2886,7 @@ chat.openapi(completions, async (c) => {
 						);
 					}
 
-					// Check if we should retry with a different provider
-					if (
-						shouldRetryRequest({
-							requestedProvider,
-							noFallback,
-							statusCode: res.status,
-							retryCount: retryAttempt,
-							remainingProviders:
-								(routingMetadata?.providerScores.length ?? 0) -
-								failedProviderIds.size -
-								1,
-							usedProvider,
-						})
-					) {
+					if (willRetryHttpError) {
 						routingAttempts.push({
 							provider: usedProvider,
 							model: usedModel,
@@ -4649,6 +4656,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLog({
 					...baseLogEntry,
+					id: routingAttempts.length > 0 ? finalLogId : undefined,
 					duration,
 					timeToFirstToken,
 					timeToFirstReasoningToken,
@@ -4781,6 +4789,7 @@ chat.openapi(completions, async (c) => {
 	let isTimeoutFetchError = false;
 	let res: Response | undefined;
 	let duration = 0;
+	const finalLogId = shortid();
 	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
 		// Type guard: narrow variables that TypeScript widens due to loop reassignment
 		if (
@@ -4951,6 +4960,19 @@ chat.openapi(completions, async (c) => {
 			// Extract plugin IDs for logging (non-streaming fetch error)
 			const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
 
+			// Check if we should retry before logging so we can mark the log as retried
+			const willRetryFetchNonStreaming = shouldRetryRequest({
+				requestedProvider,
+				noFallback,
+				statusCode: 0,
+				retryCount: retryAttempt,
+				remainingProviders:
+					(routingMetadata?.providerScores.length ?? 0) -
+					failedProviderIds.size -
+					1,
+				usedProvider,
+			});
+
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -5021,6 +5043,8 @@ chat.openapi(completions, async (c) => {
 				dataStorageCost: "0",
 				cached: false,
 				toolResults: null,
+				retried: willRetryFetchNonStreaming,
+				retriedByLogId: willRetryFetchNonStreaming ? finalLogId : null,
 			});
 
 			// Report key health for environment-based tokens
@@ -5028,20 +5052,7 @@ chat.openapi(completions, async (c) => {
 				reportKeyError(envVarName, configIndex, 0);
 			}
 
-			// Check if we should retry with a different provider
-			if (
-				shouldRetryRequest({
-					requestedProvider,
-					noFallback,
-					statusCode: 0,
-					retryCount: retryAttempt,
-					remainingProviders:
-						(routingMetadata?.providerScores.length ?? 0) -
-						failedProviderIds.size -
-						1,
-					usedProvider,
-				})
-			) {
+			if (willRetryFetchNonStreaming) {
 				routingAttempts.push({
 					provider: usedProvider,
 					model: usedModel,
@@ -5242,6 +5253,19 @@ chat.openapi(completions, async (c) => {
 			// Extract plugin IDs for logging
 			const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
 
+			// Check if we should retry before logging so we can mark the log as retried
+			const willRetryHttpNonStreaming = shouldRetryRequest({
+				requestedProvider,
+				noFallback,
+				statusCode: res.status,
+				retryCount: retryAttempt,
+				remainingProviders:
+					(routingMetadata?.providerScores.length ?? 0) -
+					failedProviderIds.size -
+					1,
+				usedProvider,
+			});
+
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -5332,6 +5356,8 @@ chat.openapi(completions, async (c) => {
 				dataStorageCost: "0",
 				cached: false,
 				toolResults: null,
+				retried: willRetryHttpNonStreaming,
+				retriedByLogId: willRetryHttpNonStreaming ? finalLogId : null,
 			});
 
 			// Report key health for environment-based tokens
@@ -5340,20 +5366,7 @@ chat.openapi(completions, async (c) => {
 				reportKeyError(envVarName, configIndex, res.status, errorResponseText);
 			}
 
-			// Check if we should retry with a different provider
-			if (
-				shouldRetryRequest({
-					requestedProvider,
-					noFallback,
-					statusCode: res.status,
-					retryCount: retryAttempt,
-					remainingProviders:
-						(routingMetadata?.providerScores.length ?? 0) -
-						failedProviderIds.size -
-						1,
-					usedProvider,
-				})
-			) {
+			if (willRetryHttpNonStreaming) {
 				routingAttempts.push({
 					provider: usedProvider,
 					model: usedModel,
@@ -5768,6 +5781,7 @@ chat.openapi(completions, async (c) => {
 
 	await insertLog({
 		...baseLogEntry,
+		id: routingAttempts.length > 0 ? finalLogId : undefined,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests

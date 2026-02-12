@@ -15,6 +15,7 @@ import {
 	Info,
 	Package,
 	Plug,
+	RefreshCw,
 	Sparkles,
 	TriangleAlert,
 	Zap,
@@ -236,6 +237,14 @@ export function LogDetailClient({
 									{log.usedModel}
 								</h1>
 								<StatusIndicator log={log} />
+								{log.retried && (
+									<div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-amber-500/10">
+										<RefreshCw className="h-4 w-4 text-amber-600" />
+										<span className="text-sm font-medium text-amber-600">
+											Retried
+										</span>
+									</div>
+								)}
 							</div>
 							<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
 								<span>
@@ -886,6 +895,20 @@ export function LogDetailClient({
 									{log.errorDetails.responseText}
 								</pre>
 							</div>
+							{log.retried && log.retriedByLogId && (
+								<div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm">
+									<RefreshCw className="h-4 w-4 text-amber-600" />
+									<span className="text-amber-700">
+										This request was retried and succeeded.
+									</span>
+									<Link
+										href={`/dashboard/${orgId}/${projectId}/activity/${log.retriedByLogId}`}
+										className="text-amber-600 underline hover:text-amber-800 ml-auto"
+									>
+										View successful request
+									</Link>
+								</div>
+							)}
 						</div>
 					</Section>
 				)}

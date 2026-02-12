@@ -15,6 +15,7 @@ import {
 	Link as LinkIcon,
 	ExternalLink,
 	Plug,
+	RefreshCw,
 	Sparkles,
 	TrendingDown,
 	Zap,
@@ -157,18 +158,28 @@ export function LogCard({
 									</TooltipProvider>
 								)}
 						</div>
-						<Badge
-							variant={
-								log.hasError
-									? "destructive"
-									: log.unifiedFinishReason === "content_filter"
+						<div className="flex items-center gap-1.5 flex-shrink-0">
+							{log.retried && (
+								<Badge
+									variant="outline"
+									className="gap-1 text-amber-600 border-amber-300 bg-amber-50"
+								>
+									<RefreshCw className="h-3 w-3" />
+									Retried
+								</Badge>
+							)}
+							<Badge
+								variant={
+									log.hasError
 										? "destructive"
-										: "default"
-							}
-							className="flex-shrink-0"
-						>
-							{log.unifiedFinishReason}
-						</Badge>
+										: log.unifiedFinishReason === "content_filter"
+											? "destructive"
+											: "default"
+								}
+							>
+								{log.unifiedFinishReason}
+							</Badge>
+						</div>
 					</div>
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1">
@@ -1026,6 +1037,20 @@ export function LogCard({
 									{log.errorDetails.responseText}
 								</div>
 							</div>
+							{log.retried && log.retriedByLogId && orgId && projectId && (
+								<div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+									<RefreshCw className="h-4 w-4 text-amber-600" />
+									<span className="text-amber-800">
+										This request was retried and succeeded.
+									</span>
+									<Link
+										href={`/dashboard/${orgId}/${projectId}/activity/${log.retriedByLogId}`}
+										className="text-amber-600 underline hover:text-amber-800 ml-auto"
+									>
+										View successful request
+									</Link>
+								</div>
+							)}
 						</div>
 					)}
 					<div className="space-y-2">

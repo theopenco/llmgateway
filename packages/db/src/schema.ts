@@ -520,6 +520,8 @@ export const log = pgTable(
 				healingMethod?: string;
 			};
 		}>(),
+		retried: boolean().default(false),
+		retriedByLogId: text(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
