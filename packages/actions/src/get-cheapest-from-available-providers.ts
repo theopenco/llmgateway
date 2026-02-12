@@ -73,6 +73,13 @@ export interface RoutingMetadata {
 	originalProviderUptime?: number;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
+	// Failed provider attempts from retry fallback mechanism
+	routing?: Array<{
+		provider: string;
+		model: string;
+		status_code: number;
+		error_type: string;
+	}>;
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {
