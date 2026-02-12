@@ -2712,7 +2712,10 @@ chat.openapi(completions, async (c) => {
 						errorResponseText,
 					);
 
-					if (finishReason !== "client_error") {
+					if (
+						finishReason !== "client_error" &&
+						finishReason !== "content_filter"
+					) {
 						logger.warn("Provider error", {
 							status: res.status,
 							errorText: errorResponseText,
@@ -2723,7 +2726,8 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 
-					// Log the error in the database
+					// Log the request in the database
+					// Extract plugin IDs for logging
 					const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
 
 					const baseLogEntry = createLogEntry(
@@ -2769,23 +2773,23 @@ chat.openapi(completions, async (c) => {
 						responseSize: errorResponseText.length,
 						content: null,
 						reasoningContent: null,
-						finishReason: getFinishReasonFromError(
-							res.status,
-							errorResponseText,
-						),
+						finishReason,
 						promptTokens: null,
 						completionTokens: null,
 						totalTokens: null,
 						reasoningTokens: null,
 						cachedTokens: null,
-						hasError: true,
+						hasError: finishReason !== "content_filter", // content_filter is not an error
 						streamed: true,
 						canceled: false,
-						errorDetails: {
-							statusCode: res.status,
-							statusText: res.statusText,
-							responseText: errorResponseText,
-						},
+						errorDetails:
+							finishReason === "content_filter"
+								? null
+								: {
+										statusCode: res.status,
+										statusText: res.statusText,
+										responseText: errorResponseText,
+									},
 						cachedInputCost: null,
 						requestCost: null,
 						webSearchCost: null,
@@ -2800,7 +2804,8 @@ chat.openapi(completions, async (c) => {
 					});
 
 					// Report key health for environment-based tokens
-					if (envVarName !== undefined) {
+					// Don't report content_filter as a key error - it's intentional provider behavior
+					if (envVarName !== undefined && finishReason !== "content_filter") {
 						reportKeyError(
 							envVarName,
 							configIndex,
@@ -2833,12 +2838,84 @@ chat.openapi(completions, async (c) => {
 						continue;
 					}
 
-					// For client errors, return the original provider error response
-					let errorData;
-					if (finishReason === "client_error") {
-						try {
-							errorData = JSON.parse(errorResponseText);
-						} catch {
+					// For content_filter, return a proper completion chunk (not an error)
+					// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
+					if (finishReason === "content_filter") {
+						const contentFilterChunk = {
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: `${usedProvider}/${baseModelName}`,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: "content_filter",
+								},
+							],
+							metadata: {
+								requested_model: initialRequestedModel,
+								requested_provider: requestedProvider,
+								used_model: baseModelName,
+								used_provider: usedProvider,
+								underlying_used_model: usedModel,
+							},
+						};
+
+						await writeSSEAndCache({
+							data: JSON.stringify(contentFilterChunk),
+							id: String(eventId++),
+						});
+
+						// Send a usage chunk for SDK compatibility (stream_options: { include_usage: true })
+						const contentFilterUsageChunk = {
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: `${usedProvider}/${baseModelName}`,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: null,
+								},
+							],
+							usage: {
+								prompt_tokens: 0,
+								completion_tokens: 0,
+								total_tokens: 0,
+							},
+						};
+
+						await writeSSEAndCache({
+							data: JSON.stringify(contentFilterUsageChunk),
+							id: String(eventId++),
+						});
+
+						await writeSSEAndCache({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+					} else {
+						// For client errors, return the original provider error response
+						let errorData;
+						if (finishReason === "client_error") {
+							try {
+								errorData = JSON.parse(errorResponseText);
+							} catch {
+								// If we can't parse the original error, fall back to our format
+								errorData = {
+									error: {
+										message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+										type: finishReason,
+										param: null,
+										code: finishReason,
+										responseText: errorResponseText,
+									},
+								};
+							}
+						} else {
 							errorData = {
 								error: {
 									message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
@@ -2849,28 +2926,18 @@ chat.openapi(completions, async (c) => {
 								},
 							};
 						}
-					} else {
-						errorData = {
-							error: {
-								message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
-								type: finishReason,
-								param: null,
-								code: finishReason,
-								responseText: errorResponseText,
-							},
-						};
-					}
 
-					await writeSSEAndCache({
-						event: "error",
-						data: JSON.stringify(errorData),
-						id: String(eventId++),
-					});
-					await writeSSEAndCache({
-						event: "done",
-						data: "[DONE]",
-						id: String(eventId++),
-					});
+						await writeSSEAndCache({
+							event: "error",
+							data: JSON.stringify(errorData),
+							id: String(eventId++),
+						});
+						await writeSSEAndCache({
+							event: "done",
+							data: "[DONE]",
+							id: String(eventId++),
+						});
+					}
 
 					clearKeepalive();
 					return;
@@ -5070,7 +5137,10 @@ chat.openapi(completions, async (c) => {
 				errorResponseText,
 			);
 
-			if (finishReason !== "client_error") {
+			if (
+				finishReason !== "client_error" &&
+				finishReason !== "content_filter"
+			) {
 				logger.warn("Provider error", {
 					status: res.status,
 					errorText: errorResponseText,
@@ -5081,8 +5151,8 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			// Log the error in the database
-			// Extract plugin IDs for logging (provider error)
+			// Log the request in the database
+			// Extract plugin IDs for logging
 			const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
 
 			const baseLogEntry = createLogEntry(
@@ -5134,10 +5204,14 @@ chat.openapi(completions, async (c) => {
 				totalTokens: null,
 				reasoningTokens: null,
 				cachedTokens: null,
-				hasError: true,
+				hasError: finishReason !== "content_filter", // content_filter is not an error
 				streamed: false,
 				canceled: false,
 				errorDetails: (() => {
+					// content_filter is not an error, no error details needed
+					if (finishReason === "content_filter") {
+						return null;
+					}
 					// For client errors, try to parse the original error and include the message
 					if (finishReason === "client_error") {
 						try {
@@ -5173,7 +5247,8 @@ chat.openapi(completions, async (c) => {
 			});
 
 			// Report key health for environment-based tokens
-			if (envVarName !== undefined) {
+			// Don't report content_filter as a key error - it's intentional provider behavior
+			if (envVarName !== undefined && finishReason !== "content_filter") {
 				reportKeyError(envVarName, configIndex, res.status, errorResponseText);
 			}
 
@@ -5199,6 +5274,39 @@ chat.openapi(completions, async (c) => {
 				});
 				failedProviderIds.add(usedProvider);
 				continue;
+			}
+
+			// For content_filter, return a proper completion response (not an error)
+			// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
+			if (finishReason === "content_filter") {
+				return c.json({
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: Math.floor(Date.now() / 1000),
+					model: `${usedProvider}/${baseModelName}`,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: null,
+							},
+							finish_reason: "content_filter",
+						},
+					],
+					usage: {
+						prompt_tokens: 0,
+						completion_tokens: 0,
+						total_tokens: 0,
+					},
+					metadata: {
+						requested_model: initialRequestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
+				});
 			}
 
 			// For client errors, return the original provider error response

@@ -12,6 +12,8 @@ export interface AppConfig {
 	posthogKey?: string;
 	posthogHost?: string;
 	crispId?: string;
+	githubAuth: boolean;
+	googleAuth: boolean;
 }
 
 export function getConfig(): AppConfig {
@@ -31,5 +33,7 @@ export function getConfig(): AppConfig {
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
 		crispId: process.env.CRISP_ID,
+		githubAuth: !!process.env.GITHUB_CLIENT_ID,
+		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
 	};
 }
