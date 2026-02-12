@@ -162,13 +162,34 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high"])
+		.enum(["minimal", "low", "medium", "high", "xhigh"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description: "Controls the reasoning effort for reasoning-capable models",
 			example: "medium",
+		}),
+	reasoning: z
+		.object({
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+				.optional()
+				.openapi({
+					description:
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort.",
+					example: "medium",
+				}),
+			max_tokens: z.number().int().positive().optional().openapi({
+				description:
+					"Exact number of tokens to allocate for reasoning. When specified, overrides effort. Supported by Anthropic and Google thinking models.",
+				example: 4000,
+			}),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Unified reasoning configuration object for controlling reasoning behavior",
 		}),
 	effort: z
 		.enum(["low", "medium", "high"])

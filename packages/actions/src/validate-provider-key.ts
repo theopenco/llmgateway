@@ -153,6 +153,7 @@ export async function validateProviderKey(
 			undefined, // effort
 			undefined, // imageGenerations
 			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
 			useResponsesApi,
 		);
 

@@ -318,8 +318,39 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
+	const reasoning_object_effort = validationResult.data.reasoning?.effort;
+	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
+
+	// Validate that reasoning_effort and reasoning.effort are not both specified
+	if (
+		validationResult.data.reasoning_effort !== undefined &&
+		reasoning_object_effort !== undefined
+	) {
+		return c.json(
+			{
+				error: {
+					message:
+						"Cannot specify both reasoning_effort and reasoning.effort. Use one or the other.",
+					type: "invalid_request_error",
+					code: "invalid_request",
+				},
+			},
+			400,
+		);
+	}
+
 	// Extract reasoning_effort as mutable variable for auto-routing modification
-	let reasoning_effort = validationResult.data.reasoning_effort;
+	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort
+	// Map "none" to undefined for internal processing
+	let reasoning_effort = (() => {
+		const effort =
+			reasoning_object_effort ?? validationResult.data.reasoning_effort;
+		if (effort === "none") {
+			return undefined;
+		}
+		return effort;
+	})();
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -546,6 +577,7 @@ chat.openapi(completions, async (c) => {
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
 		reasoning_effort,
+		reasoning_max_tokens,
 		tools,
 		tool_choice,
 		webSearchTool,
@@ -736,6 +768,14 @@ chat.openapi(completions, async (c) => {
 				if (
 					reasoning_effort !== undefined &&
 					(provider as ProviderModelMapping).reasoning !== true
+				) {
+					return false;
+				}
+
+				// Check reasoning.max_tokens support if specified
+				if (
+					reasoning_max_tokens !== undefined &&
+					(provider as ProviderModelMapping).reasoningMaxTokens !== true
 				) {
 					return false;
 				}
@@ -1527,6 +1567,8 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
+			reasoning_effort,
+			reasoning_max_tokens,
 		};
 
 		if (stream) {
@@ -1620,6 +1662,7 @@ chat.openapi(completions, async (c) => {
 					frequency_penalty,
 					presence_penalty,
 					reasoning_effort,
+					reasoning_max_tokens,
 					effort,
 					response_format,
 					tools,
@@ -1757,6 +1800,7 @@ chat.openapi(completions, async (c) => {
 					frequency_penalty,
 					presence_penalty,
 					reasoning_effort,
+					reasoning_max_tokens,
 					effort,
 					response_format,
 					tools,
@@ -2060,6 +2104,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		isImageGeneration,
 		webSearchTool,
+		reasoning_max_tokens,
 		useResponsesApi,
 	);
 
@@ -2217,6 +2262,7 @@ chat.openapi(completions, async (c) => {
 								tools,
 								tool_choice,
 								reasoning_effort,
+								reasoning_max_tokens,
 								effort,
 								webSearchTool,
 								image_config,
@@ -2329,6 +2375,7 @@ chat.openapi(completions, async (c) => {
 							frequency_penalty,
 							presence_penalty,
 							reasoning_effort,
+							reasoning_max_tokens,
 							effort,
 							response_format,
 							tools,
@@ -2480,6 +2527,7 @@ chat.openapi(completions, async (c) => {
 							frequency_penalty,
 							presence_penalty,
 							reasoning_effort,
+							reasoning_max_tokens,
 							effort,
 							response_format,
 							tools,
@@ -2598,6 +2646,7 @@ chat.openapi(completions, async (c) => {
 							frequency_penalty,
 							presence_penalty,
 							reasoning_effort,
+							reasoning_max_tokens,
 							effort,
 							response_format,
 							tools,
@@ -2749,6 +2798,7 @@ chat.openapi(completions, async (c) => {
 						frequency_penalty,
 						presence_penalty,
 						reasoning_effort,
+						reasoning_max_tokens,
 						effort,
 						response_format,
 						tools,
@@ -4545,6 +4595,7 @@ chat.openapi(completions, async (c) => {
 					frequency_penalty,
 					presence_penalty,
 					reasoning_effort,
+					reasoning_max_tokens,
 					effort,
 					response_format,
 					tools,
@@ -4780,6 +4831,7 @@ chat.openapi(completions, async (c) => {
 						tools,
 						tool_choice,
 						reasoning_effort,
+						reasoning_max_tokens,
 						effort,
 						webSearchTool,
 						image_config,
@@ -4916,6 +4968,7 @@ chat.openapi(completions, async (c) => {
 				frequency_penalty,
 				presence_penalty,
 				reasoning_effort,
+				reasoning_max_tokens,
 				effort,
 				response_format,
 				tools,
@@ -5081,6 +5134,7 @@ chat.openapi(completions, async (c) => {
 				frequency_penalty,
 				presence_penalty,
 				reasoning_effort,
+				reasoning_max_tokens,
 				effort,
 				response_format,
 				tools,
@@ -5205,6 +5259,7 @@ chat.openapi(completions, async (c) => {
 				frequency_penalty,
 				presence_penalty,
 				reasoning_effort,
+				reasoning_max_tokens,
 				effort,
 				response_format,
 				tools,
@@ -5644,6 +5699,7 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		reasoning_effort,
+		reasoning_max_tokens,
 		effort,
 		response_format,
 		tools,

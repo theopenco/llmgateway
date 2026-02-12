@@ -14,6 +14,7 @@ export interface ValidateModelCapabilitiesOptions {
 		type: "text" | "json_object" | "json_schema";
 	};
 	reasoning_effort?: string;
+	reasoning_max_tokens?: number;
 	tools?: unknown[];
 	tool_choice?: unknown;
 	webSearchTool?: WebSearchTool;
@@ -36,6 +37,7 @@ export function validateModelCapabilities(
 	const {
 		response_format,
 		reasoning_effort,
+		reasoning_max_tokens,
 		tools,
 		tool_choice,
 		webSearchTool,
@@ -116,6 +118,44 @@ export function validateModelCapabilities(
 
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
+			});
+		}
+	}
+
+	// Check if reasoning.max_tokens is specified but model doesn't support it
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		reasoning_max_tokens !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const reasoningMaxTokens = providersToCheck.some(
+			(provider) =>
+				(provider as ProviderModelMapping).reasoningMaxTokens === true,
+		);
+
+		if (!reasoningMaxTokens) {
+			logger.error(
+				`reasoning.max_tokens specified for model that doesn't support it: ${requestedModel}`,
+				{
+					requestedModel,
+					requestedProvider,
+					reasoning_max_tokens,
+					modelProviders: modelInfo.providers.map((p) => ({
+						providerId: p.providerId,
+						reasoningMaxTokens: (p as ProviderModelMapping).reasoningMaxTokens,
+					})),
+				},
+			);
+
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support reasoning.max_tokens. Remove the reasoning.max_tokens parameter or use a model that supports explicit reasoning token budgets (Anthropic or Google thinking models).`,
 			});
 		}
 	}

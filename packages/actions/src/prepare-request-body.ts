@@ -426,7 +426,7 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -441,6 +441,7 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 	webSearchTool?: WebSearchTool,
+	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
@@ -845,9 +846,15 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice;
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
+			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
 				if (!supportsReasoning) {
 					return 0;
+				}
+				// If explicit reasoning_max_tokens is provided, use it
+				if (reasoning_max_tokens !== undefined) {
+					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
+					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 				}
 				if (!reasoning_effort) {
 					return 0;
@@ -857,6 +864,8 @@ export async function prepareRequestBody(
 						return 1024; // Anthropic minimum
 					case "high":
 						return 4000;
+					case "xhigh":
+						return 16000;
 					default:
 						return 2000; // medium or undefined
 				}
@@ -1009,8 +1018,8 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort is specified
-			if (supportsReasoning && reasoning_effort) {
+			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
 				requestBody.thinking = {
 					type: "enabled",
 					budget_tokens: thinkingBudget,
@@ -1267,6 +1276,46 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// Enable thinking for Bedrock Anthropic models when reasoning is supported
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+				const getThinkingBudget = (effort?: string) => {
+					if (reasoning_max_tokens !== undefined) {
+						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+					}
+					if (!effort) {
+						return 2000;
+					}
+					switch (effort) {
+						case "low":
+							return 1024;
+						case "high":
+							return 4000;
+						case "xhigh":
+							return 16000;
+						default:
+							return 2000;
+					}
+				};
+				const thinkingBudget = getThinkingBudget(reasoning_effort);
+				requestBody.additionalModelRequestFields =
+					requestBody.additionalModelRequestFields || {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "enabled",
+					budget_tokens: thinkingBudget,
+				};
+				// Ensure max_tokens is sufficient for thinking + response
+				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+				if (
+					!inferenceConfig.maxTokens ||
+					inferenceConfig.maxTokens < minMaxTokens
+				) {
+					inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
+				}
+				if (Object.keys(inferenceConfig).length > 0) {
+					requestBody.inferenceConfig = inferenceConfig;
+				}
+			}
+
 			// Handle response_format for AWS Bedrock via additionalModelRequestFields
 			// This passes Anthropic-specific parameters through the Converse API
 			if (
@@ -1366,8 +1415,13 @@ export async function prepareRequestBody(
 					includeThoughts: true,
 				};
 
-				// Map reasoning_effort to thinking_budget
-				if (reasoning_effort !== undefined) {
+				// Use reasoning_max_tokens if provided, otherwise map reasoning_effort to thinking_budget
+				if (reasoning_max_tokens !== undefined) {
+					// Google's thinkingBudget: just use the provided value directly
+					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
+					requestBody.generationConfig.thinkingConfig.thinkingBudget =
+						reasoning_max_tokens;
+				} else if (reasoning_effort !== undefined) {
 					const getThinkingBudget = (effort: string) => {
 						switch (effort) {
 							case "minimal":
@@ -1375,7 +1429,9 @@ export async function prepareRequestBody(
 							case "low":
 								return 2048;
 							case "high":
-								return 24576; // Maximum for Flash models
+								return 24576;
+							case "xhigh":
+								return 65536;
 							case "medium":
 							default:
 								return 8192; // Balanced default

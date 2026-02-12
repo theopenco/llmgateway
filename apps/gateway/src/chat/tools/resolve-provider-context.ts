@@ -67,7 +67,8 @@ export interface ProviderContextOptions {
 	response_format: OpenAIRequestBody["response_format"];
 	tools: OpenAIToolInput[] | undefined;
 	tool_choice: ToolChoiceType | undefined;
-	reasoning_effort: "minimal" | "low" | "medium" | "high" | undefined;
+	reasoning_effort: "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+	reasoning_max_tokens: number | undefined;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -295,6 +296,7 @@ export async function resolveProviderContext(
 		options.effort,
 		isImageGeneration,
 		options.webSearchTool,
+		options.reasoning_max_tokens,
 		useResponsesApi,
 	);
 
