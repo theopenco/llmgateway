@@ -397,20 +397,27 @@ export function LogCard({
 											log.routingMetadata.routing.length > 0 && (
 												<div className="pt-1 border-t border-dashed">
 													<div className="text-muted-foreground mb-1">
-														Failed Attempts
+														Request Attempts
 													</div>
 													<div className="space-y-1">
 														{log.routingMetadata.routing.map((attempt, i) => (
 															<div
 																key={`${attempt.provider}-${i}`}
-																className="flex justify-between items-center text-red-500"
+																className={`flex justify-between items-center ${attempt.succeeded ? "text-green-600" : "text-red-500"}`}
 															>
 																<span className="font-mono flex items-center gap-1">
-																	<AlertCircle className="h-3 w-3" />
+																	{attempt.succeeded ? (
+																		<CheckCircle2 className="h-3 w-3" />
+																	) : (
+																		<AlertCircle className="h-3 w-3" />
+																	)}
 																	{attempt.provider}/{attempt.model}
 																</span>
 																<span>
-																	{attempt.status_code} {attempt.error_type}
+																	{attempt.status_code}{" "}
+																	{attempt.succeeded
+																		? "ok"
+																		: attempt.error_type}
 																</span>
 															</div>
 														))}

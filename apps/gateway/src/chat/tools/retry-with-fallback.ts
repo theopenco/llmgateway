@@ -1,11 +1,17 @@
 export const MAX_RETRIES = 2;
 
-export interface FailedAttempt {
+export interface RoutingAttempt {
 	provider: string;
 	model: string;
 	status_code: number;
 	error_type: string;
+	succeeded: boolean;
 }
+
+/**
+ * @deprecated Use RoutingAttempt instead
+ */
+export type FailedAttempt = RoutingAttempt;
 
 /**
  * Checks if an HTTP status code (or 0 for network errors) is retryable.

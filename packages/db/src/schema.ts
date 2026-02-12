@@ -494,6 +494,7 @@ export const log = pgTable(
 				model: string;
 				status_code: number;
 				error_type: string;
+				succeeded: boolean;
 			}>;
 		}>(),
 		processedAt: timestamp(),

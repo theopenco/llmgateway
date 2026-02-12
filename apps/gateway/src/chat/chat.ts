@@ -89,7 +89,7 @@ import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolveProviderContext } from "./tools/resolve-provider-context.js";
 import {
-	type FailedAttempt,
+	type RoutingAttempt,
 	getErrorType,
 	MAX_RETRIES,
 	selectNextProvider,
@@ -2164,7 +2164,7 @@ chat.openapi(completions, async (c) => {
 			c.req.raw.signal.addEventListener("abort", onAbort);
 
 			// --- Retry loop for provider fallback ---
-			const failedAttempts: FailedAttempt[] = [];
+			const routingAttempts: RoutingAttempt[] = [];
 			const failedProviderIds = new Set<string>();
 			let res: Response | undefined;
 			for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
@@ -2396,11 +2396,12 @@ chat.openapi(completions, async (c) => {
 								usedProvider,
 							})
 						) {
-							failedAttempts.push({
+							routingAttempts.push({
 								provider: usedProvider,
 								model: usedModel,
 								status_code: 0,
 								error_type: getErrorType(0),
+								succeeded: false,
 							});
 							failedProviderIds.add(usedProvider);
 							continue;
@@ -2669,11 +2670,12 @@ chat.openapi(completions, async (c) => {
 								usedProvider,
 							})
 						) {
-							failedAttempts.push({
+							routingAttempts.push({
 								provider: usedProvider,
 								model: usedModel,
 								status_code: 0,
 								error_type: getErrorType(0),
+								succeeded: false,
 							});
 							failedProviderIds.add(usedProvider);
 							continue;
@@ -2828,11 +2830,12 @@ chat.openapi(completions, async (c) => {
 							usedProvider,
 						})
 					) {
-						failedAttempts.push({
+						routingAttempts.push({
 							provider: usedProvider,
 							model: usedModel,
 							status_code: res.status,
 							error_type: getErrorType(res.status),
+							succeeded: false,
 						});
 						failedProviderIds.add(usedProvider);
 						continue;
@@ -2946,13 +2949,28 @@ chat.openapi(completions, async (c) => {
 				break; // Fetch succeeded, exit retry loop
 			} // End of retry for loop
 
-			// Update routingMetadata with failed attempts for DB logging
+			// Add the final attempt (successful or last failed) to routing
+			if (res && res.ok && usedProvider) {
+				routingAttempts.push({
+					provider: usedProvider,
+					model: usedModel,
+					status_code: res.status,
+					error_type: "none",
+					succeeded: true,
+				});
+			}
+
+			// Update routingMetadata with all routing attempts for DB logging
 			if (routingMetadata) {
-				// Enrich providerScores with failure info from failedAttempts
-				const failedMap = new Map(failedAttempts.map((f) => [f.provider, f]));
+				// Enrich providerScores with failure info from routing attempts
+				const failedMap = new Map(
+					routingAttempts
+						.filter((a) => !a.succeeded)
+						.map((f) => [f.provider, f]),
+				);
 				routingMetadata = {
 					...routingMetadata,
-					routing: failedAttempts.length > 0 ? failedAttempts : undefined,
+					routing: routingAttempts,
 					providerScores: routingMetadata.providerScores.map((score) => {
 						const failure = failedMap.get(score.providerId);
 						if (failure) {
@@ -4390,8 +4408,8 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
-					// Send routing metadata if there were failed retry attempts
-					if (failedAttempts.length > 0 && !doneSent) {
+					// Send routing metadata for all attempts (including successful)
+					if (routingAttempts.length > 0 && !doneSent) {
 						try {
 							const routingChunk = {
 								id: `chatcmpl-${Date.now()}`,
@@ -4411,7 +4429,7 @@ chat.openapi(completions, async (c) => {
 									used_model: baseModelName,
 									used_provider: usedProvider,
 									underlying_used_model: usedModel,
-									routing: failedAttempts,
+									routing: routingAttempts,
 								},
 							};
 							await writeSSEAndCache({
@@ -4705,7 +4723,7 @@ chat.openapi(completions, async (c) => {
 	c.req.raw.signal.addEventListener("abort", onAbort);
 
 	// --- Retry loop for provider fallback ---
-	const failedAttempts: FailedAttempt[] = [];
+	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviderIds = new Set<string>();
 	let canceled = false;
 	let fetchError: Error | null = null;
@@ -4971,11 +4989,12 @@ chat.openapi(completions, async (c) => {
 					usedProvider,
 				})
 			) {
-				failedAttempts.push({
+				routingAttempts.push({
 					provider: usedProvider,
 					model: usedModel,
 					status_code: 0,
 					error_type: getErrorType(0),
+					succeeded: false,
 				});
 				failedProviderIds.add(usedProvider);
 				continue;
@@ -5280,11 +5299,12 @@ chat.openapi(completions, async (c) => {
 					usedProvider,
 				})
 			) {
-				failedAttempts.push({
+				routingAttempts.push({
 					provider: usedProvider,
 					model: usedModel,
 					status_code: res.status,
 					error_type: getErrorType(res.status),
+					succeeded: false,
 				});
 				failedProviderIds.add(usedProvider);
 				continue;
@@ -5355,13 +5375,26 @@ chat.openapi(completions, async (c) => {
 		break; // Fetch succeeded, exit retry loop
 	} // End of retry for loop
 
-	// Update routingMetadata with failed attempts for DB logging
+	// Add the final attempt (successful or last failed) to routing
+	if (res && res.ok && usedProvider) {
+		routingAttempts.push({
+			provider: usedProvider,
+			model: usedModel,
+			status_code: res.status,
+			error_type: "none",
+			succeeded: true,
+		});
+	}
+
+	// Update routingMetadata with all routing attempts for DB logging
 	if (routingMetadata) {
-		// Enrich providerScores with failure info from failedAttempts
-		const failedMap = new Map(failedAttempts.map((f) => [f.provider, f]));
+		// Enrich providerScores with failure info from routing attempts
+		const failedMap = new Map(
+			routingAttempts.filter((a) => !a.succeeded).map((f) => [f.provider, f]),
+		);
 		routingMetadata = {
 			...routingMetadata,
-			routing: failedAttempts.length > 0 ? failedAttempts : undefined,
+			routing: routingAttempts,
 			providerScores: routingMetadata.providerScores.map((score) => {
 				const failure = failedMap.get(score.providerId);
 				if (failure) {
@@ -5588,7 +5621,7 @@ chat.openapi(completions, async (c) => {
 			: null,
 		false, // showUpgradeMessage - never show since Pro plan is removed
 		annotations,
-		failedAttempts.length > 0 ? failedAttempts : null,
+		routingAttempts.length > 0 ? routingAttempts : null,
 	);
 
 	// Extract plugin IDs for logging

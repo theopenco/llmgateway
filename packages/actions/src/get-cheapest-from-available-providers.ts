@@ -80,12 +80,13 @@ export interface RoutingMetadata {
 	originalProviderUptime?: number;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
-	// Failed provider attempts from retry fallback mechanism
+	// All provider attempts from retry fallback mechanism (including successful)
 	routing?: Array<{
 		provider: string;
 		model: string;
 		status_code: number;
 		error_type: string;
+		succeeded: boolean;
 	}>;
 }
 

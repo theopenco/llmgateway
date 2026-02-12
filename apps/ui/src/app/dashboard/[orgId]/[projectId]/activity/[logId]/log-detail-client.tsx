@@ -455,20 +455,25 @@ export function LogDetailClient({
 										log.routingMetadata.routing.length > 0 && (
 											<div className="mt-3 pt-3 border-t border-border/50">
 												<p className="text-xs text-muted-foreground mb-2">
-													Failed Attempts
+													Request Attempts
 												</p>
 												<div className="space-y-1.5">
 													{log.routingMetadata.routing.map((attempt, i) => (
 														<div
 															key={`${attempt.provider}-${i}`}
-															className="flex items-center justify-between text-xs font-mono text-red-500"
+															className={`flex items-center justify-between text-xs font-mono ${attempt.succeeded ? "text-green-600" : "text-red-500"}`}
 														>
 															<span className="flex items-center gap-1">
-																<AlertCircle className="h-3 w-3" />
+																{attempt.succeeded ? (
+																	<CheckCircle2 className="h-3 w-3" />
+																) : (
+																	<AlertCircle className="h-3 w-3" />
+																)}
 																{attempt.provider}/{attempt.model}
 															</span>
 															<span>
-																{attempt.status_code} {attempt.error_type}
+																{attempt.status_code}{" "}
+																{attempt.succeeded ? "ok" : attempt.error_type}
 															</span>
 														</div>
 													))}
