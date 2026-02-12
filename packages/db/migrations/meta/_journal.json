@@ -642,13 +642,6 @@
     {
       "idx": 91,
       "version": "8",
-      "when": 1770892879623,
-      "tag": "1770892879_futuristic_warbird",
-      "breakpoints": true
-    },
-    {
-      "idx": 91,
-      "version": "8",
       "when": 1770892067392,
       "tag": "1770892067_long_toad",
       "breakpoints": true
