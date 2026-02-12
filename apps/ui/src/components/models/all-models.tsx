@@ -141,7 +141,7 @@ function computeCapabilities(
 			color: "text-orange-500",
 		});
 	}
-	if (provider.supportsReasoningMaxTokens) {
+	if (provider.reasoningMaxTokens) {
 		capabilities.push({
 			icon: Sliders,
 			label: "Reasoning Budget",
@@ -615,9 +615,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			}
 			if (
 				filters.capabilities.reasoningBudget &&
-				!model.providerDetails.some(
-					(p) => p.provider.supportsReasoningMaxTokens,
-				)
+				!model.providerDetails.some((p) => p.provider.reasoningMaxTokens)
 			) {
 				return false;
 			}
@@ -1074,7 +1072,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				color: "text-orange-500",
 			});
 		}
-		if (provider.supportsReasoningMaxTokens) {
+		if (provider.reasoningMaxTokens) {
 			capabilities.push({
 				icon: Sliders,
 				label: "Reasoning Budget",

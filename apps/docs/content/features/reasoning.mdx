@@ -38,6 +38,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
+- `xhigh` - Maximum reasoning depth for the most complex problems
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -64,7 +65,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
-- `xhigh` - Maximum reasoning (mapped to `high` internally)
+- `xhigh` - Maximum reasoning depth for the most complex problems
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -86,7 +87,9 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 <Callout type="warning">
 	You cannot use both `reasoning_effort` and `reasoning.effort` in the same
-	request. Choose one approach.
+	request. Choose one approach. However, you can combine `reasoning_effort` or
+	`reasoning.effort` with `reasoning.max_tokens` — when `max_tokens` is
+	specified, it takes priority over the effort level.
 </Callout>
 
 ### Example Response

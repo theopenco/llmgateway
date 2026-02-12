@@ -201,7 +201,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "minimal" | "low" | "medium" | "high";
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
 }
 
 export interface OpenAIResponsesFunctionCall {
@@ -226,7 +226,7 @@ export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
 	reasoning: {
-		effort: "minimal" | "low" | "medium" | "high";
+		effort: "minimal" | "low" | "medium" | "high" | "xhigh";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -350,7 +350,7 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAITool[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,

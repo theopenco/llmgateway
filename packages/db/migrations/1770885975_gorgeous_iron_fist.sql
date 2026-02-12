@@ -1,0 +1,2 @@
+ALTER TABLE "model_provider_mapping" ALTER COLUMN "reasoning_max_tokens" SET DEFAULT false;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping" ALTER COLUMN "reasoning_max_tokens" SET NOT NULL;

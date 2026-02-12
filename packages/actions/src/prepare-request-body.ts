@@ -426,7 +426,7 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -864,6 +864,8 @@ export async function prepareRequestBody(
 						return 1024; // Anthropic minimum
 					case "high":
 						return 4000;
+					case "xhigh":
+						return 16000;
 					default:
 						return 2000; // medium or undefined
 				}
@@ -1274,6 +1276,46 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// Enable thinking for Bedrock Anthropic models when reasoning is supported
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+				const getThinkingBudget = (effort?: string) => {
+					if (reasoning_max_tokens !== undefined) {
+						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+					}
+					if (!effort) {
+						return 2000;
+					}
+					switch (effort) {
+						case "low":
+							return 1024;
+						case "high":
+							return 4000;
+						case "xhigh":
+							return 16000;
+						default:
+							return 2000;
+					}
+				};
+				const thinkingBudget = getThinkingBudget(reasoning_effort);
+				requestBody.additionalModelRequestFields =
+					requestBody.additionalModelRequestFields || {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "enabled",
+					budget_tokens: thinkingBudget,
+				};
+				// Ensure max_tokens is sufficient for thinking + response
+				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+				if (
+					!inferenceConfig.maxTokens ||
+					inferenceConfig.maxTokens < minMaxTokens
+				) {
+					inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
+				}
+				if (Object.keys(inferenceConfig).length > 0) {
+					requestBody.inferenceConfig = inferenceConfig;
+				}
+			}
+
 			// Handle response_format for AWS Bedrock via additionalModelRequestFields
 			// This passes Anthropic-specific parameters through the Converse API
 			if (
@@ -1387,7 +1429,9 @@ export async function prepareRequestBody(
 							case "low":
 								return 2048;
 							case "high":
-								return 24576; // Maximum for Flash models
+								return 24576;
+							case "xhigh":
+								return 65536;
 							case "medium":
 							default:
 								return 8192; // Balanced default

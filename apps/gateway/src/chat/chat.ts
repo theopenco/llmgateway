@@ -323,15 +323,12 @@ chat.openapi(completions, async (c) => {
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
 	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort
-	// Map "xhigh" to "high" and "none" to undefined for internal processing
+	// Map "none" to undefined for internal processing
 	let reasoning_effort = (() => {
 		const effort =
 			reasoning_object_effort ?? validationResult.data.reasoning_effort;
 		if (effort === "none") {
 			return undefined;
-		}
-		if (effort === "xhigh") {
-			return "high" as const;
 		}
 		return effort;
 	})();
@@ -759,7 +756,7 @@ chat.openapi(completions, async (c) => {
 				// Check reasoning.max_tokens support if specified
 				if (
 					reasoning_max_tokens !== undefined &&
-					(provider as ProviderModelMapping).supportsReasoningMaxTokens !== true
+					(provider as ProviderModelMapping).reasoningMaxTokens !== true
 				) {
 					return false;
 				}
@@ -1549,6 +1546,8 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
+			reasoning_effort,
+			reasoning_max_tokens,
 		};
 
 		if (stream) {

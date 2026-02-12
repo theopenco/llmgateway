@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "62d0b574-6ba8-410d-bca9-1804754591c3",
-  "prevId": "0cc932b3-1121-42eb-8399-2d8ac4000313",
+  "id": "33900b22-cbed-4125-b467-1408e7137948",
+  "prevId": "71c4f88f-c708-490f-9bd3-f75edf9690d9",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -4894,12 +4894,15 @@
     {
       "type": "boolean",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
-      "default": null,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
       "generated": null,
       "identity": null,
-      "name": "supports_reasoning_max_tokens",
+      "name": "reasoning_max_tokens",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"

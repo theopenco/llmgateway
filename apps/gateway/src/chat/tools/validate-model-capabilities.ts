@@ -135,12 +135,12 @@ export function validateModelCapabilities(
 				)
 			: modelInfo.providers;
 
-		const supportsReasoningMaxTokens = providersToCheck.some(
+		const reasoningMaxTokens = providersToCheck.some(
 			(provider) =>
-				(provider as ProviderModelMapping).supportsReasoningMaxTokens === true,
+				(provider as ProviderModelMapping).reasoningMaxTokens === true,
 		);
 
-		if (!supportsReasoningMaxTokens) {
+		if (!reasoningMaxTokens) {
 			logger.error(
 				`reasoning.max_tokens specified for model that doesn't support it: ${requestedModel}`,
 				{
@@ -149,8 +149,7 @@ export function validateModelCapabilities(
 					reasoning_max_tokens,
 					modelProviders: modelInfo.providers.map((p) => ({
 						providerId: p.providerId,
-						supportsReasoningMaxTokens: (p as ProviderModelMapping)
-							.supportsReasoningMaxTokens,
+						reasoningMaxTokens: (p as ProviderModelMapping).reasoningMaxTokens,
 					})),
 				},
 			);

@@ -32,7 +32,7 @@ export interface ApiModelProviderMapping {
 	vision: boolean | null;
 	reasoning: boolean | null;
 	reasoningOutput: string | null;
-	supportsReasoningMaxTokens: boolean | null;
+	reasoningMaxTokens: boolean | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;
 	jsonOutputSchema: boolean | null;

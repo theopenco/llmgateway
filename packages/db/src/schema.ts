@@ -760,7 +760,7 @@ export const modelProviderMapping = pgTable(
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
 		reasoning: boolean(),
-		supportsReasoningMaxTokens: boolean(),
+		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
 		tools: boolean(),
 		jsonOutput: boolean().default(false).notNull(),

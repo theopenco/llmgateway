@@ -126,7 +126,7 @@ export interface ProviderModelMapping {
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
 	 * Supported by Anthropic and Google thinking models.
 	 */
-	supportsReasoningMaxTokens?: boolean;
+	reasoningMaxTokens?: boolean;
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */

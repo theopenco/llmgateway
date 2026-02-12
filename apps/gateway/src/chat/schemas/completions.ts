@@ -162,7 +162,7 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high"])
+		.enum(["minimal", "low", "medium", "high", "xhigh"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))

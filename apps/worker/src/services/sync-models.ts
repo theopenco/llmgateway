@@ -134,10 +134,10 @@ export async function syncProvidersAndModels() {
 								streaming: mapping.streaming === false ? false : true,
 								vision: "vision" in mapping ? mapping.vision : null,
 								reasoning: "reasoning" in mapping ? mapping.reasoning : null,
-								supportsReasoningMaxTokens:
-									"supportsReasoningMaxTokens" in mapping
-										? mapping.supportsReasoningMaxTokens
-										: null,
+								reasoningMaxTokens:
+									"reasoningMaxTokens" in mapping
+										? (mapping.reasoningMaxTokens ?? false)
+										: false,
 								reasoningOutput:
 									"reasoningOutput" in mapping
 										? (mapping.reasoningOutput as string | null)
@@ -217,10 +217,10 @@ export async function syncProvidersAndModels() {
 							streaming: mapping.streaming === false ? false : true,
 							vision: "vision" in mapping ? mapping.vision : undefined,
 							reasoning: "reasoning" in mapping ? mapping.reasoning : undefined,
-							supportsReasoningMaxTokens:
-								"supportsReasoningMaxTokens" in mapping
-									? mapping.supportsReasoningMaxTokens
-									: undefined,
+							reasoningMaxTokens:
+								"reasoningMaxTokens" in mapping
+									? (mapping.reasoningMaxTokens ?? false)
+									: false,
 							reasoningOutput:
 								"reasoningOutput" in mapping
 									? (mapping.reasoningOutput as string | undefined)
