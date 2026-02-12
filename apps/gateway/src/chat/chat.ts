@@ -2214,6 +2214,8 @@ chat.openapi(completions, async (c) => {
 			let res: Response | undefined;
 			const finalLogId = shortid();
 			for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+				const perAttemptStartTime = Date.now();
+
 				// Type guard: narrow variables that TypeScript widens due to loop reassignment
 				if (
 					!usedProvider ||
@@ -2410,7 +2412,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLog({
 							...baseLogEntry,
-							duration: Date.now() - startTime,
+							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
 							timeToFirstReasoningToken: null,
 							responseSize: 0,
@@ -2551,7 +2553,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLog({
 							...baseLogEntry,
-							duration: Date.now() - startTime,
+							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null, // Not applicable for canceled request
 							timeToFirstReasoningToken: null, // Not applicable for canceled request
 							responseSize: 0,
@@ -2683,7 +2685,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLog({
 							...baseLogEntry,
-							duration: Date.now() - startTime,
+							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null, // Not applicable for error case
 							timeToFirstReasoningToken: null, // Not applicable for error case
 							responseSize: 0,
@@ -2837,7 +2839,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLog({
 						...baseLogEntry,
-						duration: Date.now() - startTime,
+						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
 						responseSize: errorResponseText.length,
@@ -4791,6 +4793,8 @@ chat.openapi(completions, async (c) => {
 	let duration = 0;
 	const finalLogId = shortid();
 	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+		const perAttemptStartTime = Date.now();
+
 		// Type guard: narrow variables that TypeScript widens due to loop reassignment
 		if (
 			!usedProvider ||
@@ -4943,6 +4947,7 @@ chat.openapi(completions, async (c) => {
 			c.req.raw.signal.removeEventListener("abort", onAbort);
 		}
 
+		const perAttemptDuration = Date.now() - perAttemptStartTime;
 		duration = Date.now() - startTime;
 
 		// Handle fetch errors (timeout, connection failures, etc.)
@@ -5011,7 +5016,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLog({
 				...baseLogEntry,
-				duration,
+				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
 				timeToFirstReasoningToken: null, // Not applicable for error case
 				responseSize: 0,
@@ -5304,7 +5309,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLog({
 				...baseLogEntry,
-				duration,
+				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
 				timeToFirstReasoningToken: null, // Not applicable for error case
 				responseSize: errorResponseText.length,
