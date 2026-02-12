@@ -70,6 +70,10 @@ export interface RoutingMetadata {
 		throughput?: number;
 		price: number;
 		priority?: number;
+		// Populated after retry loop if this provider was attempted and failed
+		failed?: boolean;
+		status_code?: number;
+		error_type?: string;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;

@@ -2947,10 +2947,24 @@ chat.openapi(completions, async (c) => {
 			} // End of retry for loop
 
 			// Update routingMetadata with failed attempts for DB logging
-			if (failedAttempts.length > 0 && routingMetadata) {
+			if (routingMetadata) {
+				// Enrich providerScores with failure info from failedAttempts
+				const failedMap = new Map(failedAttempts.map((f) => [f.provider, f]));
 				routingMetadata = {
 					...routingMetadata,
-					routing: failedAttempts,
+					routing: failedAttempts.length > 0 ? failedAttempts : undefined,
+					providerScores: routingMetadata.providerScores.map((score) => {
+						const failure = failedMap.get(score.providerId);
+						if (failure) {
+							return {
+								...score,
+								failed: true,
+								status_code: failure.status_code,
+								error_type: failure.error_type,
+							};
+						}
+						return score;
+					}),
 				};
 			}
 
@@ -5342,10 +5356,24 @@ chat.openapi(completions, async (c) => {
 	} // End of retry for loop
 
 	// Update routingMetadata with failed attempts for DB logging
-	if (failedAttempts.length > 0 && routingMetadata) {
+	if (routingMetadata) {
+		// Enrich providerScores with failure info from failedAttempts
+		const failedMap = new Map(failedAttempts.map((f) => [f.provider, f]));
 		routingMetadata = {
 			...routingMetadata,
-			routing: failedAttempts,
+			routing: failedAttempts.length > 0 ? failedAttempts : undefined,
+			providerScores: routingMetadata.providerScores.map((score) => {
+				const failure = failedMap.get(score.providerId);
+				if (failure) {
+					return {
+						...score,
+						failed: true,
+						status_code: failure.status_code,
+						error_type: failure.error_type,
+					};
+				}
+				return score;
+			}),
 		};
 	}
 

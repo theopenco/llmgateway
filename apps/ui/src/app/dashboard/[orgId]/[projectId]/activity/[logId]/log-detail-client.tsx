@@ -417,7 +417,22 @@ export function LogDetailClient({
 															key={score.providerId}
 															className="flex items-center justify-between text-xs font-mono"
 														>
-															<span>{score.providerId}</span>
+															<span className="flex items-center gap-1.5">
+																{score.providerId}
+																{score.failed && (
+																	<span className="inline-flex items-center gap-0.5 text-red-500">
+																		<AlertCircle className="h-3 w-3" />
+																		<span>
+																			{score.status_code}
+																			{score.error_type && (
+																				<span className="ml-0.5 text-red-400">
+																					{score.error_type}
+																				</span>
+																			)}
+																		</span>
+																	</span>
+																)}
+															</span>
 															<span className="text-muted-foreground">
 																{score.score.toFixed(2)}
 																{score.uptime !== undefined && (
@@ -430,6 +445,30 @@ export function LogDetailClient({
 																		{score.latency?.toFixed(0)}ms
 																	</span>
 																)}
+															</span>
+														</div>
+													))}
+												</div>
+											</div>
+										)}
+									{log.routingMetadata.routing &&
+										log.routingMetadata.routing.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2">
+													Failed Attempts
+												</p>
+												<div className="space-y-1.5">
+													{log.routingMetadata.routing.map((attempt, i) => (
+														<div
+															key={`${attempt.provider}-${i}`}
+															className="flex items-center justify-between text-xs font-mono text-red-500"
+														>
+															<span className="flex items-center gap-1">
+																<AlertCircle className="h-3 w-3" />
+																{attempt.provider}/{attempt.model}
+															</span>
+															<span>
+																{attempt.status_code} {attempt.error_type}
 															</span>
 														</div>
 													))}

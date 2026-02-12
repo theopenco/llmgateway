@@ -482,6 +482,9 @@ export const log = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				failed?: boolean;
+				status_code?: number;
+				error_type?: string;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;

@@ -343,8 +343,21 @@ export function LogCard({
 																key={score.providerId}
 																className="flex justify-between items-center"
 															>
-																<span className="font-mono">
+																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.failed && (
+																		<span className="inline-flex items-center gap-0.5 text-red-500">
+																			<AlertCircle className="h-3 w-3" />
+																			<span>
+																				{score.status_code}
+																				{score.error_type && (
+																					<span className="ml-0.5 text-red-400">
+																						{score.error_type}
+																					</span>
+																				)}
+																			</span>
+																		</span>
+																	)}
 																</span>
 																<span className="text-muted-foreground">
 																	{score.score.toFixed(2)}
@@ -374,6 +387,30 @@ export function LogCard({
 																				p:{score.priority}
 																			</span>
 																		)}
+																</span>
+															</div>
+														))}
+													</div>
+												</div>
+											)}
+										{log.routingMetadata.routing &&
+											log.routingMetadata.routing.length > 0 && (
+												<div className="pt-1 border-t border-dashed">
+													<div className="text-muted-foreground mb-1">
+														Failed Attempts
+													</div>
+													<div className="space-y-1">
+														{log.routingMetadata.routing.map((attempt, i) => (
+															<div
+																key={`${attempt.provider}-${i}`}
+																className="flex justify-between items-center text-red-500"
+															>
+																<span className="font-mono flex items-center gap-1">
+																	<AlertCircle className="h-3 w-3" />
+																	{attempt.provider}/{attempt.model}
+																</span>
+																<span>
+																	{attempt.status_code} {attempt.error_type}
 																</span>
 															</div>
 														))}
