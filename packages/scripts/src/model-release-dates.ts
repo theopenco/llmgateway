@@ -1,4 +1,5 @@
-import { models } from "../packages/models/src/models.js";
+/* eslint-disable no-console */
+import { models } from "@llmgateway/models";
 import { writeFileSync, appendFileSync, existsSync, unlinkSync } from "fs";
 
 const GATEWAY_URL = "http://localhost:4001/v1/chat/completions";

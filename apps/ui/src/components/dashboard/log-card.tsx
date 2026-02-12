@@ -16,6 +16,7 @@ import {
 	ExternalLink,
 	Plug,
 	Sparkles,
+	TrendingDown,
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -221,6 +222,12 @@ export function LogCard({
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
+						{log.discount && log.discount !== 1 && (
+							<div className="flex items-center gap-1 text-emerald-600">
+								<TrendingDown className="h-3.5 w-3.5" />
+								<span>{(log.discount * 100).toFixed(0)}% off</span>
+							</div>
+						)}
 						{log.source && (
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5" />
@@ -728,6 +735,24 @@ export function LogCard({
 									</Tooltip>
 									<span>{log.reasoningEffort || "-"}</span>
 								</div>
+								{log.reasoningMaxTokens && (
+									<div className="flex items-center justify-between gap-2">
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground">
+													Reasoning Budget
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs">
+													Exact token budget allocated for reasoning (max_tokens
+													in reasoning config)
+												</p>
+											</TooltipContent>
+										</Tooltip>
+										<span>{log.reasoningMaxTokens.toLocaleString()}</span>
+									</div>
+								)}
 								{log.effort && (
 									<div className="flex items-center justify-between gap-2">
 										<Tooltip>

@@ -3,6 +3,35 @@ import { estimateTokens } from "./estimate-tokens.js";
 import type { Provider } from "@llmgateway/models";
 
 /**
+ * Adjust Google candidatesTokenCount for inconsistent API behavior.
+ * Some Google API deployments include thoughtsTokenCount inside candidatesTokenCount,
+ * while others report them separately.
+ *
+ * Detection: if promptTokenCount + candidatesTokenCount == totalTokenCount,
+ * thinking tokens are already included in candidatesTokenCount.
+ * Reference: https://github.com/simonw/llm-gemini/issues/75
+ */
+export function adjustGoogleCandidateTokens(
+	candidatesTokenCount: number,
+	thoughtsTokenCount: number | null | undefined,
+	promptTokenCount: number | null,
+	totalTokenCount: number | null | undefined,
+): number {
+	if (
+		thoughtsTokenCount &&
+		thoughtsTokenCount > 0 &&
+		candidatesTokenCount > 0 &&
+		promptTokenCount !== null &&
+		typeof totalTokenCount === "number" &&
+		totalTokenCount > 0 &&
+		promptTokenCount + candidatesTokenCount === totalTokenCount
+	) {
+		return Math.max(0, candidatesTokenCount - thoughtsTokenCount);
+	}
+	return candidatesTokenCount;
+}
+
+/**
  * Extracts token usage information from streaming data based on provider format
  */
 export function extractTokenUsage(
@@ -23,15 +52,25 @@ export function extractTokenUsage(
 		case "obsidian":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount ?? null;
-				completionTokens = data.usageMetadata.candidatesTokenCount ?? null;
-				// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
+				let rawCandidates = data.usageMetadata.candidatesTokenCount ?? null;
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount ?? null;
 				// Extract cached tokens from Google's implicit caching
 				cachedTokens = data.usageMetadata.cachedContentTokenCount ?? null;
 
+				// Adjust for inconsistent Google API behavior where
+				// candidatesTokenCount may already include thoughtsTokenCount
+				if (rawCandidates !== null) {
+					rawCandidates = adjustGoogleCandidateTokens(
+						rawCandidates,
+						reasoningTokens,
+						promptTokens,
+						data.usageMetadata.totalTokenCount,
+					);
+				}
+
 				// If candidatesTokenCount is missing and we have content or images, estimate it
 				if (
-					completionTokens === null &&
+					rawCandidates === null &&
 					(fullContent || (imageByteSize && imageByteSize > 0))
 				) {
 					const estimation = estimateTokens(
@@ -47,13 +86,14 @@ export function extractTokenUsage(
 					if (imageByteSize && imageByteSize > 0) {
 						imageTokens = 258 + Math.ceil(imageByteSize / 750);
 					}
-					completionTokens = textTokens + imageTokens;
+					rawCandidates = textTokens + imageTokens;
 				}
-				// Calculate total including reasoning tokens (after potential estimation)
-				totalTokens =
-					(promptTokens ?? 0) +
-					(completionTokens ?? 0) +
-					(reasoningTokens ?? 0);
+
+				// completionTokens includes reasoning for correct totals
+				completionTokens = (rawCandidates ?? 0) + (reasoningTokens ?? 0);
+
+				// Calculate total
+				totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
 			}
 			break;
 		case "aws-bedrock":

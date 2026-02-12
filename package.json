@@ -19,6 +19,7 @@
 		"migrate": "pnpm --filter db migrate",
 		"migrations": "pnpm --filter db migrations",
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
+		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
 		"push-test": "cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" pnpm --filter db push",
 		"seed": "pnpm --filter db seed",

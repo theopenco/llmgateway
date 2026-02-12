@@ -59,6 +59,7 @@ const logSchema = z.object({
 	frequencyPenalty: z.number().nullable(),
 	presencePenalty: z.number().nullable(),
 	reasoningEffort: z.string().nullable(),
+	reasoningMaxTokens: z.number().nullable(),
 	responseFormat: z.any().nullable(),
 	tools: tools.nullable(),
 	toolChoice: toolChoice.nullable(),

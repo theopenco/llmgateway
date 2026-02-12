@@ -409,6 +409,7 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+		case "azure":
 		case "mistral":
 		case "novita":
 		case "openai": {

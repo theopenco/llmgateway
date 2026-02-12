@@ -30,6 +30,7 @@ import {
 	Brain,
 	Sparkles,
 	PenTool,
+	Sliders,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -138,6 +139,13 @@ function computeCapabilities(
 			icon: MessageSquare,
 			label: "Reasoning",
 			color: "text-orange-500",
+		});
+	}
+	if (provider.reasoningMaxTokens) {
+		capabilities.push({
+			icon: Sliders,
+			label: "Reasoning Budget",
+			color: "text-amber-500",
 		});
 	}
 	if (provider.jsonOutput) {
@@ -379,6 +387,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
 			reasoning: searchParams.get("reasoning") === "true",
+			reasoningBudget: searchParams.get("reasoningBudget") === "true",
 			jsonOutput: searchParams.get("jsonOutput") === "true",
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
@@ -601,6 +610,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			if (
 				filters.capabilities.reasoning &&
 				!model.providerDetails.some((p) => p.provider.reasoning)
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.reasoningBudget &&
+				!model.providerDetails.some((p) => p.provider.reasoningMaxTokens)
 			) {
 				return false;
 			}
@@ -1057,6 +1072,13 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				color: "text-orange-500",
 			});
 		}
+		if (provider.reasoningMaxTokens) {
+			capabilities.push({
+				icon: Sliders,
+				label: "Reasoning Budget",
+				color: "text-amber-500",
+			});
+		}
 		if (provider.jsonOutput) {
 			capabilities.push({
 				icon: Braces,
@@ -1097,6 +1119,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				vision: false,
 				tools: false,
 				reasoning: false,
+				reasoningBudget: false,
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				imageGeneration: false,
@@ -1119,6 +1142,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			vision: undefined,
 			tools: undefined,
 			reasoning: undefined,
+			reasoningBudget: undefined,
 			jsonOutput: undefined,
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
@@ -1246,6 +1270,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 									label: "Reasoning",
 									icon: MessageSquare,
 									color: "text-orange-500",
+								},
+								{
+									key: "reasoningBudget",
+									label: "Reasoning Budget",
+									icon: Sliders,
+									color: "text-amber-500",
 								},
 								{
 									key: "jsonOutput",

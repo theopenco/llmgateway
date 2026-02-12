@@ -2,6 +2,7 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
+import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -322,15 +323,24 @@ export function parseProviderResponse(
 			}
 
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
-			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
+			let rawCandidates = json.usageMetadata?.candidatesTokenCount ?? null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
 			// Extract cached tokens from Google's implicit caching
 			cachedTokens = json.usageMetadata?.cachedContentTokenCount || null;
-			// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
-			totalTokens = null;
+
+			// Adjust for inconsistent Google API behavior where
+			// candidatesTokenCount may already include thoughtsTokenCount
+			if (rawCandidates !== null) {
+				rawCandidates = adjustGoogleCandidateTokens(
+					rawCandidates,
+					reasoningTokens,
+					promptTokens,
+					json.usageMetadata?.totalTokenCount,
+				);
+			}
 
 			// If candidatesTokenCount is missing, estimate it from the content or set to 0
-			if (completionTokens === null) {
+			if (rawCandidates === null) {
 				if (content) {
 					const estimation = estimateTokens(
 						usedProvider,
@@ -339,17 +349,19 @@ export function parseProviderResponse(
 						null,
 						null,
 					);
-					completionTokens = estimation.calculatedCompletionTokens;
+					rawCandidates = estimation.calculatedCompletionTokens ?? 0;
 				} else {
 					// No content means 0 completion tokens (e.g., MAX_TOKENS with only reasoning)
-					completionTokens = 0;
+					rawCandidates = 0;
 				}
 			}
 
-			// Calculate totalTokens to include reasoning tokens for Google models
+			// completionTokens includes reasoning for correct totals
+			completionTokens = rawCandidates + (reasoningTokens || 0);
+
+			// Calculate totalTokens
 			if (promptTokens !== null) {
-				totalTokens =
-					promptTokens + (completionTokens || 0) + (reasoningTokens || 0);
+				totalTokens = promptTokens + (completionTokens || 0);
 			}
 			break;
 		}
