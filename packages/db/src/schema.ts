@@ -483,6 +483,15 @@ export const log = pgTable(
 				price?: number;
 				priority?: number;
 			}>;
+			originalProvider?: string;
+			originalProviderUptime?: number;
+			noFallback?: boolean;
+			routing?: Array<{
+				provider: string;
+				model: string;
+				status_code: number;
+				error_type: string;
+			}>;
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),

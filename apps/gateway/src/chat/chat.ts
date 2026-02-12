@@ -1455,10 +1455,12 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if the model supports reasoning
-	let supportsReasoning = modelInfo.providers.some(
-		(provider) => (provider as ProviderModelMapping).reasoning === true,
+	// Check if the selected provider supports reasoning (from specific mapping, not any)
+	const selectedProviderMapping = modelInfo.providers.find(
+		(p) => p.providerId === usedProvider && p.modelName === usedModel,
 	);
+	let supportsReasoning =
+		(selectedProviderMapping as ProviderModelMapping)?.reasoning === true;
 
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
@@ -2248,6 +2250,8 @@ chat.openapi(completions, async (c) => {
 						presence_penalty = ctx.presence_penalty;
 					} catch {
 						failedProviderIds.add(nextProvider.providerId);
+						// Don't consume a retry slot for context-resolution failures
+						retryAttempt--;
 						continue;
 					}
 				}
@@ -4710,6 +4714,8 @@ chat.openapi(completions, async (c) => {
 				presence_penalty = ctx.presence_penalty;
 			} catch {
 				failedProviderIds.add(nextProvider.providerId);
+				// Don't consume a retry slot for context-resolution failures
+				retryAttempt--;
 				continue;
 			}
 		}

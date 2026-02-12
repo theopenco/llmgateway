@@ -7,7 +7,7 @@ import {
 	test,
 } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, type Log } from "@llmgateway/db";
 
 import { app } from "./app.js";
 import {
@@ -367,7 +367,7 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(200);
 			const json = await res.json();
 
-			expect(json).toHaveProperty("choices.[0].message.content");
+			expect(json).toHaveProperty(["choices", 0, "message", "content"]);
 			expect(json.choices[0].message.content).toContain("Hello!");
 
 			// Verify DB log entry has correct model info
@@ -746,18 +746,16 @@ describe("fallback and error status code handling", () => {
 			const json = await res.json();
 
 			// Should have a successful response
-			expect(json).toHaveProperty("choices.[0].message.content");
+			expect(json).toHaveProperty(["choices", 0, "message", "content"]);
 
 			// Check metadata includes routing info with failed attempts
 			expect(json).toHaveProperty("metadata");
 			expect(json.metadata).toHaveProperty("used_provider");
-			if (json.metadata.routing) {
-				// If retry happened, routing should contain the failed attempt
-				expect(json.metadata.routing.length).toBeGreaterThanOrEqual(1);
-				expect(json.metadata.routing[0]).toHaveProperty("provider");
-				expect(json.metadata.routing[0]).toHaveProperty("status_code", 500);
-				expect(json.metadata.routing[0]).toHaveProperty("error_type");
-			}
+			expect(json.metadata.routing).toBeDefined();
+			expect(json.metadata.routing.length).toBeGreaterThanOrEqual(1);
+			expect(json.metadata.routing[0]).toHaveProperty("provider");
+			expect(json.metadata.routing[0]).toHaveProperty("status_code", 500);
+			expect(json.metadata.routing[0]).toHaveProperty("error_type");
 
 			// DB log should reflect the final successful provider
 			const logs = await waitForLogs(1);
@@ -765,21 +763,19 @@ describe("fallback and error status code handling", () => {
 
 			// Find the successful log (the last one should be the final attempt)
 			const successLog = logs.find(
-				(l: any) => l.finishReason === "stop" || !l.hasError,
+				(l: Log) => l.finishReason === "stop" || !l.hasError,
 			);
-			if (successLog) {
-				expect(successLog.hasError).toBe(false);
-				// The routing metadata should contain the failed attempts
-				if (successLog.routingMetadata?.routing) {
-					expect(
-						successLog.routingMetadata.routing.length,
-					).toBeGreaterThanOrEqual(1);
-					expect(successLog.routingMetadata.routing[0]).toHaveProperty(
-						"status_code",
-						500,
-					);
-				}
-			}
+			expect(successLog).toBeDefined();
+			expect(successLog!.hasError).toBe(false);
+			// The routing metadata should contain the failed attempts
+			expect(successLog!.routingMetadata?.routing).toBeDefined();
+			expect(
+				successLog!.routingMetadata!.routing!.length,
+			).toBeGreaterThanOrEqual(1);
+			expect(successLog!.routingMetadata!.routing![0]).toHaveProperty(
+				"status_code",
+				500,
+			);
 		});
 
 		test("non-streaming: does not retry when X-No-Fallback is set", async () => {
@@ -884,16 +880,15 @@ describe("fallback and error status code handling", () => {
 			expect(logs.length).toBeGreaterThanOrEqual(1);
 
 			// Verify routing metadata in log shows failed attempt info
-			const logWithRouting = logs.find((l: any) => l.routingMetadata?.routing);
-			if (logWithRouting) {
-				expect(
-					logWithRouting.routingMetadata.routing.length,
-				).toBeGreaterThanOrEqual(1);
-				expect(logWithRouting.routingMetadata.routing[0]).toHaveProperty(
-					"status_code",
-					500,
-				);
-			}
+			const logWithRouting = logs.find((l: Log) => l.routingMetadata?.routing);
+			expect(logWithRouting).toBeDefined();
+			expect(
+				logWithRouting!.routingMetadata!.routing!.length,
+			).toBeGreaterThanOrEqual(1);
+			expect(logWithRouting!.routingMetadata!.routing![0]).toHaveProperty(
+				"status_code",
+				500,
+			);
 		});
 	});
 });

@@ -129,6 +129,9 @@ function extractStatusCodeTrigger(
 
 // Counter for TRIGGER_FAIL_ONCE - tracks how many times a request with this
 // trigger has been received. First request fails with 500, subsequent succeed.
+// NOTE: This is module-level mutable state shared across all tests using this server.
+// Each test that relies on TRIGGER_FAIL_ONCE must call resetFailOnceCounter()
+// in its beforeEach to avoid cross-test interference.
 let failOnceCounter = 0;
 
 export function resetFailOnceCounter() {
@@ -211,6 +214,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	// Check if this request should trigger a specific HTTP status code error
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
 	if (statusTrigger) {
+		// Hono's c.status() expects a narrow StatusCode union type; cast needed for dynamic status codes
 		c.status(statusTrigger.statusCode as any);
 		return c.json(statusTrigger.errorResponse);
 	}

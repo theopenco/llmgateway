@@ -173,10 +173,19 @@ export async function resolveProviderContext(
 		throw new HTTPException(500, { message: "No token" });
 	}
 
-	// --- Check if model supports reasoning ---
-	const supportsReasoning = modelInfo.providers.some(
-		(provider) => (provider as ProviderModelMapping).reasoning === true,
+	// --- Look up the specific provider mapping for the selected provider ---
+	const providerMappingForSelected = modelInfo.providers.find(
+		(p) => p.providerId === usedProvider && p.modelName === usedModel,
 	);
+
+	// --- Check if model supports reasoning (from selected provider, not any) ---
+	const supportsReasoning =
+		(providerMappingForSelected as ProviderModelMapping)?.reasoning === true;
+
+	// --- Image generation check ---
+	const isImageGeneration =
+		(providerMappingForSelected as ProviderModelMapping)?.imageGenerations ===
+		true;
 
 	// --- URL resolution ---
 	const url = getProviderEndpoint(
@@ -191,7 +200,7 @@ export async function resolveProviderContext(
 		options.hasExistingToolCalls,
 		providerKey?.options || undefined,
 		configIndex,
-		false, // isImageGeneration — retry doesn't change image model status
+		isImageGeneration,
 	);
 
 	if (!url) {
@@ -202,14 +211,6 @@ export async function resolveProviderContext(
 
 	const useResponsesApi = url.includes("/responses");
 
-	// --- Image generation check ---
-	const imageGenProviderMapping = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.modelName === usedModel,
-	);
-	const isImageGeneration =
-		(imageGenProviderMapping as ProviderModelMapping)?.imageGenerations ===
-		true;
-
 	// --- Parameter stripping ---
 	// Work with copies of original params to avoid mutation
 	let temperature = originalParams.temperature;
@@ -218,12 +219,8 @@ export async function resolveProviderContext(
 	let frequency_penalty = originalParams.frequency_penalty;
 	let presence_penalty = originalParams.presence_penalty;
 
-	const providerMappingInfo = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.modelName === usedModel,
-	);
-
-	if (providerMappingInfo) {
-		const supported = (providerMappingInfo as ProviderModelMapping)
+	if (providerMappingForSelected) {
+		const supported = (providerMappingForSelected as ProviderModelMapping)
 			.supportedParameters;
 		if (supported && supported.length > 0) {
 			if (temperature !== undefined && !supported.includes("temperature")) {
@@ -258,14 +255,14 @@ export async function resolveProviderContext(
 	}
 
 	// --- max_tokens validation ---
-	if (max_tokens !== undefined && providerMappingInfo) {
+	if (max_tokens !== undefined && providerMappingForSelected) {
 		if (
-			"maxOutput" in providerMappingInfo &&
-			providerMappingInfo.maxOutput !== undefined
+			"maxOutput" in providerMappingForSelected &&
+			providerMappingForSelected.maxOutput !== undefined
 		) {
-			if (max_tokens > providerMappingInfo.maxOutput) {
+			if (max_tokens > providerMappingForSelected.maxOutput) {
 				// Silently cap to max output instead of throwing on retry
-				max_tokens = providerMappingInfo.maxOutput;
+				max_tokens = providerMappingForSelected.maxOutput;
 			}
 		}
 	}
@@ -305,14 +302,14 @@ export async function resolveProviderContext(
 	if (
 		hasMaxTokens(requestBody) &&
 		requestBody.max_tokens !== undefined &&
-		providerMappingInfo
+		providerMappingForSelected
 	) {
 		if (
-			"maxOutput" in providerMappingInfo &&
-			providerMappingInfo.maxOutput !== undefined
+			"maxOutput" in providerMappingForSelected &&
+			providerMappingForSelected.maxOutput !== undefined
 		) {
-			if (requestBody.max_tokens > providerMappingInfo.maxOutput) {
-				requestBody.max_tokens = providerMappingInfo.maxOutput;
+			if (requestBody.max_tokens > providerMappingForSelected.maxOutput) {
+				requestBody.max_tokens = providerMappingForSelected.maxOutput;
 			}
 		}
 	}
