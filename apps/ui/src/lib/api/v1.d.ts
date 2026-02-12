@@ -699,7 +699,16 @@ export interface paths {
                                         latency?: number;
                                         price?: number;
                                     }[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
                                 } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
                             };
                         };
                     };
@@ -869,7 +878,16 @@ export interface paths {
                                         latency?: number;
                                         price?: number;
                                     }[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
                                 } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {

@@ -70,12 +70,24 @@ export interface RoutingMetadata {
 		throughput?: number;
 		price: number;
 		priority?: number;
+		// Populated after retry loop if this provider was attempted and failed
+		failed?: boolean;
+		status_code?: number;
+		error_type?: string;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
 	originalProviderUptime?: number;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
+	// All provider attempts from retry fallback mechanism (including successful)
+	routing?: Array<{
+		provider: string;
+		model: string;
+		status_code: number;
+		error_type: string;
+		succeeded: boolean;
+	}>;
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {

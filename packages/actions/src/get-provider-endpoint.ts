@@ -105,9 +105,9 @@ export function getProviderEndpoint(
 			case "alibaba":
 				// Use different base URL for image generation vs chat completions
 				if (imageGenerations) {
-					url = "https://dashscope-us.aliyuncs.com";
+					url = "https://dashscope-intl.aliyuncs.com";
 				} else {
-					url = "https://dashscope-us.aliyuncs.com/compatible-mode";
+					url = "https://dashscope-intl.aliyuncs.com/compatible-mode";
 				}
 				break;
 			case "nebius":

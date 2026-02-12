@@ -15,6 +15,7 @@ import {
 	Info,
 	Package,
 	Plug,
+	RefreshCw,
 	Sparkles,
 	TriangleAlert,
 	Zap,
@@ -236,6 +237,14 @@ export function LogDetailClient({
 									{log.usedModel}
 								</h1>
 								<StatusIndicator log={log} />
+								{log.retried && (
+									<div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-amber-500/10">
+										<RefreshCw className="h-4 w-4 text-amber-600" />
+										<span className="text-sm font-medium text-amber-600">
+											Retried
+										</span>
+									</div>
+								)}
 							</div>
 							<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
 								<span>
@@ -417,7 +426,22 @@ export function LogDetailClient({
 															key={score.providerId}
 															className="flex items-center justify-between text-xs font-mono"
 														>
-															<span>{score.providerId}</span>
+															<span className="flex items-center gap-1.5">
+																{score.providerId}
+																{score.failed && (
+																	<span className="inline-flex items-center gap-0.5 text-red-500">
+																		<AlertCircle className="h-3 w-3" />
+																		<span>
+																			{score.status_code}
+																			{score.error_type && (
+																				<span className="ml-0.5 text-red-400">
+																					{score.error_type}
+																				</span>
+																			)}
+																		</span>
+																	</span>
+																)}
+															</span>
 															<span className="text-muted-foreground">
 																{score.score.toFixed(2)}
 																{score.uptime !== undefined && (
@@ -430,6 +454,35 @@ export function LogDetailClient({
 																		{score.latency?.toFixed(0)}ms
 																	</span>
 																)}
+															</span>
+														</div>
+													))}
+												</div>
+											</div>
+										)}
+									{log.routingMetadata.routing &&
+										log.routingMetadata.routing.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2">
+													Request Attempts
+												</p>
+												<div className="space-y-1.5">
+													{log.routingMetadata.routing.map((attempt, i) => (
+														<div
+															key={`${attempt.provider}-${i}`}
+															className={`flex items-center justify-between text-xs font-mono ${attempt.succeeded ? "text-green-600" : "text-red-500"}`}
+														>
+															<span className="flex items-center gap-1">
+																{attempt.succeeded ? (
+																	<CheckCircle2 className="h-3 w-3" />
+																) : (
+																	<AlertCircle className="h-3 w-3" />
+																)}
+																{attempt.provider}/{attempt.model}
+															</span>
+															<span>
+																{attempt.status_code}{" "}
+																{attempt.succeeded ? "ok" : attempt.error_type}
 															</span>
 														</div>
 													))}
@@ -842,6 +895,20 @@ export function LogDetailClient({
 									{log.errorDetails.responseText}
 								</pre>
 							</div>
+							{log.retried && log.retriedByLogId && (
+								<div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm">
+									<RefreshCw className="h-4 w-4 text-amber-600" />
+									<span className="text-amber-700">
+										This request was retried and succeeded.
+									</span>
+									<Link
+										href={`/dashboard/${orgId}/${projectId}/activity/${log.retriedByLogId}`}
+										className="text-amber-600 underline hover:text-amber-800 ml-auto"
+									>
+										View successful request
+									</Link>
+								</div>
+							)}
 						</div>
 					</Section>
 				)}
