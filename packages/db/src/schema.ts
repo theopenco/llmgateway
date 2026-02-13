@@ -441,6 +441,7 @@ export const log = pgTable(
 		frequencyPenalty: real(),
 		presencePenalty: real(),
 		reasoningEffort: text(),
+		reasoningMaxTokens: integer(),
 		effort: text(),
 		responseFormat: json(),
 		hasError: boolean().default(false),
@@ -482,6 +483,19 @@ export const log = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				failed?: boolean;
+				status_code?: number;
+				error_type?: string;
+			}>;
+			originalProvider?: string;
+			originalProviderUptime?: number;
+			noFallback?: boolean;
+			routing?: Array<{
+				provider: string;
+				model: string;
+				status_code: number;
+				error_type: string;
+				succeeded: boolean;
 			}>;
 		}>(),
 		processedAt: timestamp(),
@@ -506,6 +520,8 @@ export const log = pgTable(
 				healingMethod?: string;
 			};
 		}>(),
+		retried: boolean().default(false),
+		retriedByLogId: text(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -759,6 +775,7 @@ export const modelProviderMapping = pgTable(
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
 		reasoning: boolean(),
+		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
 		tools: boolean(),
 		jsonOutput: boolean().default(false).notNull(),

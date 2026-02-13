@@ -59,6 +59,7 @@ const logSchema = z.object({
 	frequencyPenalty: z.number().nullable(),
 	presencePenalty: z.number().nullable(),
 	reasoningEffort: z.string().nullable(),
+	reasoningMaxTokens: z.number().nullable(),
 	responseFormat: z.any().nullable(),
 	tools: tools.nullable(),
 	toolChoice: toolChoice.nullable(),
@@ -97,9 +98,22 @@ const logSchema = z.object({
 					}),
 				)
 				.optional(),
+			routing: z
+				.array(
+					z.object({
+						provider: z.string(),
+						model: z.string(),
+						status_code: z.number(),
+						error_type: z.string(),
+						succeeded: z.boolean(),
+					}),
+				)
+				.optional(),
 		})
 		.nullable()
 		.optional(),
+	retried: z.boolean().nullable().optional(),
+	retriedByLogId: z.string().nullable().optional(),
 });
 
 // GET /logs/:id - Fetch a single log by ID

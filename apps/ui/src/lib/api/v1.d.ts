@@ -623,6 +623,7 @@ export interface paths {
                                 frequencyPenalty: number | null;
                                 presencePenalty: number | null;
                                 reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
                                 responseFormat?: unknown;
                                 tools: ({
                                     /** @enum {string} */
@@ -698,7 +699,16 @@ export interface paths {
                                         latency?: number;
                                         price?: number;
                                     }[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
                                 } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
                             };
                         };
                     };
@@ -792,6 +802,7 @@ export interface paths {
                                 frequencyPenalty: number | null;
                                 presencePenalty: number | null;
                                 reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
                                 responseFormat?: unknown;
                                 tools: ({
                                     /** @enum {string} */
@@ -867,7 +878,16 @@ export interface paths {
                                         latency?: number;
                                         price?: number;
                                     }[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
                                 } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {
@@ -1120,7 +1140,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1d" | "7d";
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                 };
                 header?: never;
                 path: {
@@ -1149,7 +1169,7 @@ export interface paths {
                                 status: string | null;
                             };
                             /** @enum {string} */
-                            window: "1d" | "7d";
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             startDate: string;
                             endDate: string;
                             totalRequests: number;
@@ -1164,6 +1184,7 @@ export interface paths {
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
                             mostUsedModelCost: number;
+                            discountSavings: number;
                         };
                     };
                 };
@@ -1356,6 +1377,150 @@ export interface paths {
                     };
                 };
                 /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            project: {
+                                id: string;
+                                name: string;
+                                mode: string;
+                                status: string | null;
+                                cachingEnabled: boolean;
+                                createdAt: string;
+                            };
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            startDate: string;
+                            endDate: string;
+                            totalRequests: number;
+                            totalTokens: number;
+                            totalCost: number;
+                            inputTokens: number;
+                            inputCost: number;
+                            outputTokens: number;
+                            outputCost: number;
+                            cachedTokens: number;
+                            cachedCost: number;
+                            mostUsedModel: string | null;
+                            mostUsedProvider: string | null;
+                            mostUsedModelCost: number;
+                            discountSavings: number;
+                        };
+                    };
+                };
+                /** @description Project not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project logs. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            logs: {
+                                id: string;
+                                createdAt: string;
+                                duration: number;
+                                usedModel: string;
+                                usedProvider: string;
+                                totalTokens: string | null;
+                                cost: number | null;
+                                hasError: boolean | null;
+                                unifiedFinishReason: string | null;
+                                cached: boolean | null;
+                                cachedTokens: string | null;
+                                source: string | null;
+                                content: string | null;
+                                usedMode: string;
+                                discount: number | null;
+                            }[];
+                            pagination: {
+                                nextCursor: string | null;
+                                hasMore: boolean;
+                                limit: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Project not found. */
                 404: {
                     headers: {
                         [name: string]: unknown;

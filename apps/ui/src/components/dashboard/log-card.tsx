@@ -15,7 +15,9 @@ import {
 	Link as LinkIcon,
 	ExternalLink,
 	Plug,
+	RefreshCw,
 	Sparkles,
+	TrendingDown,
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -122,7 +124,7 @@ export function LogCard({
 			<div
 				className={`flex items-start gap-4 p-4 ${isExpanded ? "border-b" : ""}`}
 			>
-				<div className={`mt-0.5 rounded-full p-1.5 ${bgColor}`}>
+				<div className={`mt-0.5 rounded-full p-1.5 ${bgColor} shrink-0`}>
 					<StatusIcon className={`h-5 w-5 ${color}`} />
 				</div>
 				<div className="flex-1 space-y-1 min-w-0">
@@ -156,26 +158,36 @@ export function LogCard({
 									</TooltipProvider>
 								)}
 						</div>
-						<Badge
-							variant={
-								log.hasError
-									? "destructive"
-									: log.unifiedFinishReason === "content_filter"
+						<div className="flex items-center gap-1.5 flex-shrink-0">
+							{log.retried && (
+								<Badge
+									variant="outline"
+									className="gap-1 text-amber-600 border-amber-300 bg-amber-50"
+								>
+									<RefreshCw className="h-3 w-3" />
+									Retried
+								</Badge>
+							)}
+							<Badge
+								variant={
+									log.hasError
 										? "destructive"
-										: "default"
-							}
-							className="flex-shrink-0"
-						>
-							{log.unifiedFinishReason}
-						</Badge>
+										: log.unifiedFinishReason === "content_filter"
+											? "destructive"
+											: "default"
+								}
+							>
+								{log.unifiedFinishReason}
+							</Badge>
+						</div>
 					</div>
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1">
-							<Package className="h-3.5 w-3.5" />
-							<span>{log.usedModel}</span>
+							<Package className="h-3.5 w-3.5 shrink-0" />
+							<span className="truncate">{log.usedModel}</span>
 						</div>
 						<div className="flex items-center gap-1">
-							<Zap className="h-3.5 w-3.5" />
+							<Zap className="h-3.5 w-3.5 shrink-0" />
 							<span>
 								{log.cached
 									? "Fully cached"
@@ -185,7 +197,7 @@ export function LogCard({
 							</span>
 						</div>
 						<div className="flex items-center gap-1">
-							<Clock className="h-3.5 w-3.5" />
+							<Clock className="h-3.5 w-3.5 shrink-0" />
 							<span>
 								{log.totalTokens} tokens
 								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
@@ -194,14 +206,14 @@ export function LogCard({
 							</span>
 						</div>
 						<div className="flex items-center gap-1">
-							<Clock className="h-3.5 w-3.5" />
+							<Clock className="h-3.5 w-3.5 shrink-0" />
 							<span>{formatDuration(log.duration ?? 0)}</span>
 						</div>
 						<TooltipProvider>
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<div className="flex items-center gap-1">
-										<Coins className="h-3.5 w-3.5" />
+										<Coins className="h-3.5 w-3.5 shrink-0" />
 										<span>
 											{log.cost
 												? `$${log.cost.toFixed(6)}`
@@ -221,15 +233,21 @@ export function LogCard({
 								</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
+						{log.discount && log.discount !== 1 && (
+							<div className="flex items-center gap-1 text-emerald-600">
+								<TrendingDown className="h-3.5 w-3.5 shrink-0" />
+								<span>{(log.discount * 100).toFixed(0)}% off</span>
+							</div>
+						)}
 						{log.source && (
 							<div className="flex items-center gap-1">
-								<LinkIcon className="h-3.5 w-3.5" />
+								<LinkIcon className="h-3.5 w-3.5 shrink-0" />
 								<span>{log.source}</span>
 							</div>
 						)}
 						{log.plugins && log.plugins.length > 0 && (
 							<div className="flex items-center gap-1">
-								<Plug className="h-3.5 w-3.5" />
+								<Plug className="h-3.5 w-3.5 shrink-0" />
 								<span>
 									{log.plugins.length} plugin{log.plugins.length > 1 ? "s" : ""}
 								</span>
@@ -238,7 +256,7 @@ export function LogCard({
 						<span className="ml-auto">{formattedTime}</span>
 					</div>
 				</div>
-				<div className="flex items-center gap-1">
+				<div className="flex items-center gap-1 shrink-0">
 					{orgId && projectId && log.id && (
 						<Button asChild variant="ghost" size="sm" className="h-8 w-8 p-0">
 							<Link
@@ -336,8 +354,21 @@ export function LogCard({
 																key={score.providerId}
 																className="flex justify-between items-center"
 															>
-																<span className="font-mono">
+																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.failed && (
+																		<span className="inline-flex items-center gap-0.5 text-red-500">
+																			<AlertCircle className="h-3 w-3" />
+																			<span>
+																				{score.status_code}
+																				{score.error_type && (
+																					<span className="ml-0.5 text-red-400">
+																						{score.error_type}
+																					</span>
+																				)}
+																			</span>
+																		</span>
+																	)}
 																</span>
 																<span className="text-muted-foreground">
 																	{score.score.toFixed(2)}
@@ -367,6 +398,37 @@ export function LogCard({
 																				p:{score.priority}
 																			</span>
 																		)}
+																</span>
+															</div>
+														))}
+													</div>
+												</div>
+											)}
+										{log.routingMetadata.routing &&
+											log.routingMetadata.routing.length > 0 && (
+												<div className="pt-1 border-t border-dashed">
+													<div className="text-muted-foreground mb-1">
+														Request Attempts
+													</div>
+													<div className="space-y-1">
+														{log.routingMetadata.routing.map((attempt, i) => (
+															<div
+																key={`${attempt.provider}-${i}`}
+																className={`flex justify-between items-center ${attempt.succeeded ? "text-green-600" : "text-red-500"}`}
+															>
+																<span className="font-mono flex items-center gap-1">
+																	{attempt.succeeded ? (
+																		<CheckCircle2 className="h-3 w-3" />
+																	) : (
+																		<AlertCircle className="h-3 w-3" />
+																	)}
+																	{attempt.provider}/{attempt.model}
+																</span>
+																<span>
+																	{attempt.status_code}{" "}
+																	{attempt.succeeded
+																		? "ok"
+																		: attempt.error_type}
 																</span>
 															</div>
 														))}
@@ -728,6 +790,24 @@ export function LogCard({
 									</Tooltip>
 									<span>{log.reasoningEffort || "-"}</span>
 								</div>
+								{log.reasoningMaxTokens && (
+									<div className="flex items-center justify-between gap-2">
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground">
+													Reasoning Budget
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs">
+													Exact token budget allocated for reasoning (max_tokens
+													in reasoning config)
+												</p>
+											</TooltipContent>
+										</Tooltip>
+										<span>{log.reasoningMaxTokens.toLocaleString()}</span>
+									</div>
+								)}
 								{log.effort && (
 									<div className="flex items-center justify-between gap-2">
 										<Tooltip>
@@ -957,6 +1037,20 @@ export function LogCard({
 									{log.errorDetails.responseText}
 								</div>
 							</div>
+							{log.retried && log.retriedByLogId && orgId && projectId && (
+								<div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+									<RefreshCw className="h-4 w-4 text-amber-600" />
+									<span className="text-amber-800">
+										This request was retried and succeeded.
+									</span>
+									<Link
+										href={`/dashboard/${orgId}/${projectId}/activity/${log.retriedByLogId}`}
+										className="text-amber-600 underline hover:text-amber-800 ml-auto"
+									>
+										View successful request
+									</Link>
+								</div>
+							)}
 						</div>
 					)}
 					<div className="space-y-2">

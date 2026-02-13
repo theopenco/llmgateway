@@ -138,6 +138,7 @@ export default function ChatPageClient({
 	);
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
+	const errorOccurredRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
 	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
 	const shouldClearMessagesRef = useRef(false);
@@ -145,6 +146,7 @@ export default function ChatPageClient({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
 				setError(msg);
 				toast.error(msg);
@@ -169,6 +171,12 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
+
+				// If an error already occurred during streaming, skip saving the response
+				if (errorOccurredRef.current) {
+					errorOccurredRef.current = false;
+					return;
+				}
 
 				// Wait for chatId to be available (handleUserMessage might still be running)
 				let chatId = chatIdRef.current;
@@ -627,6 +635,7 @@ export default function ChatPageClient({
 
 		setError(null);
 		setIsLoading(true);
+		errorOccurredRef.current = false;
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {

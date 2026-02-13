@@ -52,6 +52,92 @@ function extractTimeoutDelay(content: string): number | null {
 	return null;
 }
 
+// Helper to extract a specific HTTP status code from message content
+// e.g., "TRIGGER_STATUS_429" -> { statusCode: 429, errorResponse: {...} }
+function extractStatusCodeTrigger(
+	content: string,
+): { statusCode: number; errorResponse: object } | null {
+	const match = content.match(/TRIGGER_STATUS_(\d{3})/);
+	if (!match) {
+		return null;
+	}
+	const statusCode = parseInt(match[1], 10);
+
+	const errorResponses: Record<number, object> = {
+		429: {
+			error: {
+				message: "Rate limit exceeded. Please retry after 1 second.",
+				type: "rate_limit_error",
+				param: null,
+				code: "rate_limit_exceeded",
+			},
+		},
+		401: {
+			error: {
+				message: "Incorrect API key provided.",
+				type: "authentication_error",
+				param: null,
+				code: "invalid_api_key",
+			},
+		},
+		403: {
+			error: {
+				message: "You do not have access to this resource.",
+				type: "permission_error",
+				param: null,
+				code: "forbidden",
+			},
+		},
+		404: {
+			error: {
+				message: "The model 'nonexistent-model' does not exist.",
+				type: "invalid_request_error",
+				param: "model",
+				code: "model_not_found",
+			},
+		},
+		400: {
+			error: {
+				message: "Invalid request: malformed input.",
+				type: "invalid_request_error",
+				param: null,
+				code: "invalid_request",
+			},
+		},
+		503: {
+			error: {
+				message: "The server is temporarily unavailable.",
+				type: "server_error",
+				param: null,
+				code: "service_unavailable",
+			},
+		},
+	};
+
+	return {
+		statusCode,
+		errorResponse: errorResponses[statusCode] || {
+			error: {
+				message: `Mock error with status ${statusCode}`,
+				type: "server_error",
+				param: null,
+				code: `error_${statusCode}`,
+			},
+		},
+	};
+}
+
+// Counter for TRIGGER_FAIL_ONCE - tracks how many times a request with this
+// trigger has been received. First request fails with 500, subsequent succeed.
+// NOTE: This is module-level mutable state shared across all tests using this server.
+// Each test that relies on TRIGGER_FAIL_ONCE must call resetFailOnceCounter()
+// in its beforeEach to avoid cross-test interference.
+let failOnceCounter = 0;
+
+export function resetFailOnceCounter() {
+	failOnceCounter = 0;
+}
+
 // Helper to delay response
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => {
@@ -124,6 +210,31 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	// Get the user's message to include in the response
 	const userMessage =
 		body.messages.find((msg: any) => msg.role === "user")?.content || "";
+
+	// Check if this request should trigger a specific HTTP status code error
+	const statusTrigger = extractStatusCodeTrigger(userMessage);
+	if (statusTrigger) {
+		// Hono's c.status() expects a narrow StatusCode union type; cast needed for dynamic status codes
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	// Check if this request should fail on the first attempt but succeed on retry
+	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					message: "Temporary server error (will succeed on retry)",
+					type: "server_error",
+					param: null,
+					code: "internal_server_error",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	}
 
 	// Check if this request should trigger a timeout (delay response)
 	const timeoutDelay = extractTimeoutDelay(userMessage);

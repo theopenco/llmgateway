@@ -6,7 +6,9 @@ import {
 	Hash,
 	Loader2,
 	Server,
+	TrendingDown,
 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,24 @@ import {
 	type TokenWindow,
 } from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
+
+const validWindows = new Set<TokenWindow>([
+	"1h",
+	"4h",
+	"12h",
+	"1d",
+	"7d",
+	"30d",
+	"90d",
+	"365d",
+]);
+
+function parseWindow(value: string | null): TokenWindow {
+	if (value && validWindows.has(value as TokenWindow)) {
+		return value as TokenWindow;
+	}
+	return "1d";
+}
 
 function formatCompactNumber(value: number): string {
 	if (value >= 1_000_000_000) {
@@ -89,9 +109,13 @@ function MetricCard({
 }
 
 export function OrgMetricsSection({ orgId }: { orgId: string }) {
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pathname = usePathname();
+
+	const window = parseWindow(searchParams.get("window"));
 	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [window, setWindow] = useState<TokenWindow>("1d");
 
 	const loadMetrics = useCallback(
 		async (w: TokenWindow) => {
@@ -103,14 +127,24 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 		[orgId],
 	);
 
-	// Load metrics automatically on mount
+	// Load metrics automatically on mount and when window changes
 	useEffect(() => {
 		loadMetrics(window);
 	}, [loadMetrics, window]);
 
-	const handleWindowChange = useCallback((w: TokenWindow) => {
-		setWindow(w);
-	}, []);
+	const handleWindowChange = useCallback(
+		(w: TokenWindow) => {
+			const params = new URLSearchParams(searchParams.toString());
+			if (w === "1d") {
+				params.delete("window");
+			} else {
+				params.set("window", w);
+			}
+			const query = params.toString();
+			router.push(query ? `${pathname}?${query}` : pathname);
+		},
+		[searchParams, router, pathname],
+	);
 
 	if (loading) {
 		return (
@@ -135,7 +169,17 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 		);
 	}
 
-	const windowLabel = window === "7d" ? "Last 7 days" : "Last 24 hours";
+	const windowLabels: Record<TokenWindow, string> = {
+		"1h": "Last 1 hour",
+		"4h": "Last 4 hours",
+		"12h": "Last 12 hours",
+		"1d": "Last 24 hours",
+		"7d": "Last 7 days",
+		"30d": "Last 30 days",
+		"90d": "Last 90 days",
+		"365d": "Last 365 days",
+	};
+	const windowLabel = windowLabels[window];
 
 	return (
 		<section className="space-y-4">
@@ -149,18 +193,60 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 				</div>
 				<div className="flex items-center gap-1">
 					<Button
+						variant={window === "1h" ? "default" : "outline"}
+						size="sm"
+						onClick={() => handleWindowChange("1h")}
+					>
+						1h
+					</Button>
+					<Button
+						variant={window === "4h" ? "default" : "outline"}
+						size="sm"
+						onClick={() => handleWindowChange("4h")}
+					>
+						4h
+					</Button>
+					<Button
+						variant={window === "12h" ? "default" : "outline"}
+						size="sm"
+						onClick={() => handleWindowChange("12h")}
+					>
+						12h
+					</Button>
+					<Button
 						variant={window === "1d" ? "default" : "outline"}
 						size="sm"
 						onClick={() => handleWindowChange("1d")}
 					>
-						Last 24h
+						24h
 					</Button>
 					<Button
 						variant={window === "7d" ? "default" : "outline"}
 						size="sm"
 						onClick={() => handleWindowChange("7d")}
 					>
-						Last 7d
+						7d
+					</Button>
+					<Button
+						variant={window === "30d" ? "default" : "outline"}
+						size="sm"
+						onClick={() => handleWindowChange("30d")}
+					>
+						30d
+					</Button>
+					<Button
+						variant={window === "90d" ? "default" : "outline"}
+						size="sm"
+						onClick={() => handleWindowChange("90d")}
+					>
+						90d
+					</Button>
+					<Button
+						variant={window === "365d" ? "default" : "outline"}
+						size="sm"
+						onClick={() => handleWindowChange("365d")}
+					>
+						365d
 					</Button>
 				</div>
 			</div>
@@ -185,6 +271,13 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 					subtitle="Sum of metered usage costs (USD)"
 					icon={<CircleDollarSign className="h-4 w-4" />}
 					accent="purple"
+				/>
+				<MetricCard
+					label="Total Savings"
+					value={currencyFormatter.format(safeNumber(metrics.discountSavings))}
+					subtitle="Discount savings from applied discounts"
+					icon={<TrendingDown className="h-4 w-4" />}
+					accent="green"
 				/>
 				<MetricCard
 					label="Input Tokens & Cost"

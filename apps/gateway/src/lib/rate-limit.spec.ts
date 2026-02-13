@@ -124,6 +124,66 @@ describe("Rate Limiting", () => {
 			expect(redis.expire).toHaveBeenCalled();
 		});
 
+		it("should use a unique sorted-set member per request", async () => {
+			const modelDefinition = { free: true };
+			const now = 1_700_000_000_000;
+			const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+			vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue({
+				id: "org-1",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: "Test Org",
+				billingEmail: "test@example.com",
+				billingCompany: null,
+				billingAddress: null,
+				billingTaxId: null,
+				billingNotes: null,
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
+				credits: "0",
+				autoTopUpEnabled: false,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				plan: "free" as const,
+				planExpiresAt: null,
+				subscriptionCancelled: false,
+				trialStartDate: null,
+				trialEndDate: null,
+				isTrialActive: false,
+				retentionLevel: "retain" as const,
+				status: "active" as const,
+				referralEarnings: "0",
+				paymentFailureCount: 0,
+				lastPaymentFailureAt: null,
+				isPersonal: false,
+				devPlan: "none" as const,
+				devPlanCreditsUsed: "0",
+				devPlanCreditsLimit: "0",
+				devPlanBillingCycleStart: null,
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: false,
+				devPlanExpiresAt: null,
+				devPlanAllowAllModels: false,
+			});
+			vi.mocked(redis.zcard).mockResolvedValue(0);
+
+			try {
+				await checkFreeModelRateLimit(organizationId, model, modelDefinition);
+
+				expect(redis.zadd).toHaveBeenCalledOnce();
+				const zaddArgs = vi.mocked(redis.zadd).mock.calls[0];
+				expect(zaddArgs[0]).toBe(
+					`rate_limit:free_model:${organizationId}:${model}`,
+				);
+				expect(zaddArgs[1]).toBe(now);
+				expect(zaddArgs[2]).toMatch(new RegExp(`^${now}:`));
+				expect(zaddArgs[2]).not.toBe(now.toString());
+			} finally {
+				dateNowSpy.mockRestore();
+			}
+		});
+
 		it("should apply elevated rate limits for orgs with credits > 0", async () => {
 			const modelDefinition = { free: true };
 
