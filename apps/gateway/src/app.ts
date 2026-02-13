@@ -127,6 +127,42 @@ app.onError((error, c) => {
 		);
 	}
 
+	// Handle timeout errors (from AbortSignal.timeout) - these are expected
+	// operational errors when upstream providers are slow, not application bugs
+	if (error instanceof Error && error.name === "TimeoutError") {
+		logger.warn("Request timeout", {
+			message: error.message,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 504,
+				message: "Gateway Timeout",
+			},
+			504,
+		);
+	}
+
+	// Handle client disconnection (AbortError) - the client closed the
+	// connection before the response was sent. Not an application error.
+	if (error instanceof Error && error.name === "AbortError") {
+		logger.info("Request aborted by client", {
+			message: error.message,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 499,
+				message: "Client Closed Request",
+			},
+			499 as any,
+		);
+	}
+
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
 	logger.error(
 		"Unhandled error",
