@@ -5285,7 +5285,32 @@ chat.openapi(completions, async (c) => {
 
 		if (res && !res.ok) {
 			// Get the error response text
-			const errorResponseText = await res.text();
+			// Body read can throw TimeoutError if the abort signal fires during consumption
+			let errorResponseText: string;
+			try {
+				errorResponseText = await res.text();
+			} catch (bodyError) {
+				if (isTimeoutError(bodyError)) {
+					logger.warn("Timeout reading error response body", {
+						usedProvider,
+						usedModel,
+						status: res.status,
+					});
+					return c.json(
+						{
+							error: {
+								message:
+									"Upstream provider timeout while reading error response",
+								type: "upstream_timeout",
+								param: null,
+								code: "timeout",
+							},
+						},
+						504,
+					);
+				}
+				throw bodyError;
+			}
 
 			// Determine the finish reason first
 			const finishReason = getFinishReasonFromError(
@@ -5556,7 +5581,30 @@ chat.openapi(completions, async (c) => {
 		throw new Error("No provider context after retry loop");
 	}
 
-	const json = await res.json();
+	let json: any;
+	try {
+		json = await res.json();
+	} catch (bodyError) {
+		if (isTimeoutError(bodyError)) {
+			logger.warn("Timeout reading response body", {
+				usedProvider,
+				usedModel,
+				initialRequestedModel,
+			});
+			return c.json(
+				{
+					error: {
+						message: "Upstream provider timeout while reading response body",
+						type: "upstream_timeout",
+						param: null,
+						code: "timeout",
+					},
+				},
+				504,
+			);
+		}
+		throw bodyError;
+	}
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
 	}
