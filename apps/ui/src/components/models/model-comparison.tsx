@@ -235,7 +235,10 @@ function getPricingSummary(
 ): PricingSummary | undefined {
 	const entries = providers
 		.filter(
-			(provider) => provider[field] !== undefined && provider[field] !== null,
+			(provider) =>
+				provider[field] !== undefined &&
+				provider[field] !== null &&
+				provider[field] !== 0,
 		)
 		.map((provider) => {
 			const rawValue = provider[field] as number;
