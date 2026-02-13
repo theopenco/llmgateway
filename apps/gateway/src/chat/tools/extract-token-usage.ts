@@ -107,7 +107,7 @@ export function extractTokenUsage(
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = data.usage.outputTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
-				cachedTokens = cacheReadTokens || null;
+				cachedTokens = cacheReadTokens;
 				totalTokens = data.usage.totalTokens ?? null;
 			}
 			break;
@@ -124,7 +124,7 @@ export function extractTokenUsage(
 				completionTokens = data.usage.output_tokens ?? null;
 				reasoningTokens = data.usage.reasoning_output_tokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
-				cachedTokens = cacheReadTokens || null;
+				cachedTokens = cacheReadTokens;
 				totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
 			}
 			break;

@@ -59,16 +59,16 @@ export function parseProviderResponse(
 
 			// Extract usage tokens (including cached tokens for prompt caching)
 			if (json.usage) {
-				const inputTokens = json.usage.inputTokens || 0;
-				const cacheReadTokens = json.usage.cacheReadInputTokens || 0;
-				const cacheWriteTokens = json.usage.cacheWriteInputTokens || 0;
+				const inputTokens = json.usage.inputTokens ?? 0;
+				const cacheReadTokens = json.usage.cacheReadInputTokens ?? 0;
+				const cacheWriteTokens = json.usage.cacheWriteInputTokens ?? 0;
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
-				completionTokens = json.usage.outputTokens || null;
-				totalTokens = json.usage.totalTokens || null;
+				completionTokens = json.usage.outputTokens ?? null;
+				totalTokens = json.usage.totalTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
-				cachedTokens = cacheReadTokens || null;
+				cachedTokens = cacheReadTokens;
 			}
 
 			// Extract tool calls if present
@@ -147,16 +147,16 @@ export function parseProviderResponse(
 			// For Anthropic: input_tokens are the non-cached tokens
 			// We need to add cache_creation_input_tokens to get total input tokens
 			if (json.usage) {
-				const inputTokens = json.usage.input_tokens || 0;
-				const cacheCreationTokens = json.usage.cache_creation_input_tokens || 0;
-				const cacheReadTokens = json.usage.cache_read_input_tokens || 0;
+				const inputTokens = json.usage.input_tokens ?? 0;
+				const cacheCreationTokens = json.usage.cache_creation_input_tokens ?? 0;
+				const cacheReadTokens = json.usage.cache_read_input_tokens ?? 0;
 
 				// Total prompt tokens = non-cached + cache creation + cache read
 				promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
-				completionTokens = json.usage.output_tokens || null;
-				reasoningTokens = json.usage.reasoning_output_tokens || null;
+				completionTokens = json.usage.output_tokens ?? null;
+				reasoningTokens = json.usage.reasoning_output_tokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
-				cachedTokens = cacheReadTokens || null;
+				cachedTokens = cacheReadTokens;
 				totalTokens =
 					promptTokens && completionTokens
 						? promptTokens + completionTokens
