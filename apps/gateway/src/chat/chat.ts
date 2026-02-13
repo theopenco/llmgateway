@@ -912,6 +912,8 @@ chat.openapi(completions, async (c) => {
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
+		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
+		requestedProvider = undefined;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
