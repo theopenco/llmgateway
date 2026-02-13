@@ -122,100 +122,67 @@ export function LogCard({
 	return (
 		<div className="rounded-lg border bg-card text-card-foreground shadow-sm max-w-full overflow-hidden">
 			<div
-				className={`flex items-start gap-3 p-4 ${isExpanded ? "border-b" : ""}`}
+				className={`flex items-start gap-4 p-4 ${isExpanded ? "border-b" : ""}`}
 			>
 				<div className={`mt-0.5 rounded-full p-1.5 ${bgColor} shrink-0`}>
 					<StatusIcon className={`h-5 w-5 ${color}`} />
 				</div>
-				<div className="flex-1 min-w-0 space-y-2">
-					<div className="flex items-start justify-between gap-2">
-						<div className="flex-1 min-w-0">
-							<div className="flex items-center gap-2 min-w-0">
-								<p className="font-medium break-words max-w-none line-clamp-2">
-									{log.content ||
-										(log.unifiedFinishReason === "tool_calls" && log.toolResults
-											? Array.isArray(log.toolResults)
-												? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
-												: "Tool calls executed"
-											: "---")}
-								</p>
-								{!log.content &&
-									log.unifiedFinishReason !== "tool_calls" &&
-									!log.hasError &&
-									!log.canceled &&
-									!retentionEnabled && (
-										<TooltipProvider>
-											<Tooltip>
-												<TooltipTrigger asChild>
-													<Info className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-												</TooltipTrigger>
-												<TooltipContent>
-													<p>
-														Enable retention in organization policies to store
-														response content
-													</p>
-												</TooltipContent>
-											</Tooltip>
-										</TooltipProvider>
-									)}
-							</div>
-							<div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-								<Badge
-									variant={
-										log.hasError
-											? "destructive"
-											: log.unifiedFinishReason === "content_filter"
-												? "destructive"
-												: "default"
-									}
-								>
-									{log.unifiedFinishReason}
-								</Badge>
-								{log.retried && (
-									<Badge
-										variant="outline"
-										className="gap-1 text-amber-600 border-amber-300 bg-amber-50"
-									>
-										<RefreshCw className="h-3 w-3" />
-										Retried
-									</Badge>
+				<div className="flex-1 space-y-1 min-w-0">
+					<div className="flex items-start justify-between gap-4">
+						<div className="flex items-center gap-2 flex-1 min-w-0">
+							<p className="font-medium break-words max-w-none line-clamp-2">
+								{log.content ||
+									(log.unifiedFinishReason === "tool_calls" && log.toolResults
+										? Array.isArray(log.toolResults)
+											? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
+											: "Tool calls executed"
+										: "---")}
+							</p>
+							{!log.content &&
+								log.unifiedFinishReason !== "tool_calls" &&
+								!log.hasError &&
+								!log.canceled &&
+								!retentionEnabled && (
+									<TooltipProvider>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<Info className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+											</TooltipTrigger>
+											<TooltipContent>
+												<p>
+													Enable retention in organization policies to store
+													response content
+												</p>
+											</TooltipContent>
+										</Tooltip>
+									</TooltipProvider>
 								)}
-							</div>
 						</div>
-						<div className="flex items-center gap-1 shrink-0">
-							{orgId && projectId && log.id && (
-								<Button
-									asChild
-									variant="ghost"
-									size="sm"
-									className="h-8 w-8 p-0"
+						<div className="flex items-center gap-1.5 flex-shrink-0">
+							{log.retried && (
+								<Badge
+									variant="outline"
+									className="gap-1 text-amber-600 border-amber-300 bg-amber-50"
 								>
-									<Link
-										href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
-										prefetch={false}
-									>
-										<ExternalLink className="h-4 w-4" />
-										<span className="sr-only">View details</span>
-									</Link>
-								</Button>
+									<RefreshCw className="h-3 w-3" />
+									Retried
+								</Badge>
 							)}
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-8 w-8 p-0"
-								onClick={toggleExpand}
+							<Badge
+								variant={
+									log.hasError
+										? "destructive"
+										: log.unifiedFinishReason === "content_filter"
+											? "destructive"
+											: "default"
+								}
 							>
-								{isExpanded ? (
-									<ChevronUp className="h-4 w-4" />
-								) : (
-									<ChevronDown className="h-4 w-4" />
-								)}
-								<span className="sr-only">Toggle details</span>
-							</Button>
+								{log.unifiedFinishReason}
+							</Badge>
 						</div>
 					</div>
-					<div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
-						<div className="flex items-center gap-1 col-span-2">
+					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
+						<div className="flex items-center gap-1">
 							<Package className="h-3.5 w-3.5 shrink-0" />
 							<span className="truncate">{log.usedModel}</span>
 						</div>
@@ -286,10 +253,34 @@ export function LogCard({
 								</span>
 							</div>
 						)}
-						<span className="col-span-2 sm:ml-auto text-xs">
-							{formattedTime}
-						</span>
+						<span className="ml-auto">{formattedTime}</span>
 					</div>
+				</div>
+				<div className="flex items-center gap-1 shrink-0">
+					{orgId && projectId && log.id && (
+						<Button asChild variant="ghost" size="sm" className="h-8 w-8 p-0">
+							<Link
+								href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
+								prefetch={false}
+							>
+								<ExternalLink className="h-4 w-4" />
+								<span className="sr-only">View details</span>
+							</Link>
+						</Button>
+					)}
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-8 w-8 p-0"
+						onClick={toggleExpand}
+					>
+						{isExpanded ? (
+							<ChevronUp className="h-4 w-4" />
+						) : (
+							<ChevronDown className="h-4 w-4" />
+						)}
+						<span className="sr-only">Toggle details</span>
+					</Button>
 				</div>
 			</div>
 
