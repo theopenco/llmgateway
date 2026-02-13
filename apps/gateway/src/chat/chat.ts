@@ -5291,16 +5291,93 @@ chat.openapi(completions, async (c) => {
 				errorResponseText = await res.text();
 			} catch (bodyError) {
 				if (isTimeoutError(bodyError)) {
+					const errorMessage =
+						bodyError instanceof Error
+							? bodyError.message
+							: "Timeout reading error response body";
 					logger.warn("Timeout reading error response body", {
 						usedProvider,
 						usedModel,
 						status: res.status,
 					});
+
+					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted,
+						usedModelMapping!,
+						usedProvider!,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						null,
+						requestBody,
+						null,
+						bodyTimeoutPluginIds,
+						undefined,
+					);
+
+					await insertLog({
+						...baseLogEntry,
+						duration: Date.now() - perAttemptStartTime,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: res.status,
+							statusText: "TimeoutError",
+							responseText: errorMessage,
+						},
+						cachedInputCost: null,
+						requestCost: null,
+						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						estimatedCost: false,
+						discount: null,
+						dataStorageCost: "0",
+						cached: false,
+						toolResults: null,
+					});
+
 					return c.json(
 						{
 							error: {
-								message:
-									"Upstream provider timeout while reading error response",
+								message: `Upstream provider timeout: ${errorMessage}`,
 								type: "upstream_timeout",
 								param: null,
 								code: "timeout",
@@ -5586,15 +5663,93 @@ chat.openapi(completions, async (c) => {
 		json = await res.json();
 	} catch (bodyError) {
 		if (isTimeoutError(bodyError)) {
+			const errorMessage =
+				bodyError instanceof Error
+					? bodyError.message
+					: "Timeout reading response body";
 			logger.warn("Timeout reading response body", {
 				usedProvider,
 				usedModel,
 				initialRequestedModel,
 			});
+
+			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+			const baseLogEntry = createLogEntry(
+				requestId,
+				project,
+				apiKey,
+				providerKey?.id,
+				usedModelFormatted!,
+				usedModelMapping,
+				usedProvider,
+				initialRequestedModel,
+				requestedProvider,
+				messages,
+				temperature,
+				max_tokens,
+				top_p,
+				frequency_penalty,
+				presence_penalty,
+				reasoning_effort,
+				reasoning_max_tokens,
+				effort,
+				response_format,
+				tools,
+				tool_choice,
+				source,
+				customHeaders,
+				debugMode,
+				userAgent,
+				image_config,
+				routingMetadata,
+				rawBody,
+				null,
+				requestBody,
+				null,
+				bodyTimeoutPluginIds,
+				undefined,
+			);
+
+			await insertLog({
+				...baseLogEntry,
+				duration: Date.now() - startTime,
+				timeToFirstToken: null,
+				timeToFirstReasoningToken: null,
+				responseSize: 0,
+				content: null,
+				reasoningContent: null,
+				finishReason: "upstream_error",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: true,
+				streamed: false,
+				canceled: false,
+				errorDetails: {
+					statusCode: res.status,
+					statusText: "TimeoutError",
+					responseText: errorMessage,
+				},
+				cachedInputCost: null,
+				requestCost: null,
+				webSearchCost: null,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				estimatedCost: false,
+				discount: null,
+				dataStorageCost: "0",
+				cached: false,
+				toolResults: null,
+			});
+
 			return c.json(
 				{
 					error: {
-						message: "Upstream provider timeout while reading response body",
+						message: `Upstream provider timeout: ${errorMessage}`,
 						type: "upstream_timeout",
 						param: null,
 						code: "timeout",
