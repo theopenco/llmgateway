@@ -558,42 +558,28 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 					sendVerificationEmail: async ({ user, token }) => {
 						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
 
-						const html = `
-<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Verify your email address</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-	<div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-		<h1 style="color: #2563eb; margin-top: 0;">Welcome to LLMGateway!</h1>
-		<p style="font-size: 16px; margin-bottom: 20px;">
-			Please click the link below to verify your email address:
-		</p>
-		<div style="text-align: center; margin: 30px 0;">
-			<a href="${url}" style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 500;">Verify Email</a>
-		</div>
-		<p style="font-size: 14px; color: #666; margin-top: 30px;">
-			If you didn't create an account, you can safely ignore this email.
-		</p>
-		<p style="font-size: 14px; color: #666;">
-			Have feedback? Let us know by replying to this email – we might also have some free credits for you!
-		</p>
-	</div>
-	<div style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
-		<p>LLMGateway - Your LLM API Gateway Platform</p>
-	</div>
-</body>
-</html>
-						`.trim();
+						const text = `Hey${user.name ? ` ${user.name}` : ""}!
+
+Welcome to LLM Gateway — glad to have you here.
+
+First things first, verify your email by clicking the link below:
+
+${url}
+
+Quick question — what made you sign up? We'd love to know what you're building or what caught your eye. Just hit reply and let us know.
+
+Also, if you're interested in free credits to get started, reply to this email and we'll hook you up.
+
+If you didn't create this account, feel free to ignore this.
+
+Cheers,
+The LLM Gateway Team`.trim();
 
 						try {
 							await sendTransactionalEmail({
 								to: user.email,
-								subject: "Verify your email address",
-								html,
+								subject: "Welcome to LLM Gateway — verify your email",
+								text,
 							});
 						} catch (error) {
 							logger.error(
