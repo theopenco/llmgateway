@@ -533,186 +533,186 @@ anthropic.openapi(messages, async (c) => {
 									continue;
 								}
 
+								let chunk: any;
 								try {
-									const chunk = JSON.parse(data);
+									chunk = JSON.parse(data);
+								} catch {
+									// Ignore parsing errors for individual chunks
+									continue;
+								}
 
-									if (!messageId && chunk.id) {
-										messageId = chunk.id;
-										model = chunk.model || anthropicRequest.model;
+								if (!messageId && chunk.id) {
+									messageId = chunk.id;
+									model = chunk.model || anthropicRequest.model;
 
-										// Send message_start event
-										await stream.writeSSE({
-											data: JSON.stringify({
-												type: "message_start",
-												message: {
-													id: messageId,
-													type: "message",
-													role: "assistant",
-													model: model,
-													content: [],
-													stop_reason: null,
-													stop_sequence: null,
-													usage: { input_tokens: 0, output_tokens: 0 },
-												},
-											}),
-											event: "message_start",
-										});
-									}
+									// Send message_start event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_start",
+											message: {
+												id: messageId,
+												type: "message",
+												role: "assistant",
+												model: model,
+												content: [],
+												stop_reason: null,
+												stop_sequence: null,
+												usage: { input_tokens: 0, output_tokens: 0 },
+											},
+										}),
+										event: "message_start",
+									});
+								}
 
-									const choice = chunk.choices?.[0];
-									if (!choice) {
-										continue;
-									}
+								const choice = chunk.choices?.[0];
+								if (!choice) {
+									continue;
+								}
 
-									const delta = choice.delta;
-									if (!delta) {
-										continue;
-									}
+								const delta = choice.delta;
+								if (!delta) {
+									continue;
+								}
 
-									// Handle content delta
-									if (delta.content) {
-										// Find or create a text block
-										if (currentTextBlockIndex === null) {
-											// Look for existing text block (search from end)
-											let lastTextBlockIndex = -1;
-											for (let i = contentBlocks.length - 1; i >= 0; i--) {
-												if (contentBlocks[i].type === "text") {
-													lastTextBlockIndex = i;
-													break;
-												}
-											}
-
-											if (lastTextBlockIndex !== -1) {
-												currentTextBlockIndex = lastTextBlockIndex;
-											} else {
-												// Create new text block
-												currentTextBlockIndex = contentBlocks.length;
-												contentBlocks.push({ type: "text", text: "" });
-												// Send content_block_start event
-												await stream.writeSSE({
-													data: JSON.stringify({
-														type: "content_block_start",
-														index: currentTextBlockIndex,
-														content_block: { type: "text", text: "" },
-													}),
-													event: "content_block_start",
-												});
+								// Handle content delta
+								if (delta.content) {
+									// Find or create a text block
+									if (currentTextBlockIndex === null) {
+										// Look for existing text block (search from end)
+										let lastTextBlockIndex = -1;
+										for (let i = contentBlocks.length - 1; i >= 0; i--) {
+											if (contentBlocks[i].type === "text") {
+												lastTextBlockIndex = i;
+												break;
 											}
 										}
 
-										const textBlock = contentBlocks[currentTextBlockIndex];
-										if (textBlock && textBlock.text !== undefined) {
-											textBlock.text += delta.content;
-										}
-
-										// Send content_block_delta event
-										await stream.writeSSE({
-											data: JSON.stringify({
-												type: "content_block_delta",
-												index: currentTextBlockIndex,
-												delta: { type: "text_delta", text: delta.content },
-											}),
-											event: "content_block_delta",
-										});
-									}
-
-									// Handle tool calls
-									if (delta.tool_calls) {
-										for (const toolCall of delta.tool_calls) {
-											if (toolCall.index === undefined) {
-												continue;
-											}
-
-											let blockIndex = toolCallBlockIndex.get(toolCall.index);
-											if (blockIndex === undefined) {
-												blockIndex = contentBlocks.length;
-												toolCallBlockIndex.set(toolCall.index, blockIndex);
-												const id = toolCall.id || `tool_${toolCall.index}`;
-												const name = toolCall.function?.name || "";
-												contentBlocks.push({
-													type: "tool_use",
-													id,
-													name,
-													input: "",
-												});
-
-												await stream.writeSSE({
-													data: JSON.stringify({
-														type: "content_block_start",
-														index: blockIndex,
-														content_block: {
-															type: "tool_use",
-															id,
-															name,
-															input: {},
-														},
-													}),
-													event: "content_block_start",
-												});
-											}
-
-											if (toolCall.function?.arguments) {
-												const toolBlock = contentBlocks[blockIndex] as {
-													type: "tool_use";
-													id: string;
-													name: string;
-													input: string;
-												};
-												toolBlock.input += toolCall.function.arguments;
-
-												await stream.writeSSE({
-													data: JSON.stringify({
-														type: "content_block_delta",
-														index: blockIndex,
-														delta: {
-															type: "input_json_delta",
-															partial_json: toolCall.function.arguments,
-														},
-													}),
-													event: "content_block_delta",
-												});
-											}
-										}
-									}
-
-									// Handle finish_reason
-									if (choice.finish_reason) {
-										// Send content_block_stop events
-										for (let i = 0; i < contentBlocks.length; i++) {
+										if (lastTextBlockIndex !== -1) {
+											currentTextBlockIndex = lastTextBlockIndex;
+										} else {
+											// Create new text block
+											currentTextBlockIndex = contentBlocks.length;
+											contentBlocks.push({ type: "text", text: "" });
+											// Send content_block_start event
 											await stream.writeSSE({
 												data: JSON.stringify({
-													type: "content_block_stop",
-													index: i,
+													type: "content_block_start",
+													index: currentTextBlockIndex,
+													content_block: { type: "text", text: "" },
 												}),
-												event: "content_block_stop",
+												event: "content_block_start",
+											});
+										}
+									}
+
+									const textBlock = contentBlocks[currentTextBlockIndex];
+									if (textBlock && textBlock.text !== undefined) {
+										textBlock.text += delta.content;
+									}
+
+									// Send content_block_delta event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: currentTextBlockIndex,
+											delta: { type: "text_delta", text: delta.content },
+										}),
+										event: "content_block_delta",
+									});
+								}
+
+								// Handle tool calls
+								if (delta.tool_calls) {
+									for (const toolCall of delta.tool_calls) {
+										if (toolCall.index === undefined) {
+											continue;
+										}
+
+										let blockIndex = toolCallBlockIndex.get(toolCall.index);
+										if (blockIndex === undefined) {
+											blockIndex = contentBlocks.length;
+											toolCallBlockIndex.set(toolCall.index, blockIndex);
+											const id = toolCall.id || `tool_${toolCall.index}`;
+											const name = toolCall.function?.name || "";
+											contentBlocks.push({
+												type: "tool_use",
+												id,
+												name,
+												input: "",
+											});
+
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_start",
+													index: blockIndex,
+													content_block: {
+														type: "tool_use",
+														id,
+														name,
+														input: {},
+													},
+												}),
+												event: "content_block_start",
 											});
 										}
 
-										// Update usage if available
-										if (chunk.usage) {
-											usage = {
-												input_tokens: chunk.usage.prompt_tokens || 0,
-												output_tokens: chunk.usage.completion_tokens || 0,
+										if (toolCall.function?.arguments) {
+											const toolBlock = contentBlocks[blockIndex] as {
+												type: "tool_use";
+												id: string;
+												name: string;
+												input: string;
 											};
-										}
+											toolBlock.input += toolCall.function.arguments;
 
-										// Send message_delta with usage
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_delta",
+													index: blockIndex,
+													delta: {
+														type: "input_json_delta",
+														partial_json: toolCall.function.arguments,
+													},
+												}),
+												event: "content_block_delta",
+											});
+										}
+									}
+								}
+
+								// Handle finish_reason
+								if (choice.finish_reason) {
+									// Send content_block_stop events
+									for (let i = 0; i < contentBlocks.length; i++) {
 										await stream.writeSSE({
 											data: JSON.stringify({
-												type: "message_delta",
-												delta: {
-													stop_reason: determineStopReason(
-														choice.finish_reason,
-													),
-													stop_sequence: null,
-												},
-												usage: usage,
+												type: "content_block_stop",
+												index: i,
 											}),
-											event: "message_delta",
+											event: "content_block_stop",
 										});
 									}
-								} catch {
-									// Ignore parsing errors for individual chunks
+
+									// Update usage if available
+									if (chunk.usage) {
+										usage = {
+											input_tokens: chunk.usage.prompt_tokens || 0,
+											output_tokens: chunk.usage.completion_tokens || 0,
+										};
+									}
+
+									// Send message_delta with usage
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_delta",
+											delta: {
+												stop_reason: determineStopReason(choice.finish_reason),
+												stop_sequence: null,
+											},
+											usage: usage,
+										}),
+										event: "message_delta",
+									});
 								}
 							}
 						}
