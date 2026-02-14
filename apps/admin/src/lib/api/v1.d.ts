@@ -280,6 +280,7 @@ export interface paths {
                                 accounts: {
                                     providerId: string;
                                 }[];
+                                hasPasskeys: boolean;
                             };
                         };
                     };
@@ -368,6 +369,7 @@ export interface paths {
                                 accounts: {
                                     providerId: string;
                                 }[];
+                                hasPasskeys: boolean;
                             };
                             message: string;
                         };
@@ -554,6 +556,7 @@ export interface paths {
                                 accounts: {
                                     providerId: string;
                                 }[];
+                                hasPasskeys: boolean;
                             };
                             message: string;
                         };

@@ -37,9 +37,13 @@ export function AccountClient() {
 	const [name, setName] = useState(user?.name || "");
 	const [email, setEmail] = useState(user?.email || "");
 
-	const hasSocialAccount = user?.accounts?.some(
-		(a) => a.providerId !== "credential",
+	const hasCredentialAccount = user?.accounts?.some(
+		(a) => a.providerId === "credential",
 	);
+	const emailEditable = !!hasCredentialAccount;
+
+	const socialProviders =
+		user?.accounts?.filter((a) => a.providerId !== "credential") ?? [];
 
 	const updateUserMutation = useUpdateUser();
 	const deleteAccountMutation = useDeleteAccount();
@@ -49,7 +53,7 @@ export function AccountClient() {
 			await updateUserMutation.mutateAsync({
 				body: {
 					name: name || undefined,
-					email: hasSocialAccount ? undefined : email || undefined,
+					email: emailEditable ? email || undefined : undefined,
 				},
 			});
 
@@ -120,20 +124,21 @@ export function AccountClient() {
 									id="email"
 									value={email}
 									onChange={(e) => setEmail(e.target.value)}
-									disabled={!!hasSocialAccount}
+									disabled={!emailEditable}
 								/>
-								{hasSocialAccount && (
-									<div className="flex items-center gap-2">
+								{!emailEditable && (
+									<div className="flex items-center gap-2 flex-wrap">
 										<p className="text-muted-foreground text-sm">
 											Signed in via
 										</p>
-										{user?.accounts
-											?.filter((a) => a.providerId !== "credential")
-											.map((a) => (
-												<Badge key={a.providerId} variant="secondary">
-													{formatProviderName(a.providerId)}
-												</Badge>
-											))}
+										{socialProviders.map((a) => (
+											<Badge key={a.providerId} variant="secondary">
+												{formatProviderName(a.providerId)}
+											</Badge>
+										))}
+										{user?.hasPasskeys && (
+											<Badge variant="secondary">Passkey</Badge>
+										)}
 										<p className="text-muted-foreground text-sm">
 											— email cannot be changed
 										</p>

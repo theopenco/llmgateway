@@ -22,6 +22,7 @@ const publicUserSchema = z.object({
 			providerId: z.string(),
 		}),
 	),
+	hasPasskeys: z.boolean(),
 });
 
 function isAdminEmail(email: string | null | undefined): boolean {
@@ -82,6 +83,12 @@ user.openapi(get, async (c) => {
 		},
 	});
 
+	const passkeys = await db.query.passkey.findMany({
+		where: {
+			userId: authUser.id,
+		},
+	});
+
 	const isAdmin = isAdminEmail(user.email);
 
 	return c.json({
@@ -93,6 +100,7 @@ user.openapi(get, async (c) => {
 			emailVerified: user.emailVerified,
 			isAdmin,
 			accounts: accounts.map((a) => ({ providerId: a.providerId })),
+			hasPasskeys: passkeys.length > 0,
 		},
 	});
 });
@@ -239,12 +247,20 @@ user.openapi(updateUser, async (c) => {
 		},
 	});
 
-	// Block email changes for users who signed up via social login
-	const hasSocialAccount = accounts.some((a) => a.providerId !== "credential");
-	if (updateData.email && hasSocialAccount) {
+	const passkeys = await db.query.passkey.findMany({
+		where: {
+			userId: authUser.id,
+		},
+	});
+
+	// Block email changes for users who signed up via social login or passkey-only
+	const hasCredentialAccount = accounts.some(
+		(a) => a.providerId === "credential",
+	);
+	if (updateData.email && !hasCredentialAccount) {
 		throw new HTTPException(400, {
 			message:
-				"Email cannot be changed for accounts linked to a social provider",
+				"Email cannot be changed for accounts without password authentication",
 		});
 	}
 
@@ -272,6 +288,7 @@ user.openapi(updateUser, async (c) => {
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
 			accounts: accounts.map((a) => ({ providerId: a.providerId })),
+			hasPasskeys: passkeys.length > 0,
 		},
 		message: "User updated successfully",
 	});
@@ -514,6 +531,12 @@ user.openapi(completeOnboarding, async (c) => {
 		},
 	});
 
+	const passkeys = await db.query.passkey.findMany({
+		where: {
+			userId: authUser.id,
+		},
+	});
+
 	// Update Resend contact if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified) {
 		await updateResendContact(updatedUser.email, {
@@ -532,6 +555,7 @@ user.openapi(completeOnboarding, async (c) => {
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
 			accounts: accounts.map((a) => ({ providerId: a.providerId })),
+			hasPasskeys: passkeys.length > 0,
 		},
 		message: "Onboarding completed successfully",
 	});
