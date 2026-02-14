@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 
-import { extractTokenUsage } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractTokenUsage,
+} from "./extract-token-usage.js";
 
 describe("extractTokenUsage", () => {
 	describe("aws-bedrock", () => {
@@ -125,6 +128,75 @@ describe("extractTokenUsage", () => {
 			expect(result.promptTokens).toBeNull();
 			expect(result.completionTokens).toBeNull();
 		});
+
+		it("does not double-count reasoning tokens in totalTokens (output_tokens already includes reasoning)", () => {
+			// Anthropic's output_tokens already includes reasoning_output_tokens,
+			// so totalTokens should NOT add reasoning again.
+			// Real example: 51 input, 136 output (which includes 31 reasoning) = 187 total
+			const data = {
+				usage: {
+					input_tokens: 51,
+					output_tokens: 136,
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBe(51);
+			expect(result.completionTokens).toBe(136);
+			expect(result.reasoningTokens).toBe(31);
+			expect(result.totalTokens).toBe(187); // 51 + 136, NOT 51 + 136 + 31
+		});
+
+		it("calculates totalTokens correctly when reasoning_output_tokens is absent", () => {
+			const data = {
+				usage: {
+					input_tokens: 100,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.reasoningTokens).toBeNull();
+			expect(result.totalTokens).toBe(150);
+		});
+
+		it("handles cache tokens with reasoning tokens", () => {
+			const data = {
+				usage: {
+					input_tokens: 50,
+					cache_creation_input_tokens: 30,
+					cache_read_input_tokens: 20,
+					output_tokens: 140,
+					reasoning_output_tokens: 100,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBe(100); // 50 + 30 + 20
+			expect(result.completionTokens).toBe(140);
+			expect(result.reasoningTokens).toBe(100);
+			expect(result.cachedTokens).toBe(20);
+			expect(result.totalTokens).toBe(240); // 100 + 140
+		});
+
+		it("handles zero reasoning tokens", () => {
+			const data = {
+				usage: {
+					input_tokens: 100,
+					output_tokens: 50,
+					reasoning_output_tokens: 0,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.reasoningTokens).toBe(0);
+			expect(result.totalTokens).toBe(150);
+		});
 	});
 
 	describe("openai (default)", () => {
@@ -158,5 +230,25 @@ describe("extractTokenUsage", () => {
 
 			expect(result.cachedTokens).toBeNull();
 		});
+	});
+});
+
+describe("adjustGoogleCandidateTokens", () => {
+	it("subtracts thoughts when candidates include them", () => {
+		// promptTokenCount + candidatesTokenCount == totalTokenCount
+		// means thoughts are already included in candidatesTokenCount
+		const result = adjustGoogleCandidateTokens(150, 50, 100, 250);
+		expect(result).toBe(100); // 150 - 50
+	});
+
+	it("returns candidates unchanged when thoughts are separate", () => {
+		// promptTokenCount + candidatesTokenCount != totalTokenCount
+		const result = adjustGoogleCandidateTokens(100, 50, 100, 250);
+		expect(result).toBe(100);
+	});
+
+	it("returns candidates unchanged when thoughtsTokenCount is null", () => {
+		const result = adjustGoogleCandidateTokens(100, null, 100, 200);
+		expect(result).toBe(100);
 	});
 });
