@@ -26,7 +26,7 @@ export function CostBreakdownCard({
 					Estimated costs by provider and storage for this project
 				</CardDescription>
 			</CardHeader>
-			<CardContent className="h-[350px]">
+			<CardContent>
 				<CostBreakdownChart initialData={initialActivityData} />
 			</CardContent>
 		</Card>

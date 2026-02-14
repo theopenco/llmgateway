@@ -90,7 +90,6 @@ interface ModelDetail {
 	id: string;
 	displayName: string;
 	family: string;
-	aliases?: string[];
 	model: ModelDefinition;
 	providers: ProviderWithInfo[];
 	stability?: StabilityLevel;
@@ -122,8 +121,9 @@ const stabilityLabels: Record<StabilityLevel, string> = {
 
 type ComparisonRowKey =
 	| "modelId"
+	| "description"
 	| "family"
-	| "aliases"
+	| "releasedAt"
 	| "stability"
 	| "providers"
 	| "maxContext"
@@ -139,6 +139,9 @@ type ComparisonRowKey =
 	| "parallelToolCalls"
 	| "reasoning"
 	| "jsonOutput"
+	| "jsonOutputSchema"
+	| "webSearch"
+	| "outputTypes"
 	| "supportedParameters";
 
 const groupedRows: Array<{
@@ -149,8 +152,10 @@ const groupedRows: Array<{
 		title: "Overview",
 		rows: [
 			{ key: "modelId", label: "Model ID" },
+			{ key: "description", label: "Description" },
 			{ key: "family", label: "Family" },
-			{ key: "aliases", label: "Aliases" },
+			{ key: "releasedAt", label: "Released" },
+			{ key: "stability", label: "Stability" },
 			{ key: "providers", label: "Providers" },
 		],
 	},
@@ -180,6 +185,9 @@ const groupedRows: Array<{
 			{ key: "parallelToolCalls", label: "Parallel Tool Calls" },
 			{ key: "reasoning", label: "Reasoning" },
 			{ key: "jsonOutput", label: "JSON Output" },
+			{ key: "jsonOutputSchema", label: "JSON Schema" },
+			{ key: "webSearch", label: "Web Search" },
+			{ key: "outputTypes", label: "Output Types" },
 		],
 	},
 	{
@@ -343,7 +351,6 @@ function collectModelDetail(modelId?: ModelId): ModelDetail | undefined {
 		id: model.id,
 		displayName: model.name ?? model.id,
 		family: model.family,
-		aliases: model.aliases,
 		model,
 		providers: providersWithInfo,
 		stability: pickMostUnstableStability(model),
@@ -355,14 +362,14 @@ function collectModelDetail(modelId?: ModelId): ModelDetail | undefined {
 function BooleanBadge({ value }: { value: boolean | undefined }) {
 	if (value) {
 		return (
-			<Badge variant="secondary" className="px-2 py-0 text-xs">
+			<Badge variant="secondary" className="px-2.5 py-0.5 text-sm">
 				Yes
 			</Badge>
 		);
 	}
 
 	return (
-		<Badge variant="outline" className="px-2 py-0 text-xs">
+		<Badge variant="outline" className="px-2.5 py-0.5 text-sm">
 			No
 		</Badge>
 	);
@@ -371,7 +378,7 @@ function BooleanBadge({ value }: { value: boolean | undefined }) {
 function StabilityBadge({ stability }: { stability?: StabilityLevel }) {
 	if (!stability) {
 		return (
-			<Badge variant="outline" className="text-xs">
+			<Badge variant="outline" className="text-sm">
 				Stable
 			</Badge>
 		);
@@ -385,7 +392,7 @@ function StabilityBadge({ stability }: { stability?: StabilityLevel }) {
 				: "destructive";
 
 	return (
-		<Badge variant={variant} className="text-xs">
+		<Badge variant={variant} className="text-sm">
 			{stabilityLabels[stability]}
 		</Badge>
 	);
@@ -397,15 +404,15 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 	}
 
 	return (
-		<div className="flex flex-col gap-2">
+		<div className="flex flex-col gap-3">
 			{providers.map((provider) => (
 				<div
 					key={`${provider.providerId}-${provider.modelName}`}
 					className="space-y-1"
 				>
-					<div className="flex items-center gap-2 text-sm">
+					<div className="flex items-center gap-2 text-base">
 						<span
-							className="h-2 w-2 rounded-full"
+							className="h-2.5 w-2.5 rounded-full"
 							style={{
 								backgroundColor: provider.providerInfo?.color || "#9ca3af",
 							}}
@@ -414,7 +421,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 							{provider.providerInfo?.name ?? provider.providerId}
 						</span>
 					</div>
-					<div className="text-xs text-muted-foreground">
+					<div className="text-sm text-muted-foreground">
 						API: {provider.providerId}/{provider.modelName}
 					</div>
 					<StabilityBadge stability={provider.stability} />
@@ -436,18 +443,18 @@ function PricingCell({
 	}
 
 	return (
-		<div className="flex flex-col gap-1 text-sm">
+		<div className="flex flex-col gap-1 text-base">
 			<div className="font-medium">{summary.value}</div>
-			<div className="text-xs text-muted-foreground">
+			<div className="text-sm text-muted-foreground">
 				via {summary.providerLabel}
 			</div>
 			{summary.originalValue && summary.originalValue !== summary.value ? (
-				<div className="text-xs text-muted-foreground line-through">
+				<div className="text-sm text-muted-foreground line-through">
 					{summary.originalValue}
 				</div>
 			) : null}
 			{hasTieredPricing && (
-				<div className="text-xs text-muted-foreground/70">(tiered pricing)</div>
+				<div className="text-sm text-muted-foreground/70">(tiered pricing)</div>
 			)}
 		</div>
 	);
@@ -461,7 +468,7 @@ function ParametersList({ parameters }: { parameters: string[] }) {
 	return (
 		<div className="flex flex-wrap gap-2">
 			{parameters.map((parameter) => (
-				<Badge key={parameter} variant="outline" className="text-xs font-mono">
+				<Badge key={parameter} variant="outline" className="text-sm font-mono">
 					{parameter}
 				</Badge>
 			))}
@@ -515,12 +522,20 @@ function renderRowValue(
 	switch (key) {
 		case "modelId":
 			return detail.id;
+		case "description":
+			return detail.model.description || PLACEHOLDER;
 		case "family":
 			return detail.family;
-		case "aliases":
-			return detail.aliases && detail.aliases.length
-				? detail.aliases.join(", ")
+		case "releasedAt":
+			return detail.model.releasedAt
+				? detail.model.releasedAt.toLocaleDateString("en-US", {
+						year: "numeric",
+						month: "short",
+						day: "numeric",
+					})
 				: PLACEHOLDER;
+		case "stability":
+			return <StabilityBadge stability={detail.stability} />;
 		case "providers":
 			return <ProvidersList providers={detail.providers} />;
 		case "maxContext": {
@@ -581,6 +596,30 @@ function renderRowValue(
 			return <BooleanBadge value={detail.aggregated.reasoning} />;
 		case "jsonOutput":
 			return <BooleanBadge value={detail.jsonOutput} />;
+		case "jsonOutputSchema":
+			return (
+				<BooleanBadge
+					value={detail.providers.some((p) => p.jsonOutputSchema)}
+				/>
+			);
+		case "webSearch":
+			return <BooleanBadge value={detail.providers.some((p) => p.webSearch)} />;
+		case "outputTypes": {
+			const outputs = detail.model.output ?? ["text"];
+			return (
+				<div className="flex flex-wrap gap-1.5">
+					{outputs.map((type) => (
+						<Badge
+							key={type}
+							variant="secondary"
+							className="px-2.5 py-0.5 text-sm capitalize"
+						>
+							{type}
+						</Badge>
+					))}
+				</div>
+			);
+		}
 		case "supportedParameters":
 			return (
 				<ParametersList parameters={detail.aggregated.supportedParameters} />
@@ -836,17 +875,19 @@ export function ModelComparison() {
 						<Table className="table-fixed min-w-[900px] md:min-w-0">
 							<TableHeader>
 								<TableRow>
-									<TableHead className="w-36 md:w-48">Feature</TableHead>
+									<TableHead className="w-40 md:w-52 text-base">
+										Feature
+									</TableHead>
 									<TableHead className="w-1/2">
 										<div className="flex items-center gap-2">
 											<div className="flex flex-col">
-												<span className="font-semibold">
+												<span className="font-semibold text-base">
 													{leftModel?.displayName ?? "Select a model"}
 												</span>
 												{leftModel ? (
 													<Link
 														href={`/models/${encodeURIComponent(leftModel.id)}`}
-														className="text-xs text-primary hover:underline"
+														className="text-sm text-primary hover:underline"
 													>
 														View model details
 													</Link>
@@ -857,13 +898,13 @@ export function ModelComparison() {
 									<TableHead className="w-1/2">
 										<div className="flex items-center gap-2">
 											<div className="flex flex-col">
-												<span className="font-semibold">
+												<span className="font-semibold text-base">
 													{rightModel?.displayName ?? "Select a model"}
 												</span>
 												{rightModel ? (
 													<Link
 														href={`/models/${encodeURIComponent(rightModel.id)}`}
-														className="text-xs text-primary hover:underline"
+														className="text-sm text-primary hover:underline"
 													>
 														View model details
 													</Link>
@@ -879,24 +920,24 @@ export function ModelComparison() {
 										<TableRow>
 											<TableCell
 												colSpan={3}
-												className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground"
+												className="bg-muted/40 text-sm font-semibold uppercase tracking-wider text-muted-foreground"
 											>
 												{group.title}
 											</TableCell>
 										</TableRow>
 										{group.rows.map((row) => (
 											<TableRow key={row.key}>
-												<TableCell className="font-medium text-xs md:text-base">
+												<TableCell className="font-medium text-sm md:text-base">
 													{row.label}
 												</TableCell>
-												<TableCell className="align-top whitespace-normal break-words pr-4">
+												<TableCell className="align-top whitespace-normal break-words pr-4 text-base">
 													{renderRowValue(
 														row.key,
 														leftModel,
 														queryLeftProviderId,
 													)}
 												</TableCell>
-												<TableCell className="align-top whitespace-normal break-words">
+												<TableCell className="align-top whitespace-normal break-words text-base">
 													{renderRowValue(
 														row.key,
 														rightModel,

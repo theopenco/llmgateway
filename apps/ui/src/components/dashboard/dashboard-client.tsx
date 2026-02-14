@@ -1,5 +1,6 @@
 "use client";
 
+import { format, subDays } from "date-fns";
 import {
 	CreditCard,
 	Zap,
@@ -26,6 +27,10 @@ import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
+import {
+	DateRangePicker,
+	getDateRangeFromParams,
+} from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -42,7 +47,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
@@ -57,9 +61,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 
-	// Get days from URL params, fallback to initialDays, then to 7
-	const daysParam = searchParams.get("days");
-	const days = (daysParam === "30" ? 30 : 7) as 7 | 30;
+	// Get date range from URL params
+	const { from, to } = getDateRangeFromParams(searchParams);
+	const fromStr = format(from, "yyyy-MM-dd");
+	const toStr = format(to, "yyyy-MM-dd");
 
 	// Get metric type from URL params, default to "costs"
 	const metricParam = searchParams.get("metric");
@@ -67,14 +72,17 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		| "costs"
 		| "requests";
 
-	// If no days param exists, add it to the URL immediately
+	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
-		if (!daysParam) {
+		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("days", "7");
+			params.delete("days");
+			const today = new Date();
+			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
+			params.set("to", format(today, "yyyy-MM-dd"));
 			router.replace(`${buildUrl()}?${params.toString()}`);
 		}
-	}, [daysParam, searchParams, router, buildUrl]);
+	}, [searchParams, router, buildUrl]);
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const api = useApi();
@@ -85,15 +93,15 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		{
 			params: {
 				query: {
-					days: String(days),
+					from: fromStr,
+					to: toStr,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},
 		},
 		{
 			enabled: !!selectedProject?.id,
-			// Only use initialData if days param is present (not defaulting)
-			initialData: daysParam ? initialActivityData : undefined,
+			initialData: searchParams.get("from") ? initialActivityData : undefined,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -116,13 +124,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	);
 
 	const planLimits = apiKeysData?.planLimits;
-
-	// Function to update URL with new days parameter
-	const updateDaysInUrl = (newDays: 7 | 30) => {
-		const params = new URLSearchParams(searchParams.toString());
-		params.set("days", String(newDays));
-		router.push(`${buildUrl()}?${params.toString()}`);
-	};
 
 	// Function to update URL with new metric parameter
 	const updateMetricInUrl = (newMetric: "costs" | "requests") => {
@@ -313,16 +314,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					</div>
 				</div>
 
-				<Tabs
-					value={days === 7 ? "7days" : "30days"}
-					onValueChange={(value) => updateDaysInUrl(value === "7days" ? 7 : 30)}
-					className="mb-2"
-				>
-					<TabsList>
-						<TabsTrigger value="7days">Last 7 Days</TabsTrigger>
-						<TabsTrigger value="30days">Last 30 Days</TabsTrigger>
-					</TabsList>
-				</Tabs>
+				<DateRangePicker buildUrl={buildUrl} />
 
 				<div className="space-y-4">
 					{shouldShowGetStartedState && (
@@ -398,7 +390,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							subtitle={
 								isLoading
 									? "–"
-									: `Last ${days} days${
+									: `${format(from, "MMM d")} - ${format(to, "MMM d")}${
 											activityData.length > 0
 												? ` • ${(
 														activityData.reduce(
@@ -418,7 +410,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							subtitle={
 								isLoading
 									? "–"
-									: `Last ${days} days${
+									: `${format(from, "MMM d")} - ${format(to, "MMM d")}${
 											totalRequestCost > 0
 												? ` • $${totalRequestCost.toFixed(2)} requests`
 												: ""
@@ -434,7 +426,11 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 						<MetricCard
 							label="Total Savings"
 							value={isLoading ? "Loading..." : `$${totalSavings.toFixed(4)}`}
-							subtitle={isLoading ? "–" : `From discounts in last ${days} days`}
+							subtitle={
+								isLoading
+									? "–"
+									: `Discounts from ${format(from, "MMM d")} - ${format(to, "MMM d")}`
+							}
 							icon={<TrendingDown className="h-4 w-4" />}
 							accent="green"
 						/>
@@ -485,7 +481,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 									? "–"
 									: mostUsedProvider
 										? `Provider: ${mostUsedProvider}`
-										: `Last ${days} days`
+										: `${format(from, "MMM d")} - ${format(to, "MMM d")}`
 							}
 							icon={<Crown className="h-4 w-4" />}
 							accent="blue"
@@ -527,7 +523,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 								<Overview
 									data={activityData}
 									isLoading={isLoading}
-									days={days}
 									metric={metric}
 								/>
 							</CardContent>

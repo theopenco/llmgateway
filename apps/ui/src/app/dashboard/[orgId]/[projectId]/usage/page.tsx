@@ -1,3 +1,5 @@
+import { subDays, format } from "date-fns";
+
 import { UsageClient } from "@/components/usage/usage-client";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -9,21 +11,23 @@ export default async function UsagePage({
 	params?: Promise<{
 		projectId?: string;
 		days?: string;
+		from?: string;
+		to?: string;
 	}>;
 }) {
 	const paramsData = await params;
 	const projectId = paramsData?.projectId;
-	const days = paramsData?.days;
 
-	// Default to "7" days, only use "30" if explicitly specified
-	const daysParam = days === "30" ? "30" : "7";
+	const today = new Date();
+	const fromParam = paramsData?.from || format(subDays(today, 6), "yyyy-MM-dd");
+	const toParam = paramsData?.to || format(today, "yyyy-MM-dd");
 
-	// Only fetch if we have a projectId, otherwise let client-side handle it
 	const initialActivityData = projectId
 		? await fetchServerData<ActivitT>("GET", "/activity", {
 				params: {
 					query: {
-						days: String(daysParam),
+						from: fromParam,
+						to: toParam,
 						projectId,
 					},
 				},

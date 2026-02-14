@@ -74,7 +74,10 @@ const getActivity = createRoute({
 			days: z
 				.string()
 				.transform((val) => parseInt(val, 10))
-				.pipe(z.number().int().positive()),
+				.pipe(z.number().int().positive())
+				.optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
 		}),
@@ -102,13 +105,22 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// Get the days parameter from the query
-	const { days, projectId, apiKeyId } = c.req.valid("query");
+	// Get the query parameters
+	const { days, from, to, projectId, apiKeyId } = c.req.valid("query");
 
 	// Calculate the date range
-	const endDate = new Date();
-	const startDate = new Date();
-	startDate.setDate(startDate.getDate() - days);
+	let startDate: Date;
+	let endDate: Date;
+
+	if (from && to) {
+		startDate = new Date(from + "T00:00:00");
+		endDate = new Date(to + "T23:59:59.999");
+	} else {
+		const effectiveDays = days || 7;
+		endDate = new Date();
+		startDate = new Date();
+		startDate.setDate(startDate.getDate() - effectiveDays);
+	}
 
 	// Get all organizations the user is a member of
 	const organizationIds = await getUserOrganizationIds(user.id);

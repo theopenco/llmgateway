@@ -963,8 +963,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query: {
-                    days: string;
+                query?: {
+                    days?: string;
+                    from?: string;
+                    to?: string;
                     projectId?: string;
                     apiKeyId?: string;
                 };

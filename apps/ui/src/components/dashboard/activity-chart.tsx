@@ -1,6 +1,6 @@
 "use client";
 
-import { addDays, format, parseISO, subDays } from "date-fns";
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
@@ -13,6 +13,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
@@ -189,9 +190,10 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 	const { selectedProject } = useDashboardNavigation();
 	const api = useApi();
 
-	// Get days from URL parameter
-	const daysParam = searchParams.get("days");
-	const days = daysParam === "30" ? 30 : 7;
+	const { from, to } = getDateRangeFromParams(searchParams);
+	const fromStr = format(from, "yyyy-MM-dd");
+	const toStr = format(to, "yyyy-MM-dd");
+	const totalDays = differenceInCalendarDays(to, from) + 1;
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -199,7 +201,8 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 		{
 			params: {
 				query: {
-					days: String(days),
+					from: fromStr,
+					to: toStr,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},
@@ -235,7 +238,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<CardHeader>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over the last {days} days
+						Stacked model {breakdownField} over {totalDays} days
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -253,7 +256,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<CardHeader>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over the last {days} days
+						Stacked model {breakdownField} over {totalDays} days
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -271,7 +274,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<CardHeader>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over the last {days} days
+						Stacked model {breakdownField} over {totalDays} days
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -288,14 +291,10 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 		);
 	}
 
-	// Generate a complete date range for the selected period
-	const today = new Date();
-	const startDate = subDays(today, days - 1);
 	const dateRange: string[] = [];
 
-	// Create an array of all dates in the range
-	for (let i = 0; i < days; i++) {
-		const date = addDays(startDate, i);
+	for (let i = 0; i < totalDays; i++) {
+		const date = addDays(from, i);
 		dateRange.push(format(date, "yyyy-MM-dd"));
 	}
 
@@ -362,7 +361,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<div>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over the last {days} days
+						Stacked model {breakdownField} over {totalDays} days
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}

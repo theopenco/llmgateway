@@ -1,3 +1,5 @@
+import { subDays, format } from "date-fns";
+
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -10,23 +12,26 @@ export default async function Dashboard({
 	params: Promise<{ orgId: string; projectId: string }>;
 	searchParams?: Promise<{
 		days?: string;
+		from?: string;
+		to?: string;
 	}>;
 }) {
 	const { projectId } = await params;
 	const searchParamsData = searchParams ? await searchParams : {};
-	const days = searchParamsData?.days;
 
-	// Default to "7" days, only use "30" if explicitly specified
-	const daysParam = days === "30" ? "30" : "7";
+	const today = new Date();
+	const fromParam =
+		searchParamsData?.from || format(subDays(today, 6), "yyyy-MM-dd");
+	const toParam = searchParamsData?.to || format(today, "yyyy-MM-dd");
 
-	// Fetch activity data for this specific project
 	const initialActivityData = await fetchServerData<ActivitT>(
 		"GET",
 		"/activity",
 		{
 			params: {
 				query: {
-					days: daysParam,
+					from: fromParam,
+					to: toParam,
 					projectId,
 				},
 			},

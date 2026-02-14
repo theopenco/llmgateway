@@ -410,10 +410,6 @@ admin.openapi(getOrganizations, async (c) => {
 			plan: tables.organization.plan,
 			devPlan: tables.organization.devPlan,
 			credits: tables.organization.credits,
-			totalCreditsAllTime:
-				sql<string>`COALESCE((SELECT SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FROM ${tables.transaction} WHERE ${tables.transaction.organizationId} = ${tables.organization.id} AND ${tables.transaction.status} = 'completed'), 0)`.as(
-					"totalCreditsAllTime",
-				),
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
 		})
@@ -423,11 +419,37 @@ admin.openapi(getOrganizations, async (c) => {
 		.limit(limit)
 		.offset(offset);
 
+	const orgIds = organizations.map((o) => o.id);
+
+	const creditsMap = new Map<string, string>();
+	if (orgIds.length > 0) {
+		const creditsRows = await db
+			.select({
+				organizationId: tables.transaction.organizationId,
+				total:
+					sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+						"total",
+					),
+			})
+			.from(tables.transaction)
+			.where(
+				and(
+					inArray(tables.transaction.organizationId, orgIds),
+					eq(tables.transaction.status, "completed"),
+				),
+			)
+			.groupBy(tables.transaction.organizationId);
+
+		for (const row of creditsRows) {
+			creditsMap.set(row.organizationId, String(row.total ?? "0"));
+		}
+	}
+
 	return c.json({
 		organizations: organizations.map((org) => ({
 			...org,
 			credits: String(org.credits),
-			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
+			totalCreditsAllTime: creditsMap.get(org.id) ?? "0",
 			createdAt: org.createdAt.toISOString(),
 		})),
 		total,

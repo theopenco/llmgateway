@@ -1,8 +1,10 @@
-import { addDays, format, parseISO, subDays } from "date-fns";
+"use client";
+
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { useSearchParams } from "next/navigation";
 import {
-	CartesianGrid,
-	Line,
-	LineChart,
+	Area,
+	AreaChart,
 	Legend,
 	ResponsiveContainer,
 	Tooltip,
@@ -10,12 +12,13 @@ import {
 	YAxis,
 } from "recharts";
 
+import { getDateRangeFromParams } from "@/components/date-range-picker";
+
 import type { DailyActivity } from "@/types/activity";
 
 interface OverviewProps {
 	data?: DailyActivity[];
 	isLoading?: boolean;
-	days?: 7 | 30;
 	metric?: "costs" | "requests";
 }
 
@@ -70,9 +73,11 @@ const CustomTooltip = ({
 export function Overview({
 	data,
 	isLoading = false,
-	days = 7,
 	metric = "costs",
 }: OverviewProps) {
+	const searchParams = useSearchParams();
+	const { from, to } = getDateRangeFromParams(searchParams);
+
 	if (isLoading) {
 		return (
 			<div className="flex h-[350px] items-center justify-center">
@@ -89,21 +94,16 @@ export function Overview({
 		);
 	}
 
-	// Generate a complete date range for the selected period to ensure consistent rendering
-	const today = new Date();
-	const startDate = subDays(today, days - 1);
+	const totalDays = differenceInCalendarDays(to, from) + 1;
 	const dateRange: string[] = [];
 
-	// Create an array of all dates in the range
-	for (let i = 0; i < days; i++) {
-		const date = addDays(startDate, i);
+	for (let i = 0; i < totalDays; i++) {
+		const date = addDays(from, i);
 		dateRange.push(format(date, "yyyy-MM-dd"));
 	}
 
-	// Create a map of existing data by date
 	const dataByDate = new Map(data.map((day) => [day.date, day]));
 
-	// Fill in the chart data with all dates, using zero values for missing dates
 	const chartData = dateRange.map((date) => {
 		const day = dataByDate.get(date);
 		if (day) {
@@ -133,9 +133,104 @@ export function Overview({
 		};
 	});
 
+	if (metric === "costs") {
+		return (
+			<ResponsiveContainer width="100%" height={350}>
+				<AreaChart
+					data={chartData}
+					margin={{
+						top: 5,
+						right: 10,
+						left: 10,
+						bottom: 0,
+					}}
+				>
+					<defs>
+						<linearGradient id="gradientInput" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+							<stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+						</linearGradient>
+						<linearGradient id="gradientOutput" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
+							<stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05} />
+						</linearGradient>
+						<linearGradient id="gradientCached" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
+							<stop offset="95%" stopColor="#10b981" stopOpacity={0.05} />
+						</linearGradient>
+					</defs>
+					<XAxis
+						dataKey="date"
+						tickFormatter={(value: string) => format(parseISO(value), "MMM d")}
+						stroke="#888888"
+						fontSize={12}
+						tickLine={false}
+						axisLine={false}
+					/>
+					<YAxis
+						stroke="#888888"
+						fontSize={12}
+						tickLine={false}
+						axisLine={false}
+						tickFormatter={(value: number) => `$${value}`}
+					/>
+					<Tooltip
+						content={
+							<CustomTooltip
+								active={true}
+								payload={[{ value: 0 }]}
+								label="tooltip"
+								metric="costs"
+							/>
+						}
+						cursor={{
+							fill: "color-mix(in srgb, currentColor 15%, transparent)",
+						}}
+					/>
+					<Legend
+						verticalAlign="top"
+						align="left"
+						iconType="circle"
+						wrapperStyle={{ paddingBottom: 20 }}
+					/>
+					<Area
+						type="linear"
+						dataKey="inputCost"
+						name="Input"
+						stroke="#3b82f6"
+						strokeWidth={2}
+						fill="url(#gradientInput)"
+						fillOpacity={0.4}
+						dot={false}
+					/>
+					<Area
+						type="linear"
+						dataKey="outputCost"
+						name="Output"
+						stroke="#f59e0b"
+						strokeWidth={2}
+						fill="url(#gradientOutput)"
+						fillOpacity={0.4}
+						dot={false}
+					/>
+					<Area
+						type="linear"
+						dataKey="cachedInputCost"
+						name="Cached Input"
+						stroke="#10b981"
+						strokeWidth={2}
+						fill="url(#gradientCached)"
+						fillOpacity={0.4}
+						dot={false}
+					/>
+				</AreaChart>
+			</ResponsiveContainer>
+		);
+	}
+
 	return (
 		<ResponsiveContainer width="100%" height={350}>
-			<LineChart
+			<AreaChart
 				data={chartData}
 				margin={{
 					top: 5,
@@ -144,7 +239,12 @@ export function Overview({
 					bottom: 0,
 				}}
 			>
-				<CartesianGrid strokeDasharray="3 3" vertical={false} />
+				<defs>
+					<linearGradient id="gradientRequests" x1="0" y1="0" x2="0" y2="1">
+						<stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+						<stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+					</linearGradient>
+				</defs>
 				<XAxis
 					dataKey="date"
 					tickFormatter={(value: string) => format(parseISO(value), "MMM d")}
@@ -158,9 +258,6 @@ export function Overview({
 					fontSize={12}
 					tickLine={false}
 					axisLine={false}
-					tickFormatter={(value: number) =>
-						metric === "costs" ? `$${value}` : `${value}`
-					}
 				/>
 				<Tooltip
 					content={
@@ -168,7 +265,7 @@ export function Overview({
 							active={true}
 							payload={[{ value: 0 }]}
 							label="tooltip"
-							metric={metric}
+							metric="requests"
 						/>
 					}
 					cursor={{
@@ -181,44 +278,17 @@ export function Overview({
 					iconType="circle"
 					wrapperStyle={{ paddingBottom: 20 }}
 				/>
-				{metric === "costs" ? (
-					<>
-						<Line
-							type="linear"
-							dataKey="inputCost"
-							name="Input"
-							stroke="#3b82f6"
-							strokeWidth={2}
-							dot={false}
-						/>
-						<Line
-							type="linear"
-							dataKey="outputCost"
-							name="Output"
-							stroke="#f59e0b"
-							strokeWidth={2}
-							dot={false}
-						/>
-						<Line
-							type="linear"
-							dataKey="cachedInputCost"
-							name="Cached Input"
-							stroke="#10b981"
-							strokeWidth={2}
-							dot={false}
-						/>
-					</>
-				) : (
-					<Line
-						type="linear"
-						dataKey="total"
-						name="Requests"
-						stroke="#3b82f6"
-						strokeWidth={2}
-						dot={false}
-					/>
-				)}
-			</LineChart>
+				<Area
+					type="linear"
+					dataKey="total"
+					name="Requests"
+					stroke="#3b82f6"
+					strokeWidth={2}
+					fill="url(#gradientRequests)"
+					fillOpacity={0.4}
+					dot={false}
+				/>
+			</AreaChart>
 		</ResponsiveContainer>
 	);
 }
