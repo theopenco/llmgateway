@@ -58,7 +58,7 @@ macOS/Linux:
         "gpt-5-mini": {
           "name": "GPT-5 Mini"
         },
-        "google/gemini-2.5-pro": {
+        "google-ai-studio/gemini-2.5-pro": {
           "name": "Gemini 2.5 Pro"
         },
         "anthropic/claude-3-5-sonnet-20241022": {

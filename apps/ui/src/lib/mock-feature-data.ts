@@ -34,7 +34,7 @@ export const generateMockActivityData = () => {
 					totalTokens: Math.floor(Math.random() * 30000) + 5000,
 				},
 				{
-					id: "google/gemini-1.5-pro",
+					id: "google-ai-studio/gemini-1.5-pro",
 					requestCount: Math.floor(Math.random() * 100) + 20,
 					cost: Number(Math.random()) * 1 + 0.05,
 					totalTokens: Math.floor(Math.random() * 20000) + 3000,
@@ -106,7 +106,7 @@ export const mockLogs = [
 		createdAt: new Date(Date.now() - 1000 * 60 * 30),
 		content: "",
 		unifiedFinishReason: "error",
-		usedModel: "google/gemini-1.5-pro",
+		usedModel: "google-ai-studio/gemini-1.5-pro",
 		usedProvider: "google",
 		requestedModel: "gemini-1.5-pro",
 		cached: false,
@@ -214,7 +214,7 @@ export const mockModelUsage = [
 		avgLatency: 987,
 	},
 	{
-		model: "google/gemini-1.5-pro",
+		model: "google-ai-studio/gemini-1.5-pro",
 		provider: "Google",
 		requests: 1876,
 		tokens: 198765,
