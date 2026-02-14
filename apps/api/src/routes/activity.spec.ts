@@ -240,7 +240,7 @@ describe("activity endpoint", () => {
 		expect(data.activity.length).toBe(1);
 	});
 
-	test("GET /activity should require days parameter", async () => {
+	test("GET /activity should default to 7 days when no date params provided", async () => {
 		const res = await app.request("/activity", {
 			headers: {
 				Authorization: "Bearer test-token",
@@ -248,7 +248,9 @@ describe("activity endpoint", () => {
 			},
 		});
 
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(Array.isArray(data.activity)).toBe(true);
 	});
 
 	test("GET /activity should require authentication", async () => {
