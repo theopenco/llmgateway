@@ -97,7 +97,10 @@ export function TemplateCards() {
 	const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
 	const copyToClipboard = useCallback((url: string) => {
-		navigator.clipboard.writeText(`git clone ${url}`);
+		const templateName = url.split("/").pop();
+		navigator.clipboard.writeText(
+			`npx @llmgateway/cli init --template ${templateName}`,
+		);
 		setCopiedUrl(url);
 		setTimeout(() => setCopiedUrl(null), 2000);
 	}, []);

@@ -20,7 +20,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Check for image-actions loop
+        id: loop-check
+        run: |
+          LAST_MSG=$(git log -1 --pretty=%s)
+          if [[ "$LAST_MSG" == *"Optimised images with calibre/image-actions"* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
       - name: Compress PR images
+        if: steps.loop-check.outputs.skip != 'true'
         uses: steebchen/image-actions@v1.0.0
         with:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }} # use custom token so actions get triggered on push

@@ -56,7 +56,7 @@ export ANTHROPIC_MODEL=gpt-5-mini
 ### Use Google's Gemini
 
 ```bash
-export ANTHROPIC_MODEL=google/gemini-2.5-pro
+export ANTHROPIC_MODEL=gemini-2.5-pro
 ```
 
 ### Use Anthropic's Claude Models
