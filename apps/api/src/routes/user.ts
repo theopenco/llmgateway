@@ -17,6 +17,11 @@ const publicUserSchema = z.object({
 	onboardingCompleted: z.boolean(),
 	emailVerified: z.boolean(),
 	isAdmin: z.boolean(),
+	accounts: z.array(
+		z.object({
+			providerId: z.string(),
+		}),
+	),
 });
 
 function isAdminEmail(email: string | null | undefined): boolean {
@@ -71,6 +76,12 @@ user.openapi(get, async (c) => {
 		});
 	}
 
+	const accounts = await db.query.account.findMany({
+		where: {
+			userId: authUser.id,
+		},
+	});
+
 	const isAdmin = isAdminEmail(user.email);
 
 	return c.json({
@@ -81,6 +92,7 @@ user.openapi(get, async (c) => {
 			onboardingCompleted: user.onboardingCompleted,
 			emailVerified: user.emailVerified,
 			isAdmin,
+			accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		},
 	});
 });
@@ -165,6 +177,16 @@ const updateUser = createRoute({
 			},
 			description: "User updated successfully.",
 		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Bad request.",
+		},
 		401: {
 			content: {
 				"application/json": {
@@ -211,6 +233,21 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
+	const accounts = await db.query.account.findMany({
+		where: {
+			userId: authUser.id,
+		},
+	});
+
+	// Block email changes for users who signed up via social login
+	const hasSocialAccount = accounts.some((a) => a.providerId !== "credential");
+	if (updateData.email && hasSocialAccount) {
+		throw new HTTPException(400, {
+			message:
+				"Email cannot be changed for accounts linked to a social provider",
+		});
+	}
+
 	const [updatedUser] = await db
 		.update(tables.user)
 		.set({
@@ -234,6 +271,7 @@ user.openapi(updateUser, async (c) => {
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
+			accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		},
 		message: "User updated successfully",
 	});
@@ -470,6 +508,12 @@ user.openapi(completeOnboarding, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
+	const accounts = await db.query.account.findMany({
+		where: {
+			userId: authUser.id,
+		},
+	});
+
 	// Update Resend contact if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified) {
 		await updateResendContact(updatedUser.email, {
@@ -487,6 +531,7 @@ user.openapi(completeOnboarding, async (c) => {
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
+			accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		},
 		message: "Onboarding completed successfully",
 	});

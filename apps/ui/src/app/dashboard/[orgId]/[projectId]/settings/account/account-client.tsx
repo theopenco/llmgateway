@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
 import { useUser } from "@/hooks/useUser";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -17,11 +18,28 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 
+function formatProviderName(providerId: string): string {
+	switch (providerId) {
+		case "github":
+			return "GitHub";
+		case "google":
+			return "Google";
+		case "credential":
+			return "Email & Password";
+		default:
+			return providerId.charAt(0).toUpperCase() + providerId.slice(1);
+	}
+}
+
 export function AccountClient() {
 	const { user } = useUser();
 
 	const [name, setName] = useState(user?.name || "");
 	const [email, setEmail] = useState(user?.email || "");
+
+	const hasSocialAccount = user?.accounts?.some(
+		(a) => a.providerId !== "credential",
+	);
 
 	const updateUserMutation = useUpdateUser();
 	const deleteAccountMutation = useDeleteAccount();
@@ -31,7 +49,7 @@ export function AccountClient() {
 			await updateUserMutation.mutateAsync({
 				body: {
 					name: name || undefined,
-					email: email || undefined,
+					email: hasSocialAccount ? undefined : email || undefined,
 				},
 			});
 
@@ -102,7 +120,25 @@ export function AccountClient() {
 									id="email"
 									value={email}
 									onChange={(e) => setEmail(e.target.value)}
+									disabled={!!hasSocialAccount}
 								/>
+								{hasSocialAccount && (
+									<div className="flex items-center gap-2">
+										<p className="text-muted-foreground text-sm">
+											Signed in via
+										</p>
+										{user?.accounts
+											?.filter((a) => a.providerId !== "credential")
+											.map((a) => (
+												<Badge key={a.providerId} variant="secondary">
+													{formatProviderName(a.providerId)}
+												</Badge>
+											))}
+										<p className="text-muted-foreground text-sm">
+											— email cannot be changed
+										</p>
+									</div>
+								)}
 							</div>
 						</CardContent>
 						<CardFooter className="flex justify-between">

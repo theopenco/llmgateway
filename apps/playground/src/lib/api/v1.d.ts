@@ -277,6 +277,9 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                accounts: {
+                                    providerId: string;
+                                }[];
                             };
                         };
                     };
@@ -362,7 +365,21 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                accounts: {
+                                    providerId: string;
+                                }[];
                             };
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Bad request. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
                             message: string;
                         };
                     };
@@ -534,6 +551,9 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                accounts: {
+                                    providerId: string;
+                                }[];
                             };
                             message: string;
                         };
