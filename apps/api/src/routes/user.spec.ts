@@ -123,3 +123,149 @@ describe("user passkey deletion", () => {
 		expect(res.status).toBe(401);
 	});
 });
+
+describe("user accounts and email editability", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		token = await createTestUser();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.passkey);
+		await deleteAll();
+	});
+
+	it("GET /user/me should return accounts array with provider info", async () => {
+		const res = await app.request("/user/me", {
+			method: "GET",
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.accounts).toBeDefined();
+		expect(Array.isArray(json.user.accounts)).toBe(true);
+		expect(json.user.accounts).toContainEqual({ providerId: "credential" });
+	});
+
+	it("GET /user/me should return hasPasskeys false when no passkeys exist", async () => {
+		const res = await app.request("/user/me", {
+			method: "GET",
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.hasPasskeys).toBe(false);
+	});
+
+	it("GET /user/me should return hasPasskeys true when passkeys exist", async () => {
+		await db.insert(tables.passkey).values({
+			id: "passkey-test",
+			publicKey: "pk-test",
+			userId: "test-user-id",
+			credentialID: "cred-test",
+			counter: 0,
+		});
+
+		const res = await app.request("/user/me", {
+			method: "GET",
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.hasPasskeys).toBe(true);
+	});
+
+	it("PATCH /user/me should allow email change for credential users", async () => {
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ name: "Updated Name" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.name).toBe("Updated Name");
+		expect(json.user.accounts).toBeDefined();
+		expect(json.user.hasPasskeys).toBeDefined();
+	});
+
+	it("PATCH /user/me should block email change for social-only users", async () => {
+		// Replace the credential account with a social one
+		await db
+			.delete(tables.account)
+			.where(eq(tables.account.id, "test-account-id"));
+		await db.insert(tables.account).values({
+			id: "social-account-id",
+			providerId: "github",
+			accountId: "github-123",
+			userId: "test-user-id",
+		});
+
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "new@example.com" }),
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	it("PATCH /user/me should allow name change for social-only users", async () => {
+		// Replace the credential account with a social one
+		await db
+			.delete(tables.account)
+			.where(eq(tables.account.id, "test-account-id"));
+		await db.insert(tables.account).values({
+			id: "social-account-id",
+			providerId: "github",
+			accountId: "github-123",
+			userId: "test-user-id",
+		});
+
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ name: "New Name" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.name).toBe("New Name");
+	});
+
+	it("PATCH /user/me should allow email change for users with both credential and social accounts", async () => {
+		// Add a social account alongside the existing credential account
+		await db.insert(tables.account).values({
+			id: "social-account-id",
+			providerId: "github",
+			accountId: "github-123",
+			userId: "test-user-id",
+		});
+
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ name: "Updated Name" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.accounts).toHaveLength(2);
+	});
+});

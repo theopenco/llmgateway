@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
 import { useUser } from "@/hooks/useUser";
@@ -36,6 +36,13 @@ export function AccountClient() {
 
 	const [name, setName] = useState(user?.name || "");
 	const [email, setEmail] = useState(user?.email || "");
+
+	useEffect(() => {
+		if (user) {
+			setName(user.name || "");
+			setEmail(user.email || "");
+		}
+	}, [user]);
 
 	const hasCredentialAccount = user?.accounts?.some(
 		(a) => a.providerId === "credential",

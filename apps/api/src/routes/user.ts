@@ -25,6 +25,22 @@ const publicUserSchema = z.object({
 	hasPasskeys: z.boolean(),
 });
 
+async function getUserAuthInfo(userId: string) {
+	const [accounts, passkeys] = await Promise.all([
+		db.query.account.findMany({
+			where: { userId },
+		}),
+		db.query.passkey.findMany({
+			where: { userId },
+		}),
+	]);
+	return {
+		accounts: accounts.map((a) => ({ providerId: a.providerId })),
+		hasPasskeys: passkeys.length > 0,
+		hasCredentialAccount: accounts.some((a) => a.providerId === "credential"),
+	};
+}
+
 function isAdminEmail(email: string | null | undefined): boolean {
 	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
 	const adminEmails = adminEmailsEnv
@@ -77,18 +93,7 @@ user.openapi(get, async (c) => {
 		});
 	}
 
-	const accounts = await db.query.account.findMany({
-		where: {
-			userId: authUser.id,
-		},
-	});
-
-	const passkeys = await db.query.passkey.findMany({
-		where: {
-			userId: authUser.id,
-		},
-	});
-
+	const authInfo = await getUserAuthInfo(authUser.id);
 	const isAdmin = isAdminEmail(user.email);
 
 	return c.json({
@@ -99,8 +104,8 @@ user.openapi(get, async (c) => {
 			onboardingCompleted: user.onboardingCompleted,
 			emailVerified: user.emailVerified,
 			isAdmin,
-			accounts: accounts.map((a) => ({ providerId: a.providerId })),
-			hasPasskeys: passkeys.length > 0,
+			accounts: authInfo.accounts,
+			hasPasskeys: authInfo.hasPasskeys,
 		},
 	});
 });
@@ -241,23 +246,10 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
-	const accounts = await db.query.account.findMany({
-		where: {
-			userId: authUser.id,
-		},
-	});
+	const authInfo = await getUserAuthInfo(authUser.id);
 
-	const passkeys = await db.query.passkey.findMany({
-		where: {
-			userId: authUser.id,
-		},
-	});
-
-	// Block email changes for users who signed up via social login or passkey-only
-	const hasCredentialAccount = accounts.some(
-		(a) => a.providerId === "credential",
-	);
-	if (updateData.email && !hasCredentialAccount) {
+	// Block email changes for users without password authentication
+	if (updateData.email && !authInfo.hasCredentialAccount) {
 		throw new HTTPException(400, {
 			message:
 				"Email cannot be changed for accounts without password authentication",
@@ -287,8 +279,8 @@ user.openapi(updateUser, async (c) => {
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
-			accounts: accounts.map((a) => ({ providerId: a.providerId })),
-			hasPasskeys: passkeys.length > 0,
+			accounts: authInfo.accounts,
+			hasPasskeys: authInfo.hasPasskeys,
 		},
 		message: "User updated successfully",
 	});
@@ -525,17 +517,7 @@ user.openapi(completeOnboarding, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
-	const accounts = await db.query.account.findMany({
-		where: {
-			userId: authUser.id,
-		},
-	});
-
-	const passkeys = await db.query.passkey.findMany({
-		where: {
-			userId: authUser.id,
-		},
-	});
+	const authInfo = await getUserAuthInfo(authUser.id);
 
 	// Update Resend contact if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified) {
@@ -554,8 +536,8 @@ user.openapi(completeOnboarding, async (c) => {
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
-			accounts: accounts.map((a) => ({ providerId: a.providerId })),
-			hasPasskeys: passkeys.length > 0,
+			accounts: authInfo.accounts,
+			hasPasskeys: authInfo.hasPasskeys,
 		},
 		message: "Onboarding completed successfully",
 	});
