@@ -69,18 +69,7 @@ Let's put concrete numbers on it.
 
 An LLM gateway sits between your application and the providers. You integrate once with the gateway's API, and the gateway handles the provider complexity:
 
-**One integration, every provider.** LLM Gateway exposes an OpenAI-compatible API. Use any provider — OpenAI, Anthropic, Google, Meta, Mistral, and more — through the same interface. Switch models by changing a string.
-
-```bash
-# Use OpenAI
-"model": "openai/gpt-5"
-
-# Switch to Anthropic — same API, same code
-"model": "anthropic/claude-opus-4-6"
-
-# Or Google
-"model": "google-ai-studio/gemini-2.5-pro"
-```
+**One integration, every provider.** LLM Gateway exposes an OpenAI-compatible API. Use any provider — OpenAI, Anthropic, Google, Meta, Mistral, and more — through the same interface.
 
 **Automatic failover.** If a provider goes down, requests route to an alternative. Your users never notice.
 

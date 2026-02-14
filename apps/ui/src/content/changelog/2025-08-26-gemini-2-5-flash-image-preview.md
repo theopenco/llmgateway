@@ -28,7 +28,7 @@ We're thrilled to announce the addition of **Gemini 2.5 Flash Image Preview** - 
 **Gemini 2.5 Flash Image Preview**
 
 ```bash
-google-ai-studio/gemini-2.5-flash-image-preview
+gemini-2.5-flash-image-preview
 ```
 
 - **Provider**: Google AI Studio
