@@ -598,8 +598,11 @@ The LLM Gateway Team`.trim();
 				},
 		hooks: {
 			before: createAuthMiddleware(async (ctx) => {
-				// Check and record rate limit for ALL signup attempts
-				if (ctx.path.startsWith("/sign-up")) {
+				// Check and record rate limit for ALL signup attempts (skip in development)
+				if (
+					ctx.path.startsWith("/sign-up") &&
+					process.env.NODE_ENV !== "development"
+				) {
 					// Get IP address from various possible headers, prioritizing CF-Connecting-IP
 					let ipAddress = ctx.headers?.get("cf-connecting-ip");
 					if (!ipAddress) {

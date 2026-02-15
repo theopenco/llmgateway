@@ -27,6 +27,7 @@ import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
+import { ReferralBanner } from "@/components/dashboard/referral-banner";
 import {
 	DateRangePicker,
 	getDateRangeFromParams,
@@ -313,6 +314,8 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 						{selectedOrganization && !selectedProject && <TopUpCreditsButton />}
 					</div>
 				</div>
+
+				<ReferralBanner />
 
 				<DateRangePicker buildUrl={buildUrl} />
 
