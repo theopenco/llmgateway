@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import { ModelCard } from "@/components/models/model-card";
+import { ProviderModelCard } from "@/components/providers/provider-model-card";
 
 import type {
 	ApiModel,
@@ -124,7 +124,7 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 	return (
 		<div className="grid gap-6 md:grid-cols-3">
 			{models.map((model, index) => (
-				<ModelCard
+				<ProviderModelCard
 					key={`${model.providerDetails[0].provider.providerId}-${model.id}-${index}`}
 					model={model}
 					shouldShowStabilityWarning={shouldShowStabilityWarning}

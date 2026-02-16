@@ -4,9 +4,10 @@ set -eux
 
 curl -X POST --location "http://localhost:4001/v1/chat/completions" \
 	-H "Content-Type: application/json" \
-	-H "Authorization: Bearer test-token" \
+	-H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+	-H "x-no-fallback: true" \
 	-d '{
-	"model": "google-ai-studio/gemini-3-pro-image-preview",
+	"model": "obsidian/gemini-3-pro-image-preview",
 	"image_config": {
 		"aspect_ratio": "1:1",
 		"image_size": "1K"

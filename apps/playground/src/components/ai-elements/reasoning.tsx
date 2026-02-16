@@ -14,6 +14,12 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ComponentProps, ReactNode } from "react";
+import type { BundledTheme } from "shiki";
+
+const shikiTheme: [BundledTheme, BundledTheme] = [
+	"github-light",
+	"github-dark",
+];
 
 interface ReasoningContextValue {
 	isStreaming: boolean;
@@ -181,7 +187,9 @@ export const ReasoningContent = memo(
 			)}
 			{...props}
 		>
-			<Streamdown {...props}>{children}</Streamdown>
+			<Streamdown shikiTheme={shikiTheme} {...props}>
+				{children}
+			</Streamdown>
 		</CollapsibleContent>
 	),
 );

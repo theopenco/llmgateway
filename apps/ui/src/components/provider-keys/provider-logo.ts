@@ -1,4 +1,4 @@
-import { ProviderIcons } from "@/lib/components/providers-icons";
+import { ProviderIcons } from "@llmgateway/shared/components";
 
 import type { ProviderId } from "@llmgateway/models";
 

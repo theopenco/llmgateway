@@ -133,11 +133,11 @@ export function Hero({
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
 										<Link
-											href="/changelog/gemini-3-pro-preview-support"
+											href="/blog/alibaba-cloud-qwen-models-20-percent-off"
 											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
 											<span className="text-foreground text-sm">
-												Gemini 3 is live with a 20% discount
+												20% Off All Alibaba Cloud Qwen Models
 											</span>
 											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
 
@@ -344,6 +344,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											priority
 										/>
 										<Image
 											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
@@ -351,6 +352,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											priority
 										/>
 									</div>
 								</div>

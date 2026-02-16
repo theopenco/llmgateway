@@ -134,6 +134,10 @@ export async function syncProvidersAndModels() {
 								streaming: mapping.streaming === false ? false : true,
 								vision: "vision" in mapping ? mapping.vision : null,
 								reasoning: "reasoning" in mapping ? mapping.reasoning : null,
+								reasoningMaxTokens:
+									"reasoningMaxTokens" in mapping
+										? (mapping.reasoningMaxTokens ?? false)
+										: false,
 								reasoningOutput:
 									"reasoningOutput" in mapping
 										? (mapping.reasoningOutput as string | null)
@@ -147,6 +151,11 @@ export async function syncProvidersAndModels() {
 										? mapping.jsonOutputSchema
 										: false,
 								webSearch: "webSearch" in mapping ? mapping.webSearch : false,
+								webSearchPrice:
+									"webSearchPrice" in mapping &&
+									mapping.webSearchPrice !== undefined
+										? mapping.webSearchPrice.toString()
+										: null,
 								// NotNull decimal field - use explicit default
 								discount:
 									"discount" in mapping && mapping.discount !== undefined
@@ -208,6 +217,10 @@ export async function syncProvidersAndModels() {
 							streaming: mapping.streaming === false ? false : true,
 							vision: "vision" in mapping ? mapping.vision : undefined,
 							reasoning: "reasoning" in mapping ? mapping.reasoning : undefined,
+							reasoningMaxTokens:
+								"reasoningMaxTokens" in mapping
+									? (mapping.reasoningMaxTokens ?? false)
+									: false,
 							reasoningOutput:
 								"reasoningOutput" in mapping
 									? (mapping.reasoningOutput as string | undefined)
@@ -220,6 +233,11 @@ export async function syncProvidersAndModels() {
 									? mapping.jsonOutputSchema
 									: undefined,
 							webSearch: "webSearch" in mapping ? mapping.webSearch : undefined,
+							webSearchPrice:
+								"webSearchPrice" in mapping &&
+								mapping.webSearchPrice !== undefined
+									? mapping.webSearchPrice.toString()
+									: undefined,
 							discount:
 								"discount" in mapping && mapping.discount !== undefined
 									? mapping.discount.toString()

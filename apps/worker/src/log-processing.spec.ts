@@ -152,8 +152,11 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
 		});
 
-		test("should not deduct credits for api-keys mode logs", async () => {
+		test("should deduct only BYOK fee (1%) for api-keys mode logs", async () => {
 			const initialCredits = Number(testOrg.credits);
+			const cost = 0.01;
+			const byokFeePercentage = 0.01; // 1%
+			const expectedFee = cost * byokFeePercentage;
 
 			// Insert unprocessed log with api-keys mode
 			await db.insert(log).values({
@@ -161,7 +164,7 @@ describe("Log Processing", () => {
 				organizationId: testOrg.id,
 				projectId: testProject.id,
 				apiKeyId: testApiKey.id,
-				cost: 0.01,
+				cost: cost,
 				cached: false,
 				usedMode: "api-keys",
 				duration: 2000,
@@ -176,12 +179,12 @@ describe("Log Processing", () => {
 			// Process the logs
 			await batchProcessLogs();
 
-			// Verify credits were not deducted
+			// Verify only BYOK fee was deducted (not full cost)
 			const updatedOrg = await db.query.organization.findFirst({
 				where: { id: { eq: testOrg.id } },
 			});
 
-			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - expectedFee);
 		});
 
 		test("should update API key usage for all non-cached logs with cost", async () => {

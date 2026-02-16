@@ -3,6 +3,7 @@ import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
+import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -221,6 +222,13 @@ export function transformStreamingToOpenai(
 					usage: data.usage || null,
 				};
 			} else {
+				logger.warn("[streaming] Unrecognized Anthropic chunk", {
+					provider: usedProvider,
+					model: usedModel,
+					type: data.type,
+					deltaType: data.delta?.type,
+					dataKeys: Object.keys(data),
+				});
 				transformedData = {
 					id: data.id || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -242,7 +250,8 @@ export function transformStreamingToOpenai(
 		}
 
 		case "google-ai-studio":
-		case "google-vertex": {
+		case "google-vertex":
+		case "obsidian": {
 			const mapFinishReason = (
 				finishReason?: string,
 				hasFunctionCalls?: boolean,
@@ -301,9 +310,21 @@ export function transformStreamingToOpenai(
 						? usageMetadata.promptTokenCount
 						: calculatePromptTokensFromMessages(messagesForFallback);
 
-				const completionTokenCount = usageMetadata.candidatesTokenCount || 0;
+				const rawCandidates = usageMetadata.candidatesTokenCount || 0;
 
 				const reasoningTokenCount = usageMetadata.thoughtsTokenCount || 0;
+
+				// Adjust for inconsistent Google API behavior where
+				// candidatesTokenCount may already include thoughtsTokenCount
+				const adjustedCandidates = adjustGoogleCandidateTokens(
+					rawCandidates,
+					reasoningTokenCount,
+					promptTokenCount,
+					usageMetadata.totalTokenCount,
+				);
+
+				// completionTokenCount includes reasoning for correct totals
+				const completionTokenCount = adjustedCandidates + reasoningTokenCount;
 
 				const toolUsePromptTokenCount =
 					usageMetadata.toolUsePromptTokenCount || 0;
@@ -313,13 +334,7 @@ export function transformStreamingToOpenai(
 					usageMetadata.cachedContentTokenCount || 0;
 
 				const totalTokenCount =
-					typeof usageMetadata.totalTokenCount === "number" &&
-					usageMetadata.totalTokenCount > 0
-						? usageMetadata.totalTokenCount
-						: promptTokenCount +
-							completionTokenCount +
-							reasoningTokenCount +
-							toolUsePromptTokenCount;
+					promptTokenCount + completionTokenCount + toolUsePromptTokenCount;
 
 				const usage: any = {
 					prompt_tokens: promptTokenCount,
@@ -421,6 +436,23 @@ export function transformStreamingToOpenai(
 				parts.forEach((part, partIndex) => {
 					const sig: string | undefined =
 						part.thoughtSignature || part.thought_signature;
+
+					// Check for unrecognized part types
+					const isKnownPartType =
+						typeof part.text === "string" ||
+						part.functionCall ||
+						part.inlineData ||
+						part.thoughtSignature ||
+						part.thought_signature;
+
+					if (!isKnownPartType) {
+						logger.warn("[streaming] Unrecognized Google part type", {
+							provider: usedProvider,
+							model: usedModel,
+							partIndex,
+							partKeys: Object.keys(part),
+						});
+					}
 
 					if (part.functionCall) {
 						const callIndex = toolCalls.length;
@@ -572,6 +604,17 @@ export function transformStreamingToOpenai(
 					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
+				logger.warn("[streaming] Google chunk with no content", {
+					provider: usedProvider,
+					model: usedModel,
+					hasCandidates: hasCandidatesArray,
+					candidatesCount: candidates.length,
+					firstCandidateKeys: firstCandidate ? Object.keys(firstCandidate) : [],
+					hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
+					partsCount: firstCandidate?.content?.parts?.length ?? 0,
+					hasUsageMetadata: !!data.usageMetadata,
+					dataKeys: Object.keys(data),
+				});
 				transformedData = {
 					id: data.responseId || `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -591,6 +634,7 @@ export function transformStreamingToOpenai(
 			break;
 		}
 
+		case "azure":
 		case "openai": {
 			if (data.type) {
 				// Log full OpenAI event data for debugging
@@ -856,6 +900,12 @@ export function transformStreamingToOpenai(
 					}
 
 					default:
+						logger.warn("[streaming] Unrecognized OpenAI event type", {
+							provider: usedProvider,
+							model: usedModel,
+							eventType: data.type,
+							dataKeys: Object.keys(data),
+						});
 						transformedData = {
 							id: data.response?.id || `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -1032,13 +1082,21 @@ export function transformStreamingToOpenai(
 					},
 				};
 			} else {
+				logger.warn("[streaming] Unrecognized AWS Bedrock event type", {
+					provider: usedProvider,
+					model: usedModel,
+					eventType,
+					dataKeys: Object.keys(data),
+				});
 				transformedData = null;
 			}
 			break;
 		}
 
 		case "mistral":
-		case "novita": {
+		case "novita":
+		case "routeway":
+		case "zai": {
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(data, usedModel);
 
@@ -1052,6 +1110,11 @@ export function transformStreamingToOpenai(
 		}
 
 		default: {
+			logger.warn("[streaming] Unknown provider using OpenAI fallback", {
+				provider: usedProvider,
+				model: usedModel,
+				dataKeys: Object.keys(data),
+			});
 			transformedData = transformOpenaiStreaming(data, usedModel);
 			break;
 		}

@@ -9,7 +9,10 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getProviderIcon,
+	MinimaxIconStatic,
+} from "@llmgateway/shared/components";
 
 export const size = {
 	width: 1200,
@@ -95,7 +98,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			(p) => p.id === selectedMapping?.providerId,
 		);
 		const ProviderIcon = selectedMapping
-			? getProviderIcon(selectedMapping.providerId)
+			? selectedMapping.providerId === "minimax"
+				? MinimaxIconStatic
+				: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
 		const requestPrice = selectedMapping?.requestPrice;
@@ -314,7 +319,8 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							gap: 28,
 						}}
 					>
-						{(hasTokenPricing || requestPrice) && (
+						{(hasTokenPricing ||
+							(requestPrice !== undefined && requestPrice !== 0)) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -324,7 +330,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									letterSpacing: "0.1em",
 								}}
 							>
-								{requestPrice ? "Pricing" : "Pricing per 1M tokens"}
+								{requestPrice !== undefined && requestPrice !== 0
+									? "Pricing"
+									: "Pricing per 1M tokens"}
 							</span>
 						)}
 						<div
@@ -363,7 +371,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							</div>
 
 							{/* Request Price */}
-							{requestPrice && (
+							{requestPrice !== undefined && requestPrice !== 0 && (
 								<div
 									style={{
 										display: "flex",

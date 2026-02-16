@@ -1,15 +1,24 @@
 "use client";
-import { useSearchParams } from "next/navigation";
-import { useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
+import { format } from "date-fns";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useMemo } from "react";
+import { Label, Pie, PieChart } from "recharts";
+
+import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import {
+	ChartContainer,
+	ChartTooltip,
+	ChartTooltipContent,
+} from "@/lib/components/chart";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers } from "@llmgateway/models";
 
+import type { ChartConfig } from "@/lib/components/chart";
 import type { ActivitT } from "@/types/activity";
-import type { TooltipProps } from "recharts";
+import type { ViewBox } from "recharts/types/util/types";
 
 interface CostBreakdownChartProps {
 	initialData?: ActivitT;
@@ -17,29 +26,43 @@ interface CostBreakdownChartProps {
 	apiKeyId?: string;
 }
 
-const CustomTooltip = ({
-	active,
-	payload,
-	label,
-}: TooltipProps<number, string> & {
-	payload: { value: number }[];
-	label: string;
-}) => {
-	if (active && payload && payload.length) {
-		return (
-			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
-				<p className="font-medium">{label}</p>
-				<p className="text-sm">
-					<span className="font-medium">
-						${Number(payload[0].value).toFixed(4)}
-					</span>{" "}
-					Cost
-				</p>
-			</div>
-		);
+const MODEL_COLORS = [
+	"#3b82f6", // blue
+	"#f59e0b", // amber
+	"#10b981", // emerald
+	"#8b5cf6", // violet
+	"#ef4444", // red
+	"#06b6d4", // cyan
+	"#f97316", // orange
+	"#ec4899", // pink
+	"#14b8a6", // teal
+	"#a855f7", // purple
+	"#eab308", // yellow
+	"#6366f1", // indigo
+	"#84cc16", // lime
+	"#0ea5e9", // sky
+	"#e11d48", // rose
+];
+
+function formatCompactCost(value: number): string {
+	if (value >= 1_000_000_000) {
+		return `$${(value / 1_000_000_000).toFixed(1)}B`;
 	}
-	return null;
-};
+	if (value >= 1_000_000) {
+		return `$${(value / 1_000_000).toFixed(1)}M`;
+	}
+	if (value >= 1_000) {
+		return `$${(value / 1_000).toFixed(1)}K`;
+	}
+	return `$${value.toFixed(2)}`;
+}
+
+function getProviderColor(providerName: string) {
+	const provider = providers.find(
+		(p) => p.name.toLowerCase() === providerName.toLowerCase(),
+	);
+	return provider?.color || "#94a3b8";
+}
 
 export function CostBreakdownChart({
 	initialData,
@@ -48,13 +71,11 @@ export function CostBreakdownChart({
 }: CostBreakdownChartProps) {
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardNavigation();
-	const [showAllSegments, setShowAllSegments] = useState(false);
 
-	// Get days from URL parameter
-	const daysParam = searchParams.get("days");
-	const days = daysParam === "30" ? 30 : 7;
+	const { from, to } = getDateRangeFromParams(searchParams);
+	const fromStr = format(from, "yyyy-MM-dd");
+	const toStr = format(to, "yyyy-MM-dd");
 
-	// Use provided projectId or fall back to selectedProject
 	const effectiveProjectId = projectId || selectedProject?.id;
 
 	const api = useApi();
@@ -64,7 +85,8 @@ export function CostBreakdownChart({
 		{
 			params: {
 				query: {
-					days: String(days),
+					from: fromStr,
+					to: toStr,
 					...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},
@@ -76,9 +98,124 @@ export function CostBreakdownChart({
 		},
 	);
 
+	const { chartData, chartConfig, totalCost } = useMemo(() => {
+		if (!data || data.activity.length === 0) {
+			return { chartData: [], chartConfig: {} as ChartConfig, totalCost: 0 };
+		}
+
+		const modelCosts = new Map<string, { cost: number; provider: string }>();
+		let storageCost = 0;
+
+		for (const day of data.activity) {
+			for (const model of day.modelBreakdown) {
+				const existing = modelCosts.get(model.id);
+				if (existing) {
+					existing.cost += model.cost;
+				} else {
+					modelCosts.set(model.id, {
+						cost: model.cost,
+						provider: model.provider,
+					});
+				}
+			}
+			storageCost += Number(day.dataStorageCost) || 0;
+		}
+
+		const sorted = Array.from(modelCosts.entries())
+			.map(([modelId, { cost, provider }]) => ({
+				model: modelId,
+				provider,
+				cost,
+			}))
+			.sort((a, b) => b.cost - a.cost);
+
+		if (storageCost > 0) {
+			sorted.push({
+				model: "storage",
+				provider: "LLM Gateway",
+				cost: storageCost,
+			});
+		}
+
+		const config: ChartConfig = {
+			cost: { label: "Cost" },
+		};
+
+		const pieData = sorted.map((item, i) => {
+			const key = item.model.replace(/[^a-zA-Z0-9]/g, "_");
+			const color =
+				item.model === "storage"
+					? "#6366f1"
+					: getProviderColor(item.provider) ||
+						MODEL_COLORS[i % MODEL_COLORS.length];
+
+			config[key] = {
+				label: item.model === "storage" ? "Storage" : item.model,
+				color,
+			};
+
+			return {
+				model: key,
+				label: item.model === "storage" ? "Storage" : item.model,
+				cost: item.cost,
+				fill: `var(--color-${key})`,
+			};
+		});
+
+		const total = pieData.reduce((sum, item) => sum + item.cost, 0);
+
+		return { chartData: pieData, chartConfig: config, totalCost: total };
+	}, [data]);
+
+	const pieLabelContent = useCallback(
+		({ viewBox }: { viewBox?: ViewBox }) => {
+			if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+				return (
+					<text
+						x={viewBox.cx}
+						y={viewBox.cy}
+						textAnchor="middle"
+						dominantBaseline="middle"
+					>
+						<tspan
+							x={viewBox.cx}
+							y={viewBox.cy}
+							className="fill-foreground text-xl font-bold"
+						>
+							{formatCompactCost(totalCost)}
+						</tspan>
+						<tspan
+							x={viewBox.cx}
+							y={(viewBox.cy || 0) + 20}
+							className="fill-muted-foreground text-xs"
+						>
+							Total Cost
+						</tspan>
+					</text>
+				);
+			}
+			return null;
+		},
+		[totalCost],
+	);
+
+	const costFormatter = useCallback(
+		(value: string | number | (string | number)[], name: string | number) => (
+			<div className="flex items-center gap-2">
+				<span className="text-muted-foreground">
+					{chartConfig[String(name)]?.label ?? name}
+				</span>
+				<span className="font-mono font-medium">
+					${Number(value).toFixed(4)}
+				</span>
+			</div>
+		),
+		[chartConfig],
+	);
+
 	if (!effectiveProjectId) {
 		return (
-			<div className="flex h-[350px] items-center justify-center">
+			<div className="flex h-full items-center justify-center">
 				<p className="text-muted-foreground">
 					Please select a project to view cost breakdown
 				</p>
@@ -88,23 +225,23 @@ export function CostBreakdownChart({
 
 	if (isLoading) {
 		return (
-			<div className="flex h-[350px] items-center justify-center">
-				Loading cost data...
+			<div className="flex h-full items-center justify-center">
+				<p className="text-muted-foreground">Loading cost data...</p>
 			</div>
 		);
 	}
 
 	if (error) {
 		return (
-			<div className="flex h-[350px] items-center justify-center">
+			<div className="flex h-full items-center justify-center">
 				<p className="text-destructive">Error loading activity data</p>
 			</div>
 		);
 	}
 
-	if (!data || data.activity.length === 0) {
+	if (chartData.length === 0) {
 		return (
-			<div className="flex h-[350px] items-center justify-center">
+			<div className="flex h-full items-center justify-center">
 				<p className="text-muted-foreground">
 					No cost data available
 					{selectedProject && (
@@ -117,112 +254,77 @@ export function CostBreakdownChart({
 		);
 	}
 
-	const providerCosts = new Map<string, number>();
-	let totalStorageCost = 0;
-
-	data.activity.forEach((day) => {
-		day.modelBreakdown.forEach((model) => {
-			const currentCost = providerCosts.get(model.provider) || 0;
-			providerCosts.set(model.provider, currentCost + model.cost);
-		});
-		totalStorageCost += Number(day.dataStorageCost) || 0;
-	});
-
-	const chartData = Array.from(providerCosts.entries())
-		.map(([provider, cost]) => ({
-			name: provider,
-			value: cost,
-			color: getProviderColor(provider),
-		}))
-		.sort((a, b) => b.value - a.value);
-
-	// Add storage cost as a separate item if it exists
-	if (totalStorageCost > 0) {
-		chartData.push({
-			name: "LLM Gateway Storage",
-			value: totalStorageCost,
-			color: "#6366f1", // Indigo color for storage
-		});
-	}
-
-	function getProviderColor(providerName: string) {
-		// Find the provider in the providers array by name (case-insensitive)
-		const provider = providers.find(
-			(p) => p.name.toLowerCase() === providerName.toLowerCase(),
-		);
-
-		// Return the color if found, otherwise use a default color
-		return provider?.color || "#94a3b8"; // Default color for unknown providers
-	}
-
-	const totalCost = chartData.reduce((sum, item) => sum + item.value, 0);
-	const visibleSegments = showAllSegments ? chartData : chartData.slice(0, 7);
-
 	return (
-		<div>
-			{chartData.length > 0 && (
-				<div className="mb-4 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-					<div className="flex flex-wrap items-center gap-3">
-						{visibleSegments.map((segment) => (
-							<div key={segment.name} className="flex items-center gap-2">
-								<span
-									className="h-2 w-2 rounded-sm"
-									style={{ backgroundColor: segment.color }}
-								/>
-								<span className="truncate max-w-[160px]">{segment.name}</span>
-							</div>
-						))}
-						{chartData.length > 7 && (
-							<button
-								type="button"
-								onClick={() => setShowAllSegments((prev) => !prev)}
-								className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted"
-							>
-								{showAllSegments
-									? "Show less"
-									: `+${chartData.length - 7} more`}
-							</button>
-						)}
-					</div>
-					<div>
-						<p>
-							Total Cost:{" "}
-							<span className="font-medium">${totalCost.toFixed(4)}</span>
-						</p>
-						{selectedProject && (
-							<p className="mt-1 truncate">
-								Project:{" "}
-								<span className="font-medium">{selectedProject.name}</span>
-							</p>
-						)}
-					</div>
-				</div>
-			)}
-
-			<ResponsiveContainer width="100%" height={350}>
+		<div className="flex h-full flex-col gap-4 md:flex-row">
+			<ChartContainer
+				config={chartConfig}
+				className="mx-auto aspect-square w-full max-w-[280px]"
+			>
 				<PieChart>
+					<ChartTooltip
+						cursor={false}
+						content={
+							<ChartTooltipContent hideLabel formatter={costFormatter} />
+						}
+					/>
 					<Pie
 						data={chartData}
-						cx="50%"
-						cy="50%"
+						dataKey="cost"
+						nameKey="model"
 						innerRadius={60}
-						outerRadius={100}
-						paddingAngle={2}
-						dataKey="value"
-						label={({ name, percent }: { name?: string; percent?: number }) =>
-							`${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`
-						}
-						labelLine={false}
+						strokeWidth={2}
+						stroke="hsl(var(--background))"
 					>
-						{chartData.map((entry, index) => (
-							<Cell key={`cell-${index}`} fill={entry.color} />
-						))}
+						<Label content={pieLabelContent} />
 					</Pie>
-					<Tooltip
-						content={<CustomTooltip payload={[{ value: 0 }]} label="test" />}
-					/>
 				</PieChart>
-			</ResponsiveContainer>
+			</ChartContainer>
+			<div className="flex flex-1 flex-col justify-center gap-3 text-sm">
+				{selectedProject && (
+					<p className="text-muted-foreground">
+						Project:{" "}
+						<span className="font-medium text-foreground">
+							{selectedProject.name}
+						</span>
+					</p>
+				)}
+				<div className="flex flex-col gap-1.5">
+					{chartData.map((item) => {
+						const percent =
+							totalCost > 0 ? ((item.cost / totalCost) * 100).toFixed(1) : "0";
+						const config = chartConfig[item.model];
+						return (
+							<div
+								key={item.model}
+								className="flex items-center justify-between gap-2"
+							>
+								<div className="flex items-center gap-2 min-w-0">
+									<span
+										className="h-2.5 w-2.5 shrink-0 rounded-sm"
+										style={{
+											backgroundColor:
+												(config && "color" in config
+													? config.color
+													: undefined) || "#94a3b8",
+										}}
+									/>
+									<span className="truncate text-muted-foreground">
+										{item.label}
+									</span>
+								</div>
+								<div className="flex items-center gap-2 shrink-0 tabular-nums">
+									<span className="font-medium">
+										{formatCompactCost(item.cost)}
+									</span>
+									<span className="text-muted-foreground w-12 text-right">
+										{percent}%
+									</span>
+								</div>
+							</div>
+						);
+					})}
+				</div>
+			</div>
 		</div>
 	);
 }

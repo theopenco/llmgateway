@@ -3,8 +3,6 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
-import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
 	useAddTeamMember,
@@ -47,16 +45,10 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
-import { useAppConfig } from "@/lib/config";
 
 export function TeamClient() {
 	const params = useParams();
-	const config = useAppConfig();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization } = useDashboardNavigation();
-
-	const isProPlan = selectedOrganization?.plan === "pro";
-	const isRestricted = config.hosted && !isProPlan;
 
 	const { data, isLoading } = useTeamMembers(organizationId);
 	const addMemberMutation = useAddTeamMember(organizationId);
@@ -148,7 +140,9 @@ export function TeamClient() {
 						<h2 className="text-3xl font-bold tracking-tight">Team</h2>
 						<Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
 							<DialogTrigger asChild>
-								<Button disabled={isRestricted}>Add Member</Button>
+								<Button disabled={(data?.members.length ?? 0) >= 5}>
+									Add Member
+								</Button>
 							</DialogTrigger>
 							<DialogContent>
 								<DialogHeader>
@@ -190,12 +184,14 @@ export function TeamClient() {
 
 									<Alert>
 										<AlertDescription>
-											3 seats are included; any additional members will incur a
-											cost of{" "}
-											<span className="inline font-semibold">
-												$10/seat/month
-											</span>
-											The charge will be prorated based on your billing cycle.
+											Organizations can have up to 5 team members. Contact us at{" "}
+											<a
+												href="mailto:contact@llmgateway.io"
+												className="underline"
+											>
+												contact@llmgateway.io
+											</a>{" "}
+											to unlock more seats.
 										</AlertDescription>
 									</Alert>
 								</div>
@@ -217,27 +213,12 @@ export function TeamClient() {
 						</Dialog>
 					</div>
 
-					{isRestricted && (
-						<Alert>
-							<AlertDescription className="flex items-center justify-between gap-2">
-								<span>
-									Team management is only available on the Pro plan. Upgrade to
-									invite and manage team members.
-								</span>
-								<UpgradeToProDialog>
-									<Button size="sm" variant="outline">
-										Upgrade to Pro
-									</Button>
-								</UpgradeToProDialog>
-							</AlertDescription>
-						</Alert>
-					)}
-
 					<Card>
 						<CardHeader>
 							<CardTitle>Team Members</CardTitle>
 							<CardDescription>
-								Manage your organization's team members and their roles
+								Manage your organization's team members and their roles (
+								{data?.members.length ?? 0}/5 seats used)
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
@@ -267,9 +248,7 @@ export function TeamClient() {
 																value as "owner" | "admin" | "developer",
 															)
 														}
-														disabled={
-															isRestricted || updateMemberMutation.isPending
-														}
+														disabled={updateMemberMutation.isPending}
 													>
 														<SelectTrigger className="w-[130px]">
 															<SelectValue />
@@ -293,9 +272,7 @@ export function TeamClient() {
 																member.user.name || member.user.email,
 															)
 														}
-														disabled={
-															isRestricted || removeMemberMutation.isPending
-														}
+														disabled={removeMemberMutation.isPending}
 													>
 														Remove
 													</Button>

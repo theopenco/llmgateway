@@ -6,9 +6,6 @@ import { fetchServerData } from "@/lib/server-api";
 import type { Project } from "@/lib/types";
 import type { ReactNode } from "react";
 
-// Force dynamic rendering since this layout uses cookies for authentication
-export const dynamic = "force-dynamic";
-
 interface ProjectLayoutProps {
 	children: ReactNode;
 	params: Promise<{ orgId: string; projectId: string }>;

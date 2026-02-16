@@ -12,8 +12,8 @@ export function PricingHero() {
 						Simple, Transparent Pricing
 					</h1>
 					<p className="text-xl text-muted-foreground">
-						Start free with no credit card. Scale with fees 50% lower than
-						competitors on our Pro plan.
+						Start free with no credit card. Pay only for what you use with
+						transparent pricing.
 					</p>
 				</div>
 			</div>

@@ -16,9 +16,19 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { ImageZoom } from "@/components/ui/image-zoom";
 import { cn } from "@/lib/utils";
 
 import { CodeBlock } from "./code-block";
+import { Image } from "./image";
+import {
+	hasImageModelsOutput,
+	hasModelsOutput,
+	hasTextContentOutput,
+	ImageModelsListOutput,
+	ModelsListOutput,
+	TextContentOutput,
+} from "./tool-results";
 
 import type { ToolUIPart } from "ai";
 import type { ComponentProps, ReactNode } from "react";
@@ -125,6 +135,37 @@ export type ToolOutputProps = ComponentProps<"div"> & {
 	errorText: ToolUIPart["errorText"];
 };
 
+/**
+ * Check if output contains image data from generate-image tool
+ * Images are returned as { base64: string, mediaType: string } objects
+ */
+function hasImageOutput(output: unknown): output is {
+	images: { base64: string; mediaType: string }[];
+	text?: string;
+} {
+	if (
+		typeof output !== "object" ||
+		output === null ||
+		!("images" in output) ||
+		!Array.isArray((output as { images: unknown }).images)
+	) {
+		return false;
+	}
+	const images = (output as { images: unknown[] }).images;
+	if (images.length === 0) {
+		return false;
+	}
+	const first = images[0];
+	return (
+		typeof first === "object" &&
+		first !== null &&
+		"base64" in first &&
+		"mediaType" in first &&
+		typeof (first as { base64: unknown }).base64 === "string" &&
+		typeof (first as { mediaType: unknown }).mediaType === "string"
+	);
+}
+
 export const ToolOutput = ({
 	className,
 	output,
@@ -137,7 +178,37 @@ export const ToolOutput = ({
 
 	let Output = <div>{output as ReactNode}</div>;
 
-	if (typeof output === "object" && !isValidElement(output)) {
+	// Check for image output from generate-image tool
+	if (hasImageOutput(output)) {
+		Output = (
+			<div className="space-y-4 p-2">
+				{output.text && (
+					<p className="text-sm text-muted-foreground">{output.text}</p>
+				)}
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+					{output.images.map((img, index) => (
+						<ImageZoom key={index}>
+							<Image
+								base64={img.base64}
+								mediaType={img.mediaType}
+								alt={`Generated image ${index + 1}`}
+								className="h-[400px] aspect-auto border rounded-lg object-cover"
+							/>
+						</ImageZoom>
+					))}
+				</div>
+			</div>
+		);
+	} else if (hasModelsOutput(output)) {
+		// Render model cards for list-models tool output
+		Output = <ModelsListOutput models={output.models} />;
+	} else if (hasImageModelsOutput(output)) {
+		// Render image model cards for list-image-models tool output
+		Output = <ImageModelsListOutput imageModels={output.imageModels} />;
+	} else if (hasTextContentOutput(output)) {
+		// Render text content for generate_content tool output
+		Output = <TextContentOutput response={output.response} />;
+	} else if (typeof output === "object" && !isValidElement(output)) {
 		Output = (
 			<CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
 		);

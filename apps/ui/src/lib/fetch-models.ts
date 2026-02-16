@@ -32,10 +32,12 @@ export interface ApiModelProviderMapping {
 	vision: boolean | null;
 	reasoning: boolean | null;
 	reasoningOutput: string | null;
+	reasoningMaxTokens: boolean | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
+	webSearchPrice: string | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;

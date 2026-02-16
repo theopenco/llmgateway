@@ -59,6 +59,7 @@ const logSchema = z.object({
 	frequencyPenalty: z.number().nullable(),
 	presencePenalty: z.number().nullable(),
 	reasoningEffort: z.string().nullable(),
+	reasoningMaxTokens: z.number().nullable(),
 	responseFormat: z.any().nullable(),
 	tools: tools.nullable(),
 	toolChoice: toolChoice.nullable(),
@@ -69,6 +70,10 @@ const logSchema = z.object({
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
+	imageInputTokens: z.string().nullable(),
+	imageOutputTokens: z.string().nullable(),
+	imageInputCost: z.number().nullable(),
+	imageOutputCost: z.number().nullable(),
 	estimatedCost: z.boolean().nullable(),
 	canceled: z.boolean().nullable(),
 	streamed: z.boolean().nullable(),
@@ -93,9 +98,75 @@ const logSchema = z.object({
 					}),
 				)
 				.optional(),
+			routing: z
+				.array(
+					z.object({
+						provider: z.string(),
+						model: z.string(),
+						status_code: z.number(),
+						error_type: z.string(),
+						succeeded: z.boolean(),
+					}),
+				)
+				.optional(),
 		})
 		.nullable()
 		.optional(),
+	retried: z.boolean().nullable().optional(),
+	retriedByLogId: z.string().nullable().optional(),
+});
+
+// GET /logs/:id - Fetch a single log by ID
+const getById = createRoute({
+	method: "get",
+	path: "/{id}",
+	request: {
+		params: z.object({
+			id: z.string().openapi({ description: "Log ID" }),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ log: logSchema }),
+				},
+			},
+			description: "Single log entry",
+		},
+		404: {
+			description: "Log not found",
+		},
+	},
+});
+
+logs.openapi(getById, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const log = await db.query.log.findFirst({
+		where: { id },
+	});
+
+	if (!log) {
+		throw new HTTPException(404, { message: "Log not found" });
+	}
+
+	// Verify user has access to this log's organization
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
+
+	if (!organizationIds.includes(log.organizationId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this log",
+		});
+	}
+
+	return c.json({ log });
 });
 
 const querySchema = z.object({

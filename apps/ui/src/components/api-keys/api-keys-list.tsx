@@ -401,22 +401,14 @@ export function ApiKeysList({
 								<span className="font-medium">API Keys:</span>{" "}
 								{planLimits.currentCount} of {planLimits.maxKeys} used
 							</div>
-							<div className="text-sm text-muted-foreground">
-								<span className="font-medium">Plan:</span>{" "}
-								{planLimits.plan === "pro" ? "Pro" : "Free"}
-							</div>
 						</div>
 						{planLimits.currentCount >= planLimits.maxKeys && (
 							<div className="text-xs text-amber-600 font-medium">
-								Limit reached
+								Limit reached — contact us at contact@llmgateway.io to unlock
+								more
 							</div>
 						)}
 					</div>
-					{planLimits.plan === "free" && planLimits.currentCount >= 3 && (
-						<div className="mt-2 text-xs text-muted-foreground">
-							💡 Upgrade to Pro plan to create up to 20 API keys per project
-						</div>
-					)}
 				</div>
 			)}
 

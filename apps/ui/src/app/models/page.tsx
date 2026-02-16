@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
@@ -27,8 +29,10 @@ export default async function ModelsPage() {
 	]);
 
 	return (
-		<AllModels models={models} providers={providers}>
-			<HeroRSC navbarOnly sticky={false} />
-		</AllModels>
+		<Suspense>
+			<AllModels models={models} providers={providers}>
+				<HeroRSC navbarOnly sticky={false} />
+			</AllModels>
+		</Suspense>
 	);
 }

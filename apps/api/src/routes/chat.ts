@@ -133,6 +133,9 @@ chat.openapi(completionRoute, async (c) => {
 						data: JSON.stringify({ error: "Streaming failed" }),
 						event: "error",
 					});
+				} finally {
+					// Clean up the reader to prevent file descriptor leaks
+					await reader.cancel();
 				}
 			});
 		} else {

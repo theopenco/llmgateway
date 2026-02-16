@@ -157,6 +157,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/mcp"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch
+									>
+										MCP Server
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/blog"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>

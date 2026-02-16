@@ -1,5 +1,6 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
+import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import type { InferInsertModel } from "@llmgateway/db";
@@ -18,7 +19,9 @@ export function isExpectedUnknownFinishReason(
 	}
 	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
 	if (
-		(provider === "google-ai-studio" || provider === "google-vertex") &&
+		(provider === "google-ai-studio" ||
+			provider === "google-vertex" ||
+			provider === "obsidian") &&
 		finishReason === "OTHER"
 	) {
 		return true;
@@ -46,6 +49,9 @@ export function getUnifiedFinishReason(
 	if (finishReason === "upstream_error") {
 		return UnifiedFinishReason.UPSTREAM_ERROR;
 	}
+	if (finishReason === "network_error") {
+		return UnifiedFinishReason.UPSTREAM_ERROR;
+	}
 	if (finishReason === "client_error") {
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
@@ -67,6 +73,7 @@ export function getUnifiedFinishReason(
 			break;
 		case "google-ai-studio":
 		case "google-vertex":
+		case "obsidian":
 			// Google finish reasons (original format, not mapped to OpenAI)
 			if (finishReason === "STOP") {
 				return UnifiedFinishReason.COMPLETED;
@@ -85,7 +92,8 @@ export function getUnifiedFinishReason(
 				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
 				finishReason === "IMAGE_RECITATION" ||
 				finishReason === "IMAGE_OTHER" ||
-				finishReason === "NO_IMAGE"
+				finishReason === "NO_IMAGE" ||
+				finishReason === "content_filter" // OpenAI format sometimes returned by Google
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
@@ -110,6 +118,28 @@ export function getUnifiedFinishReason(
 	}
 
 	return UnifiedFinishReason.UNKNOWN;
+}
+
+/**
+ * Map unified finish reason to an error type for metrics (if applicable)
+ */
+function getErrorTypeFromUnifiedFinishReason(
+	unifiedReason: string | null | undefined,
+): string | undefined {
+	switch (unifiedReason) {
+		case UnifiedFinishReason.CLIENT_ERROR:
+			return "client_error";
+		case UnifiedFinishReason.GATEWAY_ERROR:
+			return "gateway_error";
+		case UnifiedFinishReason.UPSTREAM_ERROR:
+			return "upstream_error";
+		case UnifiedFinishReason.CONTENT_FILTER:
+			return "content_filter";
+		case UnifiedFinishReason.CANCELED:
+			return "canceled";
+		default:
+			return undefined;
+	}
 }
 
 /**
@@ -175,6 +205,34 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 			}
 		}
 	}
+
+	// Record Prometheus metrics for chat completion requests
+	const errorType = getErrorTypeFromUnifiedFinishReason(
+		logData.unifiedFinishReason,
+	);
+
+	recordChatCompletionMetrics({
+		model: logData.usedModel || "unknown",
+		provider: logData.usedProvider || "unknown",
+		finishReason: logData.finishReason || null,
+		streaming: logData.streamed || false,
+		durationMs: logData.duration || 0,
+		ttftMs: logData.timeToFirstToken || undefined,
+		inputTokens: logData.promptTokens
+			? Number(logData.promptTokens)
+			: undefined,
+		outputTokens: logData.completionTokens
+			? Number(logData.completionTokens)
+			: undefined,
+		reasoningTokens: logData.reasoningTokens
+			? Number(logData.reasoningTokens)
+			: undefined,
+		cachedTokens: logData.cachedTokens
+			? Number(logData.cachedTokens)
+			: undefined,
+		errorType,
+	});
+
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations
 }

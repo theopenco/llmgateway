@@ -76,10 +76,12 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					vision: map.vision ?? null,
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,
+					reasoningMaxTokens: map.reasoningMaxTokens ?? null,
 					tools: map.tools ?? null,
 					jsonOutput: map.jsonOutput ?? null,
 					jsonOutputSchema: map.jsonOutputSchema ?? null,
 					webSearch: map.webSearch ?? null,
+					webSearchPrice: map.webSearchPrice?.toString() ?? null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
@@ -116,6 +118,11 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			)!;
 
 			return convertToApiModel(model, currentProviderMapping, providerInfo);
+		})
+		.sort((a, b) => {
+			const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+			const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+			return bDate - aDate; // Descending (newest first)
 		});
 
 	return (

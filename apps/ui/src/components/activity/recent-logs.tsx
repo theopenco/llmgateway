@@ -45,9 +45,10 @@ interface RecentLogsProps {
 		  }
 		| undefined;
 	projectId: string | null;
+	orgId?: string | null;
 }
 
-export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
+export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
@@ -366,6 +367,8 @@ export function RecentLogs({ initialData, projectId }: RecentLogsProps) {
 										toolChoice: log.toolChoice as any,
 										customHeaders: log.customHeaders as any,
 									}}
+									orgId={orgId || undefined}
+									projectId={projectId || undefined}
 								/>
 							))}
 

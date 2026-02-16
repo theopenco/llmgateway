@@ -5,7 +5,6 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -18,7 +17,6 @@ import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Separator } from "@/lib/components/separator";
 import { useToast } from "@/lib/components/use-toast";
-import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import type { ProjectModeSettingsData } from "@/types/settings";
@@ -33,7 +31,6 @@ interface ProjectModeSettingsProps {
 	initialData: ProjectModeSettingsData;
 	orgId: string;
 	projectId: string;
-	organizationPlan: "free" | "pro" | "enterprise";
 	projectName: string;
 }
 
@@ -41,10 +38,8 @@ export function ProjectModeSettings({
 	initialData,
 	orgId,
 	projectId,
-	organizationPlan,
 	projectName,
 }: ProjectModeSettingsProps) {
-	const config = useAppConfig();
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 
@@ -65,24 +60,7 @@ export function ProjectModeSettings({
 		},
 	});
 
-	const isProPlan =
-		organizationPlan === "pro" || organizationPlan === "enterprise";
-
 	const onSubmit = async (data: ProjectModeFormData) => {
-		// Check if trying to set api-keys mode without pro plan (only if paid mode is enabled)
-		// Allow switching back to hybrid for free users, but prevent switching to api-keys
-		if (data.mode === "api-keys" && config.hosted && !isProPlan) {
-			toast({
-				title: "Upgrade Required",
-				description:
-					"API Keys mode is only available on the Pro plan. Please upgrade to use API keys mode or switch to Credits mode.",
-				variant: "destructive",
-			});
-			return;
-		}
-
-		// Always allow switching to hybrid mode for free users (no restrictions)
-
 		try {
 			await updateProject.mutateAsync({
 				params: { path: { id: projectId } },
@@ -134,63 +112,30 @@ export function ProjectModeSettings({
 												id: "api-keys",
 												label: "API Keys",
 												desc: "Use your own provider API keys (OpenAI, Anthropic, etc.)",
-												requiresPro: true,
 											},
 											{
 												id: "credits",
 												label: "Credits",
 												desc: "Use your organization credits and our internal API keys",
-												requiresPro: false,
 											},
 											{
 												id: "hybrid",
 												label: "Hybrid",
 												desc: "Use your own API keys when available, fall back to credits when needed",
-												requiresPro: true,
-												allowSwitchBack: true, // Allow switching back to hybrid for free users
 											},
-										].map(
-											({ id, label, desc, requiresPro, allowSwitchBack }) => {
-												const isDisabled =
-													requiresPro &&
-													config.hosted &&
-													!isProPlan &&
-													!allowSwitchBack; // Always allow hybrid for free users
-												return (
-													<div key={id} className="flex items-start space-x-2">
-														<RadioGroupItem
-															value={id}
-															id={id}
-															disabled={isDisabled}
-														/>
-														<div className="space-y-1 flex-1">
-															<div className="flex items-center gap-2">
-																<Label
-																	htmlFor={id}
-																	className={`font-medium ${isDisabled ? "text-muted-foreground" : ""}`}
-																>
-																	{label}
-																</Label>
-																{isDisabled && (
-																	<Badge variant="outline" className="text-xs">
-																		Pro Only
-																	</Badge>
-																)}
-															</div>
-															<p
-																className={`text-sm ${
-																	isDisabled
-																		? "text-muted-foreground"
-																		: "text-muted-foreground"
-																}`}
-															>
-																{desc}
-															</p>
-														</div>
-													</div>
-												);
-											},
-										)}
+										].map(({ id, label, desc }) => (
+											<div key={id} className="flex items-start space-x-2">
+												<RadioGroupItem value={id} id={id} />
+												<div className="space-y-1 flex-1">
+													<Label htmlFor={id} className="font-medium">
+														{label}
+													</Label>
+													<p className="text-sm text-muted-foreground">
+														{desc}
+													</p>
+												</div>
+											</div>
+										))}
 									</RadioGroup>
 								</FormControl>
 								<FormMessage />

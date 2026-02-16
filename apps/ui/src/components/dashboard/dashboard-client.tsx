@@ -1,17 +1,20 @@
 "use client";
 
+import { format, subDays } from "date-fns";
 import {
-	ArrowUpRight,
 	CreditCard,
 	Zap,
 	Key,
 	KeyRound,
 	Activity,
-	Coins,
 	CircleDollarSign,
 	BarChart3,
 	ChartColumnBig,
 	TrendingDown,
+	ArrowDownToLine,
+	ArrowUpFromLine,
+	Server,
+	Crown,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -24,7 +27,11 @@ import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
-import { UpgradeToProDialog } from "@/components/shared/upgrade-to-pro-dialog";
+import { ReferralBanner } from "@/components/dashboard/referral-banner";
+import {
+	DateRangePicker,
+	getDateRangeFromParams,
+} from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -41,7 +48,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
-import { Tabs, TabsList, TabsTrigger } from "@/lib/components/tabs";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
@@ -56,9 +62,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 
-	// Get days from URL params, fallback to initialDays, then to 7
-	const daysParam = searchParams.get("days");
-	const days = (daysParam === "30" ? 30 : 7) as 7 | 30;
+	// Get date range from URL params
+	const { from, to } = getDateRangeFromParams(searchParams);
+	const fromStr = format(from, "yyyy-MM-dd");
+	const toStr = format(to, "yyyy-MM-dd");
 
 	// Get metric type from URL params, default to "costs"
 	const metricParam = searchParams.get("metric");
@@ -66,14 +73,17 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		| "costs"
 		| "requests";
 
-	// If no days param exists, add it to the URL immediately
+	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
-		if (!daysParam) {
+		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("days", "7");
+			params.delete("days");
+			const today = new Date();
+			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
+			params.set("to", format(today, "yyyy-MM-dd"));
 			router.replace(`${buildUrl()}?${params.toString()}`);
 		}
-	}, [daysParam, searchParams, router, buildUrl]);
+	}, [searchParams, router, buildUrl]);
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const api = useApi();
@@ -84,15 +94,15 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		{
 			params: {
 				query: {
-					days: String(days),
+					from: fromStr,
+					to: toStr,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},
 		},
 		{
 			enabled: !!selectedProject?.id,
-			// Only use initialData if days param is present (not defaulting)
-			initialData: daysParam ? initialActivityData : undefined,
+			initialData: searchParams.get("from") ? initialActivityData : undefined,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -116,13 +126,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const planLimits = apiKeysData?.planLimits;
 
-	// Function to update URL with new days parameter
-	const updateDaysInUrl = (newDays: 7 | 30) => {
-		const params = new URLSearchParams(searchParams.toString());
-		params.set("days", String(newDays));
-		router.push(`${buildUrl()}?${params.toString()}`);
-	};
-
 	// Function to update URL with new metric parameter
 	const updateMetricInUrl = (newMetric: "costs" | "requests") => {
 		const params = new URLSearchParams(searchParams.toString());
@@ -134,8 +137,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) || 0;
-	const totalTokens =
-		activityData.reduce((sum, day) => sum + day.totalTokens, 0) || 0;
 	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) || 0;
 	const totalInputCost =
 		activityData.reduce((sum, day) => sum + day.inputCost, 0) || 0;
@@ -147,8 +148,39 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
 	const totalSavings =
 		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
-	const avgCostPer1kTokens =
-		totalTokens > 0 ? (totalCost / totalTokens) * 1000 : 0;
+	const totalInputTokens =
+		activityData.reduce((sum, day) => sum + day.inputTokens, 0) || 0;
+	const totalOutputTokens =
+		activityData.reduce((sum, day) => sum + day.outputTokens, 0) || 0;
+	const totalCachedTokens =
+		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) || 0;
+	const totalCachedInputCost =
+		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) || 0;
+
+	const { mostUsedModel, mostUsedProvider } = (() => {
+		const modelCostMap = new Map<string, { cost: number; provider: string }>();
+		for (const day of activityData) {
+			for (const m of day.modelBreakdown) {
+				const existing = modelCostMap.get(m.id);
+				if (existing) {
+					existing.cost += m.cost;
+				} else {
+					modelCostMap.set(m.id, { cost: m.cost, provider: m.provider });
+				}
+			}
+		}
+		let topModel = "";
+		let topProvider = "";
+		let topCost = 0;
+		for (const [model, { cost, provider }] of Array.from(modelCostMap)) {
+			if (cost > topCost) {
+				topCost = cost;
+				topModel = model;
+				topProvider = provider;
+			}
+		}
+		return { mostUsedModel: topModel, mostUsedProvider: topProvider };
+	})();
 
 	const quickActions = [
 		{
@@ -194,8 +226,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		!isLoading &&
 		!isOrganizationLoading &&
 		selectedOrganization &&
-		selectedOrganization.credits === "0" &&
-		selectedOrganization.plan !== "pro";
+		selectedOrganization.credits === "0";
 
 	const isInitialLoading = isOrganizationLoading;
 
@@ -284,16 +315,9 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					</div>
 				</div>
 
-				<Tabs
-					value={days === 7 ? "7days" : "30days"}
-					onValueChange={(value) => updateDaysInUrl(value === "7days" ? 7 : 30)}
-					className="mb-2"
-				>
-					<TabsList>
-						<TabsTrigger value="7days">Last 7 Days</TabsTrigger>
-						<TabsTrigger value="30days">Last 30 Days</TabsTrigger>
-					</TabsList>
-				</Tabs>
+				<ReferralBanner />
+
+				<DateRangePicker buildUrl={buildUrl} />
 
 				<div className="space-y-4">
 					{shouldShowGetStartedState && (
@@ -321,7 +345,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 												}
 												disabledMessage={
 													planLimits
-														? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+														? `Free plan allows maximum ${planLimits.maxKeys} API keys per project`
 														: undefined
 												}
 											>
@@ -340,12 +364,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 												</Button>
 											</CreateApiKeyDialog>
 											<TopUpCreditsButton />
-											<UpgradeToProDialog>
-												<Button variant="outline">
-													<ArrowUpRight className="mr-2 h-4 w-4" />
-													Upgrade to Pro
-												</Button>
-											</UpgradeToProDialog>
 										</>
 									)}
 								</div>
@@ -354,7 +372,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					)}
 
 					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-3", {
+						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-4", {
 							"pointer-events-none opacity-20": shouldShowGetStartedState,
 						})}
 					>
@@ -375,7 +393,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							subtitle={
 								isLoading
 									? "–"
-									: `Last ${days} days${
+									: `${format(from, "MMM d")} - ${format(to, "MMM d")}${
 											activityData.length > 0
 												? ` • ${(
 														activityData.reduce(
@@ -390,21 +408,12 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							accent="purple"
 						/>
 						<MetricCard
-							label="Tokens Used"
-							value={isLoading ? "Loading..." : formatTokens(totalTokens)}
-							subtitle={isLoading ? "–" : `Last ${days} days`}
-							icon={<Coins className="h-4 w-4" />}
-							accent="blue"
-						/>
-						<MetricCard
-							label="Inference Cost"
+							label="Total Cost"
 							value={isLoading ? "Loading..." : `$${totalCost.toFixed(2)}`}
 							subtitle={
 								isLoading
 									? "–"
-									: `$${totalInputCost.toFixed(
-											2,
-										)} input • $${totalOutputCost.toFixed(2)} output${
+									: `${format(from, "MMM d")} - ${format(to, "MMM d")}${
 											totalRequestCost > 0
 												? ` • $${totalRequestCost.toFixed(2)} requests`
 												: ""
@@ -420,17 +429,64 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 						<MetricCard
 							label="Total Savings"
 							value={isLoading ? "Loading..." : `$${totalSavings.toFixed(4)}`}
-							subtitle={isLoading ? "–" : `From discounts in last ${days} days`}
+							subtitle={
+								isLoading
+									? "–"
+									: `Discounts from ${format(from, "MMM d")} - ${format(to, "MMM d")}`
+							}
 							icon={<TrendingDown className="h-4 w-4" />}
 							accent="green"
 						/>
 						<MetricCard
-							label="Avg cost / 1K tokens"
+							label="Input Tokens & Cost"
 							value={
-								isLoading ? "Loading..." : `$${avgCostPer1kTokens.toFixed(4)}`
+								isLoading
+									? "Loading..."
+									: `${formatTokens(totalInputTokens)} • $${totalInputCost.toFixed(2)}`
 							}
-							subtitle={isLoading ? "–" : `Last ${days} days`}
-							icon={<CircleDollarSign className="h-4 w-4" />}
+							subtitle={isLoading ? "–" : "Prompt tokens and associated cost"}
+							icon={<ArrowDownToLine className="h-4 w-4" />}
+							accent="blue"
+						/>
+						<MetricCard
+							label="Output Tokens & Cost"
+							value={
+								isLoading
+									? "Loading..."
+									: `${formatTokens(totalOutputTokens)} • $${totalOutputCost.toFixed(2)}`
+							}
+							subtitle={
+								isLoading ? "–" : "Completion tokens and associated cost"
+							}
+							icon={<ArrowUpFromLine className="h-4 w-4" />}
+							accent="purple"
+						/>
+						<MetricCard
+							label="Cached Tokens & Cost"
+							value={
+								isLoading
+									? "Loading..."
+									: `${formatTokens(totalCachedTokens)} • $${totalCachedInputCost.toFixed(2)}`
+							}
+							subtitle={
+								isLoading
+									? "–"
+									: "Tokens and cost served from cache (if supported)"
+							}
+							icon={<Server className="h-4 w-4" />}
+							accent="green"
+						/>
+						<MetricCard
+							label="Most Used Model"
+							value={isLoading ? "Loading..." : mostUsedModel || "—"}
+							subtitle={
+								isLoading
+									? "–"
+									: mostUsedProvider
+										? `Provider: ${mostUsedProvider}`
+										: `${format(from, "MMM d")} - ${format(to, "MMM d")}`
+							}
+							icon={<Crown className="h-4 w-4" />}
 							accent="blue"
 						/>
 					</div>
@@ -445,7 +501,9 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 									<div className="flex-1">
 										<CardTitle>Usage Overview</CardTitle>
 										<CardDescription>
-											{metric === "costs" ? "Total Costs" : "Total Requests"}
+											{metric === "costs"
+												? "Provider pricing for reference"
+												: "Total Requests"}
 											{selectedProject && (
 												<span className="block mt-1 text-sm">
 													Filtered by project: {selectedProject.name}
@@ -468,7 +526,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 								<Overview
 									data={activityData}
 									isLoading={isLoading}
-									days={days}
 									metric={metric}
 								/>
 							</CardContent>

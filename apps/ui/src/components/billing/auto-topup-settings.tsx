@@ -212,26 +212,9 @@ function AutoTopUpSettings() {
 									<span>${feeData.baseAmount.toFixed(2)}</span>
 								</div>
 								<div className="flex justify-between">
-									<span>Stripe fees ($0.30 + 2.9%)</span>
-									<span>${feeData.stripeFee.toFixed(2)}</span>
+									<span>Platform fee (5%)</span>
+									<span>${feeData.platformFee.toFixed(2)}</span>
 								</div>
-								{feeData.internationalFee > 0 && (
-									<div className="flex justify-between">
-										<span>International card fee (1.5%)</span>
-										<span>${feeData.internationalFee.toFixed(2)}</span>
-									</div>
-								)}
-								{feeData.planFee > 0 && (
-									<div className="flex justify-between">
-										<span>
-											Service fee (
-											{selectedOrganization?.plan === "pro" ? "2.5%" : "5%"} -{" "}
-											{selectedOrganization?.plan === "pro" ? "Pro" : "Free"}{" "}
-											plan)
-										</span>
-										<span>${feeData.planFee.toFixed(2)}</span>
-									</div>
-								)}
 								<div className="border-t pt-1 flex justify-between font-medium text-foreground">
 									<span>Estimated total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>

@@ -149,33 +149,6 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	const organization = userOrgs[0].organization;
-
-	// Check if organization has pro plan for provider keys (only if PAID_MODE is enabled)
-	if (process.env.PAID_MODE === "true" && organization?.plan !== "pro") {
-		throw new HTTPException(403, {
-			message:
-				"Provider keys are only available on the Pro plan. Please upgrade to Pro or use Credits mode.",
-		});
-	}
-
-	// Check if custom provider is allowed (only for pro plan or self-hosted mode)
-	if (provider === "custom") {
-		const isHosted = process.env.HOSTED === "true";
-		const isPaidMode = process.env.PAID_MODE === "true";
-		const isProPlan = organization?.plan === "pro";
-
-		// Custom providers are allowed if:
-		// 1. Self-hosted mode (HOSTED !== "true")
-		// 2. Pro plan in hosted mode
-		if (isHosted && isPaidMode && !isProPlan) {
-			throw new HTTPException(403, {
-				message:
-					"Custom providers are only available on the Pro plan. Please upgrade to Pro or use Credits mode with standard providers.",
-			});
-		}
-	}
-
 	// Check if a provider key already exists for this provider and organization
 	const existingKey = await db.query.providerKey.findFirst({
 		where: {
@@ -228,14 +201,21 @@ keysProvider.openapi(create, async (c) => {
 
 	if (validationResult.error) {
 		const errorMessage = validationResult.error || "Upstream server error";
-		logger.error("Provider key validation failed", {
+		logger.warn("Provider key validation failed", {
 			provider,
-			model: validationResult.model,
-			statusCode: validationResult.statusCode,
+			model: validationResult.model ?? "unknown",
+			statusCode: validationResult.statusCode ?? "none",
 			error: errorMessage,
 		});
+
+		const statusPart = validationResult.statusCode
+			? ` (status ${validationResult.statusCode})`
+			: "";
+		const modelPart = validationResult.model
+			? ` using model ${validationResult.model}`
+			: "";
 		throw new HTTPException(500, {
-			message: `Error from provider: ${errorMessage} and status code ${validationResult.statusCode} (using model ${validationResult.model}). Please try again later or contact support.`,
+			message: `Error from provider: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});
 	}
 

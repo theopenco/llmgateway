@@ -33,6 +33,8 @@ services:
       - AUTH_SECRET=${AUTH_SECRET:-your-secret-key}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-your-github-client-id}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-your-github-client-secret}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
 
       # Analytics (optional)
       - POSTHOG_KEY=${POSTHOG_KEY:-}
