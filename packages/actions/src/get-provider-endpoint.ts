@@ -69,6 +69,14 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "avalanche":
+				url = getProviderEnvValue("avalanche", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Avalanche provider requires LLM_AVALANCHE_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
@@ -188,7 +196,8 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "obsidian": {
+		case "obsidian":
+		case "avalanche": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
 				? `${url}/v1beta/models/${modelName}:${endpoint}`

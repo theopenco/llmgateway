@@ -134,6 +134,22 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "avalanche",
+		name: "Avalanche",
+		description: "Avalanche - Google-compatible LLM provider.",
+		env: {
+			required: {
+				apiKey: "LLM_AVALANCHE_API_KEY",
+				baseUrl: "LLM_AVALANCHE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a1a",
+		website: null,
+		announcement: null,
+	},
+	{
 		id: "groq",
 		name: "Groq",
 		description: "Groq's ultra-fast LPU inference with various models",
