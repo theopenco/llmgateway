@@ -389,9 +389,9 @@ async function recalculateApiKeyHourlyModelStats(
 const STATS_BATCH_SIZE = Number(process.env.STATS_BATCH_SIZE) || 100;
 
 // Phase 1: Backfill — process hours with no stats rows yet
-// STATS_BACKFILL_ENABLED: "true" (default) or "false"
+// STATS_BACKFILL_ENABLED: "true" or "false" (default)
 // STATS_BACKFILL_DAYS: how far back to look (default: 30, 0 = unlimited)
-const STATS_BACKFILL_ENABLED = process.env.STATS_BACKFILL_ENABLED !== "false";
+const STATS_BACKFILL_ENABLED = process.env.STATS_BACKFILL_ENABLED === "true";
 const STATS_BACKFILL_DAYS = Number(process.env.STATS_BACKFILL_DAYS) || 30;
 
 // Phase 2: Stale detection — re-process hours where new logs arrived after aggregation
