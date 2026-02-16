@@ -4,7 +4,6 @@ import {
 	ArrowUpRight,
 	Bot,
 	Check,
-	Code2,
 	Copy,
 	Image,
 	MessageSquare,
@@ -81,6 +80,8 @@ const tools: Tool[] = [
 ];
 
 const configExamples = {
+	claudeCodeCli: `claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \\
+  --header "Authorization: Bearer YOUR_API_KEY"`,
 	claudeCode: `{
   "mcpServers": {
     "llmgateway": {
@@ -185,7 +186,13 @@ List available image generation models. No parameters required.
 
 ## MCP Configuration
 
-### Claude Code (~/.claude/claude_desktop_config.json)
+### Claude Code (CLI)
+\`\`\`bash
+claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \\
+  --header "Authorization: Bearer YOUR_API_KEY"
+\`\`\`
+
+### Alternative: Manual JSON Configuration (~/.claude/claude_desktop_config.json)
 \`\`\`json
 {
   "mcpServers": {
@@ -343,19 +350,17 @@ export function McpContent() {
 						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
 							<div className="flex items-center justify-between mb-4">
 								<div className="flex items-center gap-2">
-									<Code2 className="h-5 w-5 text-primary" />
-									<span className="font-semibold">
-										Claude Code Configuration
-									</span>
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">Claude Code Setup</span>
 								</div>
 								<Button
 									variant="ghost"
 									size="sm"
 									onClick={() =>
-										copyToClipboard(configExamples.claudeCode, "claude")
+										copyToClipboard(configExamples.claudeCodeCli, "claude-cli")
 									}
 								>
-									{copiedConfig === "claude" ? (
+									{copiedConfig === "claude-cli" ? (
 										<Check className="h-4 w-4" />
 									) : (
 										<Copy className="h-4 w-4" />
@@ -363,14 +368,43 @@ export function McpContent() {
 								</Button>
 							</div>
 							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
-								<code>{configExamples.claudeCode}</code>
+								<code>{configExamples.claudeCodeCli}</code>
 							</pre>
 							<p className="text-sm text-muted-foreground mt-3">
-								Add to{" "}
-								<code className="bg-muted px-1 rounded">
-									~/.claude/claude_desktop_config.json
-								</code>
+								Run this command in your terminal to add the MCP server
+								globally.
 							</p>
+							<details className="mt-4">
+								<summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+									Alternative: Manual JSON configuration
+								</summary>
+								<div className="mt-3">
+									<div className="flex items-center justify-between mb-2">
+										<span className="text-xs text-muted-foreground">
+											Add to{" "}
+											<code className="bg-muted px-1 rounded">
+												~/.claude/claude_desktop_config.json
+											</code>
+										</span>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() =>
+												copyToClipboard(configExamples.claudeCode, "claude")
+											}
+										>
+											{copiedConfig === "claude" ? (
+												<Check className="h-3 w-3" />
+											) : (
+												<Copy className="h-3 w-3" />
+											)}
+										</Button>
+									</div>
+									<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+										<code>{configExamples.claudeCode}</code>
+									</pre>
+								</div>
+							</details>
 						</Card>
 
 						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">

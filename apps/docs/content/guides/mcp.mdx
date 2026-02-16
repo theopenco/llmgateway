@@ -110,43 +110,35 @@ List all available image generation models.
     <Step>
     ### Configure Claude Code
 
-    Add the MCP server to your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+    Run the following command in your terminal to add the LLM Gateway MCP server:
 
-    ```json
-    {
-      "mcpServers": {
-        "llmgateway": {
-          "command": "npx",
-          "args": ["-y", "@anthropic-ai/mcp-remote", "https://api.llmgateway.io/mcp"],
-          "env": {
-            "API_KEY": "your-api-key-here"
+    ```bash
+    claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \
+      --header "Authorization: Bearer your-api-key-here"
+    ```
+
+    This registers the MCP server globally (across all projects) using the HTTP transport. You should now see the LLM Gateway tools available in Claude Code.
+
+    <Callout type="info">
+      **Alternative: Manual configuration**
+
+      You can also add the MCP server manually by editing your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+
+      ```json
+      {
+        "mcpServers": {
+          "llmgateway": {
+            "url": "https://api.llmgateway.io/mcp",
+            "headers": {
+              "Authorization": "Bearer your-api-key-here"
+            }
           }
         }
       }
-    }
-    ```
+      ```
 
-    Or use the HTTP transport directly:
-
-    ```json
-    {
-      "mcpServers": {
-        "llmgateway": {
-          "url": "https://api.llmgateway.io/mcp",
-          "headers": {
-            "Authorization": "Bearer your-api-key-here"
-          }
-        }
-      }
-    }
-    ```
-
-    </Step>
-
-    <Step>
-    ### Restart Claude Code
-
-    Restart Claude Code to load the new MCP configuration. You should now see the LLM Gateway tools available.
+      Restart Claude Code after manual configuration changes.
+    </Callout>
 
     </Step>
 
