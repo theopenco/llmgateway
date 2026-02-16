@@ -116,6 +116,9 @@ export function OnboardingWizard() {
 		setTryError(null);
 		const startTime = Date.now();
 
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 30_000);
+
 		try {
 			const res = await fetch(`${config.gatewayUrl}/v1/chat/completions`, {
 				method: "POST",
@@ -129,6 +132,7 @@ export function OnboardingWizard() {
 					max_tokens: 200,
 					free_models_only: true,
 				}),
+				signal: controller.signal,
 			});
 
 			const data = await res.json();
@@ -148,11 +152,16 @@ export function OnboardingWizard() {
 				model: data.model || "auto",
 				responseTimeMs: Date.now() - startTime,
 			});
-		} catch {
-			const errorMsg = "Network error. Please try again.";
-			setTryError(errorMsg);
-			posthog.capture("onboarding_try_error", { error: errorMsg });
+		} catch (err) {
+			if (err instanceof DOMException && err.name === "AbortError") {
+				setTryError("Request timed out. Please try again.");
+				posthog.capture("onboarding_try_error", { error: "timeout" });
+			} else {
+				setTryError("Network error. Please try again.");
+				posthog.capture("onboarding_try_error", { error: "network_error" });
+			}
 		} finally {
+			clearTimeout(timeout);
 			setTryLoading(false);
 		}
 	};
