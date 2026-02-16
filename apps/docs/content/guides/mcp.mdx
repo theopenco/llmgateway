@@ -95,7 +95,7 @@ List all available image generation models.
 
 ## Setup
 
-<Tabs items={["Claude Code", "Cursor", "Other MCP Clients"]}>
+<Tabs items={["Claude Code", "Codex", "Cursor", "Other MCP Clients"]}>
   <Tab value="Claude Code">
     <Steps>
     <Step>
@@ -110,43 +110,33 @@ List all available image generation models.
     <Step>
     ### Configure Claude Code
 
-    Add the MCP server to your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+    Run the following command in your terminal:
 
-    ```json
-    {
-      "mcpServers": {
-        "llmgateway": {
-          "command": "npx",
-          "args": ["-y", "@anthropic-ai/mcp-remote", "https://api.llmgateway.io/mcp"],
-          "env": {
-            "API_KEY": "your-api-key-here"
+    ```bash
+    claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \
+      --header "Authorization: Bearer your-api-key-here"
+    ```
+
+    <Callout type="info">
+      **Alternative: Manual configuration**
+
+      You can also add the MCP server manually by editing your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+
+      ```json
+      {
+        "mcpServers": {
+          "llmgateway": {
+            "url": "https://api.llmgateway.io/mcp",
+            "headers": {
+              "Authorization": "Bearer your-api-key-here"
+            }
           }
         }
       }
-    }
-    ```
+      ```
 
-    Or use the HTTP transport directly:
-
-    ```json
-    {
-      "mcpServers": {
-        "llmgateway": {
-          "url": "https://api.llmgateway.io/mcp",
-          "headers": {
-            "Authorization": "Bearer your-api-key-here"
-          }
-        }
-      }
-    }
-    ```
-
-    </Step>
-
-    <Step>
-    ### Restart Claude Code
-
-    Restart Claude Code to load the new MCP configuration. You should now see the LLM Gateway tools available.
+      Restart Claude Code after manual configuration changes.
+    </Callout>
 
     </Step>
 
@@ -164,18 +154,104 @@ List all available image generation models.
 
   </Tab>
 
-  <Tab value="Cursor">
-    Cursor supports MCP servers through its settings. Configure the LLM Gateway MCP server:
+  <Tab value="Codex">
+    <Steps>
+    <Step>
+    ### Get Your API Key
 
-    1. Open Cursor Settings
-    2. Navigate to **Features** > **MCP**
-    3. Add a new MCP server with:
-       - **URL:** `https://api.llmgateway.io/mcp`
-       - **Headers:** `Authorization: Bearer your-api-key-here`
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+    4. Set it as an environment variable: `export LLM_GATEWAY_API_KEY="your-api-key-here"`
+
+    </Step>
+
+    <Step>
+    ### Configure Codex
+
+    Run the following command in your terminal:
+
+    ```bash
+    codex mcp add llmgateway --url https://api.llmgateway.io/mcp \
+      --bearer-token-env-var LLM_GATEWAY_API_KEY
+    ```
 
     <Callout type="info">
-      MCP support in Cursor may require a specific version. Check Cursor's documentation for the latest compatibility information.
+      **Alternative: Manual configuration**
+
+      You can also add the MCP server manually by editing `~/.codex/config.toml`:
+
+      ```toml
+      [mcp_servers.llmgateway]
+      url = "https://api.llmgateway.io/mcp"
+      bearer_token_env_var = "LLM_GATEWAY_API_KEY"
+      ```
     </Callout>
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Run `/mcp` in the Codex TUI to confirm the `llmgateway` server is connected. Try:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Generate an image of a futuristic city using the generate-image tool"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
+
+  </Tab>
+
+  <Tab value="Cursor">
+    <Steps>
+    <Step>
+    ### Get Your API Key
+
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+
+    </Step>
+
+    <Step>
+    ### Configure Cursor
+
+    Add the following to your Cursor MCP configuration file (`~/.cursor/mcp.json`):
+
+    ```json
+    {
+      "mcpServers": {
+        "llmgateway": {
+          "url": "https://api.llmgateway.io/mcp",
+          "headers": {
+            "Authorization": "Bearer your-api-key-here"
+          }
+        }
+      }
+    }
+    ```
+
+    Or open the Command Palette (`Cmd/Ctrl + Shift + P`), search for **"Cursor Settings"**, then go to **Tools & Integrations** > **Add Custom MCP** and paste the configuration above.
+
+    <Callout type="info">
+      Cursor v0.48.0+ is required for Streamable HTTP MCP support.
+    </Callout>
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Open a chat in **Agent Mode**, click the **Select Tools** icon, and verify the LLM Gateway tools appear. Try:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Generate an image of a futuristic city using the generate-image tool"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
 
   </Tab>
 

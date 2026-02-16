@@ -4,7 +4,6 @@ import {
 	ArrowUpRight,
 	Bot,
 	Check,
-	Code2,
 	Copy,
 	Image,
 	MessageSquare,
@@ -81,7 +80,24 @@ const tools: Tool[] = [
 ];
 
 const configExamples = {
+	claudeCodeCli: `claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \\
+  --header "Authorization: Bearer YOUR_API_KEY"`,
 	claudeCode: `{
+  "mcpServers": {
+    "llmgateway": {
+      "url": "https://api.llmgateway.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}`,
+	codexCli: `codex mcp add llmgateway --url https://api.llmgateway.io/mcp \\
+  --bearer-token-env-var LLM_GATEWAY_API_KEY`,
+	codex: `[mcp_servers.llmgateway]
+url = "https://api.llmgateway.io/mcp"
+bearer_token_env_var = "LLM_GATEWAY_API_KEY"`,
+	cursor: `{
   "mcpServers": {
     "llmgateway": {
       "url": "https://api.llmgateway.io/mcp",
@@ -185,7 +201,19 @@ List available image generation models. No parameters required.
 
 ## MCP Configuration
 
-### Claude Code (~/.claude/claude_desktop_config.json)
+### Claude Code
+\`\`\`bash
+claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \\
+  --header "Authorization: Bearer YOUR_API_KEY"
+\`\`\`
+
+### Codex
+\`\`\`bash
+codex mcp add llmgateway --url https://api.llmgateway.io/mcp \\
+  --bearer-token-env-var LLM_GATEWAY_API_KEY
+\`\`\`
+
+### Cursor (~/.cursor/mcp.json)
 \`\`\`json
 {
   "mcpServers": {
@@ -340,22 +368,21 @@ export function McpContent() {
 				<div>
 					<h2 className="text-2xl font-bold text-center mb-8">Quick Start</h2>
 					<div className="max-w-3xl mx-auto space-y-6">
+						{/* Claude Code */}
 						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
 							<div className="flex items-center justify-between mb-4">
 								<div className="flex items-center gap-2">
-									<Code2 className="h-5 w-5 text-primary" />
-									<span className="font-semibold">
-										Claude Code Configuration
-									</span>
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">Claude Code</span>
 								</div>
 								<Button
 									variant="ghost"
 									size="sm"
 									onClick={() =>
-										copyToClipboard(configExamples.claudeCode, "claude")
+										copyToClipboard(configExamples.claudeCodeCli, "claude-cli")
 									}
 								>
-									{copiedConfig === "claude" ? (
+									{copiedConfig === "claude-cli" ? (
 										<Check className="h-4 w-4" />
 									) : (
 										<Copy className="h-4 w-4" />
@@ -363,16 +390,142 @@ export function McpContent() {
 								</Button>
 							</div>
 							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
-								<code>{configExamples.claudeCode}</code>
+								<code>{configExamples.claudeCodeCli}</code>
+							</pre>
+							<p className="text-sm text-muted-foreground mt-3">
+								Run this command in your terminal to add the MCP server
+								globally.
+							</p>
+							<details className="mt-4">
+								<summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+									Alternative: Manual JSON configuration
+								</summary>
+								<div className="mt-3">
+									<div className="flex items-center justify-between mb-2">
+										<span className="text-xs text-muted-foreground">
+											Add to{" "}
+											<code className="bg-muted px-1 rounded">
+												~/.claude/claude_desktop_config.json
+											</code>
+										</span>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() =>
+												copyToClipboard(configExamples.claudeCode, "claude")
+											}
+										>
+											{copiedConfig === "claude" ? (
+												<Check className="h-3 w-3" />
+											) : (
+												<Copy className="h-3 w-3" />
+											)}
+										</Button>
+									</div>
+									<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+										<code>{configExamples.claudeCode}</code>
+									</pre>
+								</div>
+							</details>
+						</Card>
+
+						{/* Codex */}
+						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
+							<div className="flex items-center justify-between mb-4">
+								<div className="flex items-center gap-2">
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">Codex</span>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() =>
+										copyToClipboard(configExamples.codexCli, "codex-cli")
+									}
+								>
+									{copiedConfig === "codex-cli" ? (
+										<Check className="h-4 w-4" />
+									) : (
+										<Copy className="h-4 w-4" />
+									)}
+								</Button>
+							</div>
+							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+								<code>{configExamples.codexCli}</code>
+							</pre>
+							<p className="text-sm text-muted-foreground mt-3">
+								Set{" "}
+								<code className="bg-muted px-1 rounded">
+									LLM_GATEWAY_API_KEY
+								</code>{" "}
+								env var first, then run this command.
+							</p>
+							<details className="mt-4">
+								<summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+									Alternative: Manual TOML configuration
+								</summary>
+								<div className="mt-3">
+									<div className="flex items-center justify-between mb-2">
+										<span className="text-xs text-muted-foreground">
+											Add to{" "}
+											<code className="bg-muted px-1 rounded">
+												~/.codex/config.toml
+											</code>
+										</span>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() =>
+												copyToClipboard(configExamples.codex, "codex")
+											}
+										>
+											{copiedConfig === "codex" ? (
+												<Check className="h-3 w-3" />
+											) : (
+												<Copy className="h-3 w-3" />
+											)}
+										</Button>
+									</div>
+									<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+										<code>{configExamples.codex}</code>
+									</pre>
+								</div>
+							</details>
+						</Card>
+
+						{/* Cursor */}
+						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
+							<div className="flex items-center justify-between mb-4">
+								<div className="flex items-center gap-2">
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">Cursor</span>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() =>
+										copyToClipboard(configExamples.cursor, "cursor")
+									}
+								>
+									{copiedConfig === "cursor" ? (
+										<Check className="h-4 w-4" />
+									) : (
+										<Copy className="h-4 w-4" />
+									)}
+								</Button>
+							</div>
+							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+								<code>{configExamples.cursor}</code>
 							</pre>
 							<p className="text-sm text-muted-foreground mt-3">
 								Add to{" "}
 								<code className="bg-muted px-1 rounded">
-									~/.claude/claude_desktop_config.json
+									~/.cursor/mcp.json
 								</code>
 							</p>
 						</Card>
 
+						{/* Direct API Call */}
 						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
 							<div className="flex items-center justify-between mb-4">
 								<div className="flex items-center gap-2">

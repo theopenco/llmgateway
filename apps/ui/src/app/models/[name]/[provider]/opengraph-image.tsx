@@ -319,7 +319,8 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							gap: 28,
 						}}
 					>
-						{(hasTokenPricing || requestPrice !== undefined) && (
+						{(hasTokenPricing ||
+							(requestPrice !== undefined && requestPrice !== 0)) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -329,7 +330,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									letterSpacing: "0.1em",
 								}}
 							>
-								{requestPrice !== undefined
+								{requestPrice !== undefined && requestPrice !== 0
 									? "Pricing"
 									: "Pricing per 1M tokens"}
 							</span>
@@ -370,7 +371,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							</div>
 
 							{/* Request Price */}
-							{requestPrice !== undefined && (
+							{requestPrice !== undefined && requestPrice !== 0 && (
 								<div
 									style={{
 										display: "flex",
