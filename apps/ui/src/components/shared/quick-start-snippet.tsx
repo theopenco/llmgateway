@@ -22,7 +22,7 @@ export function QuickStartSection({
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${keyPlaceholder}" \\
   -d '{
-  "model": "gpt-4o",
+  "model": "gemini-3-flash-preview",
   "messages": [
     {"role": "user", "content": "Hello!"}
   ]
@@ -36,7 +36,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: "gpt-4o",
+  model: "gemini-3-flash-preview",
   messages: [{ role: "user", content: "Hello!" }]
 });`;
 
