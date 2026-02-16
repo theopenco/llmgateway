@@ -3,6 +3,7 @@ export interface AppConfig {
 	appUrl: string;
 	apiUrl: string;
 	apiBackendUrl: string;
+	gatewayUrl: string;
 	githubUrl: string;
 	discordUrl: string;
 	twitterUrl: string;
@@ -23,6 +24,7 @@ export function getConfig(): AppConfig {
 		appUrl: process.env.APP_URL || "http://localhost:3002",
 		apiUrl,
 		apiBackendUrl: process.env.API_BACKEND_URL || apiUrl,
+		gatewayUrl: process.env.GATEWAY_URL || "http://localhost:4001",
 		githubUrl:
 			process.env.GITHUB_URL || "https://github.com/theopenco/llmgateway",
 		discordUrl: process.env.DISCORD_URL || "https://discord.gg/gcqcZeYWEz",

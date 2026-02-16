@@ -106,7 +106,7 @@ export function OnboardingWizard() {
 	};
 
 	const handleTryIt = async () => {
-		if (!prompt.trim()) {
+		if (!prompt.trim() || !apiKey) {
 			return;
 		}
 		posthog.capture("onboarding_try_clicked", { prompt });
@@ -116,16 +116,24 @@ export function OnboardingWizard() {
 		const startTime = Date.now();
 
 		try {
-			const res = await fetch("/api/try", {
+			const res = await fetch(`${config.gatewayUrl}/v1/chat/completions`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ prompt: prompt.trim() }),
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: prompt.trim() }],
+					max_tokens: 200,
+					free_models_only: true,
+				}),
 			});
 
 			const data = await res.json();
 
 			if (!res.ok) {
-				const errorMsg = data.error || "Request failed";
+				const errorMsg = data.error?.message || "Request failed";
 				setTryError(errorMsg);
 				posthog.capture("onboarding_try_error", { error: errorMsg });
 				return;
@@ -136,7 +144,7 @@ export function OnboardingWizard() {
 			setTryResponse(content);
 			setTriedApi(true);
 			posthog.capture("onboarding_try_success", {
-				model: data.model || "zai/glm-4.5-flash",
+				model: data.model || "auto",
 				responseTimeMs: Date.now() - startTime,
 			});
 		} catch {
@@ -233,7 +241,7 @@ export function OnboardingWizard() {
 
 						<Button
 							onClick={handleTryIt}
-							disabled={tryLoading || !prompt.trim()}
+							disabled={tryLoading || !prompt.trim() || !apiKey}
 							className="w-full"
 						>
 							{tryLoading ? (
