@@ -22,7 +22,8 @@ export function QuickStartSection({
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${keyPlaceholder}" \\
   -d '{
-  "model": "gemini-3-flash-preview",
+  "model": "auto",
+  "free_models_only": true,
   "messages": [
     {"role": "user", "content": "Hello!"}
   ]
@@ -36,8 +37,10 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: "gemini-3-flash-preview",
-  messages: [{ role: "user", content: "Hello!" }]
+  model: "auto",
+  messages: [{ role: "user", content: "Hello!" }],
+  // @ts-expect-error LLM Gateway extension
+  free_models_only: true,
 });`;
 
 	const code = activeTab === "curl" ? curlExample : tsExample;

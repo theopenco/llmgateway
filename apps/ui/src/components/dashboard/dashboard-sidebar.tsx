@@ -646,6 +646,45 @@ function UserDropdownMenu({
 	);
 }
 
+function useInviteBannerEligible(
+	selectedOrganization: Organization | null,
+): boolean {
+	const [eligible, setEligible] = useState(false);
+
+	useEffect(() => {
+		if (!selectedOrganization) {
+			return;
+		}
+
+		// Check if user has been active for at least 7 days
+		const orgCreatedAt = new Date(selectedOrganization.createdAt);
+		const daysSinceCreation =
+			(Date.now() - orgCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
+		if (daysSinceCreation >= 7) {
+			setEligible(true);
+			return;
+		}
+
+		// Check if user has purchased credits (credits > 0)
+		if (Number(selectedOrganization.credits) > 0) {
+			setEligible(true);
+			return;
+		}
+
+		// Check if user has made 50+ API calls (set by dashboard)
+		const hasEnoughCalls =
+			localStorage.getItem("user_has_50_plus_calls") === "true";
+		if (hasEnoughCalls) {
+			setEligible(true);
+			return;
+		}
+
+		setEligible(false);
+	}, [selectedOrganization]);
+
+	return eligible;
+}
+
 function UpgradeCTA({
 	show,
 	onHide,
@@ -655,7 +694,9 @@ function UpgradeCTA({
 	onHide: () => void;
 	selectedOrganization: Organization | null;
 }) {
-	if (!show || !selectedOrganization) {
+	const eligible = useInviteBannerEligible(selectedOrganization);
+
+	if (!show || !selectedOrganization || !eligible) {
 		return null;
 	}
 

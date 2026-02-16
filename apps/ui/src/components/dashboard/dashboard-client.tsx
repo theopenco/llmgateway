@@ -15,6 +15,10 @@ import {
 	ArrowUpFromLine,
 	Server,
 	Crown,
+	ExternalLink,
+	BookOpen,
+	FlaskConical,
+	MessageSquare,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -32,6 +36,7 @@ import {
 	DateRangePicker,
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
+import { QuickStartSection } from "@/components/shared/quick-start-snippet";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -136,6 +141,13 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) || 0;
+
+	// Track when user reaches 50+ calls for invite banner eligibility
+	useEffect(() => {
+		if (totalRequests >= 50) {
+			localStorage.setItem("user_has_50_plus_calls", "true");
+		}
+	}, [totalRequests]);
 	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) || 0;
 	const totalInputCost =
 		activityData.reduce((sum, day) => sum + day.inputCost, 0) || 0;
@@ -426,73 +438,155 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							accent="blue"
 						/>
 					</div>
-					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-						<Card className="col-span-4">
-							<CardHeader>
-								<div className="flex items-start justify-between">
-									<div className="flex-1">
-										<CardTitle>Usage Overview</CardTitle>
-										<CardDescription>
-											{metric === "costs"
-												? "Provider pricing for reference"
-												: "Total Requests"}
-											{selectedProject && (
-												<span className="block mt-1 text-sm">
-													Filtered by project: {selectedProject.name}
-												</span>
-											)}
-										</CardDescription>
+					{!isLoading && totalRequests < 5 ? (
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+							<Card className="col-span-4">
+								<CardHeader>
+									<CardTitle>Get Started</CardTitle>
+									<CardDescription>
+										{totalRequests > 0
+											? `You made ${totalRequests === 1 ? "your first call" : `${totalRequests} calls`} during setup! Now integrate LLM Gateway in your own code.`
+											: "Integrate LLM Gateway in 1 line — just change your base URL."}
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="space-y-4">
+									<QuickStartSection />
+									<div className="flex flex-wrap gap-2">
+										<Button asChild variant="outline" size="sm">
+											<a
+												href="https://docs.llmgateway.io"
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<BookOpen className="mr-2 h-4 w-4" />
+												Docs
+												<ExternalLink className="ml-1.5 h-3 w-3" />
+											</a>
+										</Button>
+										<Button asChild variant="outline" size="sm">
+											<a
+												href={
+													process.env.NODE_ENV === "development"
+														? "http://localhost:3003"
+														: "https://chat.llmgateway.io"
+												}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<FlaskConical className="mr-2 h-4 w-4" />
+												Playground
+												<ExternalLink className="ml-1.5 h-3 w-3" />
+											</a>
+										</Button>
+										<Button asChild variant="outline" size="sm">
+											<Link href="/models" prefetch={true}>
+												<MessageSquare className="mr-2 h-4 w-4" />
+												Models
+											</Link>
+										</Button>
 									</div>
-									<Select value={metric} onValueChange={updateMetricInUrl}>
-										<SelectTrigger className="w-[140px]">
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="costs">Costs</SelectItem>
-											<SelectItem value="requests">Requests</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-							</CardHeader>
-							<CardContent className="pl-2">
-								<Overview
-									data={activityData}
-									isLoading={isLoading}
-									metric={metric}
-								/>
-							</CardContent>
-						</Card>
-						<Card className="col-span-3">
-							<CardHeader>
-								<CardTitle>Quick Actions</CardTitle>
-								<CardDescription>
-									Common tasks you might want to perform
-								</CardDescription>
-							</CardHeader>
-							<CardContent className="space-y-2">
-								{quickActions.map((action) => (
-									<Button
-										key={action.href}
-										asChild
-										variant="outline"
-										className="w-full justify-start"
-									>
-										<Link
-											href={
-												action.href === "provider-keys"
-													? buildOrgUrl("org/provider-keys")
-													: buildUrl(action.href)
-											}
-											prefetch={true}
+								</CardContent>
+							</Card>
+							<Card className="col-span-3">
+								<CardHeader>
+									<CardTitle>Quick Actions</CardTitle>
+									<CardDescription>
+										Common tasks you might want to perform
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="space-y-2">
+									{quickActions.map((action) => (
+										<Button
+											key={action.href}
+											asChild
+											variant="outline"
+											className="w-full justify-start"
 										>
-											<action.icon className="mr-2 h-4 w-4" />
-											{action.label}
-										</Link>
-									</Button>
-								))}
-							</CardContent>
-						</Card>
-					</div>
+											<Link
+												href={
+													action.href === "provider-keys"
+														? buildOrgUrl("org/provider-keys")
+														: buildUrl(action.href)
+												}
+												prefetch={true}
+											>
+												<action.icon className="mr-2 h-4 w-4" />
+												{action.label}
+											</Link>
+										</Button>
+									))}
+								</CardContent>
+							</Card>
+						</div>
+					) : (
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+							<Card className="col-span-4">
+								<CardHeader>
+									<div className="flex items-start justify-between">
+										<div className="flex-1">
+											<CardTitle>Usage Overview</CardTitle>
+											<CardDescription>
+												{metric === "costs"
+													? "Provider pricing for reference"
+													: "Total Requests"}
+												{selectedProject && (
+													<span className="block mt-1 text-sm">
+														Filtered by project: {selectedProject.name}
+													</span>
+												)}
+											</CardDescription>
+										</div>
+										<Select value={metric} onValueChange={updateMetricInUrl}>
+											<SelectTrigger className="w-[140px]">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="costs">Costs</SelectItem>
+												<SelectItem value="requests">Requests</SelectItem>
+											</SelectContent>
+										</Select>
+									</div>
+								</CardHeader>
+								<CardContent className="pl-2">
+									<Overview
+										data={activityData}
+										isLoading={isLoading}
+										metric={metric}
+									/>
+								</CardContent>
+							</Card>
+							<Card className="col-span-3">
+								<CardHeader>
+									<CardTitle>Quick Actions</CardTitle>
+									<CardDescription>
+										Common tasks you might want to perform
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="space-y-2">
+									{quickActions.map((action) => (
+										<Button
+											key={action.href}
+											asChild
+											variant="outline"
+											className="w-full justify-start"
+										>
+											<Link
+												href={
+													action.href === "provider-keys"
+														? buildOrgUrl("org/provider-keys")
+														: buildUrl(action.href)
+												}
+												prefetch={true}
+											>
+												<action.icon className="mr-2 h-4 w-4" />
+												{action.label}
+											</Link>
+										</Button>
+									))}
+								</CardContent>
+							</Card>
+						</div>
+					)}
 
 					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
 						<div className="col-span-4 space-y-4">
