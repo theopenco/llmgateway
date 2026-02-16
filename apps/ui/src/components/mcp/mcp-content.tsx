@@ -92,6 +92,38 @@ const configExamples = {
     }
   }
 }`,
+	cursor: `{
+  "mcpServers": {
+    "llmgateway": {
+      "url": "https://api.llmgateway.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}`,
+	windsurf: `{
+  "mcpServers": {
+    "llmgateway": {
+      "serverUrl": "https://api.llmgateway.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}`,
+	vscodeCli: `code --add-mcp '{"name":"llmgateway","type":"http","url":"https://api.llmgateway.io/mcp","headers":{"Authorization":"Bearer YOUR_API_KEY"}}'`,
+	vscode: `{
+  "servers": {
+    "llmgateway": {
+      "type": "http",
+      "url": "https://api.llmgateway.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}`,
 	curl: `curl -X POST https://api.llmgateway.io/mcp \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
@@ -192,11 +224,45 @@ claude mcp add --transport http --scope user llmgateway https://api.llmgateway.i
   --header "Authorization: Bearer YOUR_API_KEY"
 \`\`\`
 
-### Alternative: Manual JSON Configuration (~/.claude/claude_desktop_config.json)
+### Cursor (~/.cursor/mcp.json)
 \`\`\`json
 {
   "mcpServers": {
     "llmgateway": {
+      "url": "https://api.llmgateway.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+\`\`\`
+
+### Windsurf (~/.codeium/windsurf/mcp_config.json)
+\`\`\`json
+{
+  "mcpServers": {
+    "llmgateway": {
+      "serverUrl": "https://api.llmgateway.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+\`\`\`
+
+### VS Code (CLI)
+\`\`\`bash
+code --add-mcp '{"name":"llmgateway","type":"http","url":"https://api.llmgateway.io/mcp","headers":{"Authorization":"Bearer YOUR_API_KEY"}}'
+\`\`\`
+
+### VS Code (.vscode/mcp.json)
+\`\`\`json
+{
+  "servers": {
+    "llmgateway": {
+      "type": "http",
       "url": "https://api.llmgateway.io/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -347,11 +413,12 @@ export function McpContent() {
 				<div>
 					<h2 className="text-2xl font-bold text-center mb-8">Quick Start</h2>
 					<div className="max-w-3xl mx-auto space-y-6">
+						{/* Claude Code */}
 						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
 							<div className="flex items-center justify-between mb-4">
 								<div className="flex items-center gap-2">
 									<Terminal className="h-5 w-5 text-primary" />
-									<span className="font-semibold">Claude Code Setup</span>
+									<span className="font-semibold">Claude Code</span>
 								</div>
 								<Button
 									variant="ghost"
@@ -407,6 +474,132 @@ export function McpContent() {
 							</details>
 						</Card>
 
+						{/* Cursor */}
+						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
+							<div className="flex items-center justify-between mb-4">
+								<div className="flex items-center gap-2">
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">Cursor</span>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() =>
+										copyToClipboard(configExamples.cursor, "cursor")
+									}
+								>
+									{copiedConfig === "cursor" ? (
+										<Check className="h-4 w-4" />
+									) : (
+										<Copy className="h-4 w-4" />
+									)}
+								</Button>
+							</div>
+							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+								<code>{configExamples.cursor}</code>
+							</pre>
+							<p className="text-sm text-muted-foreground mt-3">
+								Add to{" "}
+								<code className="bg-muted px-1 rounded">
+									~/.cursor/mcp.json
+								</code>
+							</p>
+						</Card>
+
+						{/* Windsurf */}
+						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
+							<div className="flex items-center justify-between mb-4">
+								<div className="flex items-center gap-2">
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">Windsurf</span>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() =>
+										copyToClipboard(configExamples.windsurf, "windsurf")
+									}
+								>
+									{copiedConfig === "windsurf" ? (
+										<Check className="h-4 w-4" />
+									) : (
+										<Copy className="h-4 w-4" />
+									)}
+								</Button>
+							</div>
+							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+								<code>{configExamples.windsurf}</code>
+							</pre>
+							<p className="text-sm text-muted-foreground mt-3">
+								Add to{" "}
+								<code className="bg-muted px-1 rounded">
+									~/.codeium/windsurf/mcp_config.json
+								</code>
+							</p>
+						</Card>
+
+						{/* VS Code */}
+						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
+							<div className="flex items-center justify-between mb-4">
+								<div className="flex items-center gap-2">
+									<Terminal className="h-5 w-5 text-primary" />
+									<span className="font-semibold">VS Code</span>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() =>
+										copyToClipboard(configExamples.vscodeCli, "vscode-cli")
+									}
+								>
+									{copiedConfig === "vscode-cli" ? (
+										<Check className="h-4 w-4" />
+									) : (
+										<Copy className="h-4 w-4" />
+									)}
+								</Button>
+							</div>
+							<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+								<code>{configExamples.vscodeCli}</code>
+							</pre>
+							<p className="text-sm text-muted-foreground mt-3">
+								Run this command in your terminal. Requires VS Code 1.99+ with
+								GitHub Copilot.
+							</p>
+							<details className="mt-4">
+								<summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+									Alternative: Manual JSON configuration
+								</summary>
+								<div className="mt-3">
+									<div className="flex items-center justify-between mb-2">
+										<span className="text-xs text-muted-foreground">
+											Add to{" "}
+											<code className="bg-muted px-1 rounded">
+												.vscode/mcp.json
+											</code>
+										</span>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() =>
+												copyToClipboard(configExamples.vscode, "vscode")
+											}
+										>
+											{copiedConfig === "vscode" ? (
+												<Check className="h-3 w-3" />
+											) : (
+												<Copy className="h-3 w-3" />
+											)}
+										</Button>
+									</div>
+									<pre className="bg-muted/50 rounded-lg p-4 text-sm overflow-x-auto">
+										<code>{configExamples.vscode}</code>
+									</pre>
+								</div>
+							</details>
+						</Card>
+
+						{/* Direct API Call */}
 						<Card className="p-6 border-0 shadow-xl bg-gradient-to-br from-background to-muted/30">
 							<div className="flex items-center justify-between mb-4">
 								<div className="flex items-center gap-2">
