@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -100,10 +103,35 @@ const generateImageInputSchema = z.object({
 
 const listImageModelsInputSchema = z.object({});
 
+const generateNanoBananaInputSchema = z.object({
+	prompt: z
+		.string()
+		.describe(
+			"Detailed text description of the image to create, e.g. 'a futuristic city skyline at sunset with flying cars'",
+		),
+	save_path: z
+		.string()
+		.optional()
+		.describe(
+			"Directory to save the generated image. Defaults to the current working directory.",
+		),
+	filename: z
+		.string()
+		.optional()
+		.describe(
+			"Filename for the saved image. Auto-generated if not provided (e.g., nano-banana-1234567890.png).",
+		),
+	aspect_ratio: z
+		.enum(["1:1", "16:9", "4:3", "5:4"])
+		.optional()
+		.describe("Aspect ratio for the generated image."),
+});
+
 type ChatInput = z.infer<typeof chatInputSchema>;
 type ListModelsInput = z.infer<typeof listModelsInputSchema>;
 type GenerateImageInput = z.infer<typeof generateImageInputSchema>;
 type ListImageModelsInput = z.infer<typeof listImageModelsInputSchema>;
+type GenerateNanoBananaInput = z.infer<typeof generateNanoBananaInputSchema>;
 
 /**
  * Creates an MCP server instance with tools for LLM Gateway
@@ -516,6 +544,189 @@ function createMcpServer(apiKey: string): McpServer {
 			} catch (error) {
 				logger.error(
 					"MCP generate-image tool error",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+						},
+					],
+					isError: true,
+				};
+			}
+		},
+	);
+
+	// Register the generate-nano-banana tool
+	server.tool(
+		"generate-nano-banana",
+		"Generate an image using Gemini 3 Pro Image Preview (Nano Banana) and save it to disk. Tailored for AI coding agents - returns the file path of the saved image and an inline image preview. Use this when you want a high-quality image saved locally.",
+		generateNanoBananaInputSchema.shape,
+		async (input: GenerateNanoBananaInput) => {
+			try {
+				const gatewayUrl =
+					process.env.MCP_GATEWAY_URL ||
+					(process.env.NODE_ENV === "production"
+						? "https://api.llmgateway.io"
+						: "http://localhost:4001");
+
+				const body: Record<string, unknown> = {
+					model: "gemini-3-pro-image-preview",
+					messages: [
+						{
+							role: "user",
+							content: input.prompt,
+						},
+					],
+					stream: false,
+				};
+
+				if (input.aspect_ratio) {
+					body.image_config = { aspect_ratio: input.aspect_ratio };
+				}
+
+				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${apiKey}`,
+					},
+					body: JSON.stringify(body),
+				});
+
+				if (!response.ok) {
+					const errorText = await response.text();
+					let errorMessage: string;
+					try {
+						const errorJson = JSON.parse(errorText);
+						errorMessage = errorJson.message || errorJson.error || errorText;
+					} catch {
+						errorMessage = errorText;
+					}
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `Error: ${response.status} - ${errorMessage}`,
+							},
+						],
+						isError: true,
+					};
+				}
+
+				const data = await response.json();
+				const message = data.choices?.[0]?.message;
+				const images = message?.images || [];
+
+				if (images.length === 0) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text:
+									message?.content ||
+									"No images generated. The model may not have produced an image for this prompt.",
+							},
+						],
+					};
+				}
+
+				const saveDir = input.save_path || process.cwd();
+				const contentBlocks: Array<
+					| { type: "text"; text: string }
+					| { type: "image"; data: string; mimeType: string }
+				> = [];
+
+				if (message?.content) {
+					contentBlocks.push({
+						type: "text" as const,
+						text: message.content,
+					});
+				}
+
+				const savedPaths: string[] = [];
+
+				for (let i = 0; i < images.length; i++) {
+					const image = images[i];
+					if (image.type !== "image_url" || !image.image_url?.url) {
+						continue;
+					}
+
+					const url = image.image_url.url;
+					if (!url.startsWith("data:")) {
+						contentBlocks.push({
+							type: "text" as const,
+							text: `Image URL: ${url}`,
+						});
+						continue;
+					}
+
+					const matches = url.match(/^data:([^;]+);base64,(.+)$/);
+					if (!matches) {
+						continue;
+					}
+
+					const mimeType = matches[1];
+					const base64Data = matches[2];
+
+					const extMap: Record<string, string> = {
+						"image/png": ".png",
+						"image/jpeg": ".jpeg",
+						"image/jpg": ".jpg",
+						"image/webp": ".webp",
+						"image/gif": ".gif",
+					};
+					const ext = extMap[mimeType] || ".png";
+
+					let fileName: string;
+					if (input.filename) {
+						fileName =
+							images.length > 1
+								? `${path.parse(input.filename).name}-${i + 1}${ext}`
+								: input.filename;
+					} else {
+						const timestamp = Date.now();
+						fileName =
+							images.length > 1
+								? `nano-banana-${timestamp}-${i + 1}${ext}`
+								: `nano-banana-${timestamp}${ext}`;
+					}
+
+					const filePath = path.resolve(saveDir, fileName);
+
+					fs.mkdirSync(path.dirname(filePath), { recursive: true });
+					fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+
+					savedPaths.push(filePath);
+
+					contentBlocks.push({
+						type: "image" as const,
+						data: base64Data,
+						mimeType,
+					});
+				}
+
+				if (savedPaths.length > 0) {
+					const pathList = savedPaths.map((p) => `- ${p}`).join("\n");
+					contentBlocks.unshift({
+						type: "text" as const,
+						text: `Image${savedPaths.length > 1 ? "s" : ""} saved to:\n${pathList}`,
+					});
+				} else {
+					contentBlocks.push({
+						type: "text" as const,
+						text: "Images were generated but could not be saved. Check the response format.",
+					});
+				}
+
+				return {
+					content: contentBlocks,
+				};
+			} catch (error) {
+				logger.error(
+					"MCP generate-nano-banana tool error",
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				return {

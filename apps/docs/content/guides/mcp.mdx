@@ -16,6 +16,7 @@ The Model Context Protocol (MCP) is an open standard that allows AI assistants t
 
 - **Chat completions** - Send messages to any supported LLM
 - **Image generation** - Generate images using models like Qwen Image
+- **Nano Banana image generation** - Generate images with Gemini 3 Pro Image Preview and save to disk
 - **Model discovery** - List available models with capabilities and pricing
 
 ## Available Tools
@@ -61,6 +62,33 @@ Generate images from text prompts using AI image models.
 	"size": "1024x1024"
 }
 ```
+
+### `generate-nano-banana`
+
+Generate an image using Gemini 3 Pro Image Preview ("Nano Banana") and save it to disk. Tailored for AI coding agents — returns the file path of the saved image and an inline image preview.
+
+**Parameters:**
+
+- `prompt` (string) - Text description of the image to generate
+- `save_path` (string, optional) - Directory to save the image (default: current working directory)
+- `filename` (string, optional) - Filename for the saved image (default: `nano-banana-{timestamp}.png`)
+- `aspect_ratio` (string, optional) - Aspect ratio: `"1:1"`, `"16:9"`, `"4:3"`, or `"5:4"`
+
+**Example:**
+
+```json
+{
+	"prompt": "A pixel-art cat sitting on a rainbow",
+	"save_path": "./assets",
+	"aspect_ratio": "16:9"
+}
+```
+
+<Callout type="info">
+	Unlike `generate-image`, this tool automatically saves images to your file
+	system and returns the absolute path — ideal for AI coding agents that need to
+	reference generated images in code.
+</Callout>
 
 ### `list-models`
 
@@ -147,6 +175,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image and save it to ./assets"
     - "List all available models from Anthropic"
 
     </Step>
@@ -197,6 +226,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image and save it to ./assets"
     - "List all available models from Anthropic"
 
     </Step>
@@ -248,6 +278,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image and save it to ./assets"
     - "List all available models from Anthropic"
 
     </Step>
@@ -305,6 +336,15 @@ Generate images directly from your AI assistant:
 ```
 Use generate-image to create a logo for my new startup.
 It should be minimalist, blue and white, representing AI and cloud computing.
+```
+
+### Nano Banana (Gemini Image Generation)
+
+Generate images with Gemini 3 Pro and save them to disk for use in your project:
+
+```
+Use generate-nano-banana to create a hero image for my landing page.
+Save it to ./public/images with a 16:9 aspect ratio.
 ```
 
 ### Cost-Effective Model Selection
