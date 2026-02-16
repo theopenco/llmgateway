@@ -95,7 +95,7 @@ List all available image generation models.
 
 ## Setup
 
-<Tabs items={["Claude Code", "Cursor", "Windsurf", "VS Code", "Other MCP Clients"]}>
+<Tabs items={["Claude Code", "Codex", "Cursor", "Other MCP Clients"]}>
   <Tab value="Claude Code">
     <Steps>
     <Step>
@@ -110,14 +110,12 @@ List all available image generation models.
     <Step>
     ### Configure Claude Code
 
-    Run the following command in your terminal to add the LLM Gateway MCP server:
+    Run the following command in your terminal:
 
     ```bash
     claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \
       --header "Authorization: Bearer your-api-key-here"
     ```
-
-    This registers the MCP server globally (across all projects) using the HTTP transport. You should now see the LLM Gateway tools available in Claude Code.
 
     <Callout type="info">
       **Alternative: Manual configuration**
@@ -149,6 +147,55 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
+
+  </Tab>
+
+  <Tab value="Codex">
+    <Steps>
+    <Step>
+    ### Get Your API Key
+
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+    4. Set it as an environment variable: `export LLM_GATEWAY_API_KEY="your-api-key-here"`
+
+    </Step>
+
+    <Step>
+    ### Configure Codex
+
+    Run the following command in your terminal:
+
+    ```bash
+    codex mcp add llmgateway --url https://api.llmgateway.io/mcp \
+      --bearer-token-env-var LLM_GATEWAY_API_KEY
+    ```
+
+    <Callout type="info">
+      **Alternative: Manual configuration**
+
+      You can also add the MCP server manually by editing `~/.codex/config.toml`:
+
+      ```toml
+      [mcp_servers.llmgateway]
+      url = "https://api.llmgateway.io/mcp"
+      bearer_token_env_var = "LLM_GATEWAY_API_KEY"
+      ```
+    </Callout>
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Run `/mcp` in the Codex TUI to confirm the `llmgateway` server is connected. Try:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "List all available models from Anthropic"
 
     </Step>
@@ -197,107 +244,6 @@ List all available image generation models.
     ### Test the Integration
 
     Open a chat in **Agent Mode**, click the **Select Tools** icon, and verify the LLM Gateway tools appear. Try:
-
-    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
-    - "List all available models from Anthropic"
-
-    </Step>
-    </Steps>
-
-  </Tab>
-
-  <Tab value="Windsurf">
-    <Steps>
-    <Step>
-    ### Get Your API Key
-
-    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
-    2. Navigate to **API Keys** section
-    3. Create a new API key and copy it
-
-    </Step>
-
-    <Step>
-    ### Configure Windsurf
-
-    Add the following to your Windsurf MCP configuration file (`~/.codeium/windsurf/mcp_config.json`):
-
-    ```json
-    {
-      "mcpServers": {
-        "llmgateway": {
-          "serverUrl": "https://api.llmgateway.io/mcp",
-          "headers": {
-            "Authorization": "Bearer your-api-key-here"
-          }
-        }
-      }
-    }
-    ```
-
-    Or open the Command Palette (`Cmd/Ctrl + Shift + P`), search for **"MCP: Add Server"**, select **HTTP**, and enter the URL and headers above.
-
-    </Step>
-
-    <Step>
-    ### Test the Integration
-
-    Open Cascade and verify the LLM Gateway tools appear. Press the **refresh** button if needed. Try:
-
-    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
-    - "List all available models from Anthropic"
-
-    </Step>
-    </Steps>
-
-  </Tab>
-
-  <Tab value="VS Code">
-    <Steps>
-    <Step>
-    ### Get Your API Key
-
-    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
-    2. Navigate to **API Keys** section
-    3. Create a new API key and copy it
-
-    </Step>
-
-    <Step>
-    ### Configure VS Code
-
-    Add the following to your workspace `.vscode/mcp.json` file:
-
-    ```json
-    {
-      "servers": {
-        "llmgateway": {
-          "type": "http",
-          "url": "https://api.llmgateway.io/mcp",
-          "headers": {
-            "Authorization": "Bearer your-api-key-here"
-          }
-        }
-      }
-    }
-    ```
-
-    Or run from the terminal:
-
-    ```bash
-    code --add-mcp '{"name":"llmgateway","type":"http","url":"https://api.llmgateway.io/mcp","headers":{"Authorization":"Bearer your-api-key-here"}}'
-    ```
-
-    <Callout type="info">
-      VS Code 1.99+ with GitHub Copilot is required for MCP support. Use the tools in **Agent Mode** within Copilot Chat.
-    </Callout>
-
-    </Step>
-
-    <Step>
-    ### Test the Integration
-
-    Open Copilot Chat in **Agent Mode**, click the **Select Tools** icon, and verify the LLM Gateway tools appear. Try:
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "List all available models from Anthropic"
