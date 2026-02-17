@@ -410,7 +410,7 @@ admin.openapi(getTimeseries, async (c) => {
 		"365d": 365,
 		all: null,
 	};
-	const days = rangeDays[range] ?? 30;
+	const days = range in rangeDays ? rangeDays[range] : 30;
 
 	let startDate: Date;
 	if (days === null) {
@@ -424,10 +424,10 @@ admin.openapi(getTimeseries, async (c) => {
 		startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 	}
 
-	// Normalize to start of day
-	startDate.setHours(0, 0, 0, 0);
+	// Normalize to start of day in UTC
+	startDate.setUTCHours(0, 0, 0, 0);
 	const endDate = new Date(now);
-	endDate.setHours(23, 59, 59, 999);
+	endDate.setUTCHours(23, 59, 59, 999);
 
 	// Signups per day
 	const signupsPerDay = await db
