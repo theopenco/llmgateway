@@ -5,6 +5,7 @@ import {
 	providers as providerDefinitions,
 } from "@llmgateway/models";
 import {
+	AWSBedrockIconStatic,
 	getProviderIcon,
 	MinimaxIconStatic,
 } from "@llmgateway/shared/components";
@@ -55,7 +56,9 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 		const ProviderIcon =
 			provider.id === "minimax"
 				? MinimaxIconStatic
-				: getProviderIcon(provider.id);
+				: provider.id === "aws-bedrock"
+					? AWSBedrockIconStatic
+					: getProviderIcon(provider.id);
 
 		// Count how many models this provider offers
 		const supportedModels = modelDefinitions.filter((model) =>
