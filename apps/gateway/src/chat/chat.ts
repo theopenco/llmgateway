@@ -4273,6 +4273,7 @@ chat.openapi(completions, async (c) => {
 						!streamingError &&
 						finishReason &&
 						finishReason !== "content_filter" &&
+						finishReason !== "incomplete" &&
 						!isGoogleContentFilterStreaming &&
 						(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
@@ -5984,6 +5985,7 @@ chat.openapi(completions, async (c) => {
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "content_filter" &&
+		finishReason !== "incomplete" &&
 		!isGoogleContentFilter &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 		(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&

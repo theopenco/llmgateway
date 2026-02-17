@@ -899,6 +899,48 @@ export function transformStreamingToOpenai(
 						break;
 					}
 
+					case "response.incomplete": {
+						const incompleteUsage = data.response?.usage;
+						let usage = null;
+						if (incompleteUsage) {
+							usage = {
+								prompt_tokens: incompleteUsage.input_tokens || 0,
+								completion_tokens: incompleteUsage.output_tokens || 0,
+								total_tokens: incompleteUsage.total_tokens || 0,
+								...(incompleteUsage.output_tokens_details?.reasoning_tokens && {
+									reasoning_tokens:
+										incompleteUsage.output_tokens_details.reasoning_tokens,
+								}),
+								...(incompleteUsage.input_tokens_details?.cached_tokens && {
+									prompt_tokens_details: {
+										cached_tokens:
+											incompleteUsage.input_tokens_details.cached_tokens,
+									},
+								}),
+							};
+						}
+						const reason = data.response?.incomplete_details?.reason;
+						// Map incomplete reason to appropriate finish_reason
+						const mappedFinishReason =
+							reason === "content_filter" ? "content_filter" : "incomplete";
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: mappedFinishReason,
+								},
+							],
+							usage,
+						};
+						break;
+					}
+
 					default:
 						logger.warn("[streaming] Unrecognized OpenAI event type", {
 							provider: usedProvider,
