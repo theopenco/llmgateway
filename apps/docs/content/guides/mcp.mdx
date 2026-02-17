@@ -65,13 +65,12 @@ Generate images from text prompts using AI image models.
 
 ### `generate-nano-banana`
 
-Generate an image using Gemini 3 Pro Image Preview ("Nano Banana") and save it to disk. Tailored for AI coding agents — returns the file path of the saved image and an inline image preview.
+Generate an image using Gemini 3 Pro Image Preview ("Nano Banana"). Returns an inline image preview, and optionally saves the image to disk when the server is configured with an upload directory.
 
 **Parameters:**
 
 - `prompt` (string) - Text description of the image to generate
-- `save_path` (string, optional) - Directory to save the image (default: current working directory)
-- `filename` (string, optional) - Filename for the saved image (default: `nano-banana-{timestamp}.png`)
+- `filename` (string, optional) - Filename for the saved image, no path separators allowed (default: `nano-banana-{timestamp}.png`)
 - `aspect_ratio` (string, optional) - Aspect ratio: `"1:1"`, `"16:9"`, `"4:3"`, or `"5:4"`
 
 **Example:**
@@ -79,15 +78,17 @@ Generate an image using Gemini 3 Pro Image Preview ("Nano Banana") and save it t
 ```json
 {
 	"prompt": "A pixel-art cat sitting on a rainbow",
-	"save_path": "./assets",
+	"filename": "hero-image.png",
 	"aspect_ratio": "16:9"
 }
 ```
 
 <Callout type="info">
-	Unlike `generate-image`, this tool automatically saves images to your file
-	system and returns the absolute path — ideal for AI coding agents that need to
-	reference generated images in code.
+	**Saving images to disk** requires the `UPLOAD_DIR` environment variable to be
+	set on the MCP server. When set, images are saved to that directory. Without
+	it, images are returned inline only — no files are written to disk. See
+	[Enabling local image saving](#enabling-local-image-saving) for setup
+	instructions.
 </Callout>
 
 ### `list-models`
@@ -175,7 +176,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
-    - "Use generate-nano-banana to create a hero image and save it to ./assets"
+    - "Use generate-nano-banana to create a hero image for my landing page"
     - "List all available models from Anthropic"
 
     </Step>
@@ -226,7 +227,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
-    - "Use generate-nano-banana to create a hero image and save it to ./assets"
+    - "Use generate-nano-banana to create a hero image for my landing page"
     - "List all available models from Anthropic"
 
     </Step>
@@ -278,7 +279,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
-    - "Use generate-nano-banana to create a hero image and save it to ./assets"
+    - "Use generate-nano-banana to create a hero image for my landing page"
     - "List all available models from Anthropic"
 
     </Step>
@@ -340,11 +341,10 @@ It should be minimalist, blue and white, representing AI and cloud computing.
 
 ### Nano Banana (Gemini Image Generation)
 
-Generate images with Gemini 3 Pro and save them to disk for use in your project:
+Generate images with Gemini 3 Pro for use in your project:
 
 ```
-Use generate-nano-banana to create a hero image for my landing page.
-Save it to ./public/images with a 16:9 aspect ratio.
+Use generate-nano-banana to create a hero image for my landing page with a 16:9 aspect ratio.
 ```
 
 ### Cost-Effective Model Selection
@@ -372,6 +372,47 @@ For applications that prefer OAuth authentication, LLM Gateway's MCP server impl
 - **Token Endpoint:** `/oauth/token`
 - **Registration Endpoint:** `/oauth/register`
 - **Supported Flows:** Authorization Code, Client Credentials
+
+## Enabling Local Image Saving
+
+By default, `generate-nano-banana` returns images inline without writing to disk. To enable saving generated images locally (e.g., when using Claude Code), set the `UPLOAD_DIR` environment variable on the MCP server.
+
+<Tabs items={["Claude Code", "Codex"]}>
+  <Tab value="Claude Code">
+  Add `UPLOAD_DIR` to your MCP server configuration in `~/.claude/claude_mcp_settings.json`:
+
+```json
+{
+	"mcpServers": {
+		"llmgateway": {
+			"url": "https://api.llmgateway.io/mcp",
+			"headers": {
+				"Authorization": "Bearer your-api-key-here"
+			},
+			"env": {
+				"UPLOAD_DIR": "/path/to/your/images"
+			}
+		}
+	}
+}
+```
+
+  </Tab>
+
+  <Tab value="Codex">
+  Set `UPLOAD_DIR` as an environment variable before running Codex:
+
+```bash
+export UPLOAD_DIR="/path/to/your/images"
+```
+
+  </Tab>
+</Tabs>
+
+<Callout type="warn">
+	On production servers, do **not** set `UPLOAD_DIR`. This ensures no files are
+	written to the server filesystem — images are returned inline only.
+</Callout>
 
 ## Troubleshooting
 

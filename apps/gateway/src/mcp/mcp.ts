@@ -109,17 +109,11 @@ const generateNanoBananaInputSchema = z.object({
 		.describe(
 			"Detailed text description of the image to create, e.g. 'a futuristic city skyline at sunset with flying cars'",
 		),
-	save_path: z
-		.string()
-		.optional()
-		.describe(
-			"Directory to save the generated image. Defaults to the current working directory.",
-		),
 	filename: z
 		.string()
 		.optional()
 		.describe(
-			"Filename for the saved image. Auto-generated if not provided (e.g., nano-banana-1234567890.png).",
+			"Filename for the saved image (no path separators allowed). Auto-generated if not provided (e.g., nano-banana-1234567890.png). Images are only saved to disk when the server has UPLOAD_DIR configured.",
 		),
 	aspect_ratio: z
 		.enum(["1:1", "16:9", "4:3", "5:4"])
@@ -633,7 +627,7 @@ function createMcpServer(apiKey: string): McpServer {
 					};
 				}
 
-				const saveDir = input.save_path || process.cwd();
+				const uploadDir = process.env.UPLOAD_DIR;
 				const contentBlocks: Array<
 					| { type: "text"; text: string }
 					| { type: "image"; data: string; mimeType: string }
@@ -680,26 +674,58 @@ function createMcpServer(apiKey: string): McpServer {
 					};
 					const ext = extMap[mimeType] || ".png";
 
-					let fileName: string;
-					if (input.filename) {
-						fileName =
-							images.length > 1
-								? `${path.parse(input.filename).name}-${i + 1}${ext}`
-								: input.filename;
-					} else {
-						const timestamp = Date.now();
-						fileName =
-							images.length > 1
-								? `nano-banana-${timestamp}-${i + 1}${ext}`
-								: `nano-banana-${timestamp}${ext}`;
+					if (uploadDir) {
+						let fileName: string;
+						if (input.filename) {
+							const rawName = input.filename;
+							if (
+								rawName.includes("/") ||
+								rawName.includes("\\") ||
+								rawName.includes("..") ||
+								/^[a-zA-Z]:/.test(rawName)
+							) {
+								return {
+									content: [
+										{
+											type: "text" as const,
+											text: "Invalid filename: must not contain path separators, '..', or drive letters.",
+										},
+									],
+								};
+							}
+							fileName =
+								images.length > 1
+									? `${path.parse(rawName).name}-${i + 1}${ext}`
+									: rawName;
+						} else {
+							const timestamp = Date.now();
+							fileName =
+								images.length > 1
+									? `nano-banana-${timestamp}-${i + 1}${ext}`
+									: `nano-banana-${timestamp}${ext}`;
+						}
+
+						const resolvedUploadDir = path.resolve(uploadDir);
+						const filePath = path.join(resolvedUploadDir, fileName);
+
+						if (
+							!filePath.startsWith(resolvedUploadDir + path.sep) &&
+							filePath !== resolvedUploadDir
+						) {
+							return {
+								content: [
+									{
+										type: "text" as const,
+										text: "Invalid filename: resolved path escapes the upload directory.",
+									},
+								],
+							};
+						}
+
+						fs.mkdirSync(resolvedUploadDir, { recursive: true });
+						fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+						savedPaths.push(filePath);
 					}
-
-					const filePath = path.resolve(saveDir, fileName);
-
-					fs.mkdirSync(path.dirname(filePath), { recursive: true });
-					fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
-
-					savedPaths.push(filePath);
 
 					contentBlocks.push({
 						type: "image" as const,
@@ -713,11 +739,6 @@ function createMcpServer(apiKey: string): McpServer {
 					contentBlocks.unshift({
 						type: "text" as const,
 						text: `Image${savedPaths.length > 1 ? "s" : ""} saved to:\n${pathList}`,
-					});
-				} else {
-					contentBlocks.push({
-						type: "text" as const,
-						text: "Images were generated but could not be saved. Check the response format.",
 					});
 				}
 
