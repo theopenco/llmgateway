@@ -36,6 +36,25 @@ const adminMetricsSchema = z.object({
 	totalOrganizations: z.number(),
 });
 
+const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
+
+const timeseriesDataPointSchema = z.object({
+	date: z.string(),
+	signups: z.number(),
+	paidCustomers: z.number(),
+	revenue: z.number(),
+});
+
+const adminTimeseriesSchema = z.object({
+	range: timeseriesRangeSchema,
+	data: z.array(timeseriesDataPointSchema),
+	totals: z.object({
+		signups: z.number(),
+		paidCustomers: z.number(),
+		revenue: z.number(),
+	}),
+});
+
 const tokenWindowSchema = z.enum([
 	"1h",
 	"4h",
@@ -163,6 +182,7 @@ const sortBySchema = z.enum([
 	"credits",
 	"createdAt",
 	"status",
+	"totalCreditsAllTime",
 ]);
 
 const sortOrderSchema = z.enum(["asc", "desc"]);
@@ -358,6 +378,164 @@ admin.openapi(getMetrics, async (c) => {
 	});
 });
 
+const getTimeseries = createRoute({
+	method: "get",
+	path: "/metrics/timeseries",
+	request: {
+		query: z.object({
+			range: timeseriesRangeSchema.default("30d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: adminTimeseriesSchema.openapi({}),
+				},
+			},
+			description: "Admin dashboard timeseries metrics.",
+		},
+	},
+});
+
+admin.openapi(getTimeseries, async (c) => {
+	const query = c.req.valid("query");
+	const range = query.range ?? "30d";
+
+	const now = new Date();
+	const rangeDays: Record<string, number | null> = {
+		"7d": 7,
+		"30d": 30,
+		"90d": 90,
+		"365d": 365,
+		all: null,
+	};
+	const days = rangeDays[range] ?? 30;
+
+	let startDate: Date;
+	if (days === null) {
+		const [oldest] = await db
+			.select({
+				minDate: sql<string>`MIN(${tables.user.createdAt})`.as("minDate"),
+			})
+			.from(tables.user);
+		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
+	} else {
+		startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+	}
+
+	// Normalize to start of day
+	startDate.setHours(0, 0, 0, 0);
+	const endDate = new Date(now);
+	endDate.setHours(23, 59, 59, 999);
+
+	// Signups per day
+	const signupsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.user.createdAt})`.as("date"),
+			count: sql<number>`COUNT(*)`.as("count"),
+		})
+		.from(tables.user)
+		.where(gte(tables.user.createdAt, startDate))
+		.groupBy(sql`DATE(${tables.user.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
+
+	// Revenue per day (completed transactions)
+	const revenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// First completed transaction date per org (for cumulative paid customers)
+	const firstTransactionPerOrg = await db
+		.select({
+			date: sql<string>`DATE(MIN(${tables.transaction.createdAt}))`.as("date"),
+		})
+		.from(tables.transaction)
+		.where(eq(tables.transaction.status, "completed"))
+		.groupBy(tables.transaction.organizationId)
+		.orderBy(asc(sql`DATE(MIN(${tables.transaction.createdAt}))`));
+
+	// Count of orgs that became paying before the range
+	const preRangeCount = firstTransactionPerOrg.filter(
+		(row) => new Date(row.date) < startDate,
+	).length;
+
+	// Build maps for quick lookup
+	const signupsMap = new Map<string, number>();
+	for (const row of signupsPerDay) {
+		signupsMap.set(row.date, Number(row.count));
+	}
+
+	const revenueMap = new Map<string, number>();
+	for (const row of revenuePerDay) {
+		revenueMap.set(row.date, Number(row.total));
+	}
+
+	const newPaidMap = new Map<string, number>();
+	for (const row of firstTransactionPerOrg) {
+		if (new Date(row.date) >= startDate) {
+			newPaidMap.set(row.date, (newPaidMap.get(row.date) ?? 0) + 1);
+		}
+	}
+
+	// Fill all dates in range
+	const data: Array<{
+		date: string;
+		signups: number;
+		paidCustomers: number;
+		revenue: number;
+	}> = [];
+	let cumulativePaid = preRangeCount;
+	let totalSignups = 0;
+	let totalRevenue = 0;
+
+	const totalDays =
+		Math.ceil(
+			(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
+		) + 1;
+	for (let i = 0; i < totalDays; i++) {
+		const current = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+		const dateStr = current.toISOString().split("T")[0];
+		const dailySignups = signupsMap.get(dateStr) ?? 0;
+		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
+		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
+
+		totalSignups += dailySignups;
+		totalRevenue += dailyRevenue;
+
+		data.push({
+			date: dateStr,
+			signups: dailySignups,
+			paidCustomers: cumulativePaid,
+			revenue: dailyRevenue,
+		});
+	}
+
+	return c.json({
+		range,
+		data,
+		totals: {
+			signups: totalSignups,
+			paidCustomers: cumulativePaid,
+			revenue: totalRevenue,
+		},
+	});
+});
+
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
@@ -389,6 +567,22 @@ admin.openapi(getOrganizations, async (c) => {
 	const total = Number(countResult?.count ?? 0);
 	const totalCredits = String(countResult?.totalCredits ?? "0");
 
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
+	// Subquery for all-time credits per org
+	const allTimeCredits = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(eq(tables.transaction.status, "completed"))
+		.groupBy(tables.transaction.organizationId)
+		.as("all_time_credits");
+
 	const sortColumnMap = {
 		name: tables.organization.name,
 		billingEmail: tables.organization.billingEmail,
@@ -397,10 +591,10 @@ admin.openapi(getOrganizations, async (c) => {
 		credits: tables.organization.credits,
 		createdAt: tables.organization.createdAt,
 		status: tables.organization.status,
+		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
-	const orderFn = sortOrder === "asc" ? asc : desc;
 
 	const organizations = await db
 		.select({
@@ -412,45 +606,32 @@ admin.openapi(getOrganizations, async (c) => {
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
+			totalCreditsAllTime:
+				sql<string>`COALESCE(${allTimeCredits.total}, '0')`.as(
+					"totalCreditsAllTime",
+				),
 		})
 		.from(tables.organization)
+		.leftJoin(
+			allTimeCredits,
+			eq(tables.organization.id, allTimeCredits.organizationId),
+		)
 		.where(whereClause)
 		.orderBy(orderFn(sortColumn))
 		.limit(limit)
 		.offset(offset);
 
-	const orgIds = organizations.map((o) => o.id);
-
-	const creditsMap = new Map<string, string>();
-	if (orgIds.length > 0) {
-		const creditsRows = await db
-			.select({
-				organizationId: tables.transaction.organizationId,
-				total:
-					sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-						"total",
-					),
-			})
-			.from(tables.transaction)
-			.where(
-				and(
-					inArray(tables.transaction.organizationId, orgIds),
-					eq(tables.transaction.status, "completed"),
-				),
-			)
-			.groupBy(tables.transaction.organizationId);
-
-		for (const row of creditsRows) {
-			creditsMap.set(row.organizationId, String(row.total ?? "0"));
-		}
-	}
-
 	return c.json({
 		organizations: organizations.map((org) => ({
-			...org,
+			id: org.id,
+			name: org.name,
+			billingEmail: org.billingEmail,
+			plan: org.plan,
+			devPlan: org.devPlan,
 			credits: String(org.credits),
-			totalCreditsAllTime: creditsMap.get(org.id) ?? "0",
+			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			createdAt: org.createdAt.toISOString(),
+			status: org.status,
 		})),
 		total,
 		totalCredits,
