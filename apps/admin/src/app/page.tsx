@@ -6,10 +6,19 @@ import {
 	Users,
 } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { RevenueChart } from "@/components/revenue-chart";
+import { SignupsChart } from "@/components/signups-chart";
+import { TimeRangePicker } from "@/components/time-range-picker";
 import { Button } from "@/components/ui/button";
-import { getAdminDashboardMetrics } from "@/lib/admin-metrics";
+import {
+	getAdminDashboardMetrics,
+	getAdminTimeseriesMetrics,
+} from "@/lib/admin-metrics";
 import { cn } from "@/lib/utils";
+
+import type { TimeseriesRange } from "@/lib/admin-metrics";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -86,8 +95,23 @@ function SignInPrompt() {
 	);
 }
 
-export default async function Page() {
-	const metrics = await getAdminDashboardMetrics();
+const validRanges = new Set(["7d", "30d", "90d", "365d", "all"]);
+
+export default async function Page({
+	searchParams,
+}: {
+	searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+	const params = await searchParams;
+	const rangeParam = typeof params.range === "string" ? params.range : "30d";
+	const range: TimeseriesRange = validRanges.has(rangeParam)
+		? (rangeParam as TimeseriesRange)
+		: "30d";
+
+	const [metrics, timeseries] = await Promise.all([
+		getAdminDashboardMetrics(),
+		getAdminTimeseriesMetrics(range),
+	]);
 
 	if (!metrics) {
 		return <SignInPrompt />;
@@ -104,9 +128,14 @@ export default async function Page() {
 						Overview of users, customers, and revenue.
 					</p>
 				</div>
-				<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
-					<span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-					<span>Live data</span>
+				<div className="flex items-center gap-3">
+					<Suspense>
+						<TimeRangePicker value={range} />
+					</Suspense>
+					<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
+						<span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+						<span>Live data</span>
+					</div>
 				</div>
 			</header>
 
@@ -147,6 +176,22 @@ export default async function Page() {
 					accent="blue"
 				/>
 			</section>
+
+			{timeseries ? (
+				<section className="grid gap-6 lg:grid-cols-2">
+					<SignupsChart
+						data={timeseries.data}
+						totals={{
+							signups: timeseries.totals.signups,
+							paidCustomers: timeseries.totals.paidCustomers,
+						}}
+					/>
+					<RevenueChart
+						data={timeseries.data}
+						totalRevenue={timeseries.totals.revenue}
+					/>
+				</section>
+			) : null}
 
 			<div className="mt-4">
 				<Button asChild>

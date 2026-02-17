@@ -1098,6 +1098,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/metrics/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    range?: "7d" | "30d" | "90d" | "365d" | "all";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Admin dashboard timeseries metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            range: "7d" | "30d" | "90d" | "365d" | "all";
+                            data: {
+                                date: string;
+                                signups: number;
+                                paidCustomers: number;
+                                revenue: number;
+                            }[];
+                            totals: {
+                                signups: number;
+                                paidCustomers: number;
+                                revenue: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/organizations": {
         parameters: {
             query?: never;
@@ -1111,7 +1162,7 @@ export interface paths {
                     limit?: number;
                     offset?: number | null;
                     search?: string;
-                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status";
+                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status" | "totalCreditsAllTime";
                     sortOrder?: "asc" | "desc";
                 };
                 header?: never;

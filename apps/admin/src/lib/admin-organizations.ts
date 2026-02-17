@@ -125,7 +125,8 @@ export type SortBy =
 	| "devPlan"
 	| "credits"
 	| "createdAt"
-	| "status";
+	| "status"
+	| "totalCreditsAllTime";
 export type SortOrder = "asc" | "desc";
 
 export async function getOrganizations(params?: {

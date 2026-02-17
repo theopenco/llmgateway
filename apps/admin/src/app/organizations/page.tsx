@@ -29,7 +29,8 @@ type SortBy =
 	| "devPlan"
 	| "credits"
 	| "createdAt"
-	| "status";
+	| "status"
+	| "totalCreditsAllTime";
 type SortOrder = "asc" | "desc";
 
 function SortableHeader({
@@ -255,8 +256,14 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
-							<TableHead className="text-muted-foreground">
-								All Time Credits
+							<TableHead>
+								<SortableHeader
+									label="All Time Credits"
+									sortKey="totalCreditsAllTime"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									search={search}
+								/>
 							</TableHead>
 							<TableHead>
 								<SortableHeader

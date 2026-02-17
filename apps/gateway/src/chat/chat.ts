@@ -709,12 +709,7 @@ chat.openapi(completions, async (c) => {
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
-		let allowedAutoModels = ["gpt-oss-120b", "gpt-5-nano", "gpt-4.1-nano"];
-
-		// If free_models_only is true, expand to include free models
-		if (free_models_only) {
-			allowedAutoModels = [...allowedAutoModels, "llama-3.3-70b-instruct-free"];
-		}
+		const allowedAutoModels = ["gpt-oss-120b", "gpt-5-nano", "gpt-4.1-nano"];
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
@@ -726,8 +721,13 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
-			// Only consider allowed models for auto selection
-			if (!allowedAutoModels.includes(modelDef.id)) {
+			// When free_models_only is true, only consider models marked as free
+			// Otherwise, only consider hardcoded allowed models
+			if (free_models_only) {
+				if (!("free" in modelDef && modelDef.free)) {
+					continue;
+				}
+			} else if (!allowedAutoModels.includes(modelDef.id)) {
 				continue;
 			}
 
@@ -828,11 +828,6 @@ chat.openapi(completions, async (c) => {
 					const totalPrice =
 						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
 
-					// If free_models_only is true, only consider free models (totalPrice === 0)
-					if (free_models_only && totalPrice > 0) {
-						continue;
-					}
-
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
 						selectedModel = modelDef;
@@ -844,56 +839,33 @@ chat.openapi(completions, async (c) => {
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
-			// If free_models_only is true, filter to only free providers
-			const finalProviders = free_models_only
-				? selectedProviders.filter((provider) => {
-						const totalPrice =
-							((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
-						return totalPrice === 0;
-					})
-				: selectedProviders;
+			// Fetch uptime/latency metrics from last 5 minutes for provider selection
+			const metricsCombinations = selectedProviders.map((p) => ({
+				modelId: selectedModel.id,
+				providerId: p.providerId,
+			}));
+			const metricsMap = await getProviderMetricsForCombinations(
+				metricsCombinations,
+				5,
+			);
 
-			if (finalProviders.length > 0) {
-				// Fetch uptime/latency metrics from last 5 minutes for provider selection
-				const metricsCombinations = finalProviders.map((p) => ({
-					modelId: selectedModel.id,
-					providerId: p.providerId,
-				}));
-				const metricsMap = await getProviderMetricsForCombinations(
-					metricsCombinations,
-					5,
-				);
+			const cheapestResult = getCheapestFromAvailableProviders(
+				selectedProviders,
+				selectedModel,
+				{ metricsMap, isStreaming: stream },
+			);
 
-				const cheapestResult = getCheapestFromAvailableProviders(
-					finalProviders,
-					selectedModel,
-					{ metricsMap, isStreaming: stream },
-				);
-
-				if (cheapestResult) {
-					usedProvider = cheapestResult.provider.providerId;
-					usedModel = cheapestResult.provider.modelName;
-					routingMetadata = {
-						...cheapestResult.metadata,
-						...(noFallback ? { noFallback: true } : {}),
-					};
-				} else {
-					// Fallback to first available provider if price comparison fails
-					usedProvider = finalProviders[0].providerId;
-					usedModel = finalProviders[0].modelName;
-				}
-			} else if (free_models_only) {
-				// If no free models are available, return error
-				throw new HTTPException(400, {
-					message:
-						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
-				});
-			} else if (no_reasoning) {
-				// If no non-reasoning models are available, return error
-				throw new HTTPException(400, {
-					message:
-						"No non-reasoning models are available for auto routing. Remove no_reasoning parameter or use a specific model.",
-				});
+			if (cheapestResult) {
+				usedProvider = cheapestResult.provider.providerId;
+				usedModel = cheapestResult.provider.modelName;
+				routingMetadata = {
+					...cheapestResult.metadata,
+					...(noFallback ? { noFallback: true } : {}),
+				};
+			} else {
+				// Fallback to first available provider if price comparison fails
+				usedProvider = selectedProviders[0].providerId;
+				usedModel = selectedProviders[0].modelName;
 			}
 		} else {
 			if (free_models_only) {
@@ -4301,6 +4273,7 @@ chat.openapi(completions, async (c) => {
 						!streamingError &&
 						finishReason &&
 						finishReason !== "content_filter" &&
+						finishReason !== "incomplete" &&
 						!isGoogleContentFilterStreaming &&
 						(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
@@ -4669,10 +4642,6 @@ chat.openapi(completions, async (c) => {
 						streamingPluginIds,
 						finalPluginResults, // Plugin results including healing (if enabled)
 					);
-
-					if (!finishReason && !streamingError && usedProvider === "routeway") {
-						finishReason = "stop";
-					}
 
 					// Enhanced logging for Google models streaming to debug missing responses
 					if (
@@ -6016,6 +5985,7 @@ chat.openapi(completions, async (c) => {
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "content_filter" &&
+		finishReason !== "incomplete" &&
 		!isGoogleContentFilter &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 		(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&

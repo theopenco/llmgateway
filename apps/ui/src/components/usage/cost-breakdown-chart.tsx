@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Label, Pie, PieChart } from "recharts";
 
 import { getDateRangeFromParams } from "@/components/date-range-picker";
@@ -12,6 +12,11 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/lib/components/chart";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
 import { useApi } from "@/lib/fetch-client";
 
 import { providers } from "@llmgateway/models";
@@ -57,11 +62,23 @@ function formatCompactCost(value: number): string {
 	return `$${value.toFixed(2)}`;
 }
 
-function getProviderColor(providerName: string) {
+function isLowContrastColor(hex: string): boolean {
+	const r = parseInt(hex.slice(1, 3), 16);
+	const g = parseInt(hex.slice(3, 5), 16);
+	const b = parseInt(hex.slice(5, 7), 16);
+	const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+	return luminance < 0.15 || luminance > 0.85;
+}
+
+function getProviderColor(providerName: string, index: number) {
 	const provider = providers.find(
 		(p) => p.name.toLowerCase() === providerName.toLowerCase(),
 	);
-	return provider?.color || "#94a3b8";
+	const color = provider?.color;
+	if (!color || isLowContrastColor(color)) {
+		return MODEL_COLORS[index % MODEL_COLORS.length];
+	}
+	return color;
 }
 
 export function CostBreakdownChart({
@@ -146,8 +163,7 @@ export function CostBreakdownChart({
 			const color =
 				item.model === "storage"
 					? "#6366f1"
-					: getProviderColor(item.provider) ||
-						MODEL_COLORS[i % MODEL_COLORS.length];
+					: getProviderColor(item.provider, i);
 
 			config[key] = {
 				label: item.model === "storage" ? "Storage" : item.model,
@@ -213,6 +229,20 @@ export function CostBreakdownChart({
 		[chartConfig],
 	);
 
+	const MAX_VISIBLE = 5;
+
+	const { visibleItems, othersItems, othersCost } = useMemo(() => {
+		if (chartData.length <= MAX_VISIBLE) {
+			return { visibleItems: chartData, othersItems: [], othersCost: 0 };
+		}
+		const visible = chartData.slice(0, MAX_VISIBLE);
+		const others = chartData.slice(MAX_VISIBLE);
+		const cost = others.reduce((sum, item) => sum + item.cost, 0);
+		return { visibleItems: visible, othersItems: others, othersCost: cost };
+	}, [chartData]);
+
+	const [othersOpen, setOthersOpen] = useState(false);
+
 	if (!effectiveProjectId) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -254,6 +284,33 @@ export function CostBreakdownChart({
 		);
 	}
 
+	const renderLegendItem = (item: (typeof chartData)[number]) => {
+		const percent =
+			totalCost > 0 ? ((item.cost / totalCost) * 100).toFixed(1) : "0";
+		const config = chartConfig[item.model];
+		return (
+			<div key={item.model} className="flex items-center justify-between gap-2">
+				<div className="flex items-center gap-2 min-w-0">
+					<span
+						className="h-2.5 w-2.5 shrink-0 rounded-sm"
+						style={{
+							backgroundColor:
+								(config && "color" in config ? config.color : undefined) ||
+								"#94a3b8",
+						}}
+					/>
+					<span className="truncate text-muted-foreground">{item.label}</span>
+				</div>
+				<div className="flex items-center gap-2 shrink-0 tabular-nums">
+					<span className="font-medium">{formatCompactCost(item.cost)}</span>
+					<span className="text-muted-foreground w-12 text-right">
+						{percent}%
+					</span>
+				</div>
+			</div>
+		);
+	};
+
 	return (
 		<div className="flex h-full flex-col gap-4 md:flex-row">
 			<ChartContainer
@@ -289,40 +346,44 @@ export function CostBreakdownChart({
 					</p>
 				)}
 				<div className="flex flex-col gap-1.5">
-					{chartData.map((item) => {
-						const percent =
-							totalCost > 0 ? ((item.cost / totalCost) * 100).toFixed(1) : "0";
-						const config = chartConfig[item.model];
-						return (
-							<div
-								key={item.model}
-								className="flex items-center justify-between gap-2"
+					{visibleItems.map(renderLegendItem)}
+					{othersItems.length > 0 && (
+						<Popover open={othersOpen} onOpenChange={setOthersOpen}>
+							<PopoverTrigger asChild>
+								<button
+									type="button"
+									className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 -mx-1 transition-colors hover:bg-muted/50"
+								>
+									<div className="flex items-center gap-2 min-w-0">
+										<span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-muted-foreground/40" />
+										<span className="text-muted-foreground">
+											+{othersItems.length} more
+										</span>
+									</div>
+									<div className="flex items-center gap-2 shrink-0 tabular-nums">
+										<span className="font-medium">
+											{formatCompactCost(othersCost)}
+										</span>
+										<span className="text-muted-foreground w-12 text-right">
+											{totalCost > 0
+												? ((othersCost / totalCost) * 100).toFixed(1)
+												: "0"}
+											%
+										</span>
+									</div>
+								</button>
+							</PopoverTrigger>
+							<PopoverContent
+								align="start"
+								side="bottom"
+								className="w-80 max-h-64 overflow-y-auto p-3"
 							>
-								<div className="flex items-center gap-2 min-w-0">
-									<span
-										className="h-2.5 w-2.5 shrink-0 rounded-sm"
-										style={{
-											backgroundColor:
-												(config && "color" in config
-													? config.color
-													: undefined) || "#94a3b8",
-										}}
-									/>
-									<span className="truncate text-muted-foreground">
-										{item.label}
-									</span>
+								<div className="flex flex-col gap-1.5 text-sm">
+									{othersItems.map(renderLegendItem)}
 								</div>
-								<div className="flex items-center gap-2 shrink-0 tabular-nums">
-									<span className="font-medium">
-										{formatCompactCost(item.cost)}
-									</span>
-									<span className="text-muted-foreground w-12 text-right">
-										{percent}%
-									</span>
-								</div>
-							</div>
-						);
-					})}
+							</PopoverContent>
+						</Popover>
+					)}
 				</div>
 			</div>
 		</div>

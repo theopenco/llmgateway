@@ -1,6 +1,12 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { streamText, tool, type UIMessage, convertToModelMessages } from "ai";
+import {
+	streamText,
+	tool,
+	type UIMessage,
+	convertToModelMessages,
+	JsonToSseTransformStream,
+} from "ai";
 import { cookies } from "next/headers";
 import { z } from "zod";
 
@@ -634,10 +640,58 @@ export async function POST(req: Request) {
 			},
 		});
 
-		return result.toUIMessageStreamResponse({
+		// Build the UI message stream and pipe through SSE formatting
+		const uiStream = result.toUIMessageStream({
 			sendReasoning: true,
 			sendSources: true,
 		});
+		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+
+		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
+		// timeouts on long-running requests (e.g. tool calls, reasoning).
+		const KEEPALIVE_INTERVAL_MS = 15_000;
+		let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+
+		const clearKeepalive = () => {
+			if (keepaliveInterval) {
+				clearInterval(keepaliveInterval);
+				keepaliveInterval = null;
+			}
+		};
+
+		const keepaliveStream = new TransformStream<string, string>({
+			start(controller) {
+				keepaliveInterval = setInterval(() => {
+					try {
+						controller.enqueue(": ping\n\n");
+					} catch {
+						// Stream closed
+						clearKeepalive();
+					}
+				}, KEEPALIVE_INTERVAL_MS);
+			},
+			transform(chunk, controller) {
+				controller.enqueue(chunk);
+			},
+			flush() {
+				clearKeepalive();
+			},
+		});
+
+		const streamWithKeepalive = sseStream.pipeThrough(keepaliveStream);
+
+		return new Response(
+			streamWithKeepalive.pipeThrough(new TextEncoderStream()),
+			{
+				headers: {
+					"content-type": "text/event-stream",
+					"cache-control": "no-cache",
+					connection: "keep-alive",
+					"x-vercel-ai-ui-message-stream": "v1",
+					"x-accel-buffering": "no",
+				},
+			},
+		);
 	} catch (error: unknown) {
 		// Clean up MCP clients on error
 		for (const { client } of mcpClients) {

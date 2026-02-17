@@ -116,9 +116,6 @@ export function getProviderEndpoint(
 			case "zai":
 				url = "https://api.z.ai";
 				break;
-			case "routeway":
-				url = "https://api.routeway.ai";
-				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
 				break;
@@ -364,7 +361,6 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
-		case "routeway":
 		case "nanogpt":
 		case "canopywave":
 		case "minimax":

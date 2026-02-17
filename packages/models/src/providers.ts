@@ -400,21 +400,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "routeway",
-		name: "RouteWay",
-		description: "RouteWay's OpenAI-compatible large language models",
-		env: {
-			required: {
-				apiKey: "LLM_ROUTEWAY_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4f46e5",
-		website: "https://routeway.ai",
-		announcement: null,
-	},
-	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
