@@ -503,10 +503,9 @@ admin.openapi(getTimeseries, async (c) => {
 	let totalSignups = 0;
 	let totalRevenue = 0;
 
-	const totalDays =
-		Math.ceil(
-			(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
-		) + 1;
+	const totalDays = Math.ceil(
+		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
+	);
 	for (let i = 0; i < totalDays; i++) {
 		const current = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
 		const dateStr = current.toISOString().split("T")[0];
