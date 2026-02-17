@@ -4670,6 +4670,10 @@ chat.openapi(completions, async (c) => {
 						finalPluginResults, // Plugin results including healing (if enabled)
 					);
 
+					if (!finishReason && !streamingError && usedProvider === "routeway") {
+						finishReason = "stop";
+					}
+
 					// Enhanced logging for Google models streaming to debug missing responses
 					if (
 						usedProvider === "google-ai-studio" ||
