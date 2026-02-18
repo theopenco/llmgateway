@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -556,7 +556,7 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		"Generate an image using Gemini 3 Pro Image Preview (Nano Banana) and save it to disk. Tailored for AI coding agents - returns the file path of the saved image and an inline image preview. Use this when you want a high-quality image saved locally.",
+		`Generate an image using Gemini 3 Pro Image Preview (Nano Banana). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
@@ -691,6 +691,7 @@ function createMcpServer(apiKey: string): McpServer {
 											text: "Invalid filename: must not contain path separators, '..', or drive letters.",
 										},
 									],
+									isError: true,
 								};
 							}
 							fileName =
@@ -719,11 +720,12 @@ function createMcpServer(apiKey: string): McpServer {
 										text: "Invalid filename: resolved path escapes the upload directory.",
 									},
 								],
+								isError: true,
 							};
 						}
 
-						fs.mkdirSync(resolvedUploadDir, { recursive: true });
-						fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+						await fs.mkdir(resolvedUploadDir, { recursive: true });
+						await fs.writeFile(filePath, Buffer.from(base64Data, "base64"));
 						savedPaths.push(filePath);
 					}
 

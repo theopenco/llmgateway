@@ -149,7 +149,7 @@ List all available image generation models.
     <Callout type="info">
       **Alternative: Manual configuration**
 
-      You can also add the MCP server manually by editing your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+      You can also add the MCP server manually by editing your Claude Code settings file (`~/.claude/settings.json`):
 
       ```json
       {
@@ -375,43 +375,19 @@ For applications that prefer OAuth authentication, LLM Gateway's MCP server impl
 
 ## Enabling Local Image Saving
 
-By default, `generate-nano-banana` returns images inline without writing to disk. To enable saving generated images locally (e.g., when using Claude Code), set the `UPLOAD_DIR` environment variable on the MCP server.
+By default, `generate-nano-banana` returns images inline without writing to disk. To enable saving generated images to the server filesystem, the `UPLOAD_DIR` environment variable must be set on the **gateway host** at startup. This is a server-side setting — it cannot be configured from the client.
 
-<Tabs items={["Claude Code", "Codex"]}>
-  <Tab value="Claude Code">
-  Add `UPLOAD_DIR` to your MCP server configuration in `~/.claude/claude_mcp_settings.json`:
+This is only possible for **self-hosted** MCP deployments. Configure `UPLOAD_DIR` using your deployment method:
 
-```json
-{
-	"mcpServers": {
-		"llmgateway": {
-			"url": "https://api.llmgateway.io/mcp",
-			"headers": {
-				"Authorization": "Bearer your-api-key-here"
-			},
-			"env": {
-				"UPLOAD_DIR": "/path/to/your/images"
-			}
-		}
-	}
-}
-```
-
-  </Tab>
-
-  <Tab value="Codex">
-  Set `UPLOAD_DIR` as an environment variable before running Codex:
-
-```bash
-export UPLOAD_DIR="/path/to/your/images"
-```
-
-  </Tab>
-</Tabs>
+- **Docker:** Pass `-e UPLOAD_DIR=/data/images` or add it to your `docker-compose.yml` environment section.
+- **systemd:** Add `Environment=UPLOAD_DIR=/data/images` to your service unit file.
+- **.env file:** Add `UPLOAD_DIR=/data/images` to the `.env` file loaded by your gateway process.
 
 <Callout type="warn">
-	On production servers, do **not** set `UPLOAD_DIR`. This ensures no files are
-	written to the server filesystem — images are returned inline only.
+	The shared hosted endpoint (`api.llmgateway.io`) does not support configuring
+	`UPLOAD_DIR`. On the hosted service, images are always returned inline — no
+	files are written to disk. To enable server-side image saving, you must
+	self-host the MCP server and set `UPLOAD_DIR` at startup.
 </Callout>
 
 ## Troubleshooting
