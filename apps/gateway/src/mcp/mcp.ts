@@ -689,14 +689,13 @@ function createMcpServer(apiKey: string): McpServer {
 							if (
 								rawName.includes("/") ||
 								rawName.includes("\\") ||
-								rawName.includes("..") ||
 								/^[a-zA-Z]:/.test(rawName)
 							) {
 								return {
 									content: [
 										{
 											type: "text" as const,
-											text: "Invalid filename: must not contain path separators, '..', or drive letters.",
+											text: "Invalid filename: must not contain path separators or drive letters.",
 										},
 									],
 									isError: true,
