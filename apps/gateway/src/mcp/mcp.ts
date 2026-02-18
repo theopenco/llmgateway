@@ -653,6 +653,34 @@ function createMcpServer(apiKey: string): McpServer {
 				const resolvedUploadDir = uploadDir
 					? path.resolve(uploadDir)
 					: undefined;
+
+				let parsedFilename:
+					| { baseName: string; fileExt: string | undefined }
+					| undefined;
+				if (resolvedUploadDir && input.filename) {
+					const rawName = input.filename;
+					if (
+						rawName.includes("/") ||
+						rawName.includes("\\") ||
+						/^[a-zA-Z]:/.test(rawName)
+					) {
+						return {
+							content: [
+								{
+									type: "text" as const,
+									text: "Invalid filename: must not contain path separators or drive letters.",
+								},
+							],
+							isError: true,
+						};
+					}
+					const parsed = path.parse(rawName);
+					parsedFilename = {
+						baseName: parsed.name,
+						fileExt: parsed.ext || undefined,
+					};
+				}
+
 				if (resolvedUploadDir) {
 					await fs.mkdir(resolvedUploadDir, { recursive: true });
 				}
@@ -684,30 +712,12 @@ function createMcpServer(apiKey: string): McpServer {
 
 					if (resolvedUploadDir) {
 						let fileName: string;
-						if (input.filename) {
-							const rawName = input.filename;
-							if (
-								rawName.includes("/") ||
-								rawName.includes("\\") ||
-								/^[a-zA-Z]:/.test(rawName)
-							) {
-								return {
-									content: [
-										{
-											type: "text" as const,
-											text: "Invalid filename: must not contain path separators or drive letters.",
-										},
-									],
-									isError: true,
-								};
-							}
-							const parsed = path.parse(rawName);
-							const baseName = parsed.name;
-							const fileExt = parsed.ext || ext;
+						if (parsedFilename) {
+							const fileExt = parsedFilename.fileExt || ext;
 							fileName =
 								images.length > 1
-									? `${baseName}-${i + 1}${fileExt}`
-									: `${baseName}${fileExt}`;
+									? `${parsedFilename.baseName}-${i + 1}${fileExt}`
+									: `${parsedFilename.baseName}${fileExt}`;
 						} else {
 							const timestamp = Date.now();
 							fileName =
