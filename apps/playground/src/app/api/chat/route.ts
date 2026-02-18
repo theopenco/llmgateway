@@ -672,24 +672,26 @@ export async function POST(req: Request) {
 						timer = setTimeout(() => resolve("ping"), KEEPALIVE_INTERVAL_MS);
 					});
 
-					const winner = await Promise.race([next, ping]);
+					try {
+						const winner = await Promise.race([next, ping]);
 
-					clearTimeout(timer);
+						if (winner === "ping") {
+							controller.enqueue(encoder.encode(": ping\n\n"));
+							continue;
+						}
 
-					if (winner === "ping") {
-						controller.enqueue(encoder.encode(": ping\n\n"));
-						continue;
-					}
+						// Data from upstream
+						const result = winner as ReadableStreamReadResult<string>;
+						if (result.done) {
+							controller.close();
+							return;
+						}
 
-					// Data from upstream
-					const result = winner as ReadableStreamReadResult<string>;
-					if (result.done) {
-						controller.close();
+						controller.enqueue(encoder.encode(result.value));
 						return;
+					} finally {
+						clearTimeout(timer);
 					}
-
-					controller.enqueue(encoder.encode(result.value));
-					return;
 				}
 			},
 			cancel() {
