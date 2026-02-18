@@ -649,49 +649,65 @@ export async function POST(req: Request) {
 
 		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
 		// timeouts on long-running requests (e.g. tool calls, reasoning).
+		// Uses a ReadableStream that races upstream reads against a ping timer
+		// to guarantee pings are written to the response even when the upstream
+		// is idle (e.g. waiting for first token, tool execution).
 		const KEEPALIVE_INTERVAL_MS = 15_000;
-		let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+		const encoder = new TextEncoder();
+		const reader = sseStream.getReader();
 
-		const clearKeepalive = () => {
-			if (keepaliveInterval) {
-				clearInterval(keepaliveInterval);
-				keepaliveInterval = null;
-			}
-		};
+		const streamWithKeepalive = new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				// Start a single read from the upstream. We keep the same promise
+				// across ping iterations so we never call reader.read() twice
+				// concurrently (which is not allowed by the Streams spec).
+				const next = reader.read();
 
-		const keepaliveStream = new TransformStream<string, string>({
-			start(controller) {
-				keepaliveInterval = setInterval(() => {
+				// Race the upstream chunk against successive keepalive timers.
+				// If the timer wins, enqueue a ping and race again with the
+				// same upstream promise.
+				while (true) {
+					let timer: ReturnType<typeof setTimeout> | undefined;
+					const ping = new Promise<"ping">((resolve) => {
+						timer = setTimeout(() => resolve("ping"), KEEPALIVE_INTERVAL_MS);
+					});
+
 					try {
-						controller.enqueue(": ping\n\n");
-					} catch {
-						// Stream closed
-						clearKeepalive();
+						const winner = await Promise.race([next, ping]);
+
+						if (winner === "ping") {
+							controller.enqueue(encoder.encode(": ping\n\n"));
+							continue;
+						}
+
+						// Data from upstream
+						const result = winner as ReadableStreamReadResult<string>;
+						if (result.done) {
+							controller.close();
+							return;
+						}
+
+						controller.enqueue(encoder.encode(result.value));
+						return;
+					} finally {
+						clearTimeout(timer);
 					}
-				}, KEEPALIVE_INTERVAL_MS);
+				}
 			},
-			transform(chunk, controller) {
-				controller.enqueue(chunk);
-			},
-			flush() {
-				clearKeepalive();
+			cancel() {
+				reader.cancel();
 			},
 		});
 
-		const streamWithKeepalive = sseStream.pipeThrough(keepaliveStream);
-
-		return new Response(
-			streamWithKeepalive.pipeThrough(new TextEncoderStream()),
-			{
-				headers: {
-					"content-type": "text/event-stream",
-					"cache-control": "no-cache",
-					connection: "keep-alive",
-					"x-vercel-ai-ui-message-stream": "v1",
-					"x-accel-buffering": "no",
-				},
+		return new Response(streamWithKeepalive, {
+			headers: {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive",
+				"x-vercel-ai-ui-message-stream": "v1",
+				"x-accel-buffering": "no",
 			},
-		);
+		});
 	} catch (error: unknown) {
 		// Clean up MCP clients on error
 		for (const { client } of mcpClients) {
