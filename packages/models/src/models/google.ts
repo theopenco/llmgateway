@@ -323,6 +323,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				modelName: "gemini-2.5-flash-preview-09-2025",
+				deactivatedAt: new Date("2026-01-17"),
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
 				cachedInputPrice: 0.03 / 1e6,
