@@ -642,6 +642,21 @@ function createMcpServer(apiKey: string): McpServer {
 
 				const savedPaths: string[] = [];
 
+				const extMap: Record<string, string> = {
+					"image/png": ".png",
+					"image/jpeg": ".jpeg",
+					"image/jpg": ".jpg",
+					"image/webp": ".webp",
+					"image/gif": ".gif",
+				};
+
+				const resolvedUploadDir = uploadDir
+					? path.resolve(uploadDir)
+					: undefined;
+				if (resolvedUploadDir) {
+					await fs.mkdir(resolvedUploadDir, { recursive: true });
+				}
+
 				for (let i = 0; i < images.length; i++) {
 					const image = images[i];
 					if (image.type !== "image_url" || !image.image_url?.url) {
@@ -665,16 +680,9 @@ function createMcpServer(apiKey: string): McpServer {
 					const mimeType = matches[1];
 					const base64Data = matches[2];
 
-					const extMap: Record<string, string> = {
-						"image/png": ".png",
-						"image/jpeg": ".jpeg",
-						"image/jpg": ".jpg",
-						"image/webp": ".webp",
-						"image/gif": ".gif",
-					};
 					const ext = extMap[mimeType] || ".png";
 
-					if (uploadDir) {
+					if (resolvedUploadDir) {
 						let fileName: string;
 						if (input.filename) {
 							const rawName = input.filename;
@@ -694,10 +702,13 @@ function createMcpServer(apiKey: string): McpServer {
 									isError: true,
 								};
 							}
+							const parsed = path.parse(rawName);
+							const baseName = parsed.name;
+							const fileExt = parsed.ext || ext;
 							fileName =
 								images.length > 1
-									? `${path.parse(rawName).name}-${i + 1}${ext}`
-									: rawName;
+									? `${baseName}-${i + 1}${fileExt}`
+									: `${baseName}${fileExt}`;
 						} else {
 							const timestamp = Date.now();
 							fileName =
@@ -706,7 +717,6 @@ function createMcpServer(apiKey: string): McpServer {
 									: `nano-banana-${timestamp}${ext}`;
 						}
 
-						const resolvedUploadDir = path.resolve(uploadDir);
 						const filePath = path.join(resolvedUploadDir, fileName);
 
 						if (
@@ -724,7 +734,6 @@ function createMcpServer(apiKey: string): McpServer {
 							};
 						}
 
-						await fs.mkdir(resolvedUploadDir, { recursive: true });
 						await fs.writeFile(filePath, Buffer.from(base64Data, "base64"));
 						savedPaths.push(filePath);
 					}
