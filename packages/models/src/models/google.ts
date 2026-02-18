@@ -613,6 +613,33 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-3-flash-preview-free",
+		name: "Gemini 3 Flash (Preview) Free",
+		description:
+			"Free tier of Gemini 3 Flash preview, built for speed with frontier intelligence.",
+		family: "google",
+		free: true,
+		releasedAt: new Date("2025-12-17"),
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				modelName: "gemini-3-flash-preview",
+				inputPrice: 0,
+				outputPrice: 0,
+				requestPrice: 0,
+				contextSize: 1048576,
+				maxOutput: 65535,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "gemini-2.5-flash-image-preview",
 		name: "Gemini 2.5 Flash Image (Preview)",
 		description: "Gemini Flash with native image generation capabilities.",
