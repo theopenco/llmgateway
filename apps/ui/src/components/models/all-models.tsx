@@ -194,7 +194,7 @@ const ModelTableRow = React.memo(
 		isExpanded: boolean;
 		copiedModel: string | null;
 		onToggleExpand: () => void;
-		onCopy: (text: string, e: React.MouseEvent) => void;
+		onCopy: (text: string, key: string, e: React.MouseEvent) => void;
 		onNavigate: () => void;
 		formatPrice: (
 			price: string | null | undefined,
@@ -261,13 +261,11 @@ const ModelTableRow = React.memo(
 								{row.model.id}
 							</Link>
 							<button
-								onClick={(e) => onCopy(row.model.id, e)}
+								onClick={(e) => onCopy(row.model.id, row.rowKey, e)}
 								className="p-1 hover:bg-muted rounded transition-colors"
-								title={
-									copiedModel === row.model.id ? "Copied!" : "Copy model ID"
-								}
+								title={copiedModel === row.rowKey ? "Copied!" : "Copy model ID"}
 							>
-								{copiedModel === row.model.id ? (
+								{copiedModel === row.rowKey ? (
 									<Check className="h-3 w-3 text-green-500" />
 								) : (
 									<Copy className="h-3 w-3 text-muted-foreground" />
@@ -965,11 +963,11 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 	}, []);
 
 	const copyToClipboard = useCallback(
-		async (text: string, e: React.MouseEvent) => {
+		async (text: string, key: string, e: React.MouseEvent) => {
 			e.stopPropagation();
 			try {
 				await navigator.clipboard.writeText(text);
-				setCopiedModel(text);
+				setCopiedModel(key);
 				setTimeout(() => setCopiedModel(null), 2000);
 			} catch (err) {
 				console.error("Failed to copy text:", err);

@@ -62,6 +62,9 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [open, setOpen] = useState(false);
+	const [pendingRange, setPendingRange] = useState<DateRange | undefined>(
+		undefined,
+	);
 
 	const { from, to } = getDateRangeFromParams(searchParams);
 	const activeTab = getActiveTab(from, to);
@@ -86,11 +89,28 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 	};
 
 	const handleCalendarSelect = (range: DateRange | undefined) => {
-		if (range?.from && range?.to) {
+		if (!range) {
+			setPendingRange(undefined);
+			return;
+		}
+
+		if (range.from && range.to) {
 			updateDateRange(range.from, range.to);
+			setPendingRange(undefined);
 			setOpen(false);
+		} else {
+			setPendingRange(range);
 		}
 	};
+
+	const handleOpenChange = (isOpen: boolean) => {
+		setOpen(isOpen);
+		if (isOpen) {
+			setPendingRange(undefined);
+		}
+	};
+
+	const calendarSelection = pendingRange ?? { from, to };
 
 	return (
 		<div className="flex items-center gap-2">
@@ -98,7 +118,7 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 				<TabsList>
 					<TabsTrigger value="7days">7 days</TabsTrigger>
 					<TabsTrigger value="30days">30 days</TabsTrigger>
-					<Popover open={open} onOpenChange={setOpen}>
+					<Popover open={open} onOpenChange={handleOpenChange}>
 						<PopoverTrigger asChild>
 							<TabsTrigger value="custom" className={cn("gap-1.5")}>
 								<CalendarIcon className="h-3.5 w-3.5" />
@@ -113,7 +133,7 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 								defaultMonth={
 									new Date(new Date().getFullYear(), new Date().getMonth() - 1)
 								}
-								selected={{ from, to }}
+								selected={calendarSelection}
 								onSelect={handleCalendarSelect}
 								numberOfMonths={2}
 								disabled={{ after: new Date() }}

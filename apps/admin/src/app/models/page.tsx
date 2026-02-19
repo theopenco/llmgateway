@@ -19,19 +19,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getOrganizations } from "@/lib/admin-organizations";
+import { getModels } from "@/lib/admin-models";
 import { cn } from "@/lib/utils";
 
-type SortBy =
-	| "name"
-	| "billingEmail"
-	| "plan"
-	| "devPlan"
-	| "credits"
-	| "createdAt"
-	| "status"
-	| "totalCreditsAllTime"
-	| "totalSpent";
+import type { ModelSortBy } from "@/lib/admin-models";
+
 type SortOrder = "asc" | "desc";
 
 function SortableHeader({
@@ -42,8 +34,8 @@ function SortableHeader({
 	search,
 }: {
 	label: string;
-	sortKey: SortBy;
-	currentSortBy: SortBy;
+	sortKey: ModelSortBy;
+	currentSortBy: ModelSortBy;
 	currentSortOrder: SortOrder;
 	search: string;
 }) {
@@ -51,7 +43,7 @@ function SortableHeader({
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-	const href = `/organizations?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}`;
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}`;
 
 	return (
 		<Link
@@ -75,42 +67,18 @@ function SortableHeader({
 	);
 }
 
-const currencyFormatter = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 2,
-});
+function formatNumber(n: number) {
+	return new Intl.NumberFormat("en-US").format(n);
+}
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
 		year: "numeric",
 		month: "short",
 		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
 	});
-}
-
-function getPlanBadgeVariant(plan: string) {
-	switch (plan) {
-		case "enterprise":
-			return "default";
-		case "pro":
-			return "secondary";
-		default:
-			return "outline";
-	}
-}
-
-function getDevPlanBadgeVariant(devPlan: string) {
-	switch (devPlan) {
-		case "max":
-			return "default";
-		case "pro":
-			return "secondary";
-		case "lite":
-			return "outline";
-		default:
-			return "outline";
-	}
 }
 
 function SignInPrompt() {
@@ -133,7 +101,7 @@ function SignInPrompt() {
 	);
 }
 
-export default async function OrganizationsPage({
+export default async function ModelsPage({
 	searchParams,
 }: {
 	searchParams?: Promise<{
@@ -146,12 +114,12 @@ export default async function OrganizationsPage({
 	const params = await searchParams;
 	const page = Math.max(1, parseInt(params?.page || "1", 10));
 	const search = params?.search || "";
-	const sortBy = (params?.sortBy as SortBy) || "createdAt";
+	const sortBy = (params?.sortBy as ModelSortBy) || "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
-	const limit = 25;
+	const limit = 50;
 	const offset = (page - 1) * limit;
 
-	const data = await getOrganizations({
+	const data = await getModels({
 		limit,
 		offset,
 		search,
@@ -174,19 +142,16 @@ export default async function OrganizationsPage({
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
-		redirect(`/organizations?page=1${searchParam}${sortParam}`);
+		redirect(`/models?page=1${searchParam}${sortParam}`);
 	}
 
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
 				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Organizations
-					</h1>
+					<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} organizations found • Total credits:{" "}
-						{currencyFormatter.format(parseFloat(data.totalCredits))}
+						{data.total} models found
 					</p>
 				</div>
 				<form action={handleSearch} className="flex items-center gap-2">
@@ -197,7 +162,7 @@ export default async function OrganizationsPage({
 						<input
 							type="text"
 							name="search"
-							placeholder="Search by name, email, or ID..."
+							placeholder="Search by name or ID..."
 							defaultValue={search}
 							className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 						/>
@@ -214,7 +179,7 @@ export default async function OrganizationsPage({
 						<TableRow>
 							<TableHead>
 								<SortableHeader
-									label="Organization"
+									label="Model"
 									sortKey="name"
 									currentSortBy={sortBy}
 									currentSortOrder={sortOrder}
@@ -223,8 +188,19 @@ export default async function OrganizationsPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
-									label="Email"
-									sortKey="billingEmail"
+									label="Family"
+									sortKey="family"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									search={search}
+								/>
+							</TableHead>
+							<TableHead>Status</TableHead>
+							<TableHead>Free</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Providers"
+									sortKey="providerCount"
 									currentSortBy={sortBy}
 									currentSortOrder={sortOrder}
 									search={search}
@@ -232,8 +208,8 @@ export default async function OrganizationsPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
-									label="Plan"
-									sortKey="plan"
+									label="Requests"
+									sortKey="logsCount"
 									currentSortBy={sortBy}
 									currentSortOrder={sortOrder}
 									search={search}
@@ -241,8 +217,18 @@ export default async function OrganizationsPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
-									label="Dev Plan"
-									sortKey="devPlan"
+									label="Errors"
+									sortKey="errorsCount"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									search={search}
+								/>
+							</TableHead>
+							<TableHead>Error Rate</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Cached"
+									sortKey="cachedCount"
 									currentSortBy={sortBy}
 									currentSortOrder={sortOrder}
 									search={search}
@@ -250,117 +236,88 @@ export default async function OrganizationsPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
-									label="Credits"
-									sortKey="credits"
+									label="Avg TTFT"
+									sortKey="avgTimeToFirstToken"
 									currentSortBy={sortBy}
 									currentSortOrder={sortOrder}
 									search={search}
 								/>
 							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="All Time Credits"
-									sortKey="totalCreditsAllTime"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Total Spent"
-									sortKey="totalSpent"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Created"
-									sortKey="createdAt"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Status"
-									sortKey="status"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
+							<TableHead>Last Updated</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{data.organizations.length === 0 ? (
+						{data.models.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={9}
+									colSpan={11}
 									className="h-24 text-center text-muted-foreground"
 								>
-									No organizations found
+									No models found
 								</TableCell>
 							</TableRow>
 						) : (
-							data.organizations.map((org) => (
-								<TableRow key={org.id}>
-									<TableCell>
-										<Link
-											href={`/organizations/${org.id}`}
-											className="font-medium text-foreground hover:underline"
-										>
-											{org.name}
-										</Link>
-										<p className="text-xs text-muted-foreground">{org.id}</p>
-									</TableCell>
-									<TableCell className="text-muted-foreground">
-										{org.billingEmail}
-									</TableCell>
-									<TableCell>
-										<Badge variant={getPlanBadgeVariant(org.plan)}>
-											{org.plan}
-										</Badge>
-									</TableCell>
-									<TableCell>
-										{org.devPlan !== "none" ? (
-											<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
-												{org.devPlan}
+							data.models.map((m) => {
+								const errorRate =
+									m.logsCount > 0
+										? ((m.errorsCount / m.logsCount) * 100).toFixed(1)
+										: "0.0";
+
+								return (
+									<TableRow key={m.id}>
+										<TableCell>
+											<span className="font-medium">
+												{m.name !== m.id ? m.name : m.id}
+											</span>
+											{m.name !== m.id && (
+												<p className="text-xs text-muted-foreground">{m.id}</p>
+											)}
+										</TableCell>
+										<TableCell>
+											<Badge variant="outline">{m.family}</Badge>
+										</TableCell>
+										<TableCell>
+											<Badge
+												variant={
+													m.status === "active" ? "secondary" : "outline"
+												}
+											>
+												{m.status}
 											</Badge>
-										) : (
-											<span className="text-muted-foreground">—</span>
-										)}
-									</TableCell>
-									<TableCell className="tabular-nums">
-										{currencyFormatter.format(parseFloat(org.credits))}
-									</TableCell>
-									<TableCell className="tabular-nums text-muted-foreground">
-										{currencyFormatter.format(
-											parseFloat(org.totalCreditsAllTime ?? "0"),
-										)}
-									</TableCell>
-									<TableCell className="tabular-nums text-muted-foreground">
-										{currencyFormatter.format(
-											parseFloat(org.totalSpent ?? "0"),
-										)}
-									</TableCell>
-									<TableCell className="text-muted-foreground">
-										{formatDate(org.createdAt)}
-									</TableCell>
-									<TableCell>
-										<Badge
-											variant={
-												org.status === "active" ? "secondary" : "outline"
-											}
-										>
-											{org.status || "active"}
-										</Badge>
-									</TableCell>
-								</TableRow>
-							))
+										</TableCell>
+										<TableCell>
+											{m.free ? (
+												<Badge variant="default">Free</Badge>
+											) : (
+												<span className="text-muted-foreground">
+													{"\u2014"}
+												</span>
+											)}
+										</TableCell>
+										<TableCell className="tabular-nums">
+											{m.providerCount}
+										</TableCell>
+										<TableCell className="tabular-nums">
+											{formatNumber(m.logsCount)}
+										</TableCell>
+										<TableCell className="tabular-nums">
+											{formatNumber(m.errorsCount)}
+										</TableCell>
+										<TableCell className="tabular-nums">{errorRate}%</TableCell>
+										<TableCell className="tabular-nums">
+											{formatNumber(m.cachedCount)}
+										</TableCell>
+										<TableCell className="tabular-nums">
+											{m.avgTimeToFirstToken !== null
+												? `${Math.round(m.avgTimeToFirstToken)}ms`
+												: "\u2014"}
+										</TableCell>
+										<TableCell className="text-muted-foreground">
+											{formatDate(m.updatedAt)}
+										</TableCell>
+									</TableRow>
+								);
+							})
 						)}
 					</TableBody>
 				</Table>
@@ -375,7 +332,7 @@ export default async function OrganizationsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/organizations?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
+								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -392,7 +349,7 @@ export default async function OrganizationsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/organizations?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
+								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

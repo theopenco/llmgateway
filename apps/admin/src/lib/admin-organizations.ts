@@ -12,6 +12,7 @@ export interface Organization {
 	devPlan: string;
 	credits: string;
 	totalCreditsAllTime?: string;
+	totalSpent?: string;
 	createdAt: string;
 	status: string | null;
 }
@@ -126,7 +127,8 @@ export type SortBy =
 	| "credits"
 	| "createdAt"
 	| "status"
-	| "totalCreditsAllTime";
+	| "totalCreditsAllTime"
+	| "totalSpent";
 export type SortOrder = "asc" | "desc";
 
 export async function getOrganizations(params?: {

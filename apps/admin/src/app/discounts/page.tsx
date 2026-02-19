@@ -109,7 +109,7 @@ export default async function GlobalDiscountsPage() {
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
+		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
 				<div className="space-y-1">
 					<div className="flex items-center gap-3">
@@ -135,7 +135,7 @@ export default async function GlobalDiscountsPage() {
 				)}
 			</header>
 
-			<div className="rounded-lg border border-border/60 bg-card">
+			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
 					<TableHeader>
 						<TableRow>

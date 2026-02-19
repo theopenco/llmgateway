@@ -8,6 +8,9 @@ export interface AdminDashboardMetrics {
 	payingCustomers: number;
 	totalRevenue: number;
 	totalOrganizations: number;
+	totalToppedUp: number;
+	totalSpent: number;
+	unusedCredits: number;
 }
 
 export type TimeseriesRange = "7d" | "30d" | "90d" | "365d" | "all";

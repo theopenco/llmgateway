@@ -1,3 +1,4 @@
+import { AdminDashboardEnterprise } from "@/components/enterprise/admin-dashboard";
 import { ContactFormEnterprise } from "@/components/enterprise/contact";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
@@ -14,6 +15,7 @@ export default function EnterprisePage() {
 			<HeroRSC navbarOnly />
 			<HeroEnterprise />
 			<FeaturesEnterprise />
+			<AdminDashboardEnterprise />
 			{/* <SecurityEnterprise /> */}
 			<Testimonials />
 			<PricingEnterprise />

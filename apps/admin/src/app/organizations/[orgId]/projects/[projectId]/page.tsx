@@ -57,7 +57,7 @@ export default async function ProjectDetailPage({
 	}
 
 	return (
-		<div className="container mx-auto max-w-6xl space-y-6 px-4 py-8">
+		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="space-y-4">
 				<Button variant="ghost" size="sm" asChild>
 					<Link href={`/organizations/${orgId}`}>
