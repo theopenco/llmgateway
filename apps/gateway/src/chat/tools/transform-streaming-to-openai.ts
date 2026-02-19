@@ -1137,7 +1137,24 @@ export function transformStreamingToOpenai(
 
 		case "mistral":
 		case "novita":
-		case "zai": {
+		case "zai":
+		case "groq":
+		case "cerebras":
+		case "xai":
+		case "deepseek":
+		case "alibaba":
+		case "moonshot":
+		case "perplexity":
+		case "nebius":
+		case "canopywave":
+		case "inference.net":
+		case "together.ai":
+		case "custom":
+		case "cloudrift":
+		case "nanogpt":
+		case "bytedance":
+		case "minimax":
+		case "llmgateway": {
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(data, usedModel);
 
