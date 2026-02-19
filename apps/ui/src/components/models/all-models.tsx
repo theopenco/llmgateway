@@ -512,7 +512,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			if (filters.category && filters.category !== "all") {
 				switch (filters.category) {
 					case "code": {
-						// Code generation: needs tools, JSON output, streaming
+						// Code generation: needs tools, JSON output, streaming, and cached input pricing
 						if (model.free) {
 							return false;
 						}
@@ -526,7 +526,8 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 							(p) =>
 								(p.provider.jsonOutput || p.provider.jsonOutputSchema) &&
 								p.provider.tools &&
-								p.provider.streaming,
+								p.provider.streaming &&
+								p.provider.cachedInputPrice !== null,
 						);
 						if (!hasCodeCapabilities) {
 							return false;
@@ -534,9 +535,10 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 						break;
 					}
 					case "chat": {
-						// Chat & Assistants: general chat models with streaming
+						// Chat & Assistants: general chat models with streaming and cached input pricing
 						const hasStreaming = model.providerDetails.some(
-							(p) => p.provider.streaming,
+							(p) =>
+								p.provider.streaming && p.provider.cachedInputPrice !== null,
 						);
 						if (!hasStreaming) {
 							return false;
