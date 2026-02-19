@@ -261,6 +261,7 @@ export const providers = [
 			optional: {
 				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
 				apiVersion: "LLM_AZURE_API_VERSION",
+				useResponsesApi: "LLM_AZURE_USE_RESPONSES_API",
 			},
 		},
 		streaming: true,
@@ -396,21 +397,6 @@ export const providers = [
 		cancellation: true,
 		color: "#ff6b35",
 		website: "https://together.ai",
-		announcement: null,
-	},
-	{
-		id: "routeway",
-		name: "RouteWay",
-		description: "RouteWay's OpenAI-compatible large language models",
-		env: {
-			required: {
-				apiKey: "LLM_ROUTEWAY_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4f46e5",
-		website: "https://routeway.ai",
 		announcement: null,
 	},
 	{

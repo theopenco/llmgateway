@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
 	outputFileTracingRoot: join(__dirname, "../../"),
 	distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
 	output: "standalone",
-	productionBrowserSourceMaps: true,
+	productionBrowserSourceMaps: false,
 	typedRoutes: true,
 	reactStrictMode: true,
 	reactCompiler: true,

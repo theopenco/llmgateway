@@ -1,3 +1,4 @@
+import type { RoutingAttempt } from "./retry-with-fallback.js";
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
@@ -7,6 +8,8 @@ export interface CostData {
 	cachedInputCost: number | null;
 	requestCost: number | null;
 	webSearchCost: number | null;
+	imageInputCost: number | null;
+	imageOutputCost: number | null;
 	totalCost: number | null;
 }
 
@@ -45,6 +48,8 @@ function buildUsageObject(
 			cost_usd_cached_input: costs.cachedInputCost,
 			cost_usd_request: costs.requestCost,
 			cost_usd_web_search: costs.webSearchCost,
+			cost_usd_image_input: costs.imageInputCost,
+			cost_usd_image_output: costs.imageOutputCost,
 		}),
 		...(showUpgradeMessage && {
 			info: "upgrade to pro to include usd cost breakdown",
@@ -75,6 +80,7 @@ export function transformResponseToOpenai(
 	costs: CostData | null = null,
 	showUpgradeMessage = false,
 	annotations: Annotation[] | null = null,
+	routing: RoutingAttempt[] | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -139,6 +145,7 @@ export function transformResponseToOpenai(
 					used_model: baseModelName,
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
+					...(routing && { routing }),
 				},
 			};
 			break;
@@ -186,6 +193,7 @@ export function transformResponseToOpenai(
 					used_model: baseModelName,
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
+					...(routing && { routing }),
 				},
 			};
 			break;
@@ -227,6 +235,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					},
 				};
 			} else {
@@ -256,6 +265,7 @@ export function transformResponseToOpenai(
 					used_model: baseModelName,
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
+					...(routing && { routing }),
 				};
 				if (transformedResponse.usage) {
 					if (costs !== null) {
@@ -266,6 +276,8 @@ export function transformResponseToOpenai(
 							cost_usd_output: costs.outputCost,
 							cost_usd_cached_input: costs.cachedInputCost,
 							cost_usd_request: costs.requestCost,
+							cost_usd_image_input: costs.imageInputCost,
+							cost_usd_image_output: costs.imageOutputCost,
 						};
 					}
 					if (showUpgradeMessage) {
@@ -314,6 +326,7 @@ export function transformResponseToOpenai(
 					used_model: baseModelName,
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
+					...(routing && { routing }),
 				},
 			};
 			break;
@@ -353,6 +366,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					},
 				};
 			} else {
@@ -378,6 +392,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					};
 					if (transformedResponse.usage) {
 						if (costs !== null) {
@@ -388,6 +403,8 @@ export function transformResponseToOpenai(
 								cost_usd_output: costs.outputCost,
 								cost_usd_cached_input: costs.cachedInputCost,
 								cost_usd_request: costs.requestCost,
+								cost_usd_image_input: costs.imageInputCost,
+								cost_usd_image_output: costs.imageOutputCost,
 							};
 						}
 						if (showUpgradeMessage) {
@@ -401,6 +418,7 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+		case "azure":
 		case "mistral":
 		case "novita":
 		case "openai": {
@@ -442,6 +460,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					},
 				};
 			} else {
@@ -476,6 +495,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					};
 					if (transformedResponse.usage) {
 						if (costs !== null) {
@@ -486,6 +506,8 @@ export function transformResponseToOpenai(
 								cost_usd_output: costs.outputCost,
 								cost_usd_cached_input: costs.cachedInputCost,
 								cost_usd_request: costs.requestCost,
+								cost_usd_image_input: costs.imageInputCost,
+								cost_usd_image_output: costs.imageOutputCost,
 							};
 						}
 						if (showUpgradeMessage) {
@@ -534,6 +556,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					},
 				};
 			} else {
@@ -559,6 +582,7 @@ export function transformResponseToOpenai(
 						used_model: baseModelName,
 						used_provider: usedProvider,
 						underlying_used_model: usedModel,
+						...(routing && { routing }),
 					};
 					if (transformedResponse.usage) {
 						if (costs !== null) {
@@ -569,6 +593,8 @@ export function transformResponseToOpenai(
 								cost_usd_output: costs.outputCost,
 								cost_usd_cached_input: costs.cachedInputCost,
 								cost_usd_request: costs.requestCost,
+								cost_usd_image_input: costs.imageInputCost,
+								cost_usd_image_output: costs.imageOutputCost,
 							};
 						}
 						if (showUpgradeMessage) {
@@ -609,6 +635,7 @@ export function transformResponseToOpenai(
 					used_model: baseModelName,
 					used_provider: usedProvider,
 					underlying_used_model: usedModel,
+					...(routing && { routing }),
 				};
 				if (transformedResponse.usage) {
 					if (costs !== null) {
@@ -619,6 +646,8 @@ export function transformResponseToOpenai(
 							cost_usd_output: costs.outputCost,
 							cost_usd_cached_input: costs.cachedInputCost,
 							cost_usd_request: costs.requestCost,
+							cost_usd_image_input: costs.imageInputCost,
+							cost_usd_image_output: costs.imageOutputCost,
 						};
 					}
 					if (showUpgradeMessage) {

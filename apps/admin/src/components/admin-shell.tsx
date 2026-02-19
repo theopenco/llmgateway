@@ -1,7 +1,15 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, LayoutDashboard, LogOut, Menu } from "lucide-react";
+import {
+	Building2,
+	Cpu,
+	LayoutDashboard,
+	LogOut,
+	Menu,
+	Percent,
+	Server,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -70,6 +78,9 @@ export function AdminShell({ children }: AdminShellProps) {
 
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
+	const isDiscounts = pathname === "/discounts";
+	const isProviders = pathname === "/providers";
+	const isModels = pathname === "/models";
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -120,6 +131,30 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isOrganizations} size="lg">
 										<Building2 className="h-4 w-4" />
 										<span>Organizations</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/discounts" className="block">
+									<SidebarMenuButton isActive={isDiscounts} size="lg">
+										<Percent className="h-4 w-4" />
+										<span>Global Discounts</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/providers" className="block">
+									<SidebarMenuButton isActive={isProviders} size="lg">
+										<Server className="h-4 w-4" />
+										<span>Providers</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/models" className="block">
+									<SidebarMenuButton isActive={isModels} size="lg">
+										<Cpu className="h-4 w-4" />
+										<span>Models</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

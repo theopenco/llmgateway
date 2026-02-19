@@ -30,6 +30,7 @@ import {
 	Brain,
 	Sparkles,
 	PenTool,
+	Sliders,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -140,6 +141,13 @@ function computeCapabilities(
 			color: "text-orange-500",
 		});
 	}
+	if (provider.reasoningMaxTokens) {
+		capabilities.push({
+			icon: Sliders,
+			label: "Reasoning Budget",
+			color: "text-amber-500",
+		});
+	}
 	if (provider.jsonOutput) {
 		capabilities.push({
 			icon: Braces,
@@ -186,7 +194,7 @@ const ModelTableRow = React.memo(
 		isExpanded: boolean;
 		copiedModel: string | null;
 		onToggleExpand: () => void;
-		onCopy: (text: string, e: React.MouseEvent) => void;
+		onCopy: (text: string, key: string, e: React.MouseEvent) => void;
 		onNavigate: () => void;
 		formatPrice: (
 			price: string | null | undefined,
@@ -253,13 +261,11 @@ const ModelTableRow = React.memo(
 								{row.model.id}
 							</Link>
 							<button
-								onClick={(e) => onCopy(row.model.id, e)}
+								onClick={(e) => onCopy(row.model.id, row.rowKey, e)}
 								className="p-1 hover:bg-muted rounded transition-colors"
-								title={
-									copiedModel === row.model.id ? "Copied!" : "Copy model ID"
-								}
+								title={copiedModel === row.rowKey ? "Copied!" : "Copy model ID"}
 							>
-								{copiedModel === row.model.id ? (
+								{copiedModel === row.rowKey ? (
 									<Check className="h-3 w-3 text-green-500" />
 								) : (
 									<Copy className="h-3 w-3 text-muted-foreground" />
@@ -379,6 +385,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
 			reasoning: searchParams.get("reasoning") === "true",
+			reasoningBudget: searchParams.get("reasoningBudget") === "true",
 			jsonOutput: searchParams.get("jsonOutput") === "true",
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
@@ -505,7 +512,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			if (filters.category && filters.category !== "all") {
 				switch (filters.category) {
 					case "code": {
-						// Code generation: needs tools, JSON output, streaming
+						// Code generation: needs tools, JSON output, streaming, and cached input pricing
 						if (model.free) {
 							return false;
 						}
@@ -519,7 +526,8 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 							(p) =>
 								(p.provider.jsonOutput || p.provider.jsonOutputSchema) &&
 								p.provider.tools &&
-								p.provider.streaming,
+								p.provider.streaming &&
+								p.provider.cachedInputPrice !== null,
 						);
 						if (!hasCodeCapabilities) {
 							return false;
@@ -527,9 +535,10 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 						break;
 					}
 					case "chat": {
-						// Chat & Assistants: general chat models with streaming
+						// Chat & Assistants: general chat models with streaming and cached input pricing
 						const hasStreaming = model.providerDetails.some(
-							(p) => p.provider.streaming,
+							(p) =>
+								p.provider.streaming && p.provider.cachedInputPrice !== null,
 						);
 						if (!hasStreaming) {
 							return false;
@@ -601,6 +610,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			if (
 				filters.capabilities.reasoning &&
 				!model.providerDetails.some((p) => p.provider.reasoning)
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.reasoningBudget &&
+				!model.providerDetails.some((p) => p.provider.reasoningMaxTokens)
 			) {
 				return false;
 			}
@@ -950,11 +965,11 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 	}, []);
 
 	const copyToClipboard = useCallback(
-		async (text: string, e: React.MouseEvent) => {
+		async (text: string, key: string, e: React.MouseEvent) => {
 			e.stopPropagation();
 			try {
 				await navigator.clipboard.writeText(text);
-				setCopiedModel(text);
+				setCopiedModel(key);
 				setTimeout(() => setCopiedModel(null), 2000);
 			} catch (err) {
 				console.error("Failed to copy text:", err);
@@ -1009,7 +1024,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		if (discountNum > 0) {
 			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
 			return (
-				<div className="flex flex-col justify-items-center">
+				<div className="flex flex-col items-end">
 					<div className="flex items-center gap-1">
 						<span className="line-through text-muted-foreground text-xs">
 							${originalPrice}
@@ -1057,6 +1072,13 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				color: "text-orange-500",
 			});
 		}
+		if (provider.reasoningMaxTokens) {
+			capabilities.push({
+				icon: Sliders,
+				label: "Reasoning Budget",
+				color: "text-amber-500",
+			});
+		}
 		if (provider.jsonOutput) {
 			capabilities.push({
 				icon: Braces,
@@ -1097,6 +1119,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				vision: false,
 				tools: false,
 				reasoning: false,
+				reasoningBudget: false,
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				imageGeneration: false,
@@ -1119,6 +1142,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			vision: undefined,
 			tools: undefined,
 			reasoning: undefined,
+			reasoningBudget: undefined,
 			jsonOutput: undefined,
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
@@ -1246,6 +1270,12 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 									label: "Reasoning",
 									icon: MessageSquare,
 									color: "text-orange-500",
+								},
+								{
+									key: "reasoningBudget",
+									label: "Reasoning Budget",
+									icon: Sliders,
+									color: "text-amber-500",
 								},
 								{
 									key: "jsonOutput",

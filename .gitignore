@@ -20,6 +20,7 @@ benchmark_results.json
 *.pdf
 *.b64
 /output.png
+/output-simple.png
 *.tsbuildinfo
 *.db
 *.csv

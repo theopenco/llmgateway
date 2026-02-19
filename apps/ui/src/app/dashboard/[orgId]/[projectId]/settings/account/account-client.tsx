@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
 import { useUser } from "@/hooks/useUser";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -17,11 +18,39 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 
+function formatProviderName(providerId: string): string {
+	switch (providerId) {
+		case "github":
+			return "GitHub";
+		case "google":
+			return "Google";
+		case "credential":
+			return "Email & Password";
+		default:
+			return providerId.charAt(0).toUpperCase() + providerId.slice(1);
+	}
+}
+
 export function AccountClient() {
 	const { user } = useUser();
 
 	const [name, setName] = useState(user?.name || "");
 	const [email, setEmail] = useState(user?.email || "");
+
+	useEffect(() => {
+		if (user) {
+			setName(user.name || "");
+			setEmail(user.email || "");
+		}
+	}, [user]);
+
+	const hasCredentialAccount = user?.accounts?.some(
+		(a) => a.providerId === "credential",
+	);
+	const emailEditable = !!hasCredentialAccount;
+
+	const socialProviders =
+		user?.accounts?.filter((a) => a.providerId !== "credential") ?? [];
 
 	const updateUserMutation = useUpdateUser();
 	const deleteAccountMutation = useDeleteAccount();
@@ -31,7 +60,7 @@ export function AccountClient() {
 			await updateUserMutation.mutateAsync({
 				body: {
 					name: name || undefined,
-					email: email || undefined,
+					email: emailEditable ? email || undefined : undefined,
 				},
 			});
 
@@ -102,7 +131,26 @@ export function AccountClient() {
 									id="email"
 									value={email}
 									onChange={(e) => setEmail(e.target.value)}
+									disabled={!emailEditable}
 								/>
+								{!emailEditable && (
+									<div className="flex items-center gap-2 flex-wrap">
+										<p className="text-muted-foreground text-sm">
+											Signed in via
+										</p>
+										{socialProviders.map((a) => (
+											<Badge key={a.providerId} variant="secondary">
+												{formatProviderName(a.providerId)}
+											</Badge>
+										))}
+										{user?.hasPasskeys && (
+											<Badge variant="secondary">Passkey</Badge>
+										)}
+										<p className="text-muted-foreground text-sm">
+											— email cannot be changed
+										</p>
+									</div>
+								)}
 							</div>
 						</CardContent>
 						<CardFooter className="flex justify-between">

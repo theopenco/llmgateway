@@ -102,7 +102,9 @@ export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
 export type LogInsertData = Omit<
 	InferInsertModel<typeof tables.log>,
 	"id" | "createdAt" | "updatedAt"
->;
+> & {
+	id?: string;
+};
 
 export type SerializedOrganization = Omit<
 	Organization,

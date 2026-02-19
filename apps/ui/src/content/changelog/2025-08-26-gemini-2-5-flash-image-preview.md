@@ -28,7 +28,7 @@ We're thrilled to announce the addition of **Gemini 2.5 Flash Image Preview** - 
 **Gemini 2.5 Flash Image Preview**
 
 ```bash
-google/gemini-2.5-flash-image-preview
+gemini-2.5-flash-image-preview
 ```
 
 - **Provider**: Google AI Studio
@@ -58,7 +58,7 @@ Check out this demo showcasing the incredible capabilities of Gemini 2.5 Flash I
 
 **Immediate Access**: The model is available right now through our unified API and playground interface.
 
-**Easy Integration**: Use the model ID `google/gemini-2.5-flash-image-preview` in your API calls to start generating images.
+**Easy Integration**: Use the model ID `google-ai-studio/gemini-2.5-flash-image-preview` in your API calls to start generating images.
 
 **Playground Ready**: Test the model instantly in our interactive playground environment.
 

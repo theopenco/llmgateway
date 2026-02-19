@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { findOrganizationById } from "@/lib/cached-queries.js";
 
 import { redisClient } from "@llmgateway/cache";
@@ -124,8 +126,10 @@ export async function checkFreeModelRateLimit(
 			return { allowed: false, retryAfter, remaining: 0, limit };
 		}
 
-		// Add current request to sliding window
-		await redisClient.zadd(key, now, now.toString());
+		// Add current request to sliding window with a unique member.
+		// Using only `now` as member can collide under same-millisecond concurrency.
+		const member = `${now}:${randomUUID()}`;
+		await redisClient.zadd(key, now, member);
 		await redisClient.expire(key, window * 2); // Set expiry to 2x window for cleanup
 
 		logger.debug(`Free model rate limit check passed`, {

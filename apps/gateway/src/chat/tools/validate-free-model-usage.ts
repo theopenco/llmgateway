@@ -15,6 +15,7 @@ export async function validateFreeModelUsage(
 	organizationId: string,
 	requestedModel: string,
 	modelInfo: ModelDefinition,
+	options?: { skipEmailVerification?: boolean },
 ) {
 	const result = await findUserFromOrganization(organizationId);
 	if (!result?.user) {
@@ -24,7 +25,7 @@ export async function validateFreeModelUsage(
 		});
 	}
 	const user = result.user;
-	if (!user.emailVerified) {
+	if (!options?.skipEmailVerification && !user.emailVerified) {
 		throw new HTTPException(403, {
 			message:
 				"Email verification required to use free models. Please verify your email address.",

@@ -1,5 +1,14 @@
 import type { ModelDefinition } from "@/models.js";
 
+const xaiSupportedParamsNoFreqPresence = [
+	"temperature",
+	"max_tokens",
+	"top_p",
+	"response_format",
+	"tools",
+	"tool_choice",
+];
+
 export const xaiModels = [
 	{
 		id: "grok-3",
@@ -43,6 +52,7 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -166,6 +176,7 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -189,6 +200,7 @@ export const xaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -227,6 +239,7 @@ export const xaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -265,6 +278,7 @@ export const xaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -288,6 +302,7 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -326,6 +341,7 @@ export const xaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -364,6 +380,7 @@ export const xaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},

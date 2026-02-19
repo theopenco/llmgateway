@@ -3,33 +3,44 @@ import { useApi } from "@/lib/fetch-client";
 export function useDefaultProject() {
 	const api = useApi();
 
-	const { data: orgsData, isError: orgsError } = api.useSuspenseQuery(
-		"get",
-		"/orgs",
-	);
+	const {
+		data: orgsData,
+		isLoading: orgsLoading,
+		isError: orgsError,
+	} = api.useQuery("get", "/orgs");
 
-	if (orgsError || !orgsData?.organizations?.length) {
-		return { data: null, isError: true };
-	}
+	const defaultOrg = orgsData?.organizations?.[0];
 
-	const defaultOrg = orgsData.organizations[0];
-
-	const { data: projectsData, isError: projectsError } = api.useSuspenseQuery(
+	const {
+		data: projectsData,
+		isLoading: projectsLoading,
+		isError: projectsError,
+	} = api.useQuery(
 		"get",
 		"/orgs/{id}/projects",
 		{
 			params: {
-				path: { id: defaultOrg.id },
+				path: { id: defaultOrg?.id ?? "" },
 			},
+		},
+		{
+			enabled: !!defaultOrg?.id,
 		},
 	);
 
-	if (projectsError || !projectsData?.projects?.length) {
-		return { data: null, isError: true };
+	const isLoading = orgsLoading || (!!defaultOrg && projectsLoading);
+
+	if (isLoading) {
+		return { data: null, isError: false, isLoading: true };
+	}
+
+	if (orgsError || projectsError || !projectsData?.projects?.length) {
+		return { data: null, isError: true, isLoading: false };
 	}
 
 	return {
 		data: projectsData.projects[0],
 		isError: false,
+		isLoading: false,
 	};
 }

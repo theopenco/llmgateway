@@ -8,12 +8,7 @@ export const redisClient = new Redis({
 	password: process.env.REDIS_PASSWORD,
 });
 
-redisClient.on("error", (err) =>
-	logger.error(
-		"Redis Client Error",
-		err instanceof Error ? err : new Error(String(err)),
-	),
-);
+redisClient.on("error", (err) => logger.error("Redis Client Error", err));
 
 export const LOG_QUEUE = "log_queue_" + process.env.NODE_ENV;
 
@@ -24,10 +19,17 @@ export async function publishToQueue(
 	try {
 		await redisClient.lpush(queue, JSON.stringify(message));
 	} catch (error) {
-		logger.error("Error publishing to queue", {
-			error: error instanceof Error ? error : new Error(String(error)),
-			item: message,
-		});
+		const msg = message as Record<string, unknown> | undefined;
+		const item = msg
+			? {
+					requestId: msg.requestId,
+					organizationId: msg.organizationId,
+					projectId: msg.projectId,
+					usedModel: msg.usedModel,
+					usedProvider: msg.usedProvider,
+				}
+			: undefined;
+		logger.error("Error publishing to queue", error, { queue, item });
 		throw error;
 	}
 }
@@ -44,10 +46,7 @@ export async function consumeFromQueue(
 
 		return result;
 	} catch (error) {
-		logger.error(
-			"Error consuming from queue",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Error consuming from queue", error);
 		throw error;
 	}
 }
@@ -57,10 +56,7 @@ export async function closeRedisClient(): Promise<void> {
 		await redisClient.disconnect();
 		logger.info("Redis client disconnected");
 	} catch (error) {
-		logger.error(
-			"Error disconnecting Redis client",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Error disconnecting Redis client", error);
 		throw error;
 	}
 }

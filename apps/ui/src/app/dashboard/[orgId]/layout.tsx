@@ -7,8 +7,6 @@ import { fetchServerData } from "@/lib/server-api";
 import type { User, Project } from "@/lib/types";
 import type { ReactNode } from "react";
 
-export const dynamic = "force-dynamic";
-
 interface OrgLayoutProps {
 	children: ReactNode;
 	params: Promise<{ orgId: string }>;

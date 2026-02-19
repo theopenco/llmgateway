@@ -1,15 +1,16 @@
 "use client";
 
+import { subDays, format } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
+import { DateRangePicker } from "@/components/date-range-picker";
 import { CacheRateChart } from "@/components/usage/cache-rate-chart";
 import { CostBreakdownChart } from "@/components/usage/cost-breakdown-chart";
 import { ErrorRateChart } from "@/components/usage/error-rate-chart";
 import { ModelUsageTable } from "@/components/usage/model-usage-table";
 import { UsageChart } from "@/components/usage/usage-chart";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
-import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
@@ -67,28 +68,20 @@ export function UsageClient({
 	const apiKeys =
 		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") || [];
 
-	// Check if days parameter exists in URL
-	const daysParam = searchParams.get("days");
-	const days = daysParam === "30" ? 30 : 7;
-
 	// Get apiKeyId from URL
 	const apiKeyId = searchParams.get("apiKeyId") || undefined;
 
-	// If no days parameter, redirect to add days=7
+	// If no from/to params, redirect to add them
 	useEffect(() => {
-		if (!daysParam) {
+		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams);
-			params.set("days", "7");
+			params.delete("days");
+			const today = new Date();
+			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
+			params.set("to", format(today, "yyyy-MM-dd"));
 			router.replace(`${buildUrl("usage")}?${params.toString()}`);
 		}
-	}, [daysParam, router, searchParams, buildUrl]);
-
-	// Function to update days in URL
-	const updateDaysInUrl = (newDays: 7 | 30) => {
-		const params = new URLSearchParams(searchParams);
-		params.set("days", String(newDays));
-		router.push(`${buildUrl("usage")}?${params.toString()}`);
-	};
+	}, [searchParams, router, buildUrl]);
 
 	// Function to update apiKeyId in URL
 	const updateApiKeyIdInUrl = (newApiKeyId: string | undefined) => {
@@ -104,7 +97,7 @@ export function UsageClient({
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<div className="flex items-center justify-between">
+				<div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 					<h2 className="text-3xl font-bold tracking-tight">Usage & Metrics</h2>
 					<div className="flex items-center space-x-2">
 						<Select
@@ -125,20 +118,7 @@ export function UsageClient({
 								))}
 							</SelectContent>
 						</Select>
-						<Button
-							variant={days === 7 ? "default" : "outline"}
-							size="sm"
-							onClick={() => updateDaysInUrl(7)}
-						>
-							7 Days
-						</Button>
-						<Button
-							variant={days === 30 ? "default" : "outline"}
-							size="sm"
-							onClick={() => updateDaysInUrl(30)}
-						>
-							30 Days
-						</Button>
+						<DateRangePicker buildUrl={buildUrl} path="usage" />
 					</div>
 				</div>
 				<Tabs defaultValue="requests" className="space-y-4">
@@ -223,7 +203,7 @@ export function UsageClient({
 									Estimated costs by provider and model
 								</CardDescription>
 							</CardHeader>
-							<CardContent className="h-[400px]">
+							<CardContent>
 								<CostBreakdownChart
 									initialData={apiKeyId ? undefined : initialActivityData}
 									projectId={projectId}

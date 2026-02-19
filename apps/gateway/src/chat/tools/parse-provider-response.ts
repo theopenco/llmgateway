@@ -2,6 +2,7 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
+import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -58,16 +59,16 @@ export function parseProviderResponse(
 
 			// Extract usage tokens (including cached tokens for prompt caching)
 			if (json.usage) {
-				const inputTokens = json.usage.inputTokens || 0;
-				const cacheReadTokens = json.usage.cacheReadInputTokens || 0;
-				const cacheWriteTokens = json.usage.cacheWriteInputTokens || 0;
+				const inputTokens = json.usage.inputTokens ?? 0;
+				const cacheReadTokens = json.usage.cacheReadInputTokens ?? 0;
+				const cacheWriteTokens = json.usage.cacheWriteInputTokens ?? 0;
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
-				completionTokens = json.usage.outputTokens || null;
-				totalTokens = json.usage.totalTokens || null;
+				completionTokens = json.usage.outputTokens ?? null;
+				totalTokens = json.usage.totalTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
-				cachedTokens = cacheReadTokens || null;
+				cachedTokens = cacheReadTokens;
 			}
 
 			// Extract tool calls if present
@@ -146,16 +147,16 @@ export function parseProviderResponse(
 			// For Anthropic: input_tokens are the non-cached tokens
 			// We need to add cache_creation_input_tokens to get total input tokens
 			if (json.usage) {
-				const inputTokens = json.usage.input_tokens || 0;
-				const cacheCreationTokens = json.usage.cache_creation_input_tokens || 0;
-				const cacheReadTokens = json.usage.cache_read_input_tokens || 0;
+				const inputTokens = json.usage.input_tokens ?? 0;
+				const cacheCreationTokens = json.usage.cache_creation_input_tokens ?? 0;
+				const cacheReadTokens = json.usage.cache_read_input_tokens ?? 0;
 
 				// Total prompt tokens = non-cached + cache creation + cache read
 				promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
-				completionTokens = json.usage.output_tokens || null;
-				reasoningTokens = json.usage.reasoning_output_tokens || null;
+				completionTokens = json.usage.output_tokens ?? null;
+				reasoningTokens = json.usage.reasoning_output_tokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
-				cachedTokens = cacheReadTokens || null;
+				cachedTokens = cacheReadTokens;
 				totalTokens =
 					promptTokens && completionTokens
 						? promptTokens + completionTokens
@@ -322,15 +323,24 @@ export function parseProviderResponse(
 			}
 
 			promptTokens = json.usageMetadata?.promptTokenCount || null;
-			completionTokens = json.usageMetadata?.candidatesTokenCount || null;
+			let rawCandidates = json.usageMetadata?.candidatesTokenCount ?? null;
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
 			// Extract cached tokens from Google's implicit caching
 			cachedTokens = json.usageMetadata?.cachedContentTokenCount || null;
-			// Don't use Google's totalTokenCount as it doesn't include reasoning tokens
-			totalTokens = null;
+
+			// Adjust for inconsistent Google API behavior where
+			// candidatesTokenCount may already include thoughtsTokenCount
+			if (rawCandidates !== null) {
+				rawCandidates = adjustGoogleCandidateTokens(
+					rawCandidates,
+					reasoningTokens,
+					promptTokens,
+					json.usageMetadata?.totalTokenCount,
+				);
+			}
 
 			// If candidatesTokenCount is missing, estimate it from the content or set to 0
-			if (completionTokens === null) {
+			if (rawCandidates === null) {
 				if (content) {
 					const estimation = estimateTokens(
 						usedProvider,
@@ -339,17 +349,19 @@ export function parseProviderResponse(
 						null,
 						null,
 					);
-					completionTokens = estimation.calculatedCompletionTokens;
+					rawCandidates = estimation.calculatedCompletionTokens ?? 0;
 				} else {
 					// No content means 0 completion tokens (e.g., MAX_TOKENS with only reasoning)
-					completionTokens = 0;
+					rawCandidates = 0;
 				}
 			}
 
-			// Calculate totalTokens to include reasoning tokens for Google models
+			// completionTokens includes reasoning for correct totals
+			completionTokens = rawCandidates + (reasoningTokens || 0);
+
+			// Calculate totalTokens
 			if (promptTokens !== null) {
-				totalTokens =
-					promptTokens + (completionTokens || 0) + (reasoningTokens || 0);
+				totalTokens = promptTokens + (completionTokens || 0);
 			}
 			break;
 		}
