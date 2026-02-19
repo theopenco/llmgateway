@@ -1088,6 +1088,7 @@ export interface paths {
                             totalToppedUp: number;
                             totalSpent: number;
                             unusedCredits: number;
+                            overage: number;
                         };
                     };
                 };

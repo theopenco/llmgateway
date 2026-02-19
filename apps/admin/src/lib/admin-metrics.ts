@@ -11,6 +11,7 @@ export interface AdminDashboardMetrics {
 	totalToppedUp: number;
 	totalSpent: number;
 	unusedCredits: number;
+	overage: number;
 }
 
 export type TimeseriesRange = "7d" | "30d" | "90d" | "365d" | "all";

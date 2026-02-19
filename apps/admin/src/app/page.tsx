@@ -1,4 +1,5 @@
 import {
+	AlertTriangle,
 	ArrowDownToLine,
 	ArrowUpFromLine,
 	Building2,
@@ -44,7 +45,7 @@ function MetricCard({
 	value: string;
 	subtitle?: string;
 	icon?: React.ReactNode;
-	accent?: "green" | "blue" | "purple";
+	accent?: "green" | "blue" | "purple" | "red";
 }) {
 	return (
 		<div className="bg-card text-card-foreground flex flex-col justify-between gap-3 rounded-xl border border-border/60 p-5 shadow-sm">
@@ -68,6 +69,8 @@ function MetricCard({
 								"border-sky-500/30 bg-sky-500/10 text-sky-400",
 							accent === "purple" &&
 								"border-violet-500/30 bg-violet-500/10 text-violet-400",
+							accent === "red" &&
+								"border-red-500/30 bg-red-500/10 text-red-400",
 						)}
 					>
 						{icon}
@@ -199,6 +202,15 @@ export default async function Page({
 					icon={<PiggyBank className="h-4 w-4" />}
 					accent="blue"
 				/>
+				{metrics.overage > 0 && (
+					<MetricCard
+						label="Overage"
+						value={currencyFormatter.format(metrics.overage)}
+						subtitle="Spending exceeding topped-up credits"
+						icon={<AlertTriangle className="h-4 w-4" />}
+						accent="red"
+					/>
+				)}
 			</section>
 
 			{timeseries ? (

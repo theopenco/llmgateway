@@ -47,7 +47,7 @@ export async function getProviders(params?: {
 
 	const data = await fetchServerData<ProvidersListResponse>(
 		"GET",
-		"/admin/providers" as any,
+		"/admin/providers",
 		{
 			params: {
 				query: {

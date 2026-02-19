@@ -37,6 +37,7 @@ const adminMetricsSchema = z.object({
 	totalToppedUp: z.number(),
 	totalSpent: z.number(),
 	unusedCredits: z.number(),
+	overage: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -399,7 +400,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
-	const unusedCredits = totalToppedUp - totalSpent;
+	const rawBalance = totalToppedUp - totalSpent;
+	const unusedCredits = Math.max(0, rawBalance);
+	const overage = Math.max(0, -rawBalance);
 
 	return c.json({
 		totalSignups,
@@ -410,6 +413,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalToppedUp,
 		totalSpent,
 		unusedCredits,
+		overage,
 	});
 });
 

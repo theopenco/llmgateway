@@ -56,7 +56,7 @@ export async function getModels(params?: {
 
 	const data = await fetchServerData<ModelsListResponse>(
 		"GET",
-		"/admin/models" as any,
+		"/admin/models",
 		{
 			params: {
 				query: {
