@@ -193,13 +193,44 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "obsidian":
-		case "avalanche": {
+		case "obsidian": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
 				? `${url}/v1beta/models/${modelName}:${endpoint}`
 				: `${url}/v1beta/models/gemini-3-pro-image-preview:${endpoint}`;
 			const queryParams = [];
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
+		}
+		case "avalanche": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const model = modelName || "gemini-3-pro-image-preview";
+
+			const projectId = getProviderEnvValue(
+				"avalanche",
+				"project",
+				configIndex,
+			);
+
+			const region =
+				getProviderEnvValue("avalanche", "region", configIndex, "global") ||
+				"global";
+
+			if (!projectId) {
+				throw new Error(
+					"Avalanche provider requires LLM_AVALANCHE_PROJECT environment variable",
+				);
+			}
+
+			const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+			const queryParams = [];
+			if (token) {
+				queryParams.push(`key=${token}`);
+			}
 			if (stream) {
 				queryParams.push("alt=sse");
 			}

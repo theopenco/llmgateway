@@ -29,9 +29,9 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "google-vertex":
+		case "avalanche":
 			return {};
 		case "obsidian":
-		case "avalanche":
 			return {
 				Authorization: `Bearer ${token}`,
 			};
