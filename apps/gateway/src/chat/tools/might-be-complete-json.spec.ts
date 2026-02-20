@@ -75,4 +75,62 @@ describe("mightBeCompleteJson", () => {
 	it("returns false for actually unbalanced brackets", () => {
 		expect(mightBeCompleteJson("[1,2]]")).toBe(false);
 	});
+
+	// Tests for large payload optimization (>100KB threshold)
+	describe("large payloads (>100KB)", () => {
+		const LARGE_SIZE = 120 * 1024; // 120KB to exceed the 100KB threshold
+
+		it("returns true for large valid object with big base64 string value", () => {
+			// Simulate a Google streaming chunk with inline base64 image data
+			const base64Data = "A".repeat(LARGE_SIZE);
+			const json = `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"${base64Data}"}}]}}]}`;
+			expect(mightBeCompleteJson(json)).toBe(true);
+		});
+
+		it("returns false for incomplete large object", () => {
+			const base64Data = "A".repeat(LARGE_SIZE);
+			// Missing closing brackets
+			const json = `{"candidates":[{"content":{"parts":[{"inlineData":{"data":"${base64Data}"`;
+			expect(mightBeCompleteJson(json)).toBe(false);
+		});
+
+		it("returns true for large object with escaped quotes in string value", () => {
+			const base64Data = "A".repeat(LARGE_SIZE);
+			const json = `{"key":"value with \\"escaped\\" quotes","data":"${base64Data}"}`;
+			expect(mightBeCompleteJson(json)).toBe(true);
+		});
+
+		it("returns false for large object missing closing brace", () => {
+			const base64Data = "A".repeat(LARGE_SIZE);
+			const json = `{"data":"${base64Data}"`;
+			expect(mightBeCompleteJson(json)).toBe(false);
+		});
+
+		it("returns true for large nested object", () => {
+			const base64Data = "A".repeat(LARGE_SIZE);
+			const json = `{"outer":{"inner":{"data":"${base64Data}"}}}`;
+			expect(mightBeCompleteJson(json)).toBe(true);
+		});
+
+		it("returns false for large nested object with unbalanced braces", () => {
+			const base64Data = "A".repeat(LARGE_SIZE);
+			// Extra opening brace
+			const json = `{"outer":{{"inner":{"data":"${base64Data}"}}}`;
+			expect(mightBeCompleteJson(json)).toBe(false);
+		});
+
+		it("handles large payload performance efficiently", () => {
+			// 5MB base64 data simulating a real image
+			const base64Data = "A".repeat(5 * 1024 * 1024);
+			const json = `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"${base64Data}"}}]}}]}`;
+
+			const start = performance.now();
+			const result = mightBeCompleteJson(json);
+			const elapsed = performance.now() - start;
+
+			expect(result).toBe(true);
+			// Should complete in under 10ms for 5MB (vs 100ms+ without optimization)
+			expect(elapsed).toBeLessThan(50);
+		});
+	});
 });

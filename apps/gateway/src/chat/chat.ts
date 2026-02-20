@@ -107,6 +107,9 @@ import type { ServerTypes } from "@/vars.js";
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 
+// Reusable TextDecoder to avoid per-chunk allocation in the streaming hot path
+const sharedTextDecoder = new TextDecoder();
+
 export const chat = new OpenAPIHono<ServerTypes>();
 
 const completions = createRoute({
@@ -3173,7 +3176,7 @@ chat.openapi(completions, async (c) => {
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
-							chunk = new TextDecoder().decode(value);
+							chunk = sharedTextDecoder.decode(value, { stream: true });
 						}
 
 						// Log error on large chunks (1MB+) - should almost never happen
@@ -3422,7 +3425,13 @@ chat.openapi(completions, async (c) => {
 								.trim();
 
 							// Debug logging for troublesome events
-							if (eventData.includes("event:") || eventData.includes("id:")) {
+							// Only scan for SSE field contamination on small events to avoid
+							// O(n) scans on multi-MB payloads (e.g. base64 image data).
+							// Large events (>64KB) are almost always valid image/binary data.
+							if (
+								eventData.length < 65536 &&
+								(eventData.includes("event:") || eventData.includes("id:"))
+							) {
 								logger.warn("Event data contains SSE field", {
 									eventData:
 										eventData.substring(0, 200) +
