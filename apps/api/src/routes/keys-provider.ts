@@ -214,7 +214,7 @@ keysProvider.openapi(create, async (c) => {
 		const modelPart = validationResult.model
 			? ` using model ${validationResult.model}`
 			: "";
-		throw new HTTPException(500, {
+		throw new HTTPException(400, {
 			message: `Error from provider: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});
 	}
