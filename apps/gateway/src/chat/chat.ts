@@ -1503,7 +1503,9 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			providerKey?.baseUrl || undefined,
 			usedModel,
-			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
+			usedProvider === "google-ai-studio" ||
+				usedProvider === "google-vertex" ||
+				usedProvider === "avalanche"
 				? usedToken
 				: undefined,
 			stream,
