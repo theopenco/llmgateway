@@ -382,6 +382,13 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		let hasMoreRecords = true;
 		while (hasMoreRecords) {
 			const batchResult = await db.transaction(async (tx) => {
+				// Hint the planner to prefer index scans for this transaction.
+				// Without this, PostgreSQL's default random_page_cost=4 causes it to
+				// choose a sequential scan over the partial index, even though the index
+				// is far more efficient (scanning ~500 rows vs ~11.5M rows).
+				// SET LOCAL resets automatically when the transaction commits.
+				await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
+
 				// Find IDs of records to clean up (with LIMIT for batching)
 				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
 				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
