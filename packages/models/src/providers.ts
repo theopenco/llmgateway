@@ -132,6 +132,7 @@ export const providers = [
 		color: "#1a1a1a",
 		website: null,
 		announcement: null,
+		priority: 1.5,
 	},
 	{
 		id: "avalanche",
@@ -152,6 +153,7 @@ export const providers = [
 		color: "#1a1a1a",
 		website: null,
 		announcement: null,
+		priority: 1.3,
 	},
 	{
 		id: "groq",
