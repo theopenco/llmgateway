@@ -206,6 +206,11 @@ export const completionsRequestSchema = z.object({
 			"When used with auto routing, only route to free models (models with zero input and output pricing)",
 		example: false,
 	}),
+	onboarding: z.boolean().optional().default(false).openapi({
+		description:
+			"When true, skips email verification for free model usage. Intended for onboarding flows.",
+		example: false,
+	}),
 	no_reasoning: z.boolean().optional().default(false).openapi({
 		description:
 			"When used with auto routing, exclude reasoning models from selection",

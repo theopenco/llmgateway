@@ -52,7 +52,6 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Novita", providerId: "novita" },
 	{ name: "Nebius", providerId: "nebius" },
 	{ name: "Zai", providerId: "zai" },
-	{ name: "Routeway", providerId: "routeway" },
 	{ name: "NanoGPT", providerId: "nanogpt" },
 	{ name: "Canopywave", providerId: "canopywave" },
 	{ name: "AWS Bedrock", providerId: "aws-bedrock" },

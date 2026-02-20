@@ -15,6 +15,10 @@ import {
 	ArrowUpFromLine,
 	Server,
 	Crown,
+	ExternalLink,
+	BookOpen,
+	FlaskConical,
+	MessageSquare,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,10 +31,12 @@ import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
+import { ReferralBanner } from "@/components/dashboard/referral-banner";
 import {
 	DateRangePicker,
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
+import { QuickStartSection } from "@/components/shared/quick-start-snippet";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -48,7 +54,6 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
-import { cn } from "@/lib/utils";
 
 import type { ActivitT } from "@/types/activity";
 
@@ -136,6 +141,13 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) || 0;
+
+	// Track when user reaches 50+ calls for invite banner eligibility
+	useEffect(() => {
+		if (totalRequests >= 50) {
+			localStorage.setItem("user_has_50_plus_calls", "true");
+		}
+	}, [totalRequests]);
 	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) || 0;
 	const totalInputCost =
 		activityData.reduce((sum, day) => sum + day.inputCost, 0) || 0;
@@ -219,15 +231,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		return tokens.toString();
 	};
 
-	const isOrganizationLoading = !selectedOrganization;
-
-	const shouldShowGetStartedState =
-		!isLoading &&
-		!isOrganizationLoading &&
-		selectedOrganization &&
-		selectedOrganization.credits === "0";
-
-	const isInitialLoading = isOrganizationLoading;
+	const isInitialLoading = !selectedOrganization;
 
 	if (isInitialLoading) {
 		return (
@@ -314,65 +318,12 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					</div>
 				</div>
 
+				<ReferralBanner />
+
 				<DateRangePicker buildUrl={buildUrl} />
 
 				<div className="space-y-4">
-					{shouldShowGetStartedState && (
-						<div className="flex flex-col gap-3 py-12">
-							<div className="flex items-center justify-center w-16 h-16 bg-muted rounded-full">
-								<CreditCard className="w-8 h-8 text-muted-foreground" />
-							</div>
-							<div className="text-center">
-								<h3 className="text-lg font-semibold mb-2">
-									Welcome to LLM Gateway!
-								</h3>
-								<p className="text-muted-foreground mb-4">
-									Get started by adding credits to your account or upgrading to
-									Pro.
-								</p>
-								<div className="flex justify-center gap-2">
-									{selectedOrganization && selectedProject && (
-										<>
-											<CreateApiKeyDialog
-												selectedProject={selectedProject}
-												disabled={
-													planLimits
-														? planLimits.currentCount >= planLimits.maxKeys
-														: false
-												}
-												disabledMessage={
-													planLimits
-														? `Free plan allows maximum ${planLimits.maxKeys} API keys per project`
-														: undefined
-												}
-											>
-												<Button
-													variant="outline"
-													disabled={
-														!selectedProject ||
-														(planLimits
-															? planLimits.currentCount >= planLimits.maxKeys
-															: false)
-													}
-													className="flex items-center"
-												>
-													<Key className="mr-2 h-4 w-4" />
-													Create API Key
-												</Button>
-											</CreateApiKeyDialog>
-											<TopUpCreditsButton />
-										</>
-									)}
-								</div>
-							</div>
-						</div>
-					)}
-
-					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-4", {
-							"pointer-events-none opacity-20": shouldShowGetStartedState,
-						})}
-					>
+					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 						<MetricCard
 							label="Organization Credits"
 							value={`$${
@@ -487,83 +438,157 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							accent="blue"
 						/>
 					</div>
-					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
-							"pointer-events-none opacity-20": shouldShowGetStartedState,
-						})}
-					>
-						<Card className="col-span-4">
-							<CardHeader>
-								<div className="flex items-start justify-between">
-									<div className="flex-1">
-										<CardTitle>Usage Overview</CardTitle>
-										<CardDescription>
-											{metric === "costs"
-												? "Provider pricing for reference"
-												: "Total Requests"}
-											{selectedProject && (
-												<span className="block mt-1 text-sm">
-													Filtered by project: {selectedProject.name}
-												</span>
-											)}
-										</CardDescription>
+					{!isLoading && totalRequests < 5 ? (
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+							<Card className="col-span-4">
+								<CardHeader>
+									<CardTitle>Get Started</CardTitle>
+									<CardDescription>
+										{totalRequests > 0
+											? `You made ${totalRequests === 1 ? "your first call" : `${totalRequests} calls`} during setup! Now integrate LLM Gateway in your own code.`
+											: "Integrate LLM Gateway in 1 line — just change your base URL."}
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="space-y-4">
+									<QuickStartSection />
+									<div className="flex flex-wrap gap-2">
+										<Button asChild variant="outline" size="sm">
+											<a
+												href="https://docs.llmgateway.io"
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<BookOpen className="mr-2 h-4 w-4" />
+												Docs
+												<ExternalLink className="ml-1.5 h-3 w-3" />
+											</a>
+										</Button>
+										<Button asChild variant="outline" size="sm">
+											<a
+												href={
+													process.env.NODE_ENV === "development"
+														? "http://localhost:3003"
+														: "https://chat.llmgateway.io"
+												}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<FlaskConical className="mr-2 h-4 w-4" />
+												Playground
+												<ExternalLink className="ml-1.5 h-3 w-3" />
+											</a>
+										</Button>
+										<Button asChild variant="outline" size="sm">
+											<Link href="/models" prefetch={true}>
+												<MessageSquare className="mr-2 h-4 w-4" />
+												Models
+											</Link>
+										</Button>
 									</div>
-									<Select value={metric} onValueChange={updateMetricInUrl}>
-										<SelectTrigger className="w-[140px]">
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="costs">Costs</SelectItem>
-											<SelectItem value="requests">Requests</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-							</CardHeader>
-							<CardContent className="pl-2">
-								<Overview
-									data={activityData}
-									isLoading={isLoading}
-									metric={metric}
-								/>
-							</CardContent>
-						</Card>
-						<Card className="col-span-3">
-							<CardHeader>
-								<CardTitle>Quick Actions</CardTitle>
-								<CardDescription>
-									Common tasks you might want to perform
-								</CardDescription>
-							</CardHeader>
-							<CardContent className="space-y-2">
-								{quickActions.map((action) => (
-									<Button
-										key={action.href}
-										asChild
-										variant="outline"
-										className="w-full justify-start"
-									>
-										<Link
-											href={
-												action.href === "provider-keys"
-													? buildOrgUrl("org/provider-keys")
-													: buildUrl(action.href)
-											}
-											prefetch={true}
+								</CardContent>
+							</Card>
+							<Card className="col-span-3">
+								<CardHeader>
+									<CardTitle>Quick Actions</CardTitle>
+									<CardDescription>
+										Common tasks you might want to perform
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="space-y-2">
+									{quickActions.map((action) => (
+										<Button
+											key={action.href}
+											asChild
+											variant="outline"
+											className="w-full justify-start"
 										>
-											<action.icon className="mr-2 h-4 w-4" />
-											{action.label}
-										</Link>
-									</Button>
-								))}
-							</CardContent>
-						</Card>
-					</div>
+											<Link
+												href={
+													action.href === "provider-keys"
+														? buildOrgUrl("org/provider-keys")
+														: buildUrl(action.href)
+												}
+												prefetch={true}
+											>
+												<action.icon className="mr-2 h-4 w-4" />
+												{action.label}
+											</Link>
+										</Button>
+									))}
+								</CardContent>
+							</Card>
+						</div>
+					) : (
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+							<Card className="col-span-4">
+								<CardHeader>
+									<div className="flex items-start justify-between">
+										<div className="flex-1">
+											<CardTitle>Usage Overview</CardTitle>
+											<CardDescription>
+												{metric === "costs"
+													? "Provider pricing for reference"
+													: "Total Requests"}
+												{selectedProject && (
+													<span className="block mt-1 text-sm">
+														Filtered by project: {selectedProject.name}
+													</span>
+												)}
+											</CardDescription>
+										</div>
+										<Select value={metric} onValueChange={updateMetricInUrl}>
+											<SelectTrigger className="w-[140px]">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="costs">Costs</SelectItem>
+												<SelectItem value="requests">Requests</SelectItem>
+											</SelectContent>
+										</Select>
+									</div>
+								</CardHeader>
+								<CardContent className="pl-2">
+									<Overview
+										data={activityData}
+										isLoading={isLoading}
+										metric={metric}
+									/>
+								</CardContent>
+							</Card>
+							<Card className="col-span-3">
+								<CardHeader>
+									<CardTitle>Quick Actions</CardTitle>
+									<CardDescription>
+										Common tasks you might want to perform
+									</CardDescription>
+								</CardHeader>
+								<CardContent className="space-y-2">
+									{quickActions.map((action) => (
+										<Button
+											key={action.href}
+											asChild
+											variant="outline"
+											className="w-full justify-start"
+										>
+											<Link
+												href={
+													action.href === "provider-keys"
+														? buildOrgUrl("org/provider-keys")
+														: buildUrl(action.href)
+												}
+												prefetch={true}
+											>
+												<action.icon className="mr-2 h-4 w-4" />
+												{action.label}
+											</Link>
+										</Button>
+									))}
+								</CardContent>
+							</Card>
+						</div>
+					)}
 
-					<div
-						className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-7", {
-							"pointer-events-none opacity-20": shouldShowGetStartedState,
-						})}
-					>
+					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
 						<div className="col-span-4 space-y-4">
 							<CostBreakdownCard initialActivityData={initialActivityData} />
 							<RecentActivityCard

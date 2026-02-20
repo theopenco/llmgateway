@@ -3,6 +3,7 @@ import {
 	Database,
 	Headphones,
 	Key,
+	LayoutDashboard,
 	MessageSquare,
 	Rocket,
 	Shield,
@@ -66,6 +67,12 @@ const features = [
 		title: "Single Sign-On (SSO)",
 		description:
 			"Seamless integration with your identity provider. Support for SAML, OAuth, and OIDC.",
+	},
+	{
+		icon: LayoutDashboard,
+		title: "Admin Dashboard",
+		description:
+			"Full-featured admin panel to manage organizations, monitor providers, track model performance, and control pricing.",
 	},
 ];
 

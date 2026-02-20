@@ -16,6 +16,7 @@ The Model Context Protocol (MCP) is an open standard that allows AI assistants t
 
 - **Chat completions** - Send messages to any supported LLM
 - **Image generation** - Generate images using models like Qwen Image
+- **Nano Banana image generation** - Generate images with Gemini 3 Pro Image Preview and optionally save to disk
 - **Model discovery** - List available models with capabilities and pricing
 
 ## Available Tools
@@ -61,6 +62,34 @@ Generate images from text prompts using AI image models.
 	"size": "1024x1024"
 }
 ```
+
+### `generate-nano-banana`
+
+Generate an image using Gemini 3 Pro Image Preview ("Nano Banana"). Returns an inline image preview, and optionally saves the image to disk when the server is configured with an upload directory.
+
+**Parameters:**
+
+- `prompt` (string) - Text description of the image to generate
+- `filename` (string, optional) - Filename for the saved image, no path separators allowed (default: `nano-banana-{timestamp}.png`)
+- `aspect_ratio` (string, optional) - Aspect ratio: `"1:1"`, `"16:9"`, `"4:3"`, or `"5:4"`
+
+**Example:**
+
+```json
+{
+	"prompt": "A pixel-art cat sitting on a rainbow",
+	"filename": "hero-image.png",
+	"aspect_ratio": "16:9"
+}
+```
+
+<Callout type="info">
+	**Saving images to disk** requires the `UPLOAD_DIR` environment variable to be
+	set on the MCP server. When set, images are saved to that directory. Without
+	it, images are returned inline only — no files are written to disk. See
+	[Enabling local image saving](#enabling-local-image-saving) for setup
+	instructions.
+</Callout>
 
 ### `list-models`
 
@@ -120,7 +149,7 @@ List all available image generation models.
     <Callout type="info">
       **Alternative: Manual configuration**
 
-      You can also add the MCP server manually by editing your Claude Code configuration file (`~/.claude/claude_desktop_config.json`):
+      You can also add the MCP server manually by editing `~/.claude.json` (user scope) or `.mcp.json` in your project root (project scope):
 
       ```json
       {
@@ -147,6 +176,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image for my landing page"
     - "List all available models from Anthropic"
 
     </Step>
@@ -197,6 +227,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image for my landing page"
     - "List all available models from Anthropic"
 
     </Step>
@@ -248,6 +279,7 @@ List all available image generation models.
 
     - "Use the chat tool to ask GPT-4o about TypeScript best practices"
     - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image for my landing page"
     - "List all available models from Anthropic"
 
     </Step>
@@ -307,6 +339,14 @@ Use generate-image to create a logo for my new startup.
 It should be minimalist, blue and white, representing AI and cloud computing.
 ```
 
+### Nano Banana (Gemini Image Generation)
+
+Generate images with Gemini 3 Pro for use in your project:
+
+```
+Use generate-nano-banana to create a hero image for my landing page with a 16:9 aspect ratio.
+```
+
 ### Cost-Effective Model Selection
 
 Query available models to find the best option for your task:
@@ -332,6 +372,23 @@ For applications that prefer OAuth authentication, LLM Gateway's MCP server impl
 - **Token Endpoint:** `/oauth/token`
 - **Registration Endpoint:** `/oauth/register`
 - **Supported Flows:** Authorization Code, Client Credentials
+
+## Enabling Local Image Saving
+
+By default, `generate-nano-banana` returns images inline without writing to disk. To enable saving generated images to the server filesystem, the `UPLOAD_DIR` environment variable must be set on the **gateway host** at startup. This is a server-side setting — it cannot be configured from the client.
+
+This is only possible for **self-hosted** MCP deployments. Configure `UPLOAD_DIR` using your deployment method:
+
+- **Docker:** Pass `-e UPLOAD_DIR=/data/images` or add it to your `docker-compose.yml` environment section.
+- **systemd:** Add `Environment=UPLOAD_DIR=/data/images` to your service unit file.
+- **.env file:** Add `UPLOAD_DIR=/data/images` to the `.env` file loaded by your gateway process.
+
+<Callout type="warn">
+	The shared hosted endpoint (`api.llmgateway.io`) does not support configuring
+	`UPLOAD_DIR`. On the hosted service, images are always returned inline — no
+	files are written to disk. To enable server-side image saving, you must
+	self-host the MCP server and set `UPLOAD_DIR` at startup.
+</Callout>
 
 ## Troubleshooting
 

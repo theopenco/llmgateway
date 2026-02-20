@@ -1085,6 +1085,61 @@ export interface paths {
                             payingCustomers: number;
                             totalRevenue: number;
                             totalOrganizations: number;
+                            totalToppedUp: number;
+                            totalSpent: number;
+                            unusedCredits: number;
+                            overage: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    range?: "7d" | "30d" | "90d" | "365d" | "all";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Admin dashboard timeseries metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            range: "7d" | "30d" | "90d" | "365d" | "all";
+                            data: {
+                                date: string;
+                                signups: number;
+                                paidCustomers: number;
+                                revenue: number;
+                            }[];
+                            totals: {
+                                signups: number;
+                                paidCustomers: number;
+                                revenue: number;
+                            };
                         };
                     };
                 };
@@ -1111,7 +1166,7 @@ export interface paths {
                     limit?: number;
                     offset?: number | null;
                     search?: string;
-                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status";
+                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status" | "totalCreditsAllTime" | "totalSpent";
                     sortOrder?: "asc" | "desc";
                 };
                 header?: never;
@@ -1135,6 +1190,7 @@ export interface paths {
                                 devPlan: string;
                                 credits: string;
                                 totalCreditsAllTime?: string;
+                                totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
                             }[];
@@ -1190,6 +1246,7 @@ export interface paths {
                                 devPlan: string;
                                 credits: string;
                                 totalCreditsAllTime?: string;
+                                totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
                             };
@@ -1266,6 +1323,7 @@ export interface paths {
                                 devPlan: string;
                                 credits: string;
                                 totalCreditsAllTime?: string;
+                                totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
                             };
@@ -1911,6 +1969,118 @@ export interface paths {
                                 rootModelName: string;
                                 family: string;
                             }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    sortBy?: "name" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "modelCount";
+                    sortOrder?: "asc" | "desc";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of providers with stats. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                id: string;
+                                name: string;
+                                color: string | null;
+                                status: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                modelCount: number;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                    family?: string;
+                    sortBy?: "name" | "family" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount";
+                    sortOrder?: "asc" | "desc";
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of models with stats. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            models: {
+                                id: string;
+                                name: string;
+                                family: string;
+                                free: boolean;
+                                stability: string;
+                                status: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                providerCount: number;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                            limit: number;
+                            offset: number;
                         };
                     };
                 };

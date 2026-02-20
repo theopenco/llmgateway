@@ -5,6 +5,7 @@ import {
 	describe,
 	expect,
 	test,
+	vi,
 } from "vitest";
 
 import { db, tables, type Log } from "@llmgateway/db";
@@ -457,60 +458,86 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("deactivated provider fallback with metadata", () => {
+		// Use fake timers to set the date between the two deactivation dates:
+		// google-ai-studio deactivatedAt: 2026-01-17
+		// google-vertex deactivatedAt: 2026-01-27
+		// At 2026-01-20, google-ai-studio is deactivated but google-vertex is still active
+		let originalGoogleCloudProject: string | undefined;
+
+		beforeAll(() => {
+			originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		});
+
+		afterAll(() => {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		});
+
 		test("deactivated provider falls back and sets metadata in response and DB log", async () => {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
 
-			// Create provider key for google-ai-studio with mock server URL
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-google",
-				token: "google-test-key",
-				provider: "google-ai-studio",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
+			try {
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
 
-			// Request with google-vertex (deactivated for this model)
-			// Should fall back to google-ai-studio
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "google-vertex/gemini-2.5-flash-preview-09-2025",
-					messages: [
-						{
-							role: "user",
-							content: "Hello with deactivated provider!",
-						},
-					],
-				}),
-			});
+				// Create provider key for google-vertex (active at 2026-01-20) with mock server URL
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-google",
+					token: "google-test-key",
+					provider: "google-vertex",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
 
-			expect(res.status).toBe(200);
-			const json = await res.json();
+				// Request with google-ai-studio (deactivated at 2026-01-17)
+				// Should fall back to google-vertex (still active until 2026-01-27)
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "google-ai-studio/gemini-2.5-flash-preview-09-2025",
+						messages: [
+							{
+								role: "user",
+								content: "Hello with deactivated provider!",
+							},
+						],
+					}),
+				});
 
-			// Verify response metadata shows correct fallback
-			expect(json).toHaveProperty("metadata");
-			expect(json.metadata.used_provider).toBe("google-ai-studio");
-			// The requested provider should be cleared since it was deactivated
-			expect(json.metadata.requested_provider).toBeNull();
+				expect(res.status).toBe(200);
+				const json = await res.json();
 
-			// Verify DB log entry
-			const logs = await waitForLogs(1);
-			expect(logs.length).toBe(1);
+				// Verify response metadata shows correct fallback
+				expect(json).toHaveProperty("metadata");
+				expect(json.metadata.used_provider).toBe("google-vertex");
+				// The requested provider should be cleared since it was deactivated
+				expect(json.metadata.requested_provider).toBeNull();
 
-			const log = logs[0];
-			expect(log.usedProvider).toBe("google-ai-studio");
-			expect(log.hasError).toBe(false);
-			expect(log.finishReason).toBeTruthy();
+				// Verify DB log entry
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("google-vertex");
+				expect(log.hasError).toBe(false);
+				expect(log.finishReason).toBeTruthy();
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 	});
 

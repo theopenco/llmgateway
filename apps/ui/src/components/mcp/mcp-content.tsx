@@ -58,6 +58,18 @@ const tools: Tool[] = [
 }`,
 	},
 	{
+		name: "generate-nano-banana",
+		description:
+			"Generate images with Gemini 3 Pro Image Preview. Returns inline image data. Set UPLOAD_DIR on the server to also save images to disk.",
+		icon: Sparkles,
+		parameters: ["prompt", "filename", "aspect_ratio"],
+		example: `{
+  "prompt": "A pixel-art cat sitting on a rainbow",
+  "filename": "hero-image.png",
+  "aspect_ratio": "16:9"
+}`,
+	},
+	{
 		name: "list-models",
 		description:
 			"Discover available models with their capabilities, pricing, and provider information.",
@@ -177,6 +189,25 @@ Generate images from text prompts.
   "arguments": {
     "prompt": "A sunset over mountains",
     "model": "qwen-image-max"
+  }
+}
+\`\`\`
+
+### generate-nano-banana
+Generate images with Gemini 3 Pro Image Preview ("Nano Banana"). Returns inline image data. Images are only saved to disk when the server has UPLOAD_DIR configured.
+
+**Parameters:**
+- \`prompt\` (string, required): Image description
+- \`filename\` (string, optional): Filename (no path separators). Default: nano-banana-{timestamp}.png
+- \`aspect_ratio\` (string, optional): "1:1", "16:9", "4:3", or "5:4"
+
+**Example:**
+\`\`\`json
+{
+  "name": "generate-nano-banana",
+  "arguments": {
+    "prompt": "A pixel-art cat on a rainbow",
+    "aspect_ratio": "16:9"
   }
 }
 \`\`\`

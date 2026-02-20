@@ -638,17 +638,6 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "openai": {
 			if (data.type) {
-				// Log full OpenAI event data for debugging
-				logger.info("[OpenAI Streaming Debug]", {
-					eventType: data.type,
-					hasAnnotations: !!(data.annotations || data.part?.annotations),
-					annotationsCount: (data.annotations || data.part?.annotations || [])
-						.length,
-					hasDelta: !!data.delta,
-					deltaKeys: data.delta ? Object.keys(data.delta) : [],
-					fullData: JSON.stringify(data),
-				});
-
 				switch (data.type) {
 					case "response.created":
 					case "response.in_progress":
@@ -900,6 +889,48 @@ export function transformStreamingToOpenai(
 						break;
 					}
 
+					case "response.incomplete": {
+						const incompleteUsage = data.response?.usage;
+						let usage = null;
+						if (incompleteUsage) {
+							usage = {
+								prompt_tokens: incompleteUsage.input_tokens || 0,
+								completion_tokens: incompleteUsage.output_tokens || 0,
+								total_tokens: incompleteUsage.total_tokens || 0,
+								...(incompleteUsage.output_tokens_details?.reasoning_tokens && {
+									reasoning_tokens:
+										incompleteUsage.output_tokens_details.reasoning_tokens,
+								}),
+								...(incompleteUsage.input_tokens_details?.cached_tokens && {
+									prompt_tokens_details: {
+										cached_tokens:
+											incompleteUsage.input_tokens_details.cached_tokens,
+									},
+								}),
+							};
+						}
+						const reason = data.response?.incomplete_details?.reason;
+						// Map incomplete reason to appropriate finish_reason
+						const mappedFinishReason =
+							reason === "content_filter" ? "content_filter" : "incomplete";
+						transformedData = {
+							id: data.response?.id || `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created:
+								data.response?.created_at || Math.floor(Date.now() / 1000),
+							model: data.response?.model || usedModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: mappedFinishReason,
+								},
+							],
+							usage,
+						};
+						break;
+					}
+
 					default:
 						logger.warn("[streaming] Unrecognized OpenAI event type", {
 							provider: usedProvider,
@@ -925,18 +956,6 @@ export function transformStreamingToOpenai(
 						break;
 				}
 			} else {
-				// Log standard OpenAI streaming format for debugging
-				logger.info("[OpenAI Standard Streaming Debug]", {
-					hasChoices: !!data.choices,
-					choicesLength: data.choices?.length || 0,
-					firstChoiceDeltaKeys: data.choices?.[0]?.delta
-						? Object.keys(data.choices[0].delta)
-						: [],
-					hasAnnotations: !!data.choices?.[0]?.delta?.annotations,
-					annotationsCount: data.choices?.[0]?.delta?.annotations?.length || 0,
-					fullData: JSON.stringify(data),
-				});
-
 				transformedData = transformOpenaiStreaming(data, usedModel);
 			}
 			break;
@@ -1096,8 +1115,24 @@ export function transformStreamingToOpenai(
 
 		case "mistral":
 		case "novita":
-		case "routeway":
-		case "zai": {
+		case "zai":
+		case "groq":
+		case "cerebras":
+		case "xai":
+		case "deepseek":
+		case "alibaba":
+		case "moonshot":
+		case "perplexity":
+		case "nebius":
+		case "canopywave":
+		case "inference.net":
+		case "together.ai":
+		case "custom":
+		case "cloudrift":
+		case "nanogpt":
+		case "bytedance":
+		case "minimax":
+		case "llmgateway": {
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(data, usedModel);
 

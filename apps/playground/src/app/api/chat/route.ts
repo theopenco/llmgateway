@@ -1,6 +1,12 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { streamText, tool, type UIMessage, convertToModelMessages } from "ai";
+import {
+	streamText,
+	tool,
+	type UIMessage,
+	convertToModelMessages,
+	JsonToSseTransformStream,
+} from "ai";
 import { cookies } from "next/headers";
 import { z } from "zod";
 
@@ -634,9 +640,73 @@ export async function POST(req: Request) {
 			},
 		});
 
-		return result.toUIMessageStreamResponse({
+		// Build the UI message stream and pipe through SSE formatting
+		const uiStream = result.toUIMessageStream({
 			sendReasoning: true,
 			sendSources: true,
+		});
+		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+
+		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
+		// timeouts on long-running requests (e.g. tool calls, reasoning).
+		// Uses a ReadableStream that races upstream reads against a ping timer
+		// to guarantee pings are written to the response even when the upstream
+		// is idle (e.g. waiting for first token, tool execution).
+		const KEEPALIVE_INTERVAL_MS = 15_000;
+		const encoder = new TextEncoder();
+		const reader = sseStream.getReader();
+
+		const streamWithKeepalive = new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				// Start a single read from the upstream. We keep the same promise
+				// across ping iterations so we never call reader.read() twice
+				// concurrently (which is not allowed by the Streams spec).
+				const next = reader.read();
+
+				// Race the upstream chunk against successive keepalive timers.
+				// If the timer wins, enqueue a ping and race again with the
+				// same upstream promise.
+				while (true) {
+					let timer: ReturnType<typeof setTimeout> | undefined;
+					const ping = new Promise<"ping">((resolve) => {
+						timer = setTimeout(() => resolve("ping"), KEEPALIVE_INTERVAL_MS);
+					});
+
+					try {
+						const winner = await Promise.race([next, ping]);
+
+						if (winner === "ping") {
+							controller.enqueue(encoder.encode(": ping\n\n"));
+							continue;
+						}
+
+						// Data from upstream
+						const result = winner as ReadableStreamReadResult<string>;
+						if (result.done) {
+							controller.close();
+							return;
+						}
+
+						controller.enqueue(encoder.encode(result.value));
+						return;
+					} finally {
+						clearTimeout(timer);
+					}
+				}
+			},
+			cancel() {
+				reader.cancel();
+			},
+		});
+
+		return new Response(streamWithKeepalive, {
+			headers: {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive",
+				"x-vercel-ai-ui-message-stream": "v1",
+				"x-accel-buffering": "no",
+			},
 		});
 	} catch (error: unknown) {
 		// Clean up MCP clients on error

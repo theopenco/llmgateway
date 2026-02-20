@@ -107,7 +107,7 @@ export function getUnifiedFinishReason(
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "length") {
+			if (finishReason === "length" || finishReason === "incomplete") {
 				return UnifiedFinishReason.LENGTH_LIMIT;
 			}
 			if (finishReason === "content_filter") {

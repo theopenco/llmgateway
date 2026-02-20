@@ -59,6 +59,8 @@ LLM Gateway offers free and enterprise plans:
 - **Free Plan:** Full features with generous limits
 - **Enterprise Plan:** Custom integrations, dedicated support, and SLA
 
+You may purchase credits to use with the Service. Credits are consumed as you make API requests through the platform. All credit purchases are final and **non-refundable**, except where required by applicable law.
+
 Billing is processed securely through **Stripe**. You authorize us to charge your payment method for all applicable fees.
 All fees are non-refundable unless required by law.
 

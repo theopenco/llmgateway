@@ -142,18 +142,12 @@ startServer()
 			gracefulShutdown("uncaughtException", server);
 		});
 
-		process.on("unhandledRejection", (reason, promise) => {
-			logger.fatal("Unhandled rejection, initiating graceful shutdown", {
-				promise,
-				reason,
-			});
+		process.on("unhandledRejection", (reason) => {
+			logger.fatal("Unhandled rejection, initiating graceful shutdown", reason);
 			gracefulShutdown("unhandledRejection", server);
 		});
 	})
 	.catch((error) => {
-		logger.error(
-			"Failed to start server",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Failed to start server", error);
 		process.exit(1);
 	});

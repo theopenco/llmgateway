@@ -10,6 +10,7 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import {
+	AWSBedrockIconStatic,
 	getProviderIcon,
 	MinimaxIconStatic,
 } from "@llmgateway/shared/components";
@@ -100,7 +101,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const ProviderIcon = selectedMapping
 			? selectedMapping.providerId === "minimax"
 				? MinimaxIconStatic
-				: getProviderIcon(selectedMapping.providerId)
+				: selectedMapping.providerId === "aws-bedrock"
+					? AWSBedrockIconStatic
+					: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
 		const requestPrice = selectedMapping?.requestPrice;
@@ -114,7 +117,12 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		);
 		const supportingProviders = uniqueProviderIds
 			.map((providerId) => {
-				const icon = getProviderIcon(providerId);
+				const icon =
+					providerId === "aws-bedrock"
+						? AWSBedrockIconStatic
+						: providerId === "minimax"
+							? MinimaxIconStatic
+							: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,

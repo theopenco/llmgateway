@@ -150,22 +150,33 @@ class LLMGatewayLogger {
 		this.logger.warn({ ...traceContext, ...extra }, message);
 	}
 
-	public error(message: string, error?: Error | object): void {
+	public error(message: string, ...args: unknown[]): void {
 		const traceContext = this.getTraceContext();
-		if (error instanceof Error) {
-			this.logger.error({ ...traceContext, err: error }, message);
-		} else {
-			this.logger.error({ ...traceContext, ...error }, message);
-		}
+		const merged = this.mergeArgs(traceContext, args);
+		this.logger.error(merged, message);
 	}
 
-	public fatal(message: string, error?: Error | object): void {
+	public fatal(message: string, ...args: unknown[]): void {
 		const traceContext = this.getTraceContext();
-		if (error instanceof Error) {
-			this.logger.fatal({ ...traceContext, err: error }, message);
-		} else {
-			this.logger.fatal({ ...traceContext, ...error }, message);
+		const merged = this.mergeArgs(traceContext, args);
+		this.logger.fatal(merged, message);
+	}
+
+	private mergeArgs(
+		traceContext: object,
+		args: unknown[],
+	): Record<string, unknown> {
+		const result: Record<string, unknown> = { ...traceContext };
+		for (const arg of args) {
+			if (arg instanceof Error) {
+				result.err = arg;
+			} else if (arg && typeof arg === "object") {
+				Object.assign(result, arg);
+			} else if (arg !== undefined && arg !== null) {
+				result.err = new Error(String(arg));
+			}
 		}
+		return result;
 	}
 
 	// Create child logger with additional context

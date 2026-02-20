@@ -271,6 +271,57 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	return c.json(response);
 });
 
+// Handle Google Vertex AI generateContent endpoint (Gemini models via Vertex)
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
+	async (c) => {
+		const body = await c.req.json();
+
+		const shouldError = body.contents?.some?.((content: any) =>
+			content.parts?.some?.((part: any) =>
+				part.text?.includes?.("TRIGGER_ERROR"),
+			),
+		);
+
+		if (shouldError) {
+			c.status(500);
+			return c.json({
+				error: {
+					code: 500,
+					message: "Internal server error",
+					status: "INTERNAL",
+				},
+			});
+		}
+
+		const userMessage =
+			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
+				?.text || "";
+
+		return c.json({
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 0,
+				},
+			],
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount: 20,
+				totalTokenCount: 30,
+			},
+		});
+	},
+);
+
 // Handle Google AI Studio generateContent endpoint (Gemini models)
 mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
 	const body = await c.req.json();
