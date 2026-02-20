@@ -12,7 +12,7 @@ import { calculateFees } from "@llmgateway/shared";
 import type { ServerTypes } from "@/vars.js";
 
 export const stripe = new Stripe(
-	process.env.STRIPE_SECRET_KEY || "sk_test_123",
+	process.env.STRIPE_SECRET_KEY ?? "sk_test_123",
 	{
 		apiVersion: "2025-04-30.basil",
 	},
@@ -105,7 +105,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 	});
 
 	return c.json({
-		clientSecret: paymentIntent.client_secret || "",
+		clientSecret: paymentIntent.client_secret ?? "",
 	});
 });
 
@@ -169,7 +169,7 @@ payments.openapi(createSetupIntent, async (c) => {
 	});
 
 	return c.json({
-		clientSecret: setupIntent.client_secret || "",
+		clientSecret: setupIntent.client_secret ?? "",
 	});
 });
 

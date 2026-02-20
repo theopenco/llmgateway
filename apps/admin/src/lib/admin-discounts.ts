@@ -47,7 +47,7 @@ async function hasSession(): Promise<boolean> {
 	const key = "better-auth.session_token";
 	const sessionCookie = cookieStore.get(key);
 	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	const hasAuth = !!(sessionCookie || secureSessionCookie);
+	const hasAuth = !!(sessionCookie ?? secureSessionCookie);
 	if (!hasAuth) {
 		console.log("[admin-discounts] No session cookie found");
 	}

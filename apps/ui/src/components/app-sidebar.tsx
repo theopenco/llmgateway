@@ -102,7 +102,7 @@ export function AppSidebar() {
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
 								<SidebarMenuButton>
-									<User2 /> {isLoading ? "..." : user?.name || "User"}
+									<User2 /> {isLoading ? "..." : (user?.name ?? "User")}
 									<ChevronUp className="ml-auto" />
 								</SidebarMenuButton>
 							</DropdownMenuTrigger>

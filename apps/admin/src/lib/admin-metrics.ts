@@ -38,7 +38,7 @@ async function hasSession(): Promise<boolean> {
 	const key = "better-auth.session_token";
 	const sessionCookie = cookieStore.get(key);
 	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	return !!(sessionCookie || secureSessionCookie);
+	return !!(sessionCookie ?? secureSessionCookie);
 }
 
 export async function getAdminDashboardMetrics(
@@ -50,7 +50,7 @@ export async function getAdminDashboardMetrics(
 
 	const data = await fetchServerData<AdminDashboardMetrics>(
 		"GET",
-		"/admin/metrics" as "/admin/metrics",
+		"/admin/metrics" as const,
 		{ params: { query: { range } } },
 	);
 
@@ -66,7 +66,7 @@ export async function getAdminTimeseriesMetrics(
 
 	const data = await fetchServerData<AdminTimeseriesMetrics>(
 		"GET",
-		"/admin/metrics/timeseries" as "/admin/metrics/timeseries",
+		"/admin/metrics/timeseries" as const,
 		{ params: { query: { range } } },
 	);
 

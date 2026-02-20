@@ -124,8 +124,8 @@ export function AuditLogsClient() {
 	}, []);
 
 	// Filters from URL query params
-	const actionFilter = searchParams.get("action") || "";
-	const resourceTypeFilter = searchParams.get("resourceType") || "";
+	const actionFilter = searchParams.get("action") ?? "";
+	const resourceTypeFilter = searchParams.get("resourceType") ?? "";
 	const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(
 		null,
 	);
@@ -227,9 +227,8 @@ export function AuditLogsClient() {
 	// Fetch filter options on mount
 	useEffect(() => {
 		if (canViewAuditLogs) {
-			fetchFilterOptions();
+			void fetchFilterOptions();
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [canViewAuditLogs, organizationId]);
 
 	// Fetch audit logs when filters change
@@ -237,7 +236,7 @@ export function AuditLogsClient() {
 		if (canViewAuditLogs) {
 			setAuditLogs([]);
 			setNextCursor(null);
-			fetchAuditLogs();
+			void fetchAuditLogs();
 		} else {
 			setIsLoading(false);
 		}
@@ -372,7 +371,7 @@ export function AuditLogsClient() {
 													</div>
 													<div className="text-sm">
 														<span className="font-medium">
-															{log.user?.email || log.userId}
+															{log.user?.email ?? log.userId}
 														</span>
 													</div>
 													<div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -460,10 +459,10 @@ export function AuditLogsClient() {
 													<td className="p-4 align-middle">
 														<div className="flex flex-col">
 															<span className="text-sm font-medium">
-																{log.user?.name || "—"}
+																{log.user?.name ?? "—"}
 															</span>
 															<span className="text-xs text-muted-foreground">
-																{log.user?.email || log.userId}
+																{log.user?.email ?? log.userId}
 															</span>
 														</div>
 													</td>
@@ -511,7 +510,7 @@ export function AuditLogsClient() {
 													</td>
 													<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
 														{(log.metadata as { resourceName?: string })
-															?.resourceName || "—"}
+															?.resourceName ?? "—"}
 													</td>
 												</tr>
 											))}
@@ -532,7 +531,7 @@ export function AuditLogsClient() {
 							{hasMore && (
 								<div className="flex justify-center pt-4">
 									<Button
-										onClick={() => fetchAuditLogs(nextCursor || undefined)}
+										onClick={() => fetchAuditLogs(nextCursor ?? undefined)}
 										disabled={isLoadingMore}
 										variant="outline"
 									>

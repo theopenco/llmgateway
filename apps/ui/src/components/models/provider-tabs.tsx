@@ -42,7 +42,7 @@ export function ProviderTabs({
 							className="gap-2"
 						>
 							{ProviderIcon && <ProviderIcon className="h-4 w-4" />}
-							{providerInfo?.name || providerId}
+							{providerInfo?.name ?? providerId}
 						</Button>
 					</Link>
 				);

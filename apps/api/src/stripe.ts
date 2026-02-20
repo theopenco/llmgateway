@@ -130,7 +130,7 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 			hasMetadata: !!eventData.metadata,
 			customer: eventData.customer,
 			subscription: eventData.subscription,
-			lineItemsCount: eventData.lines?.data?.length || 0,
+			lineItemsCount: eventData.lines?.data?.length ?? 0,
 		});
 		return null;
 	}
@@ -186,7 +186,7 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 	try {
 		const body = await c.req.raw.text();
-		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
 		const event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
 
@@ -313,9 +313,9 @@ async function handleCheckoutSessionCompleted(
 					.values({
 						organizationId,
 						type: "dev_plan_start",
-						amount: ((session.amount_total || 0) / 100).toString(),
+						amount: ((session.amount_total ?? 0) / 100).toString(),
 						creditAmount: creditsLimit.toString(),
-						currency: (session.currency || "USD").toUpperCase(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
 						description: `Dev Plan ${devPlanTier.toUpperCase()} started via Stripe Checkout`,
@@ -336,10 +336,10 @@ async function handleCheckoutSessionCompleted(
 						lineItems: [
 							{
 								description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
-								amount: (session.amount_total || 0) / 100,
+								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
-						currency: (session.currency || "USD").toUpperCase(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 					});
 				} catch (e) {
 					logger.error(
@@ -414,8 +414,8 @@ async function handleCheckoutSessionCompleted(
 					.values({
 						organizationId,
 						type: "subscription_start",
-						amount: ((session.amount_total || 0) / 100).toString(),
-						currency: (session.currency || "USD").toUpperCase(),
+						amount: ((session.amount_total ?? 0) / 100).toString(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
 						description: "Pro subscription started via Stripe Checkout",
@@ -436,10 +436,10 @@ async function handleCheckoutSessionCompleted(
 						lineItems: [
 							{
 								description: "Pro Subscription",
-								amount: (session.amount_total || 0) / 100,
+								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
-						currency: (session.currency || "USD").toUpperCase(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 					});
 				} catch (e) {
 					logger.error(
@@ -734,7 +734,7 @@ async function handlePaymentIntentFailed(
 
 	// Extract error details from Stripe
 	const lastPaymentError = paymentIntent.last_payment_error;
-	const errorMessage = lastPaymentError?.message || "Unknown error";
+	const errorMessage = lastPaymentError?.message ?? "Unknown error";
 	const errorCode = lastPaymentError?.code;
 	const declineCode = lastPaymentError?.decline_code;
 
@@ -919,9 +919,9 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 
 	// Calculate refund amounts
 	const refundAmountInDollars = amount_refunded / 100;
-	const originalAmount = Number.parseFloat(originalTransaction.amount || "0");
+	const originalAmount = Number.parseFloat(originalTransaction.amount ?? "0");
 	const originalCreditAmount = Number.parseFloat(
-		originalTransaction.creditAmount || "0",
+		originalTransaction.creditAmount ?? "0",
 	);
 
 	// Calculate proportional credit refund
@@ -955,7 +955,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		status: "completed",
 		stripePaymentIntentId: payment_intent as string,
 		relatedTransactionId: originalTransaction.id,
-		refundReason: latestRefund.reason || null,
+		refundReason: latestRefund.reason ?? null,
 		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
 	});
 

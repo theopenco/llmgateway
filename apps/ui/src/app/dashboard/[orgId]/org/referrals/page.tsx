@@ -35,7 +35,7 @@ async function fetchTransactions(orgId: string): Promise<TransactionsData> {
 		},
 	);
 
-	return data || { transactions: [] };
+	return data ?? { transactions: [] };
 }
 
 async function fetchReferralStats(orgId: string): Promise<ReferralStatsData> {
@@ -49,7 +49,7 @@ async function fetchReferralStats(orgId: string): Promise<ReferralStatsData> {
 		},
 	);
 
-	return data || { referredCount: 0 };
+	return data ?? { referredCount: 0 };
 }
 
 export default async function ReferralsPage({

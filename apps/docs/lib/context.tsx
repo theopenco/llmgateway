@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, use, useMemo } from "react";
 
 import type { ReactNode } from "react";
 
@@ -22,7 +22,7 @@ const ConfigContext = createContext<EnvConfig>({
 
 // Hook to use the PostHog config
 export function useConfig() {
-	return useContext(ConfigContext);
+	return use(ConfigContext);
 }
 
 // Provider component that provides the PostHog config
@@ -45,7 +45,5 @@ export function ConfigProvider({
 		[posthogKey, posthogHost],
 	);
 
-	return (
-		<ConfigContext.Provider value={config}>{children}</ConfigContext.Provider>
-	);
+	return <ConfigContext value={config}>{children}</ConfigContext>;
 }

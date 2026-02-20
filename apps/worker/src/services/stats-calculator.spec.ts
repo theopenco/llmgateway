@@ -679,6 +679,7 @@ describe("stats-calculator", () => {
 		it("should calculate and update provider statistics", async () => {
 			// Create test history data from the last 5 minutes
 			const now = new Date("2024-01-01T12:30:00.000Z");
+			// eslint-disable-next-line no-mixed-operators
 			const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
 			await db.insert(modelProviderMappingHistory).values([
@@ -723,6 +724,7 @@ describe("stats-calculator", () => {
 
 		it("should calculate and update model statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
+			// eslint-disable-next-line no-mixed-operators
 			const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
 			await db.insert(modelProviderMappingHistory).values([
@@ -755,6 +757,7 @@ describe("stats-calculator", () => {
 
 		it("should calculate and update model-provider mapping statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
+			// eslint-disable-next-line no-mixed-operators
 			const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
 			await db.insert(modelProviderMappingHistory).values([
@@ -803,6 +806,7 @@ describe("stats-calculator", () => {
 
 		it("should only process history from the last 5 minutes", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
+			// eslint-disable-next-line no-mixed-operators
 			const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
 
 			// Insert old history data (should be ignored)

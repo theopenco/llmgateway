@@ -46,6 +46,7 @@ export function DashboardLoading() {
 								<div key={i} className="flex flex-col items-center gap-2">
 									<Skeleton
 										className="w-8"
+										// eslint-disable-next-line no-mixed-operators
 										style={{ height: `${Math.random() * 150 + 50}px` }}
 									/>
 									<Skeleton className="h-3 w-12" />

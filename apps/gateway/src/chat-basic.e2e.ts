@@ -151,7 +151,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(json.usage.total_tokens).toEqual(
 					json.usage.prompt_tokens +
 						json.usage.completion_tokens +
-						(json.usage.reasoning_tokens || 0),
+						(json.usage.reasoning_tokens ?? 0),
 				);
 			},
 		);

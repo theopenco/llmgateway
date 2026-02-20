@@ -16,7 +16,7 @@ export function QuickStartSection({
 }) {
 	const [activeTab, setActiveTab] = useState<"curl" | "typescript">("curl");
 
-	const keyPlaceholder = apiKey || "YOUR_API_KEY";
+	const keyPlaceholder = apiKey ?? "YOUR_API_KEY";
 
 	const curlExample = `curl -X POST https://api.llmgateway.io/v1/chat/completions \\
   -H "Content-Type: application/json" \\
@@ -46,7 +46,7 @@ const response = await client.chat.completions.create({
 	const code = activeTab === "curl" ? curlExample : tsExample;
 
 	function copyCode() {
-		navigator.clipboard.writeText(code);
+		void navigator.clipboard.writeText(code);
 		onCopy?.();
 		toast({
 			title: "Copied to clipboard",

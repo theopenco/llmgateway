@@ -250,6 +250,7 @@ describe("logs route", () => {
 
 			for (let i = 3; i <= 60; i++) {
 				// Create logs with different timestamps, 1 minute apart
+				// eslint-disable-next-line no-mixed-operators
 				const createdAt = new Date(now.getTime() - i * 60 * 1000);
 
 				additionalLogs.push({

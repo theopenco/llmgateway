@@ -65,10 +65,10 @@ export function ModelProviderCard({
 	const [urlCopied, setUrlCopied] = useState(false);
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
-	const providerStability = provider.stability || modelStability;
+	const providerStability = provider.stability ?? modelStability;
 
 	const shareUrl = `${config.appUrl}/models/${encodeURIComponent(modelName)}/${encodeURIComponent(provider.providerId)}`;
-	const shareTitle = `${provider.providerInfo?.name || provider.providerId} - ${modelName} on LLM Gateway`;
+	const shareTitle = `${provider.providerInfo?.name ?? provider.providerId} - ${modelName} on LLM Gateway`;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -125,13 +125,13 @@ export function ModelProviderCard({
 							{ProviderIcon ? (
 								<ProviderIcon className="h-10 w-10" />
 							) : (
-								provider.providerInfo?.name?.charAt(0) || "?"
+								(provider.providerInfo?.name?.charAt(0) ?? "?")
 							)}
 						</div>
 						<div>
 							<div className="flex items-center gap-2 mb-1">
 								<h3 className="font-semibold">
-									{provider.providerInfo?.name || provider.providerId}
+									{provider.providerInfo?.name ?? provider.providerId}
 								</h3>
 								{shouldShowStabilityWarning(providerStability) && (
 									<AlertTriangle className="h-4 w-4 text-orange-500" />
@@ -233,12 +233,12 @@ export function ModelProviderCard({
 					<div>
 						<div className="text-muted-foreground mb-1">Stability</div>
 						<Badge className="text-xs px-2 py-0.5 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-							{provider.stability || "STABLE"}
+							{provider.stability ?? "STABLE"}
 						</Badge>
 					</div>
 				</div>
 
-				{(provider.deprecatedAt || provider.deactivatedAt) && (
+				{(provider.deprecatedAt ?? provider.deactivatedAt) && (
 					<div className="flex flex-wrap gap-2 mb-4">
 						{provider.deprecatedAt && (
 							<Badge

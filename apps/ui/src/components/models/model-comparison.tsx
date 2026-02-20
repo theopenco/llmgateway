@@ -414,7 +414,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 						<span
 							className="h-2.5 w-2.5 rounded-full"
 							style={{
-								backgroundColor: provider.providerInfo?.color || "#9ca3af",
+								backgroundColor: provider.providerInfo?.color ?? "#9ca3af",
 							}}
 						/>
 						<span className="font-medium">
@@ -523,7 +523,7 @@ function renderRowValue(
 		case "modelId":
 			return detail.id;
 		case "description":
-			return detail.model.description || PLACEHOLDER;
+			return detail.model.description ?? PLACEHOLDER;
 		case "family":
 			return detail.family;
 		case "releasedAt":
@@ -548,7 +548,7 @@ function renderRowValue(
 		}
 		case "inputPrice": {
 			const summary =
-				getProviderPricingSummary(selectedProvider, "inputPrice") ||
+				getProviderPricingSummary(selectedProvider, "inputPrice") ??
 				detail.aggregated.inputPrice;
 			const hasTiered = selectedProvider
 				? selectedProvider.pricingTiers &&
@@ -558,7 +558,7 @@ function renderRowValue(
 		}
 		case "outputPrice": {
 			const summary =
-				getProviderPricingSummary(selectedProvider, "outputPrice") ||
+				getProviderPricingSummary(selectedProvider, "outputPrice") ??
 				detail.aggregated.outputPrice;
 			const hasTiered = selectedProvider
 				? selectedProvider.pricingTiers &&
@@ -568,19 +568,19 @@ function renderRowValue(
 		}
 		case "cachedInputPrice": {
 			const summary =
-				getProviderPricingSummary(selectedProvider, "cachedInputPrice") ||
+				getProviderPricingSummary(selectedProvider, "cachedInputPrice") ??
 				detail.aggregated.cachedInputPrice;
 			return <PricingCell summary={summary} />;
 		}
 		case "imageInputPrice": {
 			const summary =
-				getProviderPricingSummary(selectedProvider, "imageInputPrice") ||
+				getProviderPricingSummary(selectedProvider, "imageInputPrice") ??
 				detail.aggregated.imageInputPrice;
 			return <PricingCell summary={summary} />;
 		}
 		case "requestPrice": {
 			const summary =
-				getProviderPricingSummary(selectedProvider, "requestPrice") ||
+				getProviderPricingSummary(selectedProvider, "requestPrice") ??
 				detail.aggregated.requestPrice;
 			return <PricingCell summary={summary} />;
 		}
@@ -831,7 +831,7 @@ export function ModelComparison() {
 									<Button asChild size="sm">
 										<a
 											href={buildPlaygroundUrl(
-												queryLeftProviderId ||
+												queryLeftProviderId ??
 													leftModel.providers[0]?.providerId,
 												leftModel.id,
 											)}
@@ -855,7 +855,7 @@ export function ModelComparison() {
 									<Button asChild size="sm">
 										<a
 											href={buildPlaygroundUrl(
-												queryRightProviderId ||
+												queryRightProviderId ??
 													rightModel.providers[0]?.providerId,
 												rightModel.id,
 											)}

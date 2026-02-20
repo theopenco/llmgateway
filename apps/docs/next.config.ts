@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
 
-	async rewrites() {
+	rewrites() {
 		return [
 			{
 				source: "/:path*.mdx",

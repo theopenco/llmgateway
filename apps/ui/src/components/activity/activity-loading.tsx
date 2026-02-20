@@ -47,6 +47,7 @@ export function ActivityLoading() {
 								>
 									<div
 										className="w-full flex flex-col justify-end"
+										// eslint-disable-next-line no-mixed-operators
 										style={{ height: `${Math.random() * 80 + 20}%` }}
 									>
 										<Skeleton className="w-full h-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t" />

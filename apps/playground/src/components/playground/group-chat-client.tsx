@@ -109,7 +109,7 @@ export default function GroupChatClient({
 				// ignore for now
 			}
 		};
-		ensureKey();
+		void ensureKey();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const addModel = (modelId: string) => {
@@ -326,7 +326,7 @@ export default function GroupChatClient({
 	};
 
 	const stopConversation = () => {
-		stop();
+		void stop();
 		setIsStreaming(false);
 		turnCounterRef.current = maxTurns; // Stop the conversation
 		stoppedRef.current = true;
@@ -383,7 +383,7 @@ export default function GroupChatClient({
 				<ChatSidebar
 					onNewChat={clearConversation}
 					onChatSelect={() => {}}
-					currentChatId={currentChatId || undefined}
+					currentChatId={currentChatId ?? undefined}
 					clearMessages={clearConversation}
 					isLoading={isStreaming}
 					organizations={organizations}
@@ -479,13 +479,13 @@ export default function GroupChatClient({
 														/>
 													) : null}
 													<span className="max-w-[220px] truncate">
-														{model?.id || modelId}
+														{model?.id ?? modelId}
 													</span>
 													<button
 														type="button"
 														onClick={() => removeModel(modelId)}
 														className="rounded-full hover:bg-foreground/10 transition-colors p-1"
-														aria-label={`Remove ${model?.id || modelId}`}
+														aria-label={`Remove ${model?.id ?? modelId}`}
 													>
 														<X className="size-3" />
 													</button>

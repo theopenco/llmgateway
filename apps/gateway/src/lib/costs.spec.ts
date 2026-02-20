@@ -311,6 +311,7 @@ describe("calculateCosts", () => {
 		// promptTokens should include image input tokens
 		expect(result.promptTokens).toBe(2120); // 1000 text + 1120 image
 		// inputCost includes both text and image input costs
+		// eslint-disable-next-line no-mixed-operators
 		expect(result.inputCost).toBeCloseTo(1000 * (2 / 1e6) + 0.00224);
 		// totalCost = inputCost + outputCost (image costs are folded into input/output costs)
 		expect(result.totalCost).toBeCloseTo(

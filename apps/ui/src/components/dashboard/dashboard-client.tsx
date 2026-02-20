@@ -118,7 +118,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject?.id || "" },
+				query: { projectId: selectedProject?.id ?? "" },
 			},
 		},
 		{
@@ -137,10 +137,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		router.push(`${buildUrl()}?${params.toString()}`);
 	};
 
-	const activityData = data?.activity || [];
+	const activityData = data?.activity ?? [];
 
 	const totalRequests =
-		activityData.reduce((sum, day) => sum + day.requestCount, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.requestCount, 0) ?? 0;
 
 	// Track when user reaches 50+ calls for invite banner eligibility
 	useEffect(() => {
@@ -148,25 +148,25 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 			localStorage.setItem("user_has_50_plus_calls", "true");
 		}
 	}, [totalRequests]);
-	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) || 0;
+	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) ?? 0;
 	const totalInputCost =
-		activityData.reduce((sum, day) => sum + day.inputCost, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.inputCost, 0) ?? 0;
 	const totalOutputCost =
-		activityData.reduce((sum, day) => sum + day.outputCost, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.outputCost, 0) ?? 0;
 	const totalDataStorageCost =
-		activityData.reduce((sum, day) => sum + day.dataStorageCost, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.dataStorageCost, 0) ?? 0;
 	const totalRequestCost =
-		activityData.reduce((sum, day) => sum + day.requestCost, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.requestCost, 0) ?? 0;
 	const totalSavings =
-		activityData.reduce((sum, day) => sum + day.discountSavings, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.discountSavings, 0) ?? 0;
 	const totalInputTokens =
-		activityData.reduce((sum, day) => sum + day.inputTokens, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.inputTokens, 0) ?? 0;
 	const totalOutputTokens =
-		activityData.reduce((sum, day) => sum + day.outputTokens, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.outputTokens, 0) ?? 0;
 	const totalCachedTokens =
-		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) ?? 0;
 	const totalCachedInputCost =
-		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) || 0;
+		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) ?? 0;
 
 	const { mostUsedModel, mostUsedProvider } = (() => {
 		const modelCostMap = new Map<string, { cost: number; provider: string }>();

@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
-import { models } from "@llmgateway/models";
 import { writeFileSync, appendFileSync, existsSync, unlinkSync } from "fs";
+
+import { models } from "@llmgateway/models";
 
 const GATEWAY_URL = "http://localhost:4001/v1/chat/completions";
 const AUTH_TOKEN = "test-token";
@@ -46,8 +47,8 @@ const responseSchema = {
 };
 
 function initFiles(): void {
-	if (existsSync(SUCCESS_FILE)) unlinkSync(SUCCESS_FILE);
-	if (existsSync(FAILED_FILE)) unlinkSync(FAILED_FILE);
+	if (existsSync(SUCCESS_FILE)) {unlinkSync(SUCCESS_FILE);}
+	if (existsSync(FAILED_FILE)) {unlinkSync(FAILED_FILE);}
 
 	writeFileSync(SUCCESS_FILE, "id,date\n");
 	writeFileSync(FAILED_FILE, "id,error\n");
@@ -117,7 +118,7 @@ function validateDate(dateStr: string): Date {
 }
 
 async function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+	return await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function main(): Promise<void> {
@@ -154,4 +155,4 @@ async function main(): Promise<void> {
 	console.log(`Results saved to ${SUCCESS_FILE} and ${FAILED_FILE}`);
 }
 
-main();
+void main();

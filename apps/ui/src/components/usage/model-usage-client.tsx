@@ -47,10 +47,10 @@ export function ModelUsageClient({
 	);
 
 	const apiKeys =
-		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") || [];
+		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 
 	// Get apiKeyId from URL
-	const apiKeyId = searchParams.get("apiKeyId") || undefined;
+	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
 
 	// Function to update apiKeyId in URL
 	const updateApiKeyIdInUrl = (newApiKeyId: string | undefined) => {
@@ -70,7 +70,7 @@ export function ModelUsageClient({
 					<h2 className="text-3xl font-bold tracking-tight">Usage by model</h2>
 					<div className="flex items-center space-x-2">
 						<Select
-							value={apiKeyId || "all"}
+							value={apiKeyId ?? "all"}
 							onValueChange={(value) =>
 								updateApiKeyIdInUrl(value === "all" ? undefined : value)
 							}

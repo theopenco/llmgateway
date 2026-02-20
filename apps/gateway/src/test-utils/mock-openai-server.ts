@@ -162,14 +162,14 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 
 	// Get the user's message to include in the response
 	const userMessage =
-		body.input?.find?.((msg: any) => msg.role === "user")?.content || "";
+		body.input?.find?.((msg: any) => msg.role === "user")?.content ?? "";
 
 	// Create a Responses API format response
 	const response = {
 		id: "resp-123",
 		object: "response",
 		created_at: Math.floor(Date.now() / 1000),
-		model: body.model || "gpt-5-nano",
+		model: body.model ?? "gpt-5-nano",
 		output: [
 			{
 				type: "message",
@@ -209,7 +209,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 
 	// Get the user's message to include in the response
 	const userMessage =
-		body.messages.find((msg: any) => msg.role === "user")?.content || "";
+		body.messages.find((msg: any) => msg.role === "user")?.content ?? "";
 
 	// Check if this request should trigger a specific HTTP status code error
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
@@ -296,7 +296,7 @@ mockOpenAIServer.post(
 
 		const userMessage =
 			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
-				?.text || "";
+				?.text ?? "";
 
 		return c.json({
 			candidates: [
@@ -346,7 +346,7 @@ mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
 
 	// Get the user's message
 	const userMessage =
-		body.contents?.find?.((c: any) => c.role === "user")?.parts?.[0]?.text ||
+		body.contents?.find?.((c: any) => c.role === "user")?.parts?.[0]?.text ??
 		"";
 
 	// Return Google AI Studio format response

@@ -159,7 +159,7 @@ function getMostUnstableStability(
 	const providers = getModelProviders(model);
 	const allStabilities = [
 		model.stability,
-		...providers.map((p) => p.stability || model.stability),
+		...providers.map((p) => p.stability ?? model.stability),
 	].filter(Boolean) as StabilityLevel[];
 
 	for (const level of stabilityLevels) {
@@ -250,7 +250,7 @@ export function MultiModelSelector({
 										}}
 									/>
 								)}
-								{model?.name || modelId}
+								{model?.name ?? modelId}
 								<Button
 									variant="ghost"
 									size="sm"
@@ -297,7 +297,7 @@ export function MultiModelSelector({
 									return (
 										<CommandItem
 											key={model.id}
-											value={`${model.id} ${model.name || ""}`}
+											value={`${model.id} ${model.name ?? ""}`}
 											onSelect={() => handleModelToggle(model.id)}
 											className="flex items-center justify-between py-3 cursor-pointer"
 										>
@@ -318,7 +318,7 @@ export function MultiModelSelector({
 														})}
 												</div>
 												<span className="font-medium">
-													{model.name || model.id}
+													{model.name ?? model.id}
 												</span>
 												{shouldShowStabilityWarning(mostUnstableStability) && (
 													<AlertTriangle className="h-4 w-4 text-orange-500" />

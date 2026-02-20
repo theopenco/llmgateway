@@ -20,14 +20,14 @@ export function extractReasoning(data: any, provider: Provider): string {
 		case "google-ai-studio":
 		case "google-vertex":
 		case "obsidian": {
-			const parts = data.candidates?.[0]?.content?.parts || [];
+			const parts = data.candidates?.[0]?.content?.parts ?? [];
 			const reasoningParts = parts.filter((part: any) => part.thought);
-			return reasoningParts.map((part: any) => part.text).join("") || "";
+			return reasoningParts.map((part: any) => part.text).join("") ?? "";
 		}
 		default: // OpenAI format (includes GLM/ZAI which use reasoning_content)
 			return (
-				data.choices?.[0]?.delta?.reasoning ||
-				data.choices?.[0]?.delta?.reasoning_content ||
+				data.choices?.[0]?.delta?.reasoning ??
+				data.choices?.[0]?.delta?.reasoning_content ??
 				""
 			);
 	}

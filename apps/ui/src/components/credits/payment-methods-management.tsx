@@ -47,7 +47,7 @@ export function PaymentMethodsManagement() {
 	const { mutate: deleteMutation, isPending: isDeletePending } =
 		api.useMutation("delete", "/payments/payment-methods/{id}");
 
-	const paymentMethods = data?.paymentMethods || [];
+	const paymentMethods = data?.paymentMethods ?? [];
 
 	// Handle loading state
 	if (isLoading) {
@@ -76,7 +76,9 @@ export function PaymentMethodsManagement() {
 			{ body: { paymentMethodId } },
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({ queryKey: paymentMethodsQueryKey });
+					void queryClient.invalidateQueries({
+						queryKey: paymentMethodsQueryKey,
+					});
 
 					toast({
 						title: "Success",
@@ -102,7 +104,9 @@ export function PaymentMethodsManagement() {
 			},
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({ queryKey: paymentMethodsQueryKey });
+					void queryClient.invalidateQueries({
+						queryKey: paymentMethodsQueryKey,
+					});
 
 					toast({
 						title: "Success",
@@ -237,7 +241,7 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 			if (result.error) {
 				toast({
 					title: "Error",
-					description: result.error.message || "An error occurred",
+					description: result.error.message ?? "An error occurred",
 					variant: "destructive",
 				});
 			} else {

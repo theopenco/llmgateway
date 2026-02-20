@@ -1,13 +1,7 @@
 "use client";
 
 import { ChevronDownIcon } from "lucide-react";
-import {
-	createContext,
-	useContext,
-	useState,
-	useMemo,
-	useCallback,
-} from "react";
+import { createContext, use, useState, useMemo, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +30,7 @@ export interface WebPreviewContextValue {
 const WebPreviewContext = createContext<WebPreviewContextValue | null>(null);
 
 const useWebPreview = () => {
-	const context = useContext(WebPreviewContext);
+	const context = use(WebPreviewContext);
 	if (!context) {
 		throw new Error("WebPreview components must be used within a WebPreview");
 	}
@@ -77,7 +71,7 @@ export const WebPreview = ({
 	);
 
 	return (
-		<WebPreviewContext.Provider value={contextValue}>
+		<WebPreviewContext value={contextValue}>
 			<div
 				className={cn(
 					"flex size-full flex-col rounded-lg border bg-card",
@@ -87,7 +81,7 @@ export const WebPreview = ({
 			>
 				{children}
 			</div>
-		</WebPreviewContext.Provider>
+		</WebPreviewContext>
 	);
 };
 

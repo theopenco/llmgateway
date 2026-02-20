@@ -64,7 +64,7 @@ export default function Login() {
 
 	useEffect(() => {
 		if (window.PublicKeyCredential) {
-			signIn.passkey({ autoFill: true }).then((res) => {
+			void signIn.passkey({ autoFill: true }).then((res) => {
 				if (res?.data) {
 					queryClient.clear();
 					posthog.capture("user_logged_in", { method: "passkey" });
@@ -75,13 +75,12 @@ export default function Login() {
 						return;
 					}
 					toast({
-						title: res.error.message || "Failed to sign in with passkey",
+						title: res.error.message ?? "Failed to sign in with passkey",
 						variant: "destructive",
 					});
 				}
 			});
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []); // Only run once on mount for autofill
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -107,7 +106,7 @@ export default function Login() {
 				},
 				onError: (ctx) => {
 					toast({
-						title: ctx?.error?.message || "An unknown error occurred",
+						title: ctx?.error?.message ?? "An unknown error occurred",
 						variant: "destructive",
 					});
 				},
@@ -116,7 +115,7 @@ export default function Login() {
 
 		if (error) {
 			toast({
-				title: error.message || "An unknown error occurred",
+				title: error.message ?? "An unknown error occurred",
 				variant: "destructive",
 			});
 		}
@@ -130,7 +129,7 @@ export default function Login() {
 			const res = await signIn.passkey();
 			if (res?.error) {
 				toast({
-					title: res.error.message || "Failed to sign in with passkey",
+					title: res.error.message ?? "Failed to sign in with passkey",
 					variant: "destructive",
 				});
 				return;
@@ -251,7 +250,7 @@ export default function Login() {
 									if (res?.error) {
 										toast({
 											title:
-												res.error.message || "Failed to sign in with GitHub",
+												res.error.message ?? "Failed to sign in with GitHub",
 											variant: "destructive",
 										});
 									}
@@ -284,7 +283,7 @@ export default function Login() {
 									if (res?.error) {
 										toast({
 											title:
-												res.error.message || "Failed to sign in with Google",
+												res.error.message ?? "Failed to sign in with Google",
 											variant: "destructive",
 										});
 									}

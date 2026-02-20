@@ -103,7 +103,7 @@ export function ApiKeysList({
 		{
 			params: {
 				query: {
-					projectId: selectedProject?.id || "",
+					projectId: selectedProject?.id ?? "",
 					filter: creatorFilter,
 				},
 			},
@@ -141,7 +141,7 @@ export function ApiKeysList({
 		"/keys/api/limit/{id}",
 	);
 
-	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") || [];
+	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 	const activeKeys = allKeys.filter((key) => key.status === "active");
 	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
 	const planLimits = data?.planLimits;
@@ -232,7 +232,7 @@ export function ApiKeysList({
 						},
 					}).queryKey;
 
-					queryClient.invalidateQueries({ queryKey });
+					void queryClient.invalidateQueries({ queryKey });
 
 					toast({ title: "API key deleted successfully." });
 				},
@@ -263,7 +263,7 @@ export function ApiKeysList({
 						},
 					}).queryKey;
 
-					queryClient.invalidateQueries({ queryKey });
+					void queryClient.invalidateQueries({ queryKey });
 
 					toast({
 						title: "API Key Status Updated",
@@ -292,7 +292,7 @@ export function ApiKeysList({
 						},
 					}).queryKey;
 
-					queryClient.invalidateQueries({ queryKey });
+					void queryClient.invalidateQueries({ queryKey });
 
 					toast({
 						title: "API Key Usage Limit Updated",
@@ -475,12 +475,12 @@ export function ApiKeysList({
 									<Tooltip>
 										<TooltipTrigger asChild>
 											<span className="text-muted-foreground cursor-help">
-												{key.creator?.name || key.creator?.email || "Unknown"}
+												{key.creator?.name ?? key.creator?.email ?? "Unknown"}
 											</span>
 										</TooltipTrigger>
 										<TooltipContent>
 											<p className="max-w-xs text-xs">
-												{key.creator?.email || "No email available"}
+												{key.creator?.email ?? "No email available"}
 											</p>
 										</TooltipContent>
 									</Tooltip>
@@ -887,7 +887,7 @@ export function ApiKeysList({
 								Created By
 							</div>
 							<div className="text-sm">
-								{key.creator?.name || key.creator?.email || "Unknown"}
+								{key.creator?.name ?? key.creator?.email ?? "Unknown"}
 							</div>
 						</div>
 					</div>

@@ -27,7 +27,7 @@ export async function convertImagesToBase64(
 					return image;
 				}
 
-				const contentType = response.headers.get("content-type") || "image/png";
+				const contentType = response.headers.get("content-type") ?? "image/png";
 				const arrayBuffer = await response.arrayBuffer();
 				const base64 = Buffer.from(arrayBuffer).toString("base64");
 

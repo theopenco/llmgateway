@@ -189,7 +189,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			// Validate annotation structure in streaming
 			const firstAnnotationChunk = annotationChunks[0];
 			const annotations =
-				firstAnnotationChunk.choices[0].delta.annotations || [];
+				firstAnnotationChunk.choices[0].delta.annotations ?? [];
 			expect(Array.isArray(annotations)).toBe(true);
 			expect(annotations.length).toBeGreaterThan(0);
 

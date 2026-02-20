@@ -274,7 +274,7 @@ export function McpContent() {
 	const [copiedConfig, setCopiedConfig] = useState<string | null>(null);
 
 	const copyToClipboard = useCallback((text: string, key: string) => {
-		navigator.clipboard.writeText(text);
+		void navigator.clipboard.writeText(text);
 		setCopiedConfig(key);
 		setTimeout(() => setCopiedConfig(null), 2000);
 	}, []);

@@ -95,16 +95,16 @@ export async function generateMetadata({
 
 	return {
 		title: `${migration.title} - Migration Guides - LLM Gateway`,
-		description: migration.description || "Migration guide for LLM Gateway",
+		description: migration.description ?? "Migration guide for LLM Gateway",
 		openGraph: {
 			title: `${migration.title} - Migration Guides - LLM Gateway`,
-			description: migration.description || "Migration guide for LLM Gateway",
+			description: migration.description ?? "Migration guide for LLM Gateway",
 			type: "article",
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: `${migration.title} - Migration Guides - LLM Gateway`,
-			description: migration.description || "Migration guide for LLM Gateway",
+			description: migration.description ?? "Migration guide for LLM Gateway",
 		},
 	};
 }

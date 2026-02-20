@@ -72,7 +72,7 @@ export function Feedback({
 			return;
 		}
 
-		startTransition(async () => {
+		startTransition(() => {
 			const feedback: Feedback = {
 				opinion,
 				message,
@@ -175,7 +175,9 @@ export function Feedback({
 							autoFocus
 							required
 							value={message}
-							onChange={(e) => setMessage(e.target.value)}
+							onChange={(e) => {
+								setMessage(e.target.value);
+							}}
 							className="border rounded-lg bg-fd-secondary text-fd-secondary-foreground p-3 resize-none focus-visible:outline-none placeholder:text-fd-muted-foreground"
 							placeholder="Leave your feedback..."
 							onKeyDown={(e) => {

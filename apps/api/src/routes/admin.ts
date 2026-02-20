@@ -339,6 +339,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	let startDate: Date | null = null;
 	if (days !== null) {
+		// eslint-disable-next-line no-mixed-operators
 		startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 		startDate.setUTCHours(0, 0, 0, 0);
 	}
@@ -517,6 +518,7 @@ admin.openapi(getTimeseries, async (c) => {
 			.from(tables.user);
 		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
 	} else {
+		// eslint-disable-next-line no-mixed-operators
 		startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 	}
 
@@ -631,6 +633,7 @@ admin.openapi(getTimeseries, async (c) => {
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
 	);
 	for (let i = 0; i < totalDays; i++) {
+		// eslint-disable-next-line no-mixed-operators
 		const current = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
 		const dateStr = current.toISOString().split("T")[0];
 		const dailySignups = signupsMap.get(dateStr) ?? 0;
@@ -827,6 +830,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		"365d": 365 * 24,
 	};
 	const hours = windowHours[windowParam] ?? 24;
+	// eslint-disable-next-line no-mixed-operators
 	const startDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
 	let totalRequests = 0;
@@ -1238,6 +1242,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		"365d": 365 * 24,
 	};
 	const hours = windowHours[windowParam] ?? 24;
+	// eslint-disable-next-line no-mixed-operators
 	const startDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
 	let totalRequests = 0;
@@ -2060,7 +2065,7 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 					modelId: mapping.modelName, // The provider-specific model name
 					modelName: mapping.modelName,
 					rootModelId: model.id, // The root model ID
-					rootModelName: (model as { name?: string }).name || model.id,
+					rootModelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}

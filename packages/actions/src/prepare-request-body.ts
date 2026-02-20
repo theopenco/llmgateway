@@ -297,7 +297,7 @@ function transformContentForResponsesApi(content: any, role: string): any {
 			if (part.type === "image_url") {
 				// Transform "image_url" to "input_image"
 				// The Responses API expects the image URL directly or base64 data
-				const imageUrl = part.image_url?.url || part.image_url;
+				const imageUrl = part.image_url?.url ?? part.image_url;
 
 				// Check if it's a base64 data URL
 				if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
@@ -587,7 +587,6 @@ export async function prepareRequestBody(
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
 	if (usedModel.startsWith("gpt-5")) {
-		// eslint-disable-next-line no-param-reassign
 		temperature = 1;
 	}
 
@@ -597,7 +596,6 @@ export async function prepareRequestBody(
 		max_tokens !== undefined &&
 		max_tokens < 16
 	) {
-		// eslint-disable-next-line no-param-reassign
 		max_tokens = 16;
 	}
 
@@ -635,7 +633,7 @@ export async function prepareRequestBody(
 					model: usedModel,
 					input: transformedMessages,
 					reasoning: {
-						effort: reasoning_effort || defaultEffort,
+						effort: reasoning_effort ?? defaultEffort,
 						summary: "detailed",
 					},
 				};
@@ -662,9 +660,7 @@ export async function prepareRequestBody(
 
 				// Add web search tool for Responses API
 				if (webSearchTool) {
-					if (!responsesBody.tools) {
-						responsesBody.tools = [];
-					}
+					responsesBody.tools ??= [];
 					const webSearch: any = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
@@ -747,9 +743,7 @@ export async function prepareRequestBody(
 							Object.keys(webSearchOptions).length > 0 ? webSearchOptions : {};
 					} else {
 						// Regular models with web search support use web_search tool
-						if (!requestBody.tools) {
-							requestBody.tools = [];
-						}
+						requestBody.tools ??= [];
 						const webSearch: any = { type: "web_search" };
 						if (webSearchTool.user_location) {
 							webSearch.user_location = webSearchTool.user_location;
@@ -801,9 +795,7 @@ export async function prepareRequestBody(
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
 			if (webSearchTool) {
-				if (!requestBody.tools) {
-					requestBody.tools = [];
-				}
+				requestBody.tools ??= [];
 				requestBody.tools.push({
 					type: "web_search",
 					web_search: {
@@ -982,9 +974,7 @@ export async function prepareRequestBody(
 			// Add web search tool for Anthropic
 			// Anthropic uses the web_search_20250305 tool type
 			if (webSearchTool) {
-				if (!requestBody.tools) {
-					requestBody.tools = [];
-				}
+				requestBody.tools ??= [];
 				const webSearch: any = {
 					type: "web_search_20250305",
 					name: "web_search",
@@ -1035,9 +1025,7 @@ export async function prepareRequestBody(
 			}
 			// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
 			if (effort !== undefined) {
-				if (!requestBody.output_config) {
-					requestBody.output_config = {};
-				}
+				requestBody.output_config ??= {};
 				requestBody.output_config.effort = effort;
 			}
 
@@ -1156,7 +1144,7 @@ export async function prepareRequestBody(
 							toolUseId: msg.tool_call_id,
 							content: [
 								{
-									text: msg.content || "",
+									text: msg.content ?? "",
 								},
 							],
 						},
@@ -1297,8 +1285,7 @@ export async function prepareRequestBody(
 					}
 				};
 				const thinkingBudget = getThinkingBudget(reasoning_effort);
-				requestBody.additionalModelRequestFields =
-					requestBody.additionalModelRequestFields || {};
+				requestBody.additionalModelRequestFields ??= {};
 				requestBody.additionalModelRequestFields.thinking = {
 					type: "enabled",
 					budget_tokens: thinkingBudget,
@@ -1363,7 +1350,7 @@ export async function prepareRequestBody(
 							functionDeclarations: functionTools.map((tool) => {
 								// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
 								const cleanParameters = stripUnsupportedSchemaProperties(
-									tool.function.parameters || {},
+									tool.function.parameters ?? {},
 								);
 								return {
 									name: tool.function.name,
@@ -1378,9 +1365,7 @@ export async function prepareRequestBody(
 
 			// Add web search tool for Google (google_search grounding)
 			if (webSearchTool) {
-				if (!requestBody.tools) {
-					requestBody.tools = [];
-				}
+				requestBody.tools ??= [];
 				requestBody.tools.push({ google_search: {} });
 			}
 

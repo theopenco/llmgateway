@@ -15,27 +15,32 @@ export const generateMockActivityData = () => {
 			inputTokens: Math.floor(Math.random() * 50000) + 10000,
 			outputTokens: Math.floor(Math.random() * 30000) + 5000,
 			totalTokens: Math.floor(Math.random() * 80000) + 15000,
+			// eslint-disable-next-line no-mixed-operators
 			cost: Math.random() * 5 + 0.5,
 			errorCount: Math.floor(Math.random() * 10),
 			cacheCount: Math.floor(Math.random() * 50) + 10,
 			errorRate: Math.random() * 2,
+			// eslint-disable-next-line no-mixed-operators
 			cacheRate: Math.random() * 20 + 5,
 			modelBreakdown: [
 				{
 					id: "anthropic/claude-3-5-sonnet-20241022",
 					requestCount: Math.floor(Math.random() * 200) + 50,
+					// eslint-disable-next-line no-mixed-operators
 					cost: Math.random() * 2 + 0.2,
 					totalTokens: Math.floor(Math.random() * 40000) + 8000,
 				},
 				{
 					id: "openai/gpt-4o",
 					requestCount: Math.floor(Math.random() * 150) + 30,
+					// eslint-disable-next-line no-mixed-operators
 					cost: Math.random() * 1.5 + 0.1,
 					totalTokens: Math.floor(Math.random() * 30000) + 5000,
 				},
 				{
 					id: "google-ai-studio/gemini-1.5-pro",
 					requestCount: Math.floor(Math.random() * 100) + 20,
+					// eslint-disable-next-line no-mixed-operators
 					cost: Number(Math.random()) * 1 + 0.05,
 					totalTokens: Math.floor(Math.random() * 20000) + 3000,
 				},
@@ -58,6 +63,7 @@ export const mockMetrics = {
 export const mockLogs = [
 	{
 		id: "log-1",
+		// eslint-disable-next-line no-mixed-operators
 		createdAt: new Date(Date.now() - 1000 * 60 * 5),
 		content:
 			"LLM Gateway is a unified API for accessing multiple AI models. It provides intelligent routing, cost optimization, and comprehensive analytics.",
@@ -80,6 +86,7 @@ export const mockLogs = [
 	},
 	{
 		id: "log-2",
+		// eslint-disable-next-line no-mixed-operators
 		createdAt: new Date(Date.now() - 1000 * 60 * 15),
 		content:
 			"You can integrate LLM Gateway using the OpenAI SDK. Just change the base URL and API key.",
@@ -103,6 +110,7 @@ export const mockLogs = [
 	},
 	{
 		id: "log-3",
+		// eslint-disable-next-line no-mixed-operators
 		createdAt: new Date(Date.now() - 1000 * 60 * 30),
 		content: "",
 		unifiedFinishReason: "error",
@@ -136,6 +144,7 @@ export const mockApiKeys = [
 		keyPrefix: "llmgw_prod_",
 		lastFour: "a8f3",
 		createdAt: new Date("2024-01-15"),
+		// eslint-disable-next-line no-mixed-operators
 		lastUsed: new Date(Date.now() - 1000 * 60 * 30),
 		usageCount: 15432,
 		status: "active",
@@ -146,6 +155,7 @@ export const mockApiKeys = [
 		keyPrefix: "llmgw_dev_",
 		lastFour: "9k2m",
 		createdAt: new Date("2024-02-20"),
+		// eslint-disable-next-line no-mixed-operators
 		lastUsed: new Date(Date.now() - 1000 * 60 * 60 * 2),
 		usageCount: 2341,
 		status: "active",
@@ -156,6 +166,7 @@ export const mockApiKeys = [
 		keyPrefix: "llmgw_test_",
 		lastFour: "7p1q",
 		createdAt: new Date("2024-03-10"),
+		// eslint-disable-next-line no-mixed-operators
 		lastUsed: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7),
 		usageCount: 456,
 		status: "active",
@@ -168,6 +179,7 @@ export const mockProviderKeys = [
 		provider: "openai",
 		name: "OpenAI Production",
 		status: "verified",
+		// eslint-disable-next-line no-mixed-operators
 		lastUsed: new Date(Date.now() - 1000 * 60 * 15),
 	},
 	{
@@ -175,6 +187,7 @@ export const mockProviderKeys = [
 		provider: "anthropic",
 		name: "Anthropic Main",
 		status: "verified",
+		// eslint-disable-next-line no-mixed-operators
 		lastUsed: new Date(Date.now() - 1000 * 60 * 45),
 	},
 	{

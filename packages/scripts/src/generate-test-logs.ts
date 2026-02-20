@@ -10,8 +10,9 @@
  *   DATABASE_URL - PostgreSQL connection string
  */
 
-import { db, tables } from "@llmgateway/db";
 import { customAlphabet } from "nanoid";
+
+import { db, tables } from "@llmgateway/db";
 
 const generate = customAlphabet(
 	"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -137,6 +138,7 @@ function randomInt(min: number, max: number): number {
 }
 
 function randomFloat(min: number, max: number): number {
+	// eslint-disable-next-line no-mixed-operators
 	return Math.random() * (max - min) + min;
 }
 

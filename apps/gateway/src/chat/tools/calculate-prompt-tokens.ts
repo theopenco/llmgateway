@@ -20,7 +20,7 @@ export function calculatePromptTokensFromMessages(messages: any[]): number {
 			1,
 			Math.round(
 				messages.reduce(
-					(acc: number, m: any) => acc + (m.content?.length || 0),
+					(acc: number, m: any) => acc + (m.content?.length ?? 0),
 					0,
 				) / 4,
 			),

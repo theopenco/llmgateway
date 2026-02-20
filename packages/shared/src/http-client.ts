@@ -60,7 +60,7 @@ export function createHttpClient(config: HttpClientConfig) {
 
 			span.setAttributes({
 				"http.status_code": response.status,
-				"http.response.size": response.headers.get("content-length") || "",
+				"http.response.size": response.headers.get("content-length") ?? "",
 			});
 
 			if (!response.ok) {

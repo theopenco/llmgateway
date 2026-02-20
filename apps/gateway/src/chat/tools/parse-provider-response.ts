@@ -26,7 +26,7 @@ export function parseProviderResponse(
 	let cachedTokens = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
-	let annotations: Annotation[] = [];
+	const annotations: Annotation[] = [];
 	let webSearchCount = 0;
 
 	switch (usedProvider) {
@@ -34,14 +34,14 @@ export function parseProviderResponse(
 			// AWS Bedrock Converse API format
 			// Response format: { output: { message: { content: [{text: "..."}], role: "assistant" }}, stopReason: "end_turn", usage: {...} }
 			const message = json.output?.message;
-			const contentBlocks = message?.content || [];
+			const contentBlocks = message?.content ?? [];
 
 			// Extract text content from content blocks
 			content =
 				contentBlocks
 					.filter((block: any) => block.text)
 					.map((block: any) => block.text)
-					.join("") || null;
+					.join("") ?? null;
 
 			// Map Bedrock stop reasons to OpenAI finish reasons
 			const stopReason = json.stopReason;
@@ -88,7 +88,7 @@ export function parseProviderResponse(
 		}
 		case "anthropic": {
 			// Extract content and reasoning content from Anthropic response
-			const contentBlocks = json.content || [];
+			const contentBlocks = json.content ?? [];
 			const textBlocks = contentBlocks.filter(
 				(block: any) => block.type === "text",
 			);
@@ -96,11 +96,11 @@ export function parseProviderResponse(
 				(block: any) => block.type === "thinking",
 			);
 
-			content = textBlocks.map((block: any) => block.text).join("") || null;
+			content = textBlocks.map((block: any) => block.text).join("") ?? null;
 			reasoningContent =
-				thinkingBlocks.map((block: any) => block.thinking).join("") || null;
+				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
 
-			finishReason = json.stop_reason || null;
+			finishReason = json.stop_reason ?? null;
 
 			// Extract web search citations from Anthropic response
 			// Anthropic returns web_search_tool_result blocks with content that includes source info
@@ -117,7 +117,7 @@ export function parseProviderResponse(
 								annotations.push({
 									type: "url_citation",
 									url_citation: {
-										url: item.url || "",
+										url: item.url ?? "",
 										title: item.title,
 									},
 								});
@@ -134,7 +134,7 @@ export function parseProviderResponse(
 						annotations.push({
 							type: "url_citation",
 							url_citation: {
-								url: citation.url || "",
+								url: citation.url ?? "",
 								title: citation.title,
 								start_index: citation.start_char_index,
 								end_index: citation.end_char_index,
@@ -173,7 +173,7 @@ export function parseProviderResponse(
 							name: block.name,
 							arguments: JSON.stringify(block.input),
 						},
-					})) || null;
+					})) ?? null;
 			if (toolResults && toolResults.length === 0) {
 				toolResults = null;
 			}
@@ -199,13 +199,13 @@ export function parseProviderResponse(
 			}
 
 			// Extract content and reasoning content from Google response parts
-			const parts = json.candidates?.[0]?.content?.parts || [];
+			const parts = json.candidates?.[0]?.content?.parts ?? [];
 			const contentParts = parts.filter((part: any) => !part.thought);
 			const reasoningParts = parts.filter((part: any) => part.thought);
 
-			content = contentParts.map((part: any) => part.text).join("") || null;
+			content = contentParts.map((part: any) => part.text).join("") ?? null;
 			reasoningContent =
-				reasoningParts.map((part: any) => part.text).join("") || null;
+				reasoningParts.map((part: any) => part.text).join("") ?? null;
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
@@ -239,7 +239,7 @@ export function parseProviderResponse(
 							type: "function",
 							function: {
 								name: part.functionCall.name,
-								arguments: JSON.stringify(part.functionCall.args || {}),
+								arguments: JSON.stringify(part.functionCall.args ?? {}),
 							},
 						};
 						// Cache thoughtSignature for multi-turn conversations
@@ -262,7 +262,7 @@ export function parseProviderResponse(
 								});
 						}
 						return toolCall;
-					}) || null;
+					}) ?? null;
 			if (toolResults && toolResults.length === 0) {
 				toolResults = null;
 			}
@@ -306,7 +306,7 @@ export function parseProviderResponse(
 							annotations.push({
 								type: "url_citation",
 								url_citation: {
-									url: chunk.web.uri || "",
+									url: chunk.web.uri ?? "",
 									title: chunk.web.title,
 								},
 							});
@@ -322,11 +322,11 @@ export function parseProviderResponse(
 				}
 			}
 
-			promptTokens = json.usageMetadata?.promptTokenCount || null;
+			promptTokens = json.usageMetadata?.promptTokenCount ?? null;
 			let rawCandidates = json.usageMetadata?.candidatesTokenCount ?? null;
-			reasoningTokens = json.usageMetadata?.thoughtsTokenCount || null;
+			reasoningTokens = json.usageMetadata?.thoughtsTokenCount ?? null;
 			// Extract cached tokens from Google's implicit caching
-			cachedTokens = json.usageMetadata?.cachedContentTokenCount || null;
+			cachedTokens = json.usageMetadata?.cachedContentTokenCount ?? null;
 
 			// Adjust for inconsistent Google API behavior where
 			// candidatesTokenCount may already include thoughtsTokenCount
@@ -357,28 +357,28 @@ export function parseProviderResponse(
 			}
 
 			// completionTokens includes reasoning for correct totals
-			completionTokens = rawCandidates + (reasoningTokens || 0);
+			completionTokens = rawCandidates + (reasoningTokens ?? 0);
 
 			// Calculate totalTokens
 			if (promptTokens !== null) {
-				totalTokens = promptTokens + (completionTokens || 0);
+				totalTokens = promptTokens + (completionTokens ?? 0);
 			}
 			break;
 		}
 		case "mistral":
 		case "novita": {
-			content = json.choices?.[0]?.message?.content || null;
+			content = json.choices?.[0]?.message?.content ?? null;
 			// Extract reasoning content - check both reasoning and reasoning_content fields
 			reasoningContent =
-				json.choices?.[0]?.message?.reasoning ||
-				json.choices?.[0]?.message?.reasoning_content ||
+				json.choices?.[0]?.message?.reasoning ??
+				json.choices?.[0]?.message?.reasoning_content ??
 				null;
-			finishReason = json.choices?.[0]?.finish_reason || null;
-			promptTokens = json.usage?.prompt_tokens || null;
-			completionTokens = json.usage?.completion_tokens || null;
-			reasoningTokens = json.usage?.reasoning_tokens || null;
-			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
-			totalTokens = json.usage?.total_tokens || null;
+			finishReason = json.choices?.[0]?.finish_reason ?? null;
+			promptTokens = json.usage?.prompt_tokens ?? null;
+			completionTokens = json.usage?.completion_tokens ?? null;
+			reasoningTokens = json.usage?.reasoning_tokens ?? null;
+			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
+			totalTokens = json.usage?.total_tokens ?? null;
 
 			// Handle Mistral/Novita JSON output mode which wraps JSON in markdown code blocks
 			if (
@@ -406,7 +406,7 @@ export function parseProviderResponse(
 			}
 
 			// Extract tool calls from Mistral/Novita format (same as OpenAI)
-			toolResults = json.choices?.[0]?.message?.tool_calls || null;
+			toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
 			break;
 		}
 		case "alibaba": {
@@ -428,7 +428,7 @@ export function parseProviderResponse(
 							}),
 						);
 						content = "Generated image";
-						finishReason = alibabaChoices[0]?.finish_reason || "stop";
+						finishReason = alibabaChoices[0]?.finish_reason ?? "stop";
 						// DashScope image generation uses different usage format
 						promptTokens = 0;
 						completionTokens = 0;
@@ -440,26 +440,26 @@ export function parseProviderResponse(
 								.filter((item: any) => item.text)
 								.map((item: any) => item.text)
 								.join("") || null;
-						finishReason = alibabaChoices[0]?.finish_reason || null;
+						finishReason = alibabaChoices[0]?.finish_reason ?? null;
 					}
 				}
 			} else if (json.choices) {
 				// Alibaba chat completions use OpenAI format
-				toolResults = json.choices?.[0]?.message?.tool_calls || null;
-				content = json.choices?.[0]?.message?.content || null;
+				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
+				content = json.choices?.[0]?.message?.content ?? null;
 				reasoningContent =
-					json.choices?.[0]?.message?.reasoning ||
-					json.choices?.[0]?.message?.reasoning_content ||
+					json.choices?.[0]?.message?.reasoning ??
+					json.choices?.[0]?.message?.reasoning_content ??
 					null;
-				finishReason = json.choices?.[0]?.finish_reason || null;
-				promptTokens = json.usage?.prompt_tokens || null;
-				completionTokens = json.usage?.completion_tokens || null;
-				reasoningTokens = json.usage?.reasoning_tokens || null;
-				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
+				finishReason = json.choices?.[0]?.finish_reason ?? null;
+				promptTokens = json.usage?.prompt_tokens ?? null;
+				completionTokens = json.usage?.completion_tokens ?? null;
+				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
-					json.usage?.total_tokens ||
+					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens || 0)
+						? promptTokens + completionTokens + (reasoningTokens ?? 0)
 						: null);
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
@@ -542,7 +542,7 @@ export function parseProviderResponse(
 				);
 				if (functionCalls.length > 0) {
 					toolResults = functionCalls.map((functionCall: any) => ({
-						id: functionCall.call_id || functionCall.id,
+						id: functionCall.call_id ?? functionCall.id,
 						type: "function",
 						function: {
 							name: functionCall.name,
@@ -566,12 +566,12 @@ export function parseProviderResponse(
 				}
 
 				// Usage token extraction
-				promptTokens = json.usage?.input_tokens || null;
-				completionTokens = json.usage?.output_tokens || null;
+				promptTokens = json.usage?.input_tokens ?? null;
+				completionTokens = json.usage?.output_tokens ?? null;
 				reasoningTokens =
-					json.usage?.output_tokens_details?.reasoning_tokens || null;
-				cachedTokens = json.usage?.input_tokens_details?.cached_tokens || null;
-				totalTokens = json.usage?.total_tokens || null;
+					json.usage?.output_tokens_details?.reasoning_tokens ?? null;
+				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
+				totalTokens = json.usage?.total_tokens ?? null;
 
 				// Count web_search_call items for pricing (each call is billed, not each citation)
 				const webSearchCalls = json.output.filter(
@@ -594,7 +594,7 @@ export function parseProviderResponse(
 									annotations.push({
 										type: "url_citation",
 										url_citation: {
-											url: annotation.url || "",
+											url: annotation.url ?? "",
 											title: annotation.title,
 											start_index: annotation.start_index,
 											end_index: annotation.end_index,
@@ -607,15 +607,15 @@ export function parseProviderResponse(
 				}
 			} else {
 				// Standard OpenAI chat completions format
-				toolResults = json.choices?.[0]?.message?.tool_calls || null;
-				content = json.choices?.[0]?.message?.content || null;
+				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
+				content = json.choices?.[0]?.message?.content ?? null;
 				// Extract reasoning content for reasoning-capable models
 				// Check both reasoning and reasoning_content (GLM models use reasoning_content)
 				reasoningContent =
-					json.choices?.[0]?.message?.reasoning ||
-					json.choices?.[0]?.message?.reasoning_content ||
+					json.choices?.[0]?.message?.reasoning ??
+					json.choices?.[0]?.message?.reasoning_content ??
 					null;
-				finishReason = json.choices?.[0]?.finish_reason || null;
+				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
 				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
@@ -647,14 +647,14 @@ export function parseProviderResponse(
 				}
 
 				// Standard OpenAI-style token parsing
-				promptTokens = json.usage?.prompt_tokens || null;
-				completionTokens = json.usage?.completion_tokens || null;
-				reasoningTokens = json.usage?.reasoning_tokens || null;
-				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens || null;
+				promptTokens = json.usage?.prompt_tokens ?? null;
+				completionTokens = json.usage?.completion_tokens ?? null;
+				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
-					json.usage?.total_tokens ||
+					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens || 0)
+						? promptTokens + completionTokens + (reasoningTokens ?? 0)
 						: null);
 
 				// Extract images from OpenAI-format response (including Gemini via gateway)
@@ -666,7 +666,7 @@ export function parseProviderResponse(
 				// For search models, citations come in message.annotations
 				// Count as 1 search per request if any citations are present (billed per request, not per citation)
 				const messageAnnotations =
-					json.choices?.[0]?.message?.annotations || [];
+					json.choices?.[0]?.message?.annotations ?? [];
 				let hasSearchCitations = false;
 				for (const annotation of messageAnnotations) {
 					if (annotation.type === "url_citation") {
@@ -674,8 +674,8 @@ export function parseProviderResponse(
 						annotations.push({
 							type: "url_citation",
 							url_citation: {
-								url: annotation.url_citation?.url || annotation.url || "",
-								title: annotation.url_citation?.title || annotation.title,
+								url: annotation.url_citation?.url ?? annotation.url ?? "",
+								title: annotation.url_citation?.title ?? annotation.title,
 								start_index:
 									annotation.url_citation?.start_index ??
 									annotation.start_index,
@@ -693,14 +693,14 @@ export function parseProviderResponse(
 				// ZAI includes web_search content in the response
 				if (usedProvider === "zai") {
 					const webSearchResults =
-						json.choices?.[0]?.message?.web_search || null;
+						json.choices?.[0]?.message?.web_search ?? null;
 					if (webSearchResults && Array.isArray(webSearchResults)) {
 						webSearchCount = webSearchResults.length;
 						for (const result of webSearchResults) {
 							annotations.push({
 								type: "url_citation",
 								url_citation: {
-									url: result.link || result.url || "",
+									url: result.link ?? result.url ?? "",
 									title: result.title,
 								},
 							});

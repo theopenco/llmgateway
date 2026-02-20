@@ -57,6 +57,7 @@ describe("worker", () => {
 
 			// Create an expired lock by directly inserting into database
 			// Set updatedAt to 15 minutes ago (longer than LOCK_DURATION_MINUTES = 10)
+			// eslint-disable-next-line no-mixed-operators
 			const expiredTime = new Date(Date.now() - 15 * 60 * 1000);
 			await db.insert(tables.lock).values({
 				key: lockKey,

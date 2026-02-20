@@ -53,12 +53,12 @@ function LogRow({ log }: { log: ProjectLogEntry }) {
 			</div>
 			<div className="flex-1 min-w-0 space-y-1">
 				<div className="flex items-start justify-between gap-2">
-					<p className="text-sm font-medium truncate">{log.content || "---"}</p>
+					<p className="text-sm font-medium truncate">{log.content ?? "---"}</p>
 					<Badge
 						variant={log.hasError ? "destructive" : "default"}
 						className="flex-shrink-0 text-xs"
 					>
-						{log.unifiedFinishReason || "—"}
+						{log.unifiedFinishReason ?? "—"}
 					</Badge>
 				</div>
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -78,7 +78,7 @@ function LogRow({ log }: { log: ProjectLogEntry }) {
 					</div>
 					<div className="flex items-center gap-1">
 						<Clock className="h-3 w-3" />
-						<span>{log.totalTokens || 0} tokens</span>
+						<span>{log.totalTokens ?? 0} tokens</span>
 					</div>
 					<div className="flex items-center gap-1">
 						<Clock className="h-3 w-3" />
@@ -152,7 +152,7 @@ export function ProjectLogsSection({
 	);
 
 	useEffect(() => {
-		loadLogs();
+		void loadLogs();
 	}, [loadLogs]);
 
 	if (loading) {
@@ -187,7 +187,7 @@ export function ProjectLogsSection({
 								disabled={loadingMore}
 								onClick={() => {
 									if (pagination.nextCursor) {
-										loadLogs(pagination.nextCursor);
+										void loadLogs(pagination.nextCursor);
 									}
 								}}
 							>

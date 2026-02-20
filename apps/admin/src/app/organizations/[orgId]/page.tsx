@@ -123,9 +123,9 @@ export default async function OrganizationPage({
 }) {
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
-	const txPage = Math.max(1, parseInt(searchParamsData?.txPage || "1", 10));
-	const akPage = Math.max(1, parseInt(searchParamsData?.akPage || "1", 10));
-	const activeTab = searchParamsData?.tab || "transactions";
+	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));
+	const akPage = Math.max(1, parseInt(searchParamsData?.akPage ?? "1", 10));
+	const activeTab = searchParamsData?.tab ?? "transactions";
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
 	const akLimit = 25;
@@ -192,7 +192,7 @@ export default async function OrganizationPage({
 							</Badge>
 						)}
 						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
-							{org.status || "active"}
+							{org.status ?? "active"}
 						</Badge>
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
@@ -236,7 +236,7 @@ export default async function OrganizationPage({
 											project.status === "active" ? "secondary" : "outline"
 										}
 									>
-										{project.status || "active"}
+										{project.status ?? "active"}
 									</Badge>
 								</div>
 								<div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -331,7 +331,7 @@ export default async function OrganizationPage({
 													</Badge>
 												</TableCell>
 												<TableCell className="max-w-[200px] truncate text-muted-foreground">
-													{transaction.description || "—"}
+													{transaction.description ?? "—"}
 												</TableCell>
 											</TableRow>
 										))
@@ -421,7 +421,7 @@ export default async function OrganizationPage({
 													{apiKey.token.slice(0, 12)}...
 												</TableCell>
 												<TableCell className="max-w-[200px] truncate">
-													{apiKey.description || "—"}
+													{apiKey.description ?? "—"}
 												</TableCell>
 												<TableCell>
 													<span className="text-sm">{apiKey.projectName}</span>
@@ -449,7 +449,7 @@ export default async function OrganizationPage({
 																: "outline"
 														}
 													>
-														{apiKey.status || "active"}
+														{apiKey.status ?? "active"}
 													</Badge>
 												</TableCell>
 												<TableCell className="text-muted-foreground">

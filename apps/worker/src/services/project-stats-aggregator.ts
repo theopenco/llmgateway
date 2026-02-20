@@ -420,6 +420,7 @@ export async function aggregateHistoricalStats() {
 			const staleStart =
 				STATS_STALE_DAYS > 0
 					? formatUTCTimestamp(
+							// eslint-disable-next-line no-mixed-operators
 							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
@@ -503,6 +504,7 @@ export async function aggregateHistoricalStats() {
 			const backfillStart =
 				STATS_BACKFILL_DAYS > 0
 					? formatUTCTimestamp(
+							// eslint-disable-next-line no-mixed-operators
 							new Date(Date.now() - STATS_BACKFILL_DAYS * 24 * 60 * 60 * 1000),
 						)
 					: undefined;

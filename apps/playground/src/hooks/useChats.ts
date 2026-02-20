@@ -55,7 +55,7 @@ export function useCreateChat() {
 	return api.useMutation("post", "/chats", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 			toast("Chat created successfully");
 		},
 		onError: (error) => {
@@ -71,7 +71,7 @@ export function useUpdateChat() {
 	return api.useMutation("patch", "/chats/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 			toast("Chat updated successfully");
 		},
 		onError: (error) => {
@@ -87,7 +87,7 @@ export function useDeleteChat() {
 	return api.useMutation("delete", "/chats/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 			toast("Chat deleted successfully");
 		},
 		onError: (error) => {
@@ -104,7 +104,7 @@ export function useAddMessage() {
 		onSuccess: (_data, variables) => {
 			// Invalidate the chats list
 			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
 
 			// Also invalidate the specific chat query to ensure fresh data when switching back
 			const chatId = variables.params?.path?.id;
@@ -112,7 +112,7 @@ export function useAddMessage() {
 				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
 					params: { path: { id: chatId } },
 				}).queryKey;
-				queryClient.invalidateQueries({ queryKey: chatQueryKey });
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
 			}
 		},
 		onError: (error) => {

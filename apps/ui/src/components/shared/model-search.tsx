@@ -65,7 +65,7 @@ export function ModelSearch({
 				throw new Error("Failed to fetch models");
 			}
 			const data = await response.json();
-			return data.models || [];
+			return data.models ?? [];
 		},
 		staleTime: 60 * 1000,
 		enabled: propModels === undefined,
@@ -79,7 +79,7 @@ export function ModelSearch({
 				throw new Error("Failed to fetch providers");
 			}
 			const data = await response.json();
-			return data.providers || [];
+			return data.providers ?? [];
 		},
 		staleTime: 60 * 1000,
 		enabled: propProviders === undefined,
@@ -144,7 +144,7 @@ export function ModelSearch({
 						providerName: provider?.name ?? String(mapping.providerId),
 						createdAt,
 						free:
-							(model.free ||
+							(model.free ??
 								(mapping.inputPrice !== null &&
 									mapping.inputPrice !== undefined &&
 									parseFloat(mapping.inputPrice) === 0)) &&

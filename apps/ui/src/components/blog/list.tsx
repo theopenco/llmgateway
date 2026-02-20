@@ -40,7 +40,7 @@ export function BlogList({
 	heading = "Blog",
 	subheading = "Latest news and updates from LLM Gateway",
 }: BlogListProps = {}) {
-	const blogEntries = entries || [];
+	const blogEntries = entries ?? [];
 	const categoryList = ["Announcements", "Guides", "Engineering", "Changelog"];
 
 	return (

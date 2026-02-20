@@ -14,8 +14,8 @@ export function parseImageFile(file: {
 	mediaType?: string;
 	mime_type?: string;
 }): { dataUrl: string; mediaType: string } {
-	const mediaType = file.mediaType || file.mime_type || "image/png";
-	let url = String(file.url || "");
+	const mediaType = file.mediaType ?? file.mime_type ?? "image/png";
+	let url = String(file.url ?? "");
 
 	const isDataUrl = url.startsWith("data:");
 	const looksLikeBase64 =
@@ -68,7 +68,7 @@ export function parseImagePartToDataUrl(part: any): {
 			if (url.startsWith("data:")) {
 				// Extract media type from data URL if present
 				const match = url.match(/data:([^;]+)/);
-				const extractedMediaType = match?.[1] || mediaType;
+				const extractedMediaType = match?.[1] ?? mediaType;
 				return {
 					dataUrl: url,
 					base64Only: extractBase64FromDataUrl(url),

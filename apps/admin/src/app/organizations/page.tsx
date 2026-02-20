@@ -144,8 +144,8 @@ export default async function OrganizationsPage({
 	}>;
 }) {
 	const params = await searchParams;
-	const page = Math.max(1, parseInt(params?.page || "1", 10));
-	const search = params?.search || "";
+	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
+	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as SortBy) || "createdAt";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
 	const limit = 25;
@@ -356,7 +356,7 @@ export default async function OrganizationsPage({
 												org.status === "active" ? "secondary" : "outline"
 											}
 										>
-											{org.status || "active"}
+											{org.status ?? "active"}
 										</Badge>
 									</TableCell>
 								</TableRow>

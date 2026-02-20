@@ -58,14 +58,12 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			// First try to find by base model name
 			let modelDef = models.find((m) => m.id === modelName);
 
-			if (!modelDef) {
-				modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.modelName === modelName && p.providerId === requestedProvider,
-					),
-				);
-			}
+			modelDef ??= models.find((m) =>
+				m.providers.some(
+					(p) =>
+						p.modelName === modelName && p.providerId === requestedProvider,
+				),
+			);
 
 			if (!modelDef) {
 				throw new HTTPException(400, {

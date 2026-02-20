@@ -66,7 +66,7 @@ export default async function ChangelogEntryPage({
 								<div className="mb-8">
 									<Image
 										src={entry.image.src}
-										alt={entry.image.alt || entry.title}
+										alt={entry.image.alt ?? entry.title}
 										width={entry.image.width}
 										height={entry.image.height}
 										className="w-full rounded-lg object-cover"
@@ -111,18 +111,18 @@ export async function generateMetadata({
 
 	return {
 		title: `${entry.title} - Changelog - LLM Gateway`,
-		description: entry.summary || "LLM Gateway changelog entry",
+		description: entry.summary ?? "LLM Gateway changelog entry",
 		openGraph: {
 			title: `${entry.title} - Changelog - LLM Gateway`,
-			description: entry.summary || "LLM Gateway changelog entry",
+			description: entry.summary ?? "LLM Gateway changelog entry",
 			type: "article",
 			images: entry.image
 				? [
 						{
 							url: entry.image.src,
-							width: entry.image.width || 800,
-							height: entry.image.height || 400,
-							alt: entry.image.alt || entry.title,
+							width: entry.image.width ?? 800,
+							height: entry.image.height ?? 400,
+							alt: entry.image.alt ?? entry.title,
 						},
 					]
 				: ["/opengraph.png"],
@@ -130,7 +130,7 @@ export async function generateMetadata({
 		twitter: {
 			card: "summary_large_image",
 			title: `${entry.title} - Changelog - LLM Gateway`,
-			description: entry.summary || "LLM Gateway changelog entry",
+			description: entry.summary ?? "LLM Gateway changelog entry",
 		},
 	};
 }

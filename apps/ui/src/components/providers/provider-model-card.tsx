@@ -32,7 +32,7 @@ interface ModelWithProviders extends ApiModel {
 }
 
 const getStabilityClassName = (stability?: StabilityLevel | null): string => {
-	const level = stability || "stable";
+	const level = stability ?? "stable";
 	switch (level) {
 		case "stable":
 			return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
@@ -78,7 +78,7 @@ export function ProviderModelCard({
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
+		void navigator.clipboard.writeText(text);
 		setCopiedModel(text);
 		setTimeout(() => setCopiedModel(null), 2000);
 	};
@@ -96,7 +96,7 @@ export function ProviderModelCard({
 					<div className="space-y-3">
 						<div className="flex items-start justify-between gap-4">
 							<h3 className="text-2xl font-bold text-foreground tracking-tight">
-								{model.name || model.id}
+								{model.name ?? model.id}
 							</h3>
 							<div
 								onClick={(e) => e.stopPropagation()}
@@ -159,7 +159,7 @@ export function ProviderModelCard({
 							<Badge
 								className={`text-xs px-2 py-0.5 font-semibold border ${getStabilityClassName(provider.stability)}`}
 							>
-								{provider.stability || "STABLE"}
+								{provider.stability ?? "STABLE"}
 							</Badge>
 						</div>
 					</div>

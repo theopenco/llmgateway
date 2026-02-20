@@ -106,7 +106,7 @@ export function useUser(options?: UseUserOptions) {
 	]);
 
 	return {
-		user: data?.user || null,
+		user: data?.user ?? null,
 		isLoading,
 		error,
 		data,

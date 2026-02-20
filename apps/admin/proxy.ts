@@ -26,8 +26,8 @@ export async function proxy(req: NextRequest) {
 	}
 
 	const apiUrl =
-		process.env.API_BACKEND_URL ||
-		process.env.API_URL ||
+		process.env.API_BACKEND_URL ??
+		process.env.API_URL ??
 		"http://localhost:4002";
 
 	const key = "better-auth.session_token";

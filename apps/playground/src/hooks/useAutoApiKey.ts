@@ -19,7 +19,7 @@ export function useAutoApiKey() {
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: defaultProject?.id || "" },
+				query: { projectId: defaultProject?.id ?? "" },
 			},
 		},
 		{

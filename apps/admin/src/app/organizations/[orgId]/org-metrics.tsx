@@ -129,7 +129,7 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 
 	// Load metrics automatically on mount and when window changes
 	useEffect(() => {
-		loadMetrics(window);
+		void loadMetrics(window);
 	}, [loadMetrics, window]);
 
 	const handleWindowChange = useCallback(

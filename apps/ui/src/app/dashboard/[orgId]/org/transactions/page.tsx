@@ -30,7 +30,7 @@ async function fetchTransactions(orgId: string): Promise<TransactionsData> {
 		},
 	);
 
-	return data || { transactions: [] };
+	return data ?? { transactions: [] };
 }
 
 export default async function TransactionsPage({

@@ -782,7 +782,7 @@ export function DashboardSidebar({
 	const isActive = (path: string) => {
 		if (path === "") {
 			// For dashboard home, check if we're at the base dashboard route
-			return pathname.match(/^\/dashboard\/[^\/]+\/[^\/]+$/) !== null;
+			return pathname.match(/^\/dashboard\/[^/]+\/[^/]+$/) !== null;
 		}
 		// For other paths, check if pathname ends with the path
 		return pathname.endsWith(`/${path}`);

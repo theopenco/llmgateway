@@ -44,7 +44,7 @@ export function estimateTokens(
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				calculatedPromptTokens =
-					messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4;
+					messages.reduce((acc, m) => acc + (m.content?.length ?? 0), 0) / 4;
 			}
 		}
 

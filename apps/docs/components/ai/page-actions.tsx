@@ -29,7 +29,8 @@ export function LLMCopyButton({
 	const [checked, onClick] = useCopyButton(async () => {
 		const cached = cache.get(markdownUrl);
 		if (cached) {
-			return await navigator.clipboard.writeText(cached);
+			await navigator.clipboard.writeText(cached);
+			return;
 		}
 
 		setLoading(true);

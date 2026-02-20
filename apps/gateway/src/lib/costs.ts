@@ -221,9 +221,7 @@ export async function calculateCosts(
 	}
 
 	// Set completion tokens to 0 if not available (but still calculate input costs)
-	if (!calculatedCompletionTokens) {
-		calculatedCompletionTokens = 0;
-	}
+	calculatedCompletionTokens ??= 0;
 
 	// Find the provider-specific pricing
 	const providerInfo = modelInfo.providers.find(
@@ -254,8 +252,8 @@ export async function calculateCosts(
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice || 0,
-		providerInfo.outputPrice || 0,
+		providerInfo.inputPrice ?? 0,
+		providerInfo.outputPrice ?? 0,
 		providerInfo.cachedInputPrice,
 		calculatedPromptTokens,
 	);
@@ -265,11 +263,11 @@ export async function calculateCosts(
 	const cachedInputPrice = new Decimal(
 		pricing.cachedInputPrice ?? pricing.inputPrice,
 	);
-	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
+	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount || 0;
+	const hardcodedDiscount = providerInfo.discount ?? 0;
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -305,7 +303,7 @@ export async function calculateCosts(
 	const inputCost = new Decimal(uncachedPromptTokens)
 		.times(inputPrice)
 		.times(discountMultiplier)
-		.plus(imageInputCost || 0);
+		.plus(imageInputCost ?? 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). For other providers, add reasoning separately.
@@ -315,7 +313,7 @@ export async function calculateCosts(
 		provider === "obsidian";
 	const totalOutputTokens = isGoogleProvider
 		? calculatedCompletionTokens
-		: calculatedCompletionTokens + (reasoningTokens || 0);
+		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
 	// Calculate output cost, handling separate image output pricing if applicable
 	let outputCost: Decimal;
@@ -352,7 +350,7 @@ export async function calculateCosts(
 	const requestCost = requestPrice.times(discountMultiplier);
 
 	// Calculate web search cost
-	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice || 0);
+	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
 	const webSearchCost =
 		webSearchCount && webSearchCount > 0
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)

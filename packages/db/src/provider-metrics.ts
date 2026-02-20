@@ -26,7 +26,9 @@ export interface ProviderMetrics {
 export async function getProviderMetrics(
 	minutes = 5,
 ): Promise<Map<string, ProviderMetrics>> {
+	/* eslint-disable no-mixed-operators */
 	const fiveMinutesAgo = new Date(Date.now() - minutes * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 
 	const results = await db
 		.select({
@@ -107,7 +109,9 @@ export async function getProviderMetricsForCombinations(
 		return new Map();
 	}
 
+	/* eslint-disable no-mixed-operators */
 	const fiveMinutesAgo = new Date(Date.now() - minutes * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 
 	// Build OR conditions for each combination
 	const conditions = combinations.map((combo) =>

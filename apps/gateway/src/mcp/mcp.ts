@@ -145,7 +145,7 @@ function createMcpServer(apiKey: string): McpServer {
 			try {
 				// Call the internal chat completions endpoint
 				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ||
+					process.env.MCP_GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
@@ -170,7 +170,7 @@ function createMcpServer(apiKey: string): McpServer {
 					let errorMessage: string;
 					try {
 						const errorJson = JSON.parse(errorText);
-						errorMessage = errorJson.message || errorJson.error || errorText;
+						errorMessage = errorJson.message ?? errorJson.error ?? errorText;
 					} catch {
 						errorMessage = errorText;
 					}
@@ -189,7 +189,7 @@ function createMcpServer(apiKey: string): McpServer {
 
 				// Extract the assistant's response
 				const assistantMessage =
-					data.choices?.[0]?.message?.content || "No response";
+					data.choices?.[0]?.message?.content ?? "No response";
 				const usage = data.usage;
 
 				let responseText = assistantMessage;
@@ -282,9 +282,9 @@ function createMcpServer(apiKey: string): McpServer {
 					);
 
 					const inputPrice =
-						firstProviderWithPricing?.inputPrice?.toString() || "0";
+						firstProviderWithPricing?.inputPrice?.toString() ?? "0";
 					const outputPrice =
-						firstProviderWithPricing?.outputPrice?.toString() || "0";
+						firstProviderWithPricing?.outputPrice?.toString() ?? "0";
 
 					// Check capabilities
 					const hasVision = model.providers.some((p) => p.vision);
@@ -301,7 +301,7 @@ function createMcpServer(apiKey: string): McpServer {
 
 					return {
 						id: model.id,
-						name: model.name || model.id,
+						name: model.name ?? model.id,
 						family: model.family,
 						providers: providerIds,
 						capabilities: {
@@ -316,9 +316,9 @@ function createMcpServer(apiKey: string): McpServer {
 							output: `$${outputPrice}/1M tokens`,
 						},
 						context_length:
-							Math.max(...model.providers.map((p) => p.contextSize || 0)) ||
+							Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 							undefined,
-						free: model.free || false,
+						free: model.free ?? false,
 					};
 				});
 
@@ -417,7 +417,7 @@ function createMcpServer(apiKey: string): McpServer {
 		async (input: GenerateImageInput) => {
 			try {
 				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ||
+					process.env.MCP_GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
@@ -450,7 +450,7 @@ function createMcpServer(apiKey: string): McpServer {
 					let errorMessage: string;
 					try {
 						const errorJson = JSON.parse(errorText);
-						errorMessage = errorJson.message || errorJson.error || errorText;
+						errorMessage = errorJson.message ?? errorJson.error ?? errorText;
 					} catch {
 						errorMessage = errorText;
 					}
@@ -469,7 +469,7 @@ function createMcpServer(apiKey: string): McpServer {
 
 				// Extract images from the response
 				const message = data.choices?.[0]?.message;
-				const images = message?.images || [];
+				const images = message?.images ?? [];
 
 				if (images.length === 0) {
 					return {
@@ -477,7 +477,7 @@ function createMcpServer(apiKey: string): McpServer {
 							{
 								type: "text" as const,
 								text:
-									message?.content ||
+									message?.content ??
 									"No images generated. The model may not support image generation.",
 							},
 						],
@@ -561,7 +561,7 @@ function createMcpServer(apiKey: string): McpServer {
 		async (input: GenerateNanoBananaInput) => {
 			try {
 				const gatewayUrl =
-					process.env.MCP_GATEWAY_URL ||
+					process.env.MCP_GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
@@ -595,7 +595,7 @@ function createMcpServer(apiKey: string): McpServer {
 					let errorMessage: string;
 					try {
 						const errorJson = JSON.parse(errorText);
-						errorMessage = errorJson.message || errorJson.error || errorText;
+						errorMessage = errorJson.message ?? errorJson.error ?? errorText;
 					} catch {
 						errorMessage = errorText;
 					}
@@ -612,7 +612,7 @@ function createMcpServer(apiKey: string): McpServer {
 
 				const data = await response.json();
 				const message = data.choices?.[0]?.message;
-				const images = message?.images || [];
+				const images = message?.images ?? [];
 
 				if (images.length === 0) {
 					return {
@@ -620,7 +620,7 @@ function createMcpServer(apiKey: string): McpServer {
 							{
 								type: "text" as const,
 								text:
-									message?.content ||
+									message?.content ??
 									"No images generated. The model may not have produced an image for this prompt.",
 							},
 						],
@@ -713,7 +713,7 @@ function createMcpServer(apiKey: string): McpServer {
 					if (resolvedUploadDir) {
 						let fileName: string;
 						if (parsedFilename) {
-							const fileExt = parsedFilename.fileExt || ext;
+							const fileExt = parsedFilename.fileExt ?? ext;
 							fileName =
 								images.length > 1
 									? `${parsedFilename.baseName}-${i + 1}${fileExt}`
@@ -816,7 +816,7 @@ function createMcpServer(apiKey: string): McpServer {
 
 					return {
 						id: model.id,
-						name: model.name || model.id,
+						name: model.name ?? model.id,
 						description: model.description,
 						family: model.family,
 						requestPrice: imageProvider?.requestPrice,
@@ -1066,7 +1066,7 @@ async function processMcpRequest(
 				}
 				const result = await client.callTool({
 					name: params.name,
-					arguments: params.arguments || {},
+					arguments: params.arguments ?? {},
 				});
 				return {
 					jsonrpc: "2.0",
@@ -1170,13 +1170,11 @@ export async function mcpHandler(c: Context): Promise<Response> {
 
 	// Get or create session ID
 	let sessionId = c.req.header("mcp-session-id");
-	if (!sessionId) {
-		sessionId = crypto.randomUUID();
-	}
+	sessionId ??= crypto.randomUUID();
 
 	if (method === "GET") {
 		// Check if client wants SSE or just server info
-		const acceptHeader = c.req.header("Accept") || "";
+		const acceptHeader = c.req.header("Accept") ?? "";
 		const wantsSSE = acceptHeader.includes("text/event-stream");
 
 		if (!wantsSSE) {
@@ -1492,6 +1490,7 @@ async function oauthAuthorizeHandler(c: Context): Promise<Response> {
 	});
 
 	// Clean up old codes (older than 10 minutes)
+	// eslint-disable-next-line no-mixed-operators
 	const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
 	for (const [code, data] of authCodes.entries()) {
 		if (data.createdAt < tenMinutesAgo) {
@@ -1626,7 +1625,7 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 	let clientSecret: string | null = null;
 
 	// Parse request body (can be form-urlencoded or JSON)
-	const contentType = c.req.header("Content-Type") || "";
+	const contentType = c.req.header("Content-Type") ?? "";
 
 	if (contentType.includes("application/x-www-form-urlencoded")) {
 		const formData = await c.req.parseBody();
@@ -1649,12 +1648,8 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 	if (authHeader?.startsWith("Basic ")) {
 		const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
 		const [basicClientId, basicClientSecret] = decoded.split(":");
-		if (!clientId) {
-			clientId = basicClientId ?? null;
-		}
-		if (!clientSecret) {
-			clientSecret = basicClientSecret ?? null;
-		}
+		clientId ??= basicClientId ?? null;
+		clientSecret ??= basicClientSecret ?? null;
 	}
 
 	if (!grantType) {
@@ -1763,7 +1758,7 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 	// Handle client_credentials grant
 	if (grantType === "client_credentials") {
 		// For client_credentials, the client_secret IS the API key
-		const apiKey = clientSecret || clientId;
+		const apiKey = clientSecret ?? clientId;
 
 		if (!apiKey) {
 			return c.json(
@@ -1804,8 +1799,8 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 
 		// For MCP, the client provides their API key during registration
 		// We use the API key as the client_id
-		const clientName = body.client_name || "mcp-client";
-		const redirectUris = body.redirect_uris || [];
+		const clientName = body.client_name ?? "mcp-client";
+		const redirectUris = body.redirect_uris ?? [];
 
 		// Check if an API key was provided (either in body or header)
 		let apiKey = body.api_key;
@@ -1865,6 +1860,7 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 		});
 
 		// Clean up old client registrations (older than 30 days)
+		// eslint-disable-next-line no-mixed-operators
 		const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 		for (const [id, client] of registeredClients.entries()) {
 			if (client.createdAt < thirtyDaysAgo) {

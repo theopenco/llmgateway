@@ -55,7 +55,7 @@ app.use("*", honoRequestLogger);
 app.use(
 	"*",
 	cors({
-		origin: process.env.ORIGIN_URLS?.split(",") || [
+		origin: process.env.ORIGIN_URLS?.split(",") ?? [
 			"http://localhost:3002",
 			"http://localhost:3003",
 			"http://localhost:3004",

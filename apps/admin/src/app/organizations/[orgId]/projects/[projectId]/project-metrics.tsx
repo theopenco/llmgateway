@@ -139,7 +139,7 @@ export function ProjectMetricsSection({
 	);
 
 	useEffect(() => {
-		loadMetrics(selectedWindow);
+		void loadMetrics(selectedWindow);
 	}, [loadMetrics, selectedWindow]);
 
 	const handleWindowChange = useCallback(

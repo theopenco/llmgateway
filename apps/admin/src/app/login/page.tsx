@@ -74,7 +74,7 @@ export default function Login() {
 					router.push("/");
 				},
 				onError: (ctx) => {
-					toast.error(ctx.error.message || "An unknown error occurred", {
+					toast.error(ctx.error.message ?? "An unknown error occurred", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -85,7 +85,7 @@ export default function Login() {
 		);
 
 		if (error) {
-			toast.error(error.message || "An unknown error occurred", {
+			toast.error(error.message ?? "An unknown error occurred", {
 				style: {
 					backgroundColor: "var(--destructive)",
 					color: "var(--destructive-foreground)",

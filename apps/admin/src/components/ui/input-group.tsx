@@ -144,10 +144,13 @@ function InputGroupInput({
 	);
 }
 
-const InputGroupTextarea = React.forwardRef<
-	HTMLTextAreaElement,
-	React.ComponentProps<"textarea">
->(({ className, ...props }, ref) => {
+const InputGroupTextarea = ({
+	ref,
+	className,
+	...props
+}: React.ComponentProps<"textarea"> & {
+	ref?: React.RefObject<HTMLTextAreaElement | null>;
+}) => {
 	return (
 		<Textarea
 			ref={ref}
@@ -159,7 +162,7 @@ const InputGroupTextarea = React.forwardRef<
 			{...props}
 		/>
 	);
-});
+};
 InputGroupTextarea.displayName = "InputGroupTextarea";
 
 export {

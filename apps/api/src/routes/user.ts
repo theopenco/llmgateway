@@ -42,7 +42,7 @@ async function getUserAuthInfo(userId: string) {
 }
 
 function isAdminEmail(email: string | null | undefined): boolean {
-	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
+	const adminEmailsEnv = process.env.ADMIN_EMAILS ?? "";
 	const adminEmails = adminEmailsEnv
 		.split(",")
 		.map((value) => value.trim().toLowerCase())

@@ -71,7 +71,7 @@ function BrandAssetCard({ asset }: { asset: BrandAsset }) {
 	const bgColor =
 		asset.variant === "white" ? "bg-zinc-900" : "bg-zinc-100 dark:bg-zinc-100";
 
-	const svgFilename = asset.svgPath.split("/").pop() || "logo.svg";
+	const svgFilename = asset.svgPath.split("/").pop() ?? "logo.svg";
 
 	return (
 		<Card className="overflow-hidden">

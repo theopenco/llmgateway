@@ -23,5 +23,5 @@ export default async function ApiKeysPage({
 		},
 	);
 
-	return <ApiKeysClient initialData={initialData?.apiKeys || []} />;
+	return <ApiKeysClient initialData={initialData?.apiKeys ?? []} />;
 }

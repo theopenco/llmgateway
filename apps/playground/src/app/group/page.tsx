@@ -101,12 +101,12 @@ export default async function GroupPage({
 		}
 	}
 
-	const projects = (initialProjectsData?.projects || []) as Project[];
+	const projects = (initialProjectsData?.projects ?? []) as Project[];
 
 	// Determine selected project: URL > cookie > first
 	let selectedProject: Project | null = null;
 	if (projectId) {
-		selectedProject = projects.find((p) => p.id === projectId) || null;
+		selectedProject = projects.find((p) => p.id === projectId) ?? null;
 		if (projectId && !selectedProject && projectId.length > 0) {
 			notFound();
 		}
@@ -115,12 +115,10 @@ export default async function GroupPage({
 		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
-			selectedProject = projects.find((p) => p.id === lastUsed) || null;
+			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
 		}
 	}
-	if (!selectedProject) {
-		selectedProject = projects[0] || null;
-	}
+	selectedProject ??= projects[0] ?? null;
 
 	return (
 		<>

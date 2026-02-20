@@ -1,6 +1,6 @@
 "use client";
 
-import { type ComponentProps, createContext, useContext, useMemo } from "react";
+import { type ComponentProps, createContext, use, useMemo } from "react";
 import { estimateCost, type ModelId } from "tokenlens";
 
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ interface ContextSchema {
 const ContextContext = createContext<ContextSchema | null>(null);
 
 const useContextValue = () => {
-	const context = useContext(ContextContext);
+	const context = use(ContextContext);
 
 	if (!context) {
 		throw new Error("Context components must be used within Context");
@@ -59,9 +59,9 @@ export const Context = ({
 	);
 
 	return (
-		<ContextContext.Provider value={contextValue}>
+		<ContextContext value={contextValue}>
 			<HoverCard closeDelay={0} openDelay={0} {...props} />
-		</ContextContext.Provider>
+		</ContextContext>
 	);
 };
 

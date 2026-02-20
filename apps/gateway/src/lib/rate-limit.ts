@@ -54,7 +54,7 @@ function getRateLimitKey(organizationId: string, model: string): string {
 async function hasElevatedLimits(organizationId: string): Promise<boolean> {
 	try {
 		const org = await findOrganizationById(organizationId);
-		return Boolean(org && parseFloat(org.credits || "0") > 0);
+		return Boolean(org && parseFloat(org.credits ?? "0") > 0);
 	} catch (error) {
 		logger.error(
 			"Error checking organization credits for rate limiting:",
@@ -86,7 +86,7 @@ export async function checkFreeModelRateLimit(
 
 	try {
 		const hasElevated = await hasElevatedLimits(organizationId);
-		const rateLimitKind = modelDefinition?.rateLimitKind || "low";
+		const rateLimitKind = modelDefinition?.rateLimitKind ?? "low";
 		const limits =
 			FREE_MODEL_RATE_LIMITS[rateLimitKind.toUpperCase() as "LOW" | "HIGH"];
 
@@ -97,6 +97,7 @@ export async function checkFreeModelRateLimit(
 
 		// Use sliding window approach with Redis
 		const now = Date.now();
+		// eslint-disable-next-line no-mixed-operators
 		const windowStart = now - window * 1000;
 
 		// Remove old entries and count current requests in window
@@ -109,6 +110,7 @@ export async function checkFreeModelRateLimit(
 			const retryAfter =
 				oldestEntry.length > 1
 					? Math.ceil(
+							// eslint-disable-next-line no-mixed-operators
 							(parseInt(oldestEntry[1], 10) + window * 1000 - now) / 1000,
 						)
 					: window;
@@ -119,7 +121,7 @@ export async function checkFreeModelRateLimit(
 				currentCount,
 				limit,
 				hasElevated,
-				rateLimitKind: modelDefinition?.rateLimitKind || "low",
+				rateLimitKind: modelDefinition?.rateLimitKind ?? "low",
 				retryAfter,
 			});
 
@@ -138,7 +140,7 @@ export async function checkFreeModelRateLimit(
 			currentCount: currentCount + 1,
 			limit,
 			hasElevated,
-			rateLimitKind: modelDefinition?.rateLimitKind || "low",
+			rateLimitKind: modelDefinition?.rateLimitKind ?? "low",
 		});
 
 		return {

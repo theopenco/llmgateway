@@ -32,7 +32,7 @@ export async function generateMetadata({
 	const image = ["/docs-og", ...slug, "image.png"].join("/");
 
 	return {
-		metadataBase: new URL(process.env.DOCS_URL || "https://docs.llmgateway.io"),
+		metadataBase: new URL(process.env.DOCS_URL ?? "https://docs.llmgateway.io"),
 		title: page.data.title,
 		description: page.data.description,
 		openGraph: {
@@ -91,15 +91,15 @@ export default async function Page(props: {
 				onRateAction={async (url, feedback) => {
 					"use server";
 					posthog.capture("on_rate_docs", feedback);
-					return {
+					return await Promise.resolve({
 						githubUrl: `https://github.com/theopenco/llmgateway/blob/main/apps/docs/content${url}.mdx`,
-					};
+					});
 				}}
 			/>
 		</DocsPage>
 	);
 }
 
-export async function generateStaticParams() {
+export function generateStaticParams() {
 	return source.generateParams();
 }

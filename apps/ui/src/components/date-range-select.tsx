@@ -140,7 +140,7 @@ export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger className="border-input hover:bg-accent hover:text-accent-foreground focus:ring-ring/50 shadow-xs flex h-9 items-center justify-between gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50">
-				{selectedOption?.label || "Select time range"}
+				{selectedOption?.label ?? "Select time range"}
 				<ChevronDownIcon className="h-4 w-4 opacity-50" />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start">

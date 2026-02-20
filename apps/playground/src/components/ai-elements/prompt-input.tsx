@@ -27,7 +27,7 @@ import {
 	type ReactNode,
 	type RefObject,
 	useCallback,
-	useContext,
+	use,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -97,7 +97,7 @@ const PromptInputContext = createContext<PromptInputController | null>(null);
 const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
 
 export const usePromptInputController = () => {
-	const ctx = useContext(PromptInputContext);
+	const ctx = use(PromptInputContext);
 	if (!ctx) {
 		throw new Error(
 			"Wrap your component inside <PromptInputProvider> to use usePromptInputController().",
@@ -109,7 +109,7 @@ export const usePromptInputController = () => {
 // Optional variants (do NOT throw). Useful for dual-mode components.
 const optional_usePromptInputController = () => {
 	// eslint-disable-next-line react-hooks/rules-of-hooks
-	return useContext(PromptInputContext);
+	return use(PromptInputContext);
 };
 
 // (Removed provider-specific attachments hooks; unified on LocalAttachmentsContext)
@@ -215,11 +215,11 @@ export function PromptInputProvider({
 	);
 
 	return (
-		<PromptInputContext.Provider value={controller}>
-			<LocalAttachmentsContext.Provider value={attachments}>
+		<PromptInputContext value={controller}>
+			<LocalAttachmentsContext value={attachments}>
 				{children}
-			</LocalAttachmentsContext.Provider>
-		</PromptInputContext.Provider>
+			</LocalAttachmentsContext>
+		</PromptInputContext>
 	);
 }
 
@@ -228,7 +228,7 @@ export function PromptInputProvider({
 // ============================================================================
 
 export const usePromptInputAttachments = () => {
-	const context = useContext(LocalAttachmentsContext);
+	const context = use(LocalAttachmentsContext);
 	if (!context) {
 		throw new Error(
 			"usePromptInputAttachments must be used within a PromptInput or PromptInputProvider",
@@ -264,7 +264,7 @@ export function PromptInputAttachment({
 		>
 			{mediaType === "image" ? (
 				<img
-					alt={data.filename || "attachment"}
+					alt={data.filename ?? "attachment"}
 					className="size-full rounded-md object-cover"
 					height={56}
 					src={data.url}
@@ -276,13 +276,13 @@ export function PromptInputAttachment({
 					<Tooltip delayDuration={400}>
 						<TooltipTrigger className="min-w-0 flex-1">
 							<h4 className="w-full truncate text-left font-medium text-sm">
-								{data.filename || "Unknown file"}
+								{data.filename ?? "Unknown file"}
 							</h4>
 						</TooltipTrigger>
 						<TooltipContent>
 							<div className="text-muted-foreground text-xs">
 								<h4 className="max-w-[240px] overflow-hidden whitespace-normal break-words text-left font-semibold text-sm">
-									{data.filename || "Unknown file"}
+									{data.filename ?? "Unknown file"}
 								</h4>
 								{data.mediaType && <div>{data.mediaType}</div>}
 							</div>
@@ -533,12 +533,10 @@ export const PromptInput = ({
 		[matchesAccept, maxFiles, maxFileSize, onError],
 	);
 
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const add = usingProvider
 		? (files: File[] | FileList) => controller.attachments.add(files)
 		: addLocal;
 
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const remove = usingProvider
 		? (id: string) => controller.attachments.remove(id)
 		: (id: string) =>
@@ -550,7 +548,6 @@ export const PromptInput = ({
 					return prev.filter((file) => file.id !== id);
 				});
 
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const clear = usingProvider
 		? () => controller.attachments.clear()
 		: () =>
@@ -563,7 +560,6 @@ export const PromptInput = ({
 					return [];
 				});
 
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const openFileDialog = usingProvider
 		? () => controller.attachments.openFileDialog()
 		: openFileDialogLocal;
@@ -697,8 +693,7 @@ export const PromptInput = ({
 		}
 
 		// Convert blob URLs to data URLs asynchronously
-		Promise.all(
-			// eslint-disable-next-line unused-imports/no-unused-vars
+		void Promise.all(
 			files.map(async ({ id, ...item }) => {
 				if (item.url && item.url.startsWith("blob:")) {
 					return {
@@ -764,9 +759,7 @@ export const PromptInput = ({
 	return usingProvider ? (
 		inner
 	) : (
-		<LocalAttachmentsContext.Provider value={ctx}>
-			{inner}
-		</LocalAttachmentsContext.Provider>
+		<LocalAttachmentsContext value={ctx}>{inner}</LocalAttachmentsContext>
 	);
 };
 

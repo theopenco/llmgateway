@@ -50,7 +50,7 @@ function CopyButton({ value }: { value: string }) {
 		<button
 			type="button"
 			onClick={() => {
-				navigator.clipboard.writeText(value);
+				void navigator.clipboard.writeText(value);
 				setCopied(true);
 				setTimeout(() => setCopied(false), 1500);
 			}}
@@ -130,7 +130,7 @@ function StatusIndicator({ log }: { log: Partial<Log> }) {
 		StatusIcon = AlertCircle;
 		color = "text-yellow-500";
 		bgColor = "bg-yellow-500/10";
-		label = log.unifiedFinishReason || "Unknown";
+		label = log.unifiedFinishReason ?? "Unknown";
 	} else if (log.unifiedFinishReason === "tool_calls") {
 		label = "Tool Calls";
 	}
@@ -275,7 +275,7 @@ export function LogDetailClient({
 							<span className="text-xs">Tokens</span>
 						</div>
 						<p className="text-lg font-semibold tabular-nums">
-							{Number(log.totalTokens || 0).toLocaleString()}
+							{Number(log.totalTokens ?? 0).toLocaleString()}
 						</p>
 					</div>
 					<div className="rounded-lg border bg-card p-3">
@@ -309,7 +309,7 @@ export function LogDetailClient({
 											<Info className="h-3 w-3 text-muted-foreground/40" />
 										</div>
 										<p className="text-lg font-semibold tabular-nums text-muted-foreground">
-											${log.cost?.toFixed(6) || "0"}
+											${log.cost?.toFixed(6) ?? "0"}
 										</p>
 									</div>
 								</TooltipTrigger>
@@ -652,7 +652,7 @@ export function LogDetailClient({
 									/>
 									<Field
 										label="Reasoning Effort"
-										value={log.reasoningEffort || "-"}
+										value={log.reasoningEffort ?? "-"}
 									/>
 									{log.effort && <Field label="Effort" value={log.effort} />}
 									<Field
@@ -660,18 +660,18 @@ export function LogDetailClient({
 										value={
 											log.responseFormat
 												? typeof log.responseFormat === "object"
-													? (log.responseFormat as any).type || "-"
+													? ((log.responseFormat as any).type ?? "-")
 													: "-"
 												: "-"
 										}
 									/>
 									<Field
 										label="Finish Reason"
-										value={log.finishReason || "-"}
+										value={log.finishReason ?? "-"}
 									/>
 									<Field
 										label="Unified Finish Reason"
-										value={log.unifiedFinishReason || "-"}
+										value={log.unifiedFinishReason ?? "-"}
 									/>
 								</TooltipProvider>
 							</div>
@@ -785,7 +785,7 @@ export function LogDetailClient({
 					</Section>
 				)}
 
-				{(log.tools || log.toolChoice || log.toolResults) && (
+				{(log.tools ?? log.toolChoice ?? log.toolResults) && (
 					<Section title="Tools">
 						<div className="space-y-3">
 							{log.tools && (

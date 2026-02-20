@@ -229,6 +229,7 @@ export default function Footer() {
 									<a
 										href="mailto:contact@llmgateway.io"
 										target="_blank"
+										rel="noreferrer noopener"
 										className="text-sm hover:text-black dark:hover:text-white"
 									>
 										Contact Us

@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
-import initSqlJs, { type Database } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "fs";
+
+import initSqlJs, { type Database } from "sql.js";
 
 const DB_PATH = "api-responses.db";
 const API_URL = "https://api.llmgateway.io";
@@ -80,4 +81,4 @@ async function main(): Promise<void> {
 	setInterval(pingApi, INTERVAL_MS);
 }
 
-main();
+void main();

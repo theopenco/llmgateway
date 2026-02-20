@@ -171,6 +171,7 @@ export const TweetBody = ({ tweet }: { tweet: EnrichedTweet }) => (
 						<span
 							key={idx}
 							className="text-sm font-normal"
+							// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 							dangerouslySetInnerHTML={{ __html: entity.text }}
 						/>
 					);
@@ -273,7 +274,7 @@ export const TweetCard = async ({
 	let tweet: Tweet | undefined;
 
 	if (!id) {
-		const NotFound = components?.TweetNotFound || TweetNotFound;
+		const NotFound = components?.TweetNotFound ?? TweetNotFound;
 		return <NotFound {...props} />;
 	}
 
@@ -294,7 +295,7 @@ export const TweetCard = async ({
 	}
 
 	if (!tweet) {
-		const NotFound = components?.TweetNotFound || TweetNotFound;
+		const NotFound = components?.TweetNotFound ?? TweetNotFound;
 		return <NotFound {...props} />;
 	}
 

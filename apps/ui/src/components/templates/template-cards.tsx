@@ -113,7 +113,7 @@ export function TemplateCards() {
 
 	const copyToClipboard = useCallback((url: string) => {
 		const templateName = url.split("/").pop();
-		navigator.clipboard.writeText(
+		void navigator.clipboard.writeText(
 			`npx @llmgateway/cli init --template ${templateName}`,
 		);
 		setCopiedUrl(url);

@@ -8,9 +8,9 @@ export function extractContent(data: any, provider: Provider): string {
 		case "google-ai-studio":
 		case "google-vertex":
 		case "obsidian": {
-			const parts = data.candidates?.[0]?.content?.parts || [];
+			const parts = data.candidates?.[0]?.content?.parts ?? [];
 			const contentParts = parts.filter((part: any) => !part.thought);
-			return contentParts.map((part: any) => part.text).join("") || "";
+			return contentParts.map((part: any) => part.text).join("") ?? "";
 		}
 		case "anthropic":
 			if (data.type === "content_block_delta" && data.delta?.text) {
@@ -20,6 +20,6 @@ export function extractContent(data: any, provider: Provider): string {
 			}
 			return "";
 		default: // OpenAI format
-			return data.choices?.[0]?.delta?.content || "";
+			return data.choices?.[0]?.delta?.content ?? "";
 	}
 }

@@ -23,8 +23,8 @@ export default async function ModelUsagePage({
 
 	const today = new Date();
 	const fromParam =
-		searchParamsData?.from || format(subDays(today, 6), "yyyy-MM-dd");
-	const toParam = searchParamsData?.to || format(today, "yyyy-MM-dd");
+		searchParamsData?.from ?? format(subDays(today, 6), "yyyy-MM-dd");
+	const toParam = searchParamsData?.to ?? format(today, "yyyy-MM-dd");
 
 	const initialActivityData = apiKeyId
 		? null
@@ -40,7 +40,7 @@ export default async function ModelUsagePage({
 
 	return (
 		<ModelUsageClient
-			initialActivityData={initialActivityData || undefined}
+			initialActivityData={initialActivityData ?? undefined}
 			projectId={projectId}
 		/>
 	);

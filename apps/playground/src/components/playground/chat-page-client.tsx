@@ -225,11 +225,11 @@ export default function ChatPageClient({
 							return false;
 						}
 						const mediaType =
-							p.mediaType ||
-							p.mimeType ||
-							p.mime_type ||
-							p.file?.mediaType ||
-							p.file?.mimeType ||
+							p.mediaType ??
+							p.mimeType ??
+							p.mime_type ??
+							p.file?.mediaType ??
+							p.file?.mimeType ??
 							p.file?.mime_type;
 						return (
 							typeof mediaType === "string" && mediaType.startsWith("image/")
@@ -237,18 +237,18 @@ export default function ChatPageClient({
 					})
 					.map((p) => {
 						const mediaType =
-							p.mediaType ||
-							p.mimeType ||
-							p.mime_type ||
-							p.file?.mediaType ||
-							p.file?.mimeType ||
+							p.mediaType ??
+							p.mimeType ??
+							p.mime_type ??
+							p.file?.mediaType ??
+							p.file?.mimeType ??
 							p.file?.mime_type;
 						const url =
-							p.url ||
-							p.data ||
-							p.base64 ||
-							p.file?.url ||
-							p.file?.data ||
+							p.url ??
+							p.data ??
+							p.base64 ??
+							p.file?.url ??
+							p.file?.data ??
 							p.file?.base64;
 						const { dataUrl } = parseImageFile({
 							url,
@@ -411,11 +411,11 @@ export default function ChatPageClient({
 			const mergedOptions = {
 				...options,
 				headers: {
-					...(options?.headers || {}),
+					...(options?.headers ?? {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
 				},
 				body: {
-					...(options?.body || {}),
+					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(webSearchEnabled && supportsWebSearch
@@ -447,7 +447,7 @@ export default function ChatPageClient({
 	const [comparisonEnabled, setComparisonEnabled] = useState(false);
 	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
 	const [syncInput, setSyncInput] = useState(true);
-	const [syncedText, setSyncedText] = useState(initialPrompt || "");
+	const [syncedText, setSyncedText] = useState(initialPrompt ?? "");
 	const extraSubmitRefs = useRef<
 		Record<number, (content: string) => Promise<void> | void>
 	>({});
@@ -498,12 +498,12 @@ export default function ChatPageClient({
 							const parsedImages = JSON.parse(msg.images);
 							// Convert saved image_url format to file format for rendering
 							const imageParts = parsedImages.map((img: any) => {
-								const dataUrl = img.image_url?.url || "";
+								const dataUrl = img.image_url?.url ?? "";
 								// Extract base64 and mediaType from data URL
 								if (dataUrl.startsWith("data:")) {
 									const [header, base64] = dataUrl.split(",");
 									const mediaType =
-										header.match(/data:([^;]+)/)?.[1] || "image/png";
+										header.match(/data:([^;]+)/)?.[1] ?? "image/png";
 									return {
 										type: "file",
 										mediaType,
@@ -584,7 +584,7 @@ export default function ChatPageClient({
 				// ignore for now
 			}
 		};
-		ensureKey();
+		void ensureKey();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
@@ -726,6 +726,7 @@ export default function ChatPageClient({
 					await submit(content);
 				} catch (mirrorError) {
 					// Don't surface comparison errors as hard failures
+
 					console.warn(
 						"Failed to mirror prompt to comparison window",
 						mirrorError,
@@ -790,10 +791,9 @@ export default function ChatPageClient({
 		}
 		const qs = params.toString();
 		router.replace(qs ? `?${qs}` : "");
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
-	const [text, setText] = useState(initialPrompt || "");
+	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
 	const setPrimaryText = (value: string) => {
 		if (syncInput) {
@@ -864,7 +864,7 @@ export default function ChatPageClient({
 				<ChatSidebar
 					onNewChat={handleNewChat}
 					onChatSelect={handleChatSelect}
-					currentChatId={currentChatId || undefined}
+					currentChatId={currentChatId ?? undefined}
 					clearMessages={clearMessages}
 					isLoading={isLoading}
 					organizations={organizations}
@@ -1232,11 +1232,11 @@ function ExtraChatPanel({
 			const mergedOptions = {
 				...options,
 				headers: {
-					...(options?.headers || {}),
+					...(options?.headers ?? {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
 				},
 				body: {
-					...(options?.body || {}),
+					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(webSearchEnabled && supportsWebSearch

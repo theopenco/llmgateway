@@ -40,7 +40,7 @@ export default async function ProviderKeysPage({
 
 	return (
 		<ProviderKeysClient
-			initialProviderKeysData={initialProviderKeysData || undefined}
+			initialProviderKeysData={initialProviderKeysData ?? undefined}
 		/>
 	);
 }

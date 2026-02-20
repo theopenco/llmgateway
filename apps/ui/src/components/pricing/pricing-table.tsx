@@ -218,7 +218,7 @@ export function PricingTable() {
 												href={feature.learnMoreLink as any}
 												className="text-xs text-blue-600 hover:underline"
 											>
-												{feature.learnMoreText || feature.name}
+												{feature.learnMoreText ?? feature.name}
 											</Link>
 										)}
 									</td>

@@ -28,7 +28,7 @@ export function useDefaultProject() {
 		},
 	);
 
-	const isLoading = orgsLoading || (!!defaultOrg && projectsLoading);
+	const isLoading = orgsLoading ?? (!!defaultOrg && projectsLoading);
 
 	if (isLoading) {
 		return { data: null, isError: false, isLoading: true };

@@ -74,7 +74,7 @@ function LoginForm() {
 
 	useEffect(() => {
 		if (window.PublicKeyCredential) {
-			signIn.passkey({ autoFill: true }).then((res) => {
+			void signIn.passkey({ autoFill: true }).then((res) => {
 				if (res?.data) {
 					queryClient.clear();
 					if (posthogKey) {
@@ -86,7 +86,7 @@ function LoginForm() {
 					if (res.error.message?.toLowerCase().includes("cancelled")) {
 						return;
 					}
-					toast.error(res.error.message || "Failed to sign in with passkey", {
+					toast.error(res.error.message ?? "Failed to sign in with passkey", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -95,7 +95,6 @@ function LoginForm() {
 				}
 			});
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -122,7 +121,7 @@ function LoginForm() {
 					router.push(returnUrl);
 				},
 				onError: (ctx) => {
-					toast.error(ctx.error.message || "An unknown error occurred", {
+					toast.error(ctx.error.message ?? "An unknown error occurred", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -133,7 +132,7 @@ function LoginForm() {
 		);
 
 		if (error) {
-			toast.error(error.message || "An unknown error occurred", {
+			toast.error(error.message ?? "An unknown error occurred", {
 				style: {
 					backgroundColor: "var(--destructive)",
 					color: "var(--destructive-foreground)",
@@ -149,7 +148,7 @@ function LoginForm() {
 		try {
 			const res = await signIn.passkey();
 			if (res?.error) {
-				toast.error(res.error.message || "Failed to sign in with passkey", {
+				toast.error(res.error.message ?? "Failed to sign in with passkey", {
 					style: {
 						backgroundColor: "var(--destructive)",
 						color: "var(--destructive-foreground)",

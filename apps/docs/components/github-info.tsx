@@ -33,7 +33,10 @@ async function getRepoStarsAndForks(
 			return { stars: null, forks: null };
 		}
 
-		const data = await response.json();
+		const data = (await response.json()) as {
+			stargazers_count: number;
+			forks_count: number;
+		};
 		return {
 			stars: data.stargazers_count,
 			forks: data.forks_count,
@@ -103,7 +106,7 @@ function humanizeNumber(num: number): string {
 
 	if (num < 1000000) {
 		// For numbers between 10,000 and 999,999, show as whole K (e.g., 10K, 999K)
-		return `${Math.floor(num / 1000)}K`;
+		return `${String(Math.floor(num / 1000))}K`;
 	}
 
 	// For 1,000,000 and above, just return the number

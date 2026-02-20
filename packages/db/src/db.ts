@@ -10,7 +10,7 @@ import { relations } from "./relations.js";
 // This prevents connection exhaustion from having multiple pools
 export const pool = new Pool({
 	connectionString:
-		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+		process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 	// Explicit pool configuration for production reliability
 	max: Number(process.env.DATABASE_POOL_MAX) || 20, // Maximum connections in pool
 	min: Number(process.env.DATABASE_POOL_MIN) || 2, // Minimum connections to maintain

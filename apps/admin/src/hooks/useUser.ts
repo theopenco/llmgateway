@@ -48,7 +48,7 @@ export function useUser(options?: UseUserOptions) {
 
 		// Don't redirect if already on auth pages
 		if (isAuthPage || isLandingPage) {
-			return;
+			// No action needed for auth/landing pages
 		}
 	}, [data?.user, isLoading, router, pathname]);
 
@@ -81,7 +81,7 @@ export function useUser(options?: UseUserOptions) {
 	]);
 
 	return {
-		user: data?.user || null,
+		user: data?.user ?? null,
 		isLoading,
 		error,
 		data,

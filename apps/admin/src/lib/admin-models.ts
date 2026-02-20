@@ -39,7 +39,7 @@ async function hasSession(): Promise<boolean> {
 	const key = "better-auth.session_token";
 	const sessionCookie = cookieStore.get(key);
 	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	return !!(sessionCookie || secureSessionCookie);
+	return !!(sessionCookie ?? secureSessionCookie);
 }
 
 export async function getModels(params?: {

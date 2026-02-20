@@ -9,7 +9,7 @@ import { logger } from "@llmgateway/logger";
  */
 export async function runMigrations(): Promise<void> {
 	const databaseUrl =
-		process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db";
+		process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db";
 
 	logger.info("Starting database migrations");
 

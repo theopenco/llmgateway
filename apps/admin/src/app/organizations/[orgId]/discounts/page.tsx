@@ -207,7 +207,7 @@ export default async function OrganizationDiscountsPage({
 										</span>
 									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
-										{discount.reason || "—"}
+										{discount.reason ?? "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(discount.createdAt)}

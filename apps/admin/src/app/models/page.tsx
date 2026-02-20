@@ -112,9 +112,9 @@ export default async function ModelsPage({
 	}>;
 }) {
 	const params = await searchParams;
-	const page = Math.max(1, parseInt(params?.page || "1", 10));
-	const search = params?.search || "";
-	const sortBy = (params?.sortBy as ModelSortBy) || "logsCount";
+	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
+	const search = params?.search ?? "";
+	const sortBy = (params?.sortBy as ModelSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
 	const limit = 50;
 	const offset = (page - 1) * limit;

@@ -275,7 +275,7 @@ const AssistantMessage = memo(
 									<Image
 										base64={base64Only}
 										mediaType={mediaType}
-										alt={part.name || "Generated image"}
+										alt={part.name ?? "Generated image"}
 										className="h-[400px] aspect-auto border rounded-lg object-cover"
 									/>
 								</ImageZoom>
@@ -363,7 +363,7 @@ const UserMessage = memo(
 										<Image
 											base64={base64Only}
 											mediaType={mediaType}
-											alt={part.name || "Uploaded image"}
+											alt={part.name ?? "Uploaded image"}
 											className="h-[300px] aspect-auto border rounded-lg object-cover"
 										/>
 									</ImageZoom>

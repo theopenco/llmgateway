@@ -59,7 +59,7 @@ export async function fetchServerData<T>(
 		const client = await createServerApiClient();
 
 		let response: { data?: T; error?: any };
-		const requestOptions = options || {};
+		const requestOptions = options ?? {};
 
 		switch (method) {
 			case "GET":

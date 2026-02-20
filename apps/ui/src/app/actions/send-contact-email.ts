@@ -139,7 +139,7 @@ export async function sendContactEmail(data: ContactFormData) {
 	const forwardedFor = headersList.get("x-forwarded-for");
 	const ip = forwardedFor
 		? forwardedFor.split(",")[0]
-		: headersList.get("x-real-ip") || "unknown";
+		: (headersList.get("x-real-ip") ?? "unknown");
 
 	const canSubmit = await checkRateLimit(ip);
 	if (!canSubmit) {

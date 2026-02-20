@@ -242,16 +242,16 @@ const ModelTableRow = React.memo(
 								<div
 									className="w-4 h-4 rounded-sm flex items-center justify-center text-xs font-medium text-white"
 									style={{
-										backgroundColor: row.providerInfo?.color || "#6b7280",
+										backgroundColor: row.providerInfo?.color ?? "#6b7280",
 									}}
 								>
-									{(row.providerInfo?.name || row.provider.providerId)
+									{(row.providerInfo?.name ?? row.provider.providerId)
 										.charAt(0)
 										.toUpperCase()}
 								</div>
 							)}
 							<span className="text-sm">
-								{row.providerInfo?.name || row.provider.providerId}
+								{row.providerInfo?.name ?? row.provider.providerId}
 							</span>
 							{row.provider.deactivatedAt && (
 								<Tooltip>
@@ -407,7 +407,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	// Search and filter states
-	const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+	const [searchQuery, setSearchQuery] = useState(searchParams.get("q") ?? "");
 	const [showFilters, setShowFilters] = useState(
 		searchParams.get("filters") === "1",
 	);
@@ -420,7 +420,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
 	);
 	const [filters, setFilters] = useState({
-		category: searchParams.get("category") || "all",
+		category: searchParams.get("category") ?? "all",
 		capabilities: {
 			streaming: searchParams.get("streaming") === "true",
 			vision: searchParams.get("vision") === "true",
@@ -434,18 +434,18 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
 		},
-		selectedProvider: searchParams.get("provider") || "all",
+		selectedProvider: searchParams.get("provider") ?? "all",
 		inputPrice: {
-			min: searchParams.get("inputPriceMin") || "",
-			max: searchParams.get("inputPriceMax") || "",
+			min: searchParams.get("inputPriceMin") ?? "",
+			max: searchParams.get("inputPriceMax") ?? "",
 		},
 		outputPrice: {
-			min: searchParams.get("outputPriceMin") || "",
-			max: searchParams.get("outputPriceMax") || "",
+			min: searchParams.get("outputPriceMin") ?? "",
+			max: searchParams.get("outputPriceMax") ?? "",
 		},
 		contextSize: {
-			min: searchParams.get("contextSizeMin") || "",
-			max: searchParams.get("contextSizeMax") || "",
+			min: searchParams.get("contextSizeMin") ?? "",
+			max: searchParams.get("contextSizeMax") ?? "",
 		},
 	});
 
@@ -523,15 +523,15 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 					.map((t: string) => t.replace(/[^a-z0-9]/g, ""))
 					.filter(Boolean);
 
-				const providerStrings = (model.providerDetails || []).flatMap((p) => [
+				const providerStrings = (model.providerDetails ?? []).flatMap((p) => [
 					p.provider.providerId,
-					p.providerInfo?.name || "",
+					p.providerInfo?.name ?? "",
 				]);
 				const haystackParts = [
-					model.name || "",
+					model.name ?? "",
 					model.id,
 					model.family,
-					...(model.aliases || []),
+					...(model.aliases ?? []),
 					...providerStrings,
 				];
 				const haystack = normalize(haystackParts.join(" "));
@@ -565,7 +565,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 						}
 						const hasCodeCapabilities = model.providerDetails.some(
 							(p) =>
-								(p.provider.jsonOutput || p.provider.jsonOutputSchema) &&
+								(p.provider.jsonOutput ?? p.provider.jsonOutputSchema) &&
 								p.provider.tools &&
 								p.provider.streaming &&
 								p.provider.cachedInputPrice !== null,
@@ -795,19 +795,19 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 				case "provider":
 					// For grid view, sort by first provider name
 					aValue = (
-						a.providerDetails[0]?.providerInfo?.name ||
-						a.providerDetails[0]?.provider.providerId ||
+						a.providerDetails[0]?.providerInfo?.name ??
+						a.providerDetails[0]?.provider.providerId ??
 						""
 					).toLowerCase();
 					bValue = (
-						b.providerDetails[0]?.providerInfo?.name ||
-						b.providerDetails[0]?.provider.providerId ||
+						b.providerDetails[0]?.providerInfo?.name ??
+						b.providerDetails[0]?.provider.providerId ??
 						""
 					).toLowerCase();
 					break;
 				case "name":
-					aValue = (a.name || a.id).toLowerCase();
-					bValue = (b.name || b.id).toLowerCase();
+					aValue = (a.name ?? a.id).toLowerCase();
+					bValue = (b.name ?? b.id).toLowerCase();
 					break;
 				case "inputPrice": {
 					// Get the min input price among all providers for this model
@@ -893,7 +893,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
 				const hasAdditionalPricing =
-					provider.webSearch ||
+					provider.webSearch ??
 					(provider.requestPrice !== null &&
 						provider.requestPrice !== undefined &&
 						parseFloat(provider.requestPrice) > 0);
@@ -929,15 +929,15 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			switch (sortField) {
 				case "provider":
 					aValue = (
-						a.providerInfo?.name || a.provider.providerId
+						a.providerInfo?.name ?? a.provider.providerId
 					).toLowerCase();
 					bValue = (
-						b.providerInfo?.name || b.provider.providerId
+						b.providerInfo?.name ?? b.provider.providerId
 					).toLowerCase();
 					break;
 				case "name":
-					aValue = (a.model.name || a.model.id).toLowerCase();
-					bValue = (b.model.name || b.model.id).toLowerCase();
+					aValue = (a.model.name ?? a.model.id).toLowerCase();
+					bValue = (b.model.name ?? b.model.id).toLowerCase();
 					break;
 				case "inputPrice": {
 					const aPrice = a.provider.inputPrice;
@@ -1438,7 +1438,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										...prev,
 										inputPrice: { ...prev.inputPrice, min: value },
 									}));
-									updateUrlWithFilters({ inputPriceMin: value || undefined });
+									updateUrlWithFilters({ inputPriceMin: value ?? undefined });
 								}}
 								className="h-8"
 							/>
@@ -1452,7 +1452,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										...prev,
 										inputPrice: { ...prev.inputPrice, max: value },
 									}));
-									updateUrlWithFilters({ inputPriceMax: value || undefined });
+									updateUrlWithFilters({ inputPriceMax: value ?? undefined });
 								}}
 								className="h-8"
 							/>
@@ -1472,7 +1472,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										...prev,
 										outputPrice: { ...prev.outputPrice, min: value },
 									}));
-									updateUrlWithFilters({ outputPriceMin: value || undefined });
+									updateUrlWithFilters({ outputPriceMin: value ?? undefined });
 								}}
 								className="h-8"
 							/>
@@ -1486,7 +1486,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										...prev,
 										outputPrice: { ...prev.outputPrice, max: value },
 									}));
-									updateUrlWithFilters({ outputPriceMax: value || undefined });
+									updateUrlWithFilters({ outputPriceMax: value ?? undefined });
 								}}
 								className="h-8"
 							/>
@@ -1506,7 +1506,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										...prev,
 										contextSize: { ...prev.contextSize, min: value },
 									}));
-									updateUrlWithFilters({ contextSizeMin: value || undefined });
+									updateUrlWithFilters({ contextSizeMin: value ?? undefined });
 								}}
 								className="h-8"
 							/>
@@ -1520,7 +1520,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 										...prev,
 										contextSize: { ...prev.contextSize, max: value },
 									}));
-									updateUrlWithFilters({ contextSizeMax: value || undefined });
+									updateUrlWithFilters({ contextSizeMax: value ?? undefined });
 								}}
 								className="h-8"
 							/>
@@ -1683,7 +1683,7 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 											onChange={(e) => {
 												const value = e.target.value;
 												setSearchQuery(value);
-												updateUrlWithFilters({ q: value || undefined });
+												updateUrlWithFilters({ q: value ?? undefined });
 											}}
 											className="pl-8"
 										/>

@@ -79,7 +79,7 @@ export function MultiProviderSelector({
 								className="flex items-center gap-1"
 							>
 								{ProviderIcon && <ProviderIcon className="h-3 w-3" />}
-								{provider?.name || providerId}
+								{provider?.name ?? providerId}
 								<Button
 									variant="ghost"
 									size="sm"

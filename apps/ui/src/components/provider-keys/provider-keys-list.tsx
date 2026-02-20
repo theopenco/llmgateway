@@ -106,7 +106,7 @@ export function ProviderKeysList({
 	const organizationKeys =
 		data?.providerKeys
 			.filter((key) => key.status !== "deleted")
-			.filter((key) => key.organizationId === selectedOrganization.id) || [];
+			.filter((key) => key.organizationId === selectedOrganization.id) ?? [];
 
 	// Create a map of existing keys by provider
 	const existingKeysMap = new Map(
@@ -124,7 +124,7 @@ export function ProviderKeysList({
 			{
 				onSuccess: () => {
 					toast({ title: "Deleted", description: "Provider key removed" });
-					queryClient.invalidateQueries({ queryKey });
+					void queryClient.invalidateQueries({ queryKey });
 				},
 				onError: () =>
 					toast({
@@ -153,7 +153,7 @@ export function ProviderKeysList({
 						title: "Status Updated",
 						description: `Provider key marked as ${newStatus}`,
 					});
-					queryClient.invalidateQueries({ queryKey });
+					void queryClient.invalidateQueries({ queryKey });
 				},
 				onError: () =>
 					toast({
@@ -287,7 +287,7 @@ export function ProviderKeysList({
 									<CreateProviderKeyDialog
 										selectedOrganization={selectedOrganization}
 										preselectedProvider={provider.id}
-										existingProviderKeys={data?.providerKeys || []}
+										existingProviderKeys={data?.providerKeys ?? []}
 									>
 										<Button variant="outline" size="sm">
 											Add

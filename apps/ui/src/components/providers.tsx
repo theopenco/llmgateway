@@ -71,7 +71,7 @@ export function Providers({ children, config }: ProvidersProps) {
 	useEffect(() => {
 		if (config.crispId) {
 			// Dynamically import Crisp to avoid SSR issues
-			import("crisp-sdk-web").then(({ Crisp }) => {
+			void import("crisp-sdk-web").then(({ Crisp }) => {
 				Crisp.configure(config.crispId!);
 			});
 		}

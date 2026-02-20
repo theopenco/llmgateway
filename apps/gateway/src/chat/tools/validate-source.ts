@@ -10,7 +10,7 @@ export function validateSource(
 	referer?: string | undefined,
 ): string | undefined {
 	// Use x-source if available, otherwise fallback to HTTP-Referer
-	const sourceToValidate = source || referer;
+	const sourceToValidate = source ?? referer;
 
 	if (!sourceToValidate) {
 		return undefined;

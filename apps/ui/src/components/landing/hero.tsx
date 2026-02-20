@@ -290,7 +290,7 @@ export function Hero({
 													className="group/card flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm transition-colors hover:border-primary/50 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 												>
 													<span className="flex size-6 items-center justify-center text-muted-foreground transition-colors group-hover/card:text-foreground">
-														{providerIcons[migration.fromProvider] || (
+														{providerIcons[migration.fromProvider] ?? (
 															<ChevronRight
 																className="size-4"
 																aria-hidden="true"

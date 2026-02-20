@@ -176,7 +176,7 @@ function ModelCard({ model }: { model: ModelData }) {
 				<div>
 					<span className="text-muted-foreground">Context:</span>
 					<span className="ml-1 font-medium">
-						{formatContextSize(model.context_length) || "—"}
+						{formatContextSize(model.context_length) ?? "—"}
 					</span>
 				</div>
 				<div>

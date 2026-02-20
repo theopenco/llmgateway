@@ -57,7 +57,7 @@ export function CreateProviderKeyDialog({
 	const posthog = usePostHog();
 	const [open, setOpen] = useState(false);
 	const [selectedProvider, setSelectedProvider] = useState(
-		preselectedProvider || "",
+		preselectedProvider ?? "",
 	);
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
@@ -222,7 +222,7 @@ export function CreateProviderKeyDialog({
 	const handleClose = () => {
 		setOpen(false);
 		setTimeout(() => {
-			setSelectedProvider(preselectedProvider || "");
+			setSelectedProvider(preselectedProvider ?? "");
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");

@@ -154,7 +154,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 			},
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({
+					void queryClient.invalidateQueries({
 						queryKey: api.queryOptions("get", "/keys/api/{id}/iam", {
 							params: { path: { id: apiKey.id } },
 						}).queryKey,
@@ -183,7 +183,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 			},
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({
+					void queryClient.invalidateQueries({
 						queryKey: api.queryOptions("get", "/keys/api/{id}/iam", {
 							params: { path: { id: apiKey.id } },
 						}).queryKey,
@@ -464,7 +464,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 							<Button
 								onClick={handleCreateRule}
 								disabled={
-									isCreating ||
+									Boolean(isCreating) ||
 									!newRule.ruleType ||
 									(newRule.ruleType.includes("models") &&
 										newRule.models.length === 0) ||

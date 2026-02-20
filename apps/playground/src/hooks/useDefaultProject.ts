@@ -12,7 +12,7 @@ export function useDefaultProject() {
 		"/orgs/{id}/projects",
 		{
 			params: {
-				path: { id: defaultOrg?.id || "" },
+				path: { id: defaultOrg?.id ?? "" },
 			},
 		},
 		{

@@ -195,8 +195,8 @@ export function SecurityEventsClient() {
 		if (canViewEvents) {
 			setViolations([]);
 			setNextCursor(null);
-			fetchStats();
-			fetchViolations();
+			void fetchStats();
+			void fetchViolations();
 		} else {
 			setIsLoading(false);
 		}
@@ -438,7 +438,7 @@ export function SecurityEventsClient() {
 														</Badge>
 													</td>
 													<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
-														{violation.matchedPattern || "—"}
+														{violation.matchedPattern ?? "—"}
 													</td>
 												</tr>
 											))}
@@ -462,7 +462,7 @@ export function SecurityEventsClient() {
 							{hasMore && (
 								<div className="flex justify-center pt-4">
 									<Button
-										onClick={() => fetchViolations(nextCursor || undefined)}
+										onClick={() => fetchViolations(nextCursor ?? undefined)}
 										disabled={isLoadingMore}
 										variant="outline"
 									>

@@ -21,22 +21,22 @@ export function OrganizationRetentionSettings() {
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 		},
 	});
 
 	const [retentionLevel, setRetentionLevel] = useState<"retain" | "none">(
-		selectedOrganization?.retentionLevel || "retain",
+		selectedOrganization?.retentionLevel ?? "retain",
 	);
 
 	// Fetch projects to check if any have caching enabled
 	const { data: projectsData } = api.useQuery("get", "/orgs/{id}/projects", {
-		params: { path: { id: selectedOrganization?.id || "" } },
+		params: { path: { id: selectedOrganization?.id ?? "" } },
 		enabled: !!selectedOrganization?.id,
 	});
 
 	const projectsWithCaching =
-		projectsData?.projects?.filter((project) => project.cachingEnabled) || [];
+		projectsData?.projects?.filter((project) => project.cachingEnabled) ?? [];
 	const hasCachingEnabled = projectsWithCaching.length > 0;
 
 	if (!selectedOrganization) {

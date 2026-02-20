@@ -19,8 +19,8 @@ export default async function UsagePage({
 	const projectId = paramsData?.projectId;
 
 	const today = new Date();
-	const fromParam = paramsData?.from || format(subDays(today, 6), "yyyy-MM-dd");
-	const toParam = paramsData?.to || format(today, "yyyy-MM-dd");
+	const fromParam = paramsData?.from ?? format(subDays(today, 6), "yyyy-MM-dd");
+	const toParam = paramsData?.to ?? format(today, "yyyy-MM-dd");
 
 	const initialActivityData = projectId
 		? await fetchServerData<ActivitT>("GET", "/activity", {
@@ -36,7 +36,7 @@ export default async function UsagePage({
 
 	return (
 		<UsageClient
-			initialActivityData={initialActivityData || undefined}
+			initialActivityData={initialActivityData ?? undefined}
 			projectId={projectId}
 		/>
 	);

@@ -96,7 +96,7 @@ export default function Signup() {
 					router.push(returnUrl);
 				},
 				onError: (ctx) => {
-					toast.error(ctx.error.message || "Failed to sign up", {
+					toast.error(ctx.error.message ?? "Failed to sign up", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -107,7 +107,7 @@ export default function Signup() {
 		);
 
 		if (error) {
-			toast.error(error.message || "Failed to sign up", {
+			toast.error(error.message ?? "Failed to sign up", {
 				style: {
 					backgroundColor: "var(--destructive)",
 					color: "var(--destructive-foreground)",

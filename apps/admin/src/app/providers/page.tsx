@@ -101,7 +101,7 @@ export default async function ProvidersPage({
 	}>;
 }) {
 	const params = await searchParams;
-	const sortBy = (params?.sortBy as ProviderSortBy) || "logsCount";
+	const sortBy = (params?.sortBy as ProviderSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
 
 	const data = await getProviders({ sortBy, sortOrder });

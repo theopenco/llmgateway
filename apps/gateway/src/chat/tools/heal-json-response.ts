@@ -173,10 +173,10 @@ function completeTruncatedJson(content: string): string | null {
 	let completed = content.trim();
 
 	// Count opening and closing brackets
-	const openBraces = (completed.match(/{/g) || []).length;
-	const closeBraces = (completed.match(/}/g) || []).length;
-	const openBrackets = (completed.match(/\[/g) || []).length;
-	const closeBrackets = (completed.match(/]/g) || []).length;
+	const openBraces = (completed.match(/{/g) ?? []).length;
+	const closeBraces = (completed.match(/}/g) ?? []).length;
+	const openBrackets = (completed.match(/\[/g) ?? []).length;
+	const closeBrackets = (completed.match(/]/g) ?? []).length;
 
 	// If already balanced, return as-is
 	if (openBraces === closeBraces && openBrackets === closeBrackets) {
@@ -325,11 +325,11 @@ export function healJsonResponse(content: string): HealingResult {
 	// Start fresh from original, extract, fix syntax, then complete
 	let combined = originalContent;
 
-	const reExtracted = extractFromMarkdown(combined) || combined;
+	const reExtracted = extractFromMarkdown(combined) ?? combined;
 	combined =
-		extractJsonFromMixedContent(reExtracted) || reExtracted || combined;
+		extractJsonFromMixedContent(reExtracted) ?? reExtracted ?? combined;
 	combined = fixJsonSyntax(combined);
-	combined = completeTruncatedJson(combined) || combined;
+	combined = completeTruncatedJson(combined) ?? combined;
 
 	try {
 		JSON.parse(combined);

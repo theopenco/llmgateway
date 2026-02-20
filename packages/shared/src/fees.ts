@@ -13,7 +13,7 @@ const PLATFORM_FEE_PERCENTAGE = 0.05; // Fixed 5% for all users
 // Fee percentage for BYOK (Bring Your Own Keys) usage - charged on tracked costs
 // when users use their own provider API keys
 export const BYOK_FEE_PERCENTAGE = parseFloat(
-	process.env.BYOK_FEE_PERCENTAGE || "0.01",
+	process.env.BYOK_FEE_PERCENTAGE ?? "0.01",
 );
 
 export function calculateFees(input: FeeCalculationInput): FeeBreakdown {

@@ -109,7 +109,7 @@ export function NewProjectDialog({
 					<DialogDescription>
 						Create a new project in{" "}
 						<span className="font-medium">
-							{selectedOrganization?.name || "the selected organization"}
+							{selectedOrganization?.name ?? "the selected organization"}
 						</span>
 						.
 					</DialogDescription>
@@ -142,7 +142,7 @@ export function NewProjectDialog({
 						<Button
 							type="submit"
 							disabled={
-								createProjectMutation.isPending ||
+								Boolean(createProjectMutation.isPending) ||
 								!projectName.trim() ||
 								!selectedOrganization
 							}

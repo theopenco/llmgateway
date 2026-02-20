@@ -77,7 +77,7 @@ export default async function ProjectDetailPage({
 					<Badge
 						variant={project.status === "active" ? "secondary" : "outline"}
 					>
-						{project.status || "active"}
+						{project.status ?? "active"}
 					</Badge>
 				</div>
 

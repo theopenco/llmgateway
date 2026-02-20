@@ -23,12 +23,12 @@ export function OrganizationNameSettings() {
 		},
 	});
 
-	const [name, setName] = useState<string>(selectedOrganization?.name || "");
+	const [name, setName] = useState<string>(selectedOrganization?.name ?? "");
 
 	const [nameError, setNameError] = useState<string>("");
 
 	React.useEffect(() => {
-		setName(selectedOrganization?.name || "");
+		setName(selectedOrganization?.name ?? "");
 		setNameError("");
 	}, [selectedOrganization?.id, selectedOrganization?.name]);
 

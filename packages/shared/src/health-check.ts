@@ -163,7 +163,7 @@ export class HealthChecker {
 		return {
 			response: {
 				message,
-				version: version || process.env.APP_VERSION || "v0.0.0-unknown",
+				version: version ?? process.env.APP_VERSION ?? "v0.0.0-unknown",
 				health,
 			},
 			statusCode,

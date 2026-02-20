@@ -13,7 +13,7 @@ export function useDefaultOrganization() {
 	if (!data?.organizations || data.organizations.length === 0) {
 		return {
 			data: null,
-			error: error || new Error("No organizations found"),
+			error: error ?? new Error("No organizations found"),
 		};
 	}
 

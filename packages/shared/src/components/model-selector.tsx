@@ -551,8 +551,8 @@ export function ModelSelector({
 					return false;
 				}
 
-				const price = e.mapping.inputPrice || 0;
-				const requestPrice = e.mapping.requestPrice || 0;
+				const price = e.mapping.inputPrice ?? 0;
+				const requestPrice = e.mapping.requestPrice ?? 0;
 				switch (filters.priceRange) {
 					case "free":
 						return price === 0 && requestPrice === 0;
@@ -647,11 +647,9 @@ export function ModelSelector({
 			);
 
 		// Fallback to root entry for the selected model
-		if (!entry) {
-			entry = allEntries.find(
-				(e) => e.isRoot && e.model.id === selectedModel.id,
-			);
-		}
+		entry ??= allEntries.find(
+			(e) => e.isRoot && e.model.id === selectedModel.id,
+		);
 
 		// Fallback to first filtered entry
 		if (!entry && filteredEntries.length > 0) {
@@ -718,7 +716,7 @@ export function ModelSelector({
 										!selectedProviderDef
 											? "Auto-select provider"
 											: (
-													selectedProviderDef ||
+													selectedProviderDef ??
 													getProviderForModel(selectedModel, providers)
 												)?.name}
 									</span>
@@ -1467,8 +1465,8 @@ export function ModelSelector({
 														</div>
 													)}
 													{/* Image Generation Pricing */}
-													{(previewEntry.mapping?.requestPrice ||
-														previewEntry.mapping?.imageInputPrice ||
+													{(previewEntry.mapping?.requestPrice ??
+														previewEntry.mapping?.imageInputPrice ??
 														previewEntry.mapping?.imageOutputPrice) && (
 														<div className="pt-2 border-t border-dashed">
 															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide block mb-2">
@@ -1964,8 +1962,8 @@ export function ModelSelector({
 												</div>
 											)}
 											{/* Image Generation Pricing */}
-											{(selectedDetails.mapping?.requestPrice ||
-												selectedDetails.mapping?.imageInputPrice ||
+											{(selectedDetails.mapping?.requestPrice ??
+												selectedDetails.mapping?.imageInputPrice ??
 												selectedDetails.mapping?.imageOutputPrice) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">

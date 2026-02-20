@@ -50,7 +50,7 @@ export function transformOpenaiStreaming(data: any, usedModel: string): any {
 
 		const newDelta = {
 			...delta,
-			role: delta.role || "assistant",
+			role: delta.role ?? "assistant",
 		};
 
 		// Normalize reasoning_content field to reasoning for OpenAI compatibility
@@ -84,20 +84,20 @@ export function transformOpenaiStreaming(data: any, usedModel: string): any {
 		const delta = data.delta
 			? transformDelta(data.delta)
 			: transformDelta({
-					content: data.content || "",
-					tool_calls: data.tool_calls || null,
+					content: data.content ?? "",
+					tool_calls: data.tool_calls ?? null,
 				});
 
 		return {
-			id: data.id || `chatcmpl-${Date.now()}`,
+			id: data.id ?? `chatcmpl-${Date.now()}`,
 			object: "chat.completion.chunk",
-			created: data.created || Math.floor(Date.now() / 1000),
-			model: data.model || usedModel,
+			created: data.created ?? Math.floor(Date.now() / 1000),
+			model: data.model ?? usedModel,
 			choices: [
 				{
 					index: 0,
 					delta,
-					finish_reason: data.finish_reason || null,
+					finish_reason: data.finish_reason ?? null,
 				},
 			],
 			usage: normalizeUsage(data.usage),

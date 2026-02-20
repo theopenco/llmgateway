@@ -34,6 +34,7 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 	toRef,
 	curvature = 0,
 	reverse = false, // Include the reverse prop
+	// eslint-disable-next-line no-mixed-operators
 	duration = Math.random() * 3 + 4,
 	delay = 0,
 	pathColor = "gray",
@@ -77,12 +78,16 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 				setSvgDimensions({ width: svgWidth, height: svgHeight });
 
 				const startX =
+					// eslint-disable-next-line no-mixed-operators
 					rectA.left - containerRect.left + rectA.width / 2 + startXOffset;
 				const startY =
+					// eslint-disable-next-line no-mixed-operators
 					rectA.top - containerRect.top + rectA.height / 2 + startYOffset;
 				const endX =
+					// eslint-disable-next-line no-mixed-operators
 					rectB.left - containerRect.left + rectB.width / 2 + endXOffset;
 				const endY =
+					// eslint-disable-next-line no-mixed-operators
 					rectB.top - containerRect.top + rectB.height / 2 + endYOffset;
 
 				const controlY = startY - curvature;
@@ -96,7 +101,7 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 		// Initialize ResizeObserver
 		const resizeObserver = new ResizeObserver((entries) => {
 			// For all entries, recalculate the path
-			for (let _entry of entries) {
+			for (const _entry of entries) {
 				updatePath();
 			}
 		});

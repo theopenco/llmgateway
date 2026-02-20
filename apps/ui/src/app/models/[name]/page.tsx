@@ -106,7 +106,7 @@ export default async function ModelPage({ params }: PageProps) {
 			{
 				"@type": "ListItem",
 				position: 3,
-				name: modelDef.name || modelDef.id,
+				name: modelDef.name ?? modelDef.id,
 				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 			},
 		],
@@ -121,10 +121,10 @@ export default async function ModelPage({ params }: PageProps) {
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
-		name: modelDef.name || modelDef.id,
+		name: modelDef.name ?? modelDef.id,
 		description:
-			modelDef.description ||
-			`Access ${modelDef.name || modelDef.id} through LLM Gateway's unified API.`,
+			modelDef.description ??
+			`Access ${modelDef.name ?? modelDef.id} through LLM Gateway's unified API.`,
 		brand: {
 			"@type": "Brand",
 			name: modelDef.family || "LLM Gateway",
@@ -143,12 +143,14 @@ export default async function ModelPage({ params }: PageProps) {
 		<>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(productSchema),
 				}}
@@ -227,7 +229,7 @@ export default async function ModelPage({ params }: PageProps) {
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
 							<div>
 								{Math.max(
-									...modelProviders.map((p) => p.contextSize || 0),
+									...modelProviders.map((p) => p.contextSize ?? 0),
 								).toLocaleString()}{" "}
 								context
 							</div>
@@ -456,10 +458,10 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name || model.id} – AI Model on LLM Gateway`;
+	const title = `${model.name ?? model.id} – AI Model on LLM Gateway`;
 	const description =
-		model.description ||
-		`Details, pricing, and capabilities for ${model.name || model.id} on LLM Gateway.`;
+		model.description ??
+		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
@@ -476,7 +478,7 @@ export async function generateMetadata({
 					url: ogImageUrl,
 					width: 1200,
 					height: 630,
-					alt: `${model.name || model.id} model card`,
+					alt: `${model.name ?? model.id} model card`,
 				},
 			],
 		},

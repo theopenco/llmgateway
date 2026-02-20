@@ -192,10 +192,10 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 														"Subscription Ended"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
-													{transaction.creditAmount || "—"}
+													{transaction.creditAmount ?? "—"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
-													{transaction.amount || "—"}
+													{transaction.amount ?? "—"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													<Badge
@@ -211,7 +211,7 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 													</Badge>
 												</td>
 												<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
-													{transaction.description || "—"}
+													{transaction.description ?? "—"}
 												</td>
 											</tr>
 										))}

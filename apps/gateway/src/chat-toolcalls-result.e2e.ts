@@ -119,7 +119,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 						},
 						{
 							role: "assistant",
-							content: assistantMessage.content || "",
+							content: assistantMessage.content ?? "",
 							tool_calls: toolCalls,
 						},
 						...toolCalls.map((tc: any) => ({
@@ -189,7 +189,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			// Should have proper content (not empty) as a response to the tool call
 			expect(message).toHaveProperty("content");
 			// verify either content is string or tool_calls is present
-			expect(message.content || message.tool_calls).toBeTruthy();
+			expect(message.content ?? message.tool_calls).toBeTruthy();
 
 			// Validate logs
 			const log = await validateLogByRequestId(requestId2);

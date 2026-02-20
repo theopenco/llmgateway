@@ -60,7 +60,7 @@ export async function validateProviderKey(
 			const cheapestModel = getCheapestModelForProvider(provider);
 			logger.debug("Using cheapest validation model", {
 				provider,
-				validationModel: cheapestModel || undefined,
+				validationModel: cheapestModel ?? undefined,
 			});
 			if (!cheapestModel) {
 				throw new Error(

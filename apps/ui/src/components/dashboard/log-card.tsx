@@ -131,7 +131,7 @@ export function LogCard({
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
-								{log.content ||
+								{log.content ??
 									(log.unifiedFinishReason === "tool_calls" && log.toolResults
 										? Array.isArray(log.toolResults)
 											? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
@@ -669,7 +669,7 @@ export function LogCard({
 								</div>
 								<div className="text-muted-foreground">Source</div>
 								<div className="font-mono text-xs break-all">
-									{log.source || "-"}
+									{log.source ?? "-"}
 								</div>
 								<div className="text-muted-foreground">Project ID</div>
 								<div className="font-mono text-xs break-all">
@@ -684,9 +684,9 @@ export function LogCard({
 									{log.apiKeyId}
 								</div>
 								<div className="text-muted-foreground">Mode</div>
-								<div>{log.mode || "?"}</div>
+								<div>{log.mode ?? "?"}</div>
 								<div className="text-muted-foreground">Used Mode</div>
-								<div>{log.usedMode || "?"}</div>
+								<div>{log.usedMode ?? "?"}</div>
 							</div>
 							{log.customHeaders &&
 								Object.keys(log.customHeaders).length > 0 && (
@@ -788,7 +788,7 @@ export function LogCard({
 											</p>
 										</TooltipContent>
 									</Tooltip>
-									<span>{log.reasoningEffort || "-"}</span>
+									<span>{log.reasoningEffort ?? "-"}</span>
 								</div>
 								{log.reasoningMaxTokens && (
 									<div className="flex items-center justify-between gap-2">
@@ -841,7 +841,7 @@ export function LogCard({
 									<span>
 										{log.responseFormat
 											? typeof log.responseFormat === "object"
-												? (log.responseFormat as any).type || "-"
+												? ((log.responseFormat as any).type ?? "-")
 												: "-"
 											: "-"}
 									</span>
@@ -913,7 +913,7 @@ export function LogCard({
 							</div>
 						</div>
 					)}
-					{(log.tools || log.toolChoice || log.toolResults) && (
+					{(log.tools ?? log.toolChoice ?? log.toolResults) && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Tool Information</h4>
 							<div className="grid gap-4 md:grid-cols-1">

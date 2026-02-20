@@ -49,7 +49,9 @@ function randomInt(min: number, max: number) {
 }
 
 function randomFloat(min: number, max: number, decimals = 2) {
+	/* eslint-disable no-mixed-operators */
 	return Number((Math.random() * (max - min) + min).toFixed(decimals));
+	/* eslint-enable no-mixed-operators */
 }
 
 function randomChoice<T>(arr: T[]): T {
@@ -57,11 +59,15 @@ function randomChoice<T>(arr: T[]): T {
 }
 
 function daysAgo(days: number) {
+	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 }
 
 function hoursAgo(hours: number) {
+	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - hours * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 }
 
 const PASSWORD_HASH =
@@ -910,9 +916,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
+				/* eslint-disable no-mixed-operators */
 				const costVal =
 					(inputTok / 1000) * modelDef.inputPrice +
 					(outputTok / 1000) * modelDef.outputPrice;
+				/* eslint-enable no-mixed-operators */
 
 				stats.push({
 					id: `phms-${statIdx}`,
@@ -970,7 +978,9 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 }
 
 function minutesAgo(minutes: number) {
+	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 }
 
 function generateSeedProviders() {

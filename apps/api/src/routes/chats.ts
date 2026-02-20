@@ -52,7 +52,7 @@ const createMessageSchema = z
 		tools: z.string().optional(), // Tool parts JSON
 	})
 	.refine(
-		(data) => data.content || data.images || data.reasoning || data.tools,
+		(data) => data.content ?? data.images ?? data.reasoning ?? data.tools,
 		{
 			message: "Either content or images must be provided",
 		},
@@ -529,10 +529,10 @@ chats.openapi(addMessage, async (c) => {
 		.values({
 			chatId: id,
 			role: body.role,
-			content: body.content || null,
-			images: body.images || null,
-			reasoning: body.reasoning || null,
-			tools: body.tools || null,
+			content: body.content ?? null,
+			images: body.images ?? null,
+			reasoning: body.reasoning ?? null,
+			tools: body.tools ?? null,
 			sequence: nextSequence,
 		})
 		.returning();

@@ -57,9 +57,9 @@ export function CachingSettings({
 		resolver: zodResolver(cachingFormSchema),
 		defaultValues: {
 			cachingEnabled:
-				initialData.preferences.preferences.cachingEnabled || false,
+				initialData.preferences.preferences.cachingEnabled ?? false,
 			cacheDurationSeconds:
-				initialData.preferences.preferences.cacheDurationSeconds || 60,
+				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
 		},
 	});
 
@@ -85,7 +85,7 @@ export function CachingSettings({
 			const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
 				params: { path: { id: orgId } },
 			}).queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 		},
 	});
 
@@ -195,8 +195,7 @@ export function CachingSettings({
 						<Button
 							type="submit"
 							disabled={
-								form.formState.isSubmitting ||
-								updateProject.isPending ||
+								(form.formState.isSubmitting || updateProject.isPending) ??
 								isMetadataOnlyRetention
 							}
 						>

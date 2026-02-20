@@ -75,7 +75,7 @@ export function ModelCard({
 	const [showAllProviders, setShowAllProviders] = useState(false);
 
 	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
+		void navigator.clipboard.writeText(text);
 		setCopiedModel(text);
 		setTimeout(() => setCopiedModel(null), 2000);
 	};
@@ -119,7 +119,7 @@ export function ModelCard({
 					<div className="space-y-3">
 						<div className="flex items-start justify-between gap-4">
 							<h3 className="text-2xl font-bold text-foreground tracking-tight">
-								{model.name || model.id}
+								{model.name ?? model.id}
 							</h3>
 							<div
 								onClick={(e) => e.stopPropagation()}
@@ -223,14 +223,14 @@ export function ModelCard({
 												<ProviderIcon className="h-5 w-5" />
 											) : (
 												<span className="text-xs font-bold">
-													{(providerInfo?.name || provider.providerId)
+													{(providerInfo?.name ?? provider.providerId)
 														.charAt(0)
 														.toUpperCase()}
 												</span>
 											)}
 										</div>
 										<span className="text-base font-semibold text-foreground">
-											{providerInfo?.name || provider.providerId}
+											{providerInfo?.name ?? provider.providerId}
 										</span>
 										{hasProviderStabilityWarning(provider) && (
 											<AlertTriangle className="h-4 w-4 text-amber-400" />
@@ -284,12 +284,12 @@ export function ModelCard({
 												Stability
 											</div>
 											<Badge className="text-xs px-2 py-0.5 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-												{provider.stability || "STABLE"}
+												{provider.stability ?? "STABLE"}
 											</Badge>
 										</div>
 									</div>
 
-									{(provider.deprecatedAt || provider.deactivatedAt) && (
+									{(provider.deprecatedAt ?? provider.deactivatedAt) && (
 										<div className="flex flex-wrap gap-2">
 											{provider.deprecatedAt && (
 												<Badge

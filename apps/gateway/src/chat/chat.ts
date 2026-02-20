@@ -239,7 +239,7 @@ const completions = createRoute({
 
 chat.openapi(completions, async (c) => {
 	// Extract or generate request ID
-	const requestId = c.req.header("x-request-id") || shortid(40);
+	const requestId = c.req.header("x-request-id") ?? shortid(40);
 
 	// Parse JSON manually even if it's malformed
 	let rawBody: unknown;
@@ -275,17 +275,10 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	let {
+	const {
 		model: modelInput,
-		messages,
-		temperature,
-		max_tokens,
-		top_p,
-		frequency_penalty,
-		presence_penalty,
 		response_format,
 		stream,
-		tools,
 		tool_choice,
 		free_models_only,
 		onboarding,
@@ -295,6 +288,15 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+	} = validationResult.data;
+	let {
+		messages,
+		temperature,
+		max_tokens,
+		top_p,
+		frequency_penalty,
+		presence_penalty,
+		tools,
 	} = validationResult.data;
 
 	// Debug: Log tools received from the AI SDK (development only)
@@ -316,7 +318,7 @@ chat.openapi(completions, async (c) => {
 
 	// If web_search parameter is true, automatically add the web_search tool
 	if (web_search && (!tools || !tools.some((t) => t.type === "web_search"))) {
-		tools = tools || [];
+		tools = tools ?? [];
 		tools.push({
 			type: "web_search" as const,
 		});
@@ -387,7 +389,7 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Extract User-Agent header for logging
-	const userAgent = c.req.header("User-Agent") || undefined;
+	const userAgent = c.req.header("User-Agent") ?? undefined;
 
 	// Match specific user agents and set source if x-source header is not specified
 	if (!source) {
@@ -437,7 +439,7 @@ chat.openapi(completions, async (c) => {
 		requestedModel,
 		parseResult.requestedProvider,
 	);
-	let modelInfo = modelInfoResult.modelInfo;
+	const modelInfo = modelInfoResult.modelInfo;
 	const allModelProviders = modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
 
@@ -599,7 +601,7 @@ chat.openapi(completions, async (c) => {
 	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
 
 	// Determine max image size based on plan
-	const userPlan = organization?.plan || "free";
+	const userPlan = organization?.plan ?? "free";
 	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
 
 	// Validate IAM rules for model access
@@ -653,7 +655,7 @@ chat.openapi(completions, async (c) => {
 			} catch {
 				// Fallback to simple estimation if encoding fails
 				const messageTokens = messages.reduce(
-					(acc, m) => acc + (m.content?.length || 0),
+					(acc, m) => acc + (m.content?.length ?? 0),
 					0,
 				);
 				requiredContextSize = Math.max(1, Math.round(messageTokens / 4));
@@ -1276,7 +1278,7 @@ chat.openapi(completions, async (c) => {
 
 	// Use the canonical model ID from finalModelInfo (looked up after routing)
 	// Fall back to usedModel (raw provider model name) for custom providers
-	let baseModelName = finalModelInfo?.id || usedModel;
+	let baseModelName = finalModelInfo?.id ?? usedModel;
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
@@ -1356,11 +1358,11 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check both regular credits AND dev plan credits
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1402,11 +1404,11 @@ chat.openapi(completions, async (c) => {
 		} else {
 			// No API key available, fall back to credits
 			// Check both regular credits AND dev plan credits
-			const regularCredits = parseFloat(organization.credits || "0");
+			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
 				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit || "0") -
-						parseFloat(organization.devPlanCreditsUsed || "0")
+					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+						parseFloat(organization.devPlanCreditsUsed ?? "0")
 					: 0;
 			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1457,11 +1459,11 @@ chat.openapi(completions, async (c) => {
 	// Check if organization has credits for data retention costs
 	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
 	if (organization && organization.retentionLevel === "retain") {
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1489,7 +1491,7 @@ chat.openapi(completions, async (c) => {
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
 	const hasExistingToolCalls = messages.some(
-		(msg: any) => msg.tool_calls || msg.role === "tool",
+		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
 	try {
@@ -1501,7 +1503,7 @@ chat.openapi(completions, async (c) => {
 
 		url = getProviderEndpoint(
 			usedProvider,
-			providerKey?.baseUrl || undefined,
+			providerKey?.baseUrl ?? undefined,
 			usedModel,
 			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
 				? usedToken
@@ -1509,7 +1511,7 @@ chat.openapi(completions, async (c) => {
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
-			providerKey?.options || undefined,
+			providerKey?.options ?? undefined,
 			configIndex,
 			isImageGeneration,
 		);
@@ -1627,7 +1629,7 @@ chat.openapi(completions, async (c) => {
 
 				// Log the cached streaming request with reconstructed content
 				// Extract plugin IDs for logging (cached streaming)
-				const cachedStreamingPluginIds = plugins?.map((p) => p.id) || [];
+				const cachedStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
 
 				const baseLogEntry = createLogEntry(
 					requestId,
@@ -1669,11 +1671,11 @@ chat.openapi(completions, async (c) => {
 				const costs = await calculateCosts(
 					usedModel,
 					usedProvider,
-					promptTokens || null,
-					completionTokens || null,
-					cachedTokens || null,
+					promptTokens ?? null,
+					completionTokens ?? null,
+					cachedTokens ?? null,
 					undefined,
-					reasoningTokens || null,
+					reasoningTokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
@@ -1691,17 +1693,17 @@ chat.openapi(completions, async (c) => {
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
 					promptTokens:
-						(costs.promptTokens ?? promptTokens)?.toString() || null,
-					completionTokens: completionTokens?.toString() || null,
+						(costs.promptTokens ?? promptTokens)?.toString() ?? null,
+					completionTokens: completionTokens?.toString() ?? null,
 					totalTokens: costs.imageInputTokens
 						? (
-								(costs.promptTokens || promptTokens || 0) +
-								(completionTokens || 0) +
-								(reasoningTokens || 0)
+								(costs.promptTokens ?? promptTokens ?? 0) +
+								(completionTokens ?? 0) +
+								(reasoningTokens ?? 0)
 							).toString()
-						: totalTokens?.toString() || null,
-					reasoningTokens: reasoningTokens?.toString() || null,
-					cachedTokens: cachedTokens?.toString() || null,
+						: (totalTokens?.toString() ?? null),
+					reasoningTokens: reasoningTokens?.toString() ?? null,
+					cachedTokens: cachedTokens?.toString() ?? null,
 					hasError: false,
 					streamed: true,
 					canceled: false,
@@ -1729,7 +1731,7 @@ chat.openapi(completions, async (c) => {
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
-							?.toolResults || null,
+							?.toolResults ?? null,
 				});
 
 				// Return cached streaming response by replaying chunks with original timing
@@ -1777,7 +1779,7 @@ chat.openapi(completions, async (c) => {
 				// Log the cached request
 				const duration = 0; // No processing time needed
 				// Extract plugin IDs for logging (cached non-streaming)
-				const cachedPluginIds = plugins?.map((p) => p.id) || [];
+				const cachedPluginIds = plugins?.map((p) => p.id) ?? [];
 
 				const baseLogEntry = createLogEntry(
 					requestId,
@@ -1819,11 +1821,11 @@ chat.openapi(completions, async (c) => {
 				const cachedCosts = await calculateCosts(
 					usedModel,
 					usedProvider,
-					cachedResponse.usage?.prompt_tokens || null,
-					cachedResponse.usage?.completion_tokens || null,
-					cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
+					cachedResponse.usage?.prompt_tokens ?? null,
+					cachedResponse.usage?.completion_tokens ?? null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
 					undefined,
-					cachedResponse.usage?.reasoning_tokens || null,
+					cachedResponse.usage?.reasoning_tokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
@@ -1836,8 +1838,8 @@ chat.openapi(completions, async (c) => {
 				const cachedReasoningContent =
 					cachedResponse.choices?.[0]?.message?.reasoning;
 				const estimatedCachedSize =
-					(cachedContent?.length || 0) +
-					(cachedReasoningContent?.length || 0) +
+					(cachedContent?.length ?? 0) +
+					(cachedReasoningContent?.length ?? 0) +
 					500; // overhead for metadata
 
 				await insertLog({
@@ -1846,26 +1848,26 @@ chat.openapi(completions, async (c) => {
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: estimatedCachedSize,
-					content: cachedContent || null,
-					reasoningContent: cachedReasoningContent || null,
-					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
+					content: cachedContent ?? null,
+					reasoningContent: cachedReasoningContent ?? null,
+					finishReason: cachedResponse.choices?.[0]?.finish_reason ?? null,
 					promptTokens:
 						(
 							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
-						)?.toString() || null,
-					completionTokens: cachedResponse.usage?.completion_tokens || null,
+						)?.toString() ?? null,
+					completionTokens: cachedResponse.usage?.completion_tokens ?? null,
 					totalTokens: cachedCosts.imageInputTokens
 						? (
-								(cachedCosts.promptTokens ||
-									cachedResponse.usage?.prompt_tokens ||
+								(cachedCosts.promptTokens ??
+									cachedResponse.usage?.prompt_tokens ??
 									0) +
-								(cachedResponse.usage?.completion_tokens || 0) +
-								(cachedResponse.usage?.reasoning_tokens || 0)
+								(cachedResponse.usage?.completion_tokens ?? 0) +
+								(cachedResponse.usage?.reasoning_tokens ?? 0)
 							).toString()
-						: cachedResponse.usage?.total_tokens || null,
-					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
+						: (cachedResponse.usage?.total_tokens ?? null),
+					reasoningTokens: cachedResponse.usage?.reasoning_tokens ?? null,
 					cachedTokens:
-						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
+						cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
@@ -1891,7 +1893,7 @@ chat.openapi(completions, async (c) => {
 						retentionLevel,
 					),
 					cached: true,
-					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
+					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls ?? null,
 				});
 
 				return c.json(cachedResponse);
@@ -2364,7 +2366,7 @@ chat.openapi(completions, async (c) => {
 							});
 
 							// Log the timeout error in the database
-							const timeoutPluginIds = plugins?.map((p) => p.id) || [];
+							const timeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Check if we should retry before logging so we can mark the log as retried
 							const willRetryTimeout = shouldRetryRequest({
@@ -2479,7 +2481,7 @@ chat.openapi(completions, async (c) => {
 						} else if (error instanceof Error && error.name === "AbortError") {
 							// Log the canceled request
 							// Extract plugin IDs for logging (canceled request)
-							const canceledPluginIds = plugins?.map((p) => p.id) || [];
+							const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Calculate costs for cancelled request if billing is enabled
 							const billCancelled = shouldBillCancelledRequests();
@@ -2637,7 +2639,7 @@ chat.openapi(completions, async (c) => {
 
 							// Log the error in the database
 							// Extract plugin IDs for logging (fetch error)
-							const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+							const fetchErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Check if we should retry before logging so we can mark the log as retried
 							const willRetryFetch = shouldRetryRequest({
@@ -2791,7 +2793,7 @@ chat.openapi(completions, async (c) => {
 
 						// Log the request in the database
 						// Extract plugin IDs for logging
-						const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
+						const streamingErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 						// Check if we should retry before logging so we can mark the log as retried
 						const willRetryHttpError = shouldRetryRequest({
@@ -3136,11 +3138,11 @@ chat.openapi(completions, async (c) => {
 
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
-				let bufferedContentChunks: string[] = [];
+				const bufferedContentChunks: string[] = [];
 				let lastChunkId: string | null = null;
 				let lastChunkModel: string | null = null;
 				let lastChunkCreated: number | null = null;
-				let streamingPluginResults: {
+				const streamingPluginResults: {
 					responseHealing?: {
 						healed: boolean;
 						healingMethod?: string;
@@ -3323,7 +3325,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic SSE format, we need to be more careful about event boundaries
 								// Try to find the end of the JSON data by looking for the closing brace
-								let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
+								const newlinePos = bufferCopy.indexOf("\n", eventStartPos);
 								if (newlinePos !== -1) {
 									// We found a newline - check if the JSON before it is valid
 									const jsonCandidate = bufferCopy
@@ -3472,7 +3474,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								if (finalCompletionTokens === null) {
-									let textTokens = estimateTokensFromContent(fullContent);
+									const textTokens = estimateTokensFromContent(fullContent);
 									// For images, estimate ~258 tokens per image + 1 token per 750 bytes
 									// This is based on Google's image token calculation
 									let imageTokens = 0;
@@ -3485,9 +3487,9 @@ chat.openapi(completions, async (c) => {
 
 								if (finalTotalTokens === null) {
 									finalTotalTokens =
-										(finalPromptTokens || 0) +
-										(finalCompletionTokens || 0) +
-										(reasoningTokens || 0);
+										(finalPromptTokens ?? 0) +
+										(finalCompletionTokens ?? 0) +
+										(reasoningTokens ?? 0);
 								}
 
 								// Send final usage chunk before [DONE] if we have any usage data
@@ -3506,7 +3508,7 @@ chat.openapi(completions, async (c) => {
 										{
 											prompt: messages.map((m) => m.content).join("\n"),
 											completion: fullContent,
-											toolResults: streamingToolCalls || undefined,
+											toolResults: streamingToolCalls ?? undefined,
 										},
 										reasoningTokens,
 										outputImageCount,
@@ -3534,21 +3536,21 @@ chat.openapi(completions, async (c) => {
 										usage: {
 											prompt_tokens: Math.max(
 												1,
-												streamingCosts.promptTokens || finalPromptTokens || 1,
+												streamingCosts.promptTokens ?? finalPromptTokens ?? 1,
 											),
 											completion_tokens:
-												streamingCosts.completionTokens ||
-												finalCompletionTokens ||
+												streamingCosts.completionTokens ??
+												finalCompletionTokens ??
 												0,
 											total_tokens: Math.max(
 												1,
-												(streamingCosts.promptTokens ||
-													finalPromptTokens ||
+												(streamingCosts.promptTokens ??
+													finalPromptTokens ??
 													0) +
-													(streamingCosts.completionTokens ||
-														finalCompletionTokens ||
+													(streamingCosts.completionTokens ??
+														finalCompletionTokens ??
 														0) +
-													(reasoningTokens || 0),
+													(reasoningTokens ?? 0),
 											),
 											...(shouldIncludeCosts && {
 												cost_usd_total: streamingCosts.totalCost,
@@ -3712,9 +3714,7 @@ chat.openapi(completions, async (c) => {
 										// First, extract tool calls to update our tracking
 										const rawToolCalls = extractToolCalls(data, usedProvider);
 										if (rawToolCalls && rawToolCalls.length > 0) {
-											if (!streamingToolCalls) {
-												streamingToolCalls = [];
-											}
+											streamingToolCalls ??= [];
 											for (const newCall of rawToolCalls) {
 												// For content_block_start events (have id), add to tracking
 												if (newCall.id) {
@@ -3738,9 +3738,7 @@ chat.openapi(completions, async (c) => {
 															if (tc.index === newCall._contentBlockIndex) {
 																tc.id = existingCall.id;
 																tc.type = "function";
-																if (!tc.function) {
-																	tc.function = {};
-																}
+																tc.function ??= {};
 																tc.function.name = existingCall.function.name;
 															}
 														}
@@ -3759,10 +3757,10 @@ chat.openapi(completions, async (c) => {
 									if (deltaContent) {
 										bufferedContentChunks.push(deltaContent);
 										// Store chunk metadata for later use when sending healed content
-										lastChunkId = transformedData.id || lastChunkId;
-										lastChunkModel = transformedData.model || lastChunkModel;
+										lastChunkId = transformedData.id ?? lastChunkId;
+										lastChunkModel = transformedData.model ?? lastChunkModel;
 										lastChunkCreated =
-											transformedData.created || lastChunkCreated;
+											transformedData.created ?? lastChunkCreated;
 									}
 
 									// Create a copy without content in delta for streaming
@@ -3853,7 +3851,7 @@ chat.openapi(completions, async (c) => {
 									usedProvider === "google-vertex" ||
 									usedProvider === "obsidian"
 								) {
-									const parts = data.candidates?.[0]?.content?.parts || [];
+									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
 										if (part.inlineData?.data) {
 											// Base64 string length * 0.75 ≈ actual byte size
@@ -3931,9 +3929,7 @@ chat.openapi(completions, async (c) => {
 								// Extract and accumulate tool calls
 								const toolCallsChunk = extractToolCalls(data, usedProvider);
 								if (toolCallsChunk && toolCallsChunk.length > 0) {
-									if (!streamingToolCalls) {
-										streamingToolCalls = [];
-									}
+									streamingToolCalls ??= [];
 									// Merge tool calls (accumulating function arguments)
 									for (const newCall of toolCallsChunk) {
 										let existingCall = null;
@@ -3957,7 +3953,7 @@ chat.openapi(completions, async (c) => {
 											// Accumulate function arguments
 											if (newCall.function?.arguments) {
 												existingCall.function.arguments =
-													(existingCall.function.arguments || "") +
+													(existingCall.function.arguments ?? "") +
 													newCall.function.arguments;
 											}
 										} else {
@@ -3991,7 +3987,7 @@ chat.openapi(completions, async (c) => {
 											data.type === "message_stop" ||
 											data.stop_reason
 										) {
-											finishReason = data.stop_reason || "end_turn";
+											finishReason = data.stop_reason ?? "end_turn";
 										} else if (data.delta?.stop_reason) {
 											finishReason = data.delta.stop_reason;
 										}
@@ -4040,7 +4036,7 @@ chat.openapi(completions, async (c) => {
 									}
 
 									if (!completionTokens) {
-										let textTokens = estimateTokensFromContent(fullContent);
+										const textTokens = estimateTokensFromContent(fullContent);
 										// For images, estimate ~258 tokens per image + 1 token per 750 bytes
 										let imageTokens = 0;
 										if (imageByteSize > 0) {
@@ -4049,7 +4045,7 @@ chat.openapi(completions, async (c) => {
 										completionTokens = textTokens + imageTokens;
 									}
 
-									totalTokens = (promptTokens || 0) + (completionTokens || 0);
+									totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
 								}
 
 								processedLength = eventEnd;
@@ -4193,7 +4189,7 @@ chat.openapi(completions, async (c) => {
 								// Convert messages to the format expected by gpt-tokenizer
 								const chatMessages: any[] = messages.map((m) => ({
 									role: m.role as "user" | "assistant" | "system" | undefined,
-									content: m.content || "",
+									content: m.content ?? "",
 									name: m.name,
 								}));
 								calculatedPromptTokens = encodeChat(
@@ -4208,7 +4204,7 @@ chat.openapi(completions, async (c) => {
 								);
 								calculatedPromptTokens =
 									messages.reduce(
-										(acc, m) => acc + (m.content?.length || 0),
+										(acc, m) => acc + (m.content?.length ?? 0),
 										0,
 									) / 4;
 							}
@@ -4245,7 +4241,7 @@ chat.openapi(completions, async (c) => {
 						}
 
 						calculatedTotalTokens =
-							(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
+							(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0);
 					}
 
 					// Estimate reasoning tokens if not provided but reasoning content exists
@@ -4381,11 +4377,11 @@ chat.openapi(completions, async (c) => {
 											Math.round(
 												promptTokens && promptTokens > 0
 													? promptTokens + imageInputAdj
-													: (calculatedPromptTokens || 1) + imageInputAdj,
+													: (calculatedPromptTokens ?? 1) + imageInputAdj,
 											),
 										);
 										const adjCompletion = Math.round(
-											completionTokens || calculatedCompletionTokens || 0,
+											completionTokens ?? calculatedCompletionTokens ?? 0,
 										);
 										return {
 											prompt_tokens: adjPrompt,
@@ -4444,10 +4440,10 @@ chat.openapi(completions, async (c) => {
 
 								// Send the healed (or original if no healing needed) content as a single chunk
 								const healedContentChunk = {
-									id: lastChunkId || `chatcmpl-${Date.now()}`,
+									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
-									created: lastChunkCreated || Math.floor(Date.now() / 1000),
-									model: lastChunkModel || usedModel,
+									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
+									model: lastChunkModel ?? usedModel,
 									choices: [
 										{
 											index: 0,
@@ -4466,15 +4462,15 @@ chat.openapi(completions, async (c) => {
 
 								// Send finish_reason chunk
 								const finishChunk = {
-									id: lastChunkId || `chatcmpl-${Date.now()}`,
+									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
-									created: lastChunkCreated || Math.floor(Date.now() / 1000),
-									model: lastChunkModel || usedModel,
+									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
+									model: lastChunkModel ?? usedModel,
 									choices: [
 										{
 											index: 0,
 											delta: {},
-											finish_reason: finishReason || "stop",
+											finish_reason: finishReason ?? "stop",
 										},
 									],
 								};
@@ -4508,7 +4504,7 @@ chat.openapi(completions, async (c) => {
 									],
 									metadata: {
 										requested_model: initialRequestedModel,
-										requested_provider: requestedProvider || null,
+										requested_provider: requestedProvider ?? null,
 										used_model: baseModelName,
 										used_provider: usedProvider,
 										underlying_used_model: usedModel,
@@ -4581,7 +4577,7 @@ chat.openapi(completions, async (c) => {
 									{
 										prompt: messages.map((m) => m.content).join("\n"),
 										completion: fullContent,
-										toolResults: streamingToolCalls || undefined,
+										toolResults: streamingToolCalls ?? undefined,
 									},
 									reasoningTokens,
 									outputImageCount,
@@ -4595,16 +4591,16 @@ chat.openapi(completions, async (c) => {
 					// tokens for providers that exclude them from upstream usage)
 					if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
 						const promptDelta =
-							(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+							(costs.promptTokens ?? 0) - (calculatedPromptTokens ?? 0);
 						if (promptDelta > 0) {
 							calculatedPromptTokens = costs.promptTokens;
 							calculatedTotalTokens =
-								(calculatedTotalTokens || 0) + promptDelta;
+								(calculatedTotalTokens ?? 0) + promptDelta;
 						}
 					}
 
 					// Extract plugin IDs for logging
-					const streamingPluginIds = plugins?.map((p) => p.id) || [];
+					const streamingPluginIds = plugins?.map((p) => p.id) ?? [];
 
 					// Determine plugin results for logging (includes healing results if applicable)
 					const finalPluginResults =
@@ -4641,13 +4637,9 @@ chat.openapi(completions, async (c) => {
 						image_config,
 						routingMetadata,
 						rawBody,
-						streamingError
-							? streamingError // Pass structured error when there's an error
-							: streamingRawResponseData, // Raw SSE data sent back to the client
+						streamingError ?? streamingRawResponseData, // Raw SSE data sent back to the client
 						requestBody, // The request sent to the provider
-						streamingError
-							? streamingError // Pass structured error as upstream response too
-							: rawUpstreamData, // Raw streaming data received from upstream provider
+						streamingError ?? rawUpstreamData, // Raw streaming data received from upstream provider
 						streamingPluginIds,
 						finalPluginResults, // Plugin results including healing (if enabled)
 					);
@@ -4689,19 +4681,19 @@ chat.openapi(completions, async (c) => {
 						reasoningContent: fullReasoningContent || null,
 						finishReason: canceled ? "canceled" : finishReason,
 						promptTokens: shouldIncludeTokensForBilling
-							? calculatedPromptTokens?.toString() || null
+							? (calculatedPromptTokens?.toString() ?? null)
 							: null,
 						completionTokens: shouldIncludeTokensForBilling
-							? calculatedCompletionTokens?.toString() || null
+							? (calculatedCompletionTokens?.toString() ?? null)
 							: null,
 						totalTokens: shouldIncludeTokensForBilling
-							? calculatedTotalTokens?.toString() || null
+							? (calculatedTotalTokens?.toString() ?? null)
 							: null,
 						reasoningTokens: shouldIncludeTokensForBilling
-							? calculatedReasoningTokens?.toString() || null
+							? (calculatedReasoningTokens?.toString() ?? null)
 							: null,
 						cachedTokens: shouldIncludeTokensForBilling
-							? cachedTokens?.toString() || null
+							? (cachedTokens?.toString() ?? null)
 							: null,
 						hasError: streamingError !== null,
 						errorDetails: streamingError
@@ -5001,7 +4993,7 @@ chat.openapi(completions, async (c) => {
 
 			// Log the error in the database
 			// Extract plugin IDs for logging (non-streaming fetch error)
-			const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+			const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryFetchNonStreaming = shouldRetryRequest({
@@ -5131,7 +5123,7 @@ chat.openapi(completions, async (c) => {
 		if (canceled) {
 			// Log the canceled request
 			// Extract plugin IDs for logging (canceled non-streaming)
-			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
+			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
 
 			// Calculate costs for cancelled request if billing is enabled
 			const billCancelled = shouldBillCancelledRequests();
@@ -5286,7 +5278,7 @@ chat.openapi(completions, async (c) => {
 						status: res.status,
 					});
 
-					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -5396,7 +5388,7 @@ chat.openapi(completions, async (c) => {
 
 			// Log the request in the database
 			// Extract plugin IDs for logging
-			const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
+			const providerErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryHttpNonStreaming = shouldRetryRequest({
@@ -5477,7 +5469,7 @@ chat.openapi(completions, async (c) => {
 								statusCode: res.status,
 								statusText: res.statusText,
 								responseText: errorResponseText,
-								message: originalError.error?.message || errorResponseText,
+								message: originalError.error?.message ?? errorResponseText,
 							};
 						} catch {
 							// If parsing fails, use default format
@@ -5658,7 +5650,7 @@ chat.openapi(completions, async (c) => {
 				initialRequestedModel,
 			});
 
-			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -5755,20 +5747,25 @@ chat.openapi(completions, async (c) => {
 		: 0;
 
 	// Extract content and token usage based on provider
-	let {
-		content,
+	const parsedResponse = parseProviderResponse(
+		usedProvider,
+		usedModel,
+		json,
+		messages,
+	);
+	let { content, totalTokens } = parsedResponse;
+	const {
 		reasoningContent,
 		finishReason,
 		promptTokens,
 		completionTokens,
-		totalTokens,
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
 		images,
 		annotations,
 		webSearchCount,
-	} = parseProviderResponse(usedProvider, usedModel, json, messages);
+	} = parsedResponse;
 
 	// Apply response healing if enabled and response_format is json_object or json_schema
 	const responseHealingEnabled = plugins?.some(
@@ -5779,7 +5776,7 @@ chat.openapi(completions, async (c) => {
 		response_format?.type === "json_schema";
 
 	// Track plugin results for logging
-	let pluginResults: {
+	const pluginResults: {
 		responseHealing?: {
 			healed: boolean;
 			healingMethod?: string;
@@ -5812,13 +5809,13 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			usedModel,
 			hasContent: !!content,
-			contentLength: content?.length || 0,
+			contentLength: content?.length ?? 0,
 			finishReason,
 			promptTokens,
 			completionTokens,
 			reasoningTokens,
 			hasToolResults: !!toolResults,
-			toolResultsCount: toolResults?.length || 0,
+			toolResultsCount: toolResults?.length ?? 0,
 			rawCandidates: json.candidates,
 			rawUsageMetadata: json.usageMetadata,
 		});
@@ -5843,13 +5840,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Estimate tokens if not provided by the API
-	let { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
+	const estimatedTokens = estimateTokens(
 		usedProvider,
 		messages,
 		content,
 		promptTokens,
 		completionTokens,
 	);
+	let calculatedPromptTokens = estimatedTokens.calculatedPromptTokens;
+	const calculatedCompletionTokens = estimatedTokens.calculatedCompletionTokens;
 
 	// Estimate reasoning tokens if not provided but reasoning content exists
 	let calculatedReasoningTokens = reasoningTokens;
@@ -5888,13 +5887,13 @@ chat.openapi(completions, async (c) => {
 	// tokens for providers that exclude them from upstream usage)
 	if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
 		const promptDelta =
-			(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+			(costs.promptTokens ?? 0) - (calculatedPromptTokens ?? 0);
 		if (promptDelta > 0) {
 			calculatedPromptTokens = costs.promptTokens;
 			totalTokens = (
-				(calculatedPromptTokens || 0) +
-				(calculatedCompletionTokens || 0) +
-				(calculatedReasoningTokens || 0)
+				(calculatedPromptTokens ?? 0) +
+				(calculatedCompletionTokens ?? 0) +
+				(calculatedReasoningTokens ?? 0)
 			).toString();
 		}
 	}
@@ -5909,17 +5908,17 @@ chat.openapi(completions, async (c) => {
 		content,
 		reasoningContent,
 		finishReason,
-		costs.promptTokens || calculatedPromptTokens,
-		costs.completionTokens || calculatedCompletionTokens,
-		(costs.promptTokens || calculatedPromptTokens || 0) +
-			(costs.completionTokens || calculatedCompletionTokens || 0) +
-			(reasoningTokens || 0),
+		costs.promptTokens ?? calculatedPromptTokens,
+		costs.completionTokens ?? calculatedCompletionTokens,
+		(costs.promptTokens ?? calculatedPromptTokens ?? 0) +
+			(costs.completionTokens ?? calculatedCompletionTokens ?? 0) +
+			(reasoningTokens ?? 0),
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
 		convertedImages,
 		modelInput,
-		requestedProvider || null,
+		requestedProvider ?? null,
 		baseModelName,
 		shouldIncludeCosts
 			? {
@@ -5939,7 +5938,7 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Extract plugin IDs for logging
-	const pluginIds = plugins?.map((p) => p.id) || [];
+	const pluginIds = plugins?.map((p) => p.id) ?? [];
 
 	const baseLogEntry = createLogEntry(
 		requestId,
@@ -6015,7 +6014,7 @@ chat.openapi(completions, async (c) => {
 	// Calculate response size if Content-Length was not available
 	// For large responses, use content length estimation to avoid CPU spikes from stringify
 	if (!responseSize) {
-		const contentLength = content?.length || 0;
+		const contentLength = content?.length ?? 0;
 		// If content is very large (likely contains base64 images), use estimation
 		// Otherwise stringify is acceptable for smaller responses
 		if (contentLength > 1_000_000) {
@@ -6038,15 +6037,15 @@ chat.openapi(completions, async (c) => {
 		finishReason: hasEmptyNonStreamingResponse
 			? "upstream_error"
 			: finishReason,
-		promptTokens: calculatedPromptTokens?.toString() || null,
-		completionTokens: calculatedCompletionTokens?.toString() || null,
+		promptTokens: calculatedPromptTokens?.toString() ?? null,
+		completionTokens: calculatedCompletionTokens?.toString() ?? null,
 		totalTokens:
-			totalTokens ||
+			totalTokens ??
 			(
-				(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0)
+				(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0)
 			).toString(),
-		reasoningTokens: calculatedReasoningTokens?.toString() || null,
-		cachedTokens: cachedTokens?.toString() || null,
+		reasoningTokens: calculatedReasoningTokens?.toString() ?? null,
+		cachedTokens: cachedTokens?.toString() ?? null,
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,
 		canceled: false,
@@ -6100,16 +6099,16 @@ chat.openapi(completions, async (c) => {
 
 		// Create a streaming chunk that mimics OpenAI SSE format
 		const deltaChunk = {
-			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			id: transformedResponse.id ?? `chatcmpl-${Date.now()}`,
 			object: "chat.completion.chunk",
-			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			created: transformedResponse.created ?? Math.floor(Date.now() / 1000),
 			model: transformedResponse.model,
 			choices: [
 				{
 					index: 0,
 					delta: {
 						role: "assistant",
-						content: transformedResponse.choices?.[0]?.message?.content || "",
+						content: transformedResponse.choices?.[0]?.message?.content ?? "",
 						...(transformedResponse.choices?.[0]?.message?.images && {
 							images: transformedResponse.choices[0].message.images,
 						}),
@@ -6122,16 +6121,16 @@ chat.openapi(completions, async (c) => {
 
 		// Send finish chunk
 		const finishChunk = {
-			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			id: transformedResponse.id ?? `chatcmpl-${Date.now()}`,
 			object: "chat.completion.chunk",
-			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			created: transformedResponse.created ?? Math.floor(Date.now() / 1000),
 			model: transformedResponse.model,
 			choices: [
 				{
 					index: 0,
 					delta: {},
 					finish_reason:
-						transformedResponse.choices?.[0]?.finish_reason || "stop",
+						transformedResponse.choices?.[0]?.finish_reason ?? "stop",
 				},
 			],
 			...(transformedResponse.usage && { usage: transformedResponse.usage }),

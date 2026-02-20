@@ -87,7 +87,7 @@ export function NewProjectDialog({
 				// Generic error toast
 				toast("Failed to create project", {
 					description:
-						error.message || "An unexpected error occurred. Please try again.",
+						error.message ?? "An unexpected error occurred. Please try again.",
 					style: {
 						backgroundColor: "var(--destructive)",
 						color: "var(--destructive-foreground)",
@@ -123,6 +123,7 @@ export function NewProjectDialog({
 		} catch (error) {
 			// Error is already handled by the mutation's onError callback
 			// But we can add additional logging if needed
+
 			console.error("Failed to create project:", error);
 		}
 	};
@@ -135,7 +136,7 @@ export function NewProjectDialog({
 					<DialogDescription>
 						Create a new project in{" "}
 						<span className="font-medium">
-							{selectedOrganization?.name || "the selected organization"}
+							{selectedOrganization?.name ?? "the selected organization"}
 						</span>
 						.
 					</DialogDescription>
@@ -168,7 +169,7 @@ export function NewProjectDialog({
 						<Button
 							type="submit"
 							disabled={
-								createProjectMutation.isPending ||
+								Boolean(createProjectMutation.isPending) ||
 								!projectName.trim() ||
 								!selectedOrganization
 							}

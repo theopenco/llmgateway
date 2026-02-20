@@ -84,7 +84,7 @@ export function CreateApiKeyDialog({
 	};
 
 	const copyToClipboard = () => {
-		navigator.clipboard.writeText(apiKey);
+		void navigator.clipboard.writeText(apiKey);
 		toast({
 			title: "API Key Copied",
 			description: "The API key has been copied to your clipboard.",
@@ -113,7 +113,7 @@ export function CreateApiKeyDialog({
 				<div>{children}</div>
 			</TooltipTrigger>
 			<TooltipContent>
-				<p>{disabledMessage || "API key limit reached"}</p>
+				<p>{disabledMessage ?? "API key limit reached"}</p>
 			</TooltipContent>
 		</Tooltip>
 	) : (

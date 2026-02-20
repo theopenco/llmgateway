@@ -109,7 +109,7 @@ export function ChatSidebar({
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editTitle, setEditTitle] = useState("");
 
-	const chats = chatsData?.chats || [];
+	const chats = chatsData?.chats ?? [];
 
 	const logout = async () => {
 		posthog.reset();
@@ -446,7 +446,7 @@ export function ChatSidebar({
 					<div className="flex items-center gap-3 flex-1">
 						<Avatar className="border-border h-9 w-9 border">
 							<AvatarFallback className="bg-muted">
-								{user?.name?.slice(0, 2) || "AU"}
+								{user?.name?.slice(0, 2) ?? "AU"}
 							</AvatarFallback>
 						</Avatar>
 						<div className="text-sm flex-1 min-w-0">

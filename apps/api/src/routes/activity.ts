@@ -116,7 +116,7 @@ activity.openapi(getActivity, async (c) => {
 		startDate = new Date(from + "T00:00:00");
 		endDate = new Date(to + "T23:59:59.999");
 	} else {
-		const effectiveDays = days || 7;
+		const effectiveDays = days ?? 7;
 		endDate = new Date();
 		startDate = new Date();
 		startDate.setDate(startDate.getDate() - effectiveDays);
@@ -396,7 +396,7 @@ activity.openapi(getActivity, async (c) => {
 				apiKeysServiceFee,
 				creditsDataStorageCost,
 				apiKeysDataStorageCost,
-				modelBreakdown: modelBreakdownByDate.get(day.date) || [],
+				modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
 			};
 		});
 
@@ -640,7 +640,7 @@ activity.openapi(getActivity, async (c) => {
 			apiKeysServiceFee,
 			creditsDataStorageCost,
 			apiKeysDataStorageCost,
-			modelBreakdown: modelBreakdownByDate.get(day.date) || [],
+			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
 		};
 	});
 

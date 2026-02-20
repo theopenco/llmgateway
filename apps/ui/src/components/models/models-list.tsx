@@ -75,7 +75,7 @@ export function ModelsList() {
 						className={`p-4 ${hasDeactivatedProvider ? "opacity-50" : ""}`}
 					>
 						<div className="text-lg font-semibold flex items-center gap-2">
-							{model.name || model.id}
+							{model.name ?? model.id}
 							{shouldShowStabilityWarning(model.stability) && (
 								<AlertTriangle className="h-4 w-4 text-orange-500" />
 							)}
@@ -88,7 +88,7 @@ export function ModelsList() {
 						<div className="text-sm text-muted-foreground mb-2">Providers:</div>
 						<div className="flex flex-wrap gap-2 mb-2">
 							{model.providers.map((provider) => {
-								const providerStability = provider.stability || model.stability;
+								const providerStability = provider.stability ?? model.stability;
 								const stabilityProps =
 									getStabilityBadgeProps(providerStability);
 								const isDeprecated =

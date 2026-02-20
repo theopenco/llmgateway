@@ -143,7 +143,7 @@ export function DiscountForm({
 			setReason("");
 			router.refresh();
 		} else {
-			setError(result.error || "Failed to create discount");
+			setError(result.error ?? "Failed to create discount");
 		}
 	};
 

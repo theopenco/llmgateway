@@ -166,9 +166,9 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 		devPlanCreditsUsed: org.devPlanCreditsUsed,
 		devPlanCreditsLimit: org.devPlanCreditsLimit,
 		devPlanBillingCycleStart:
-			org.devPlanBillingCycleStart?.toISOString() || null,
+			org.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: org.devPlanCancelled,
-		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() || null,
+		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() ?? null,
 		credits: org.credits,
 	});
 });
@@ -253,8 +253,8 @@ devPlans.openapi(subscribe, async (c) => {
 				},
 			],
 			allow_promotion_codes: true,
-			success_url: `${process.env.CODE_URL || "http://localhost:3004"}/dashboard?success=true`,
-			cancel_url: `${process.env.CODE_URL || "http://localhost:3004"}/dashboard/plans?canceled=true`,
+			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?success=true`,
+			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard/plans?canceled=true`,
 			metadata: {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
@@ -735,9 +735,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
 		devPlanBillingCycleStart:
-			personalOrg.devPlanBillingCycleStart?.toISOString() || null,
+			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,
-		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() || null,
+		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
 		apiKey,

@@ -76,7 +76,7 @@ export default async function ActivityPage({
 					<Card>
 						<CardContent>
 							<RecentLogs
-								initialData={initialLogsData || undefined}
+								initialData={initialLogsData ?? undefined}
 								projectId={projectId}
 								orgId={orgId}
 							/>

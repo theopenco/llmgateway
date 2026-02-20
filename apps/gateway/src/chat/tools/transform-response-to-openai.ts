@@ -26,11 +26,11 @@ function buildUsageObject(
 	showUpgradeMessage = false,
 ) {
 	return {
-		prompt_tokens: Math.max(1, promptTokens || 1),
-		completion_tokens: completionTokens || 0,
+		prompt_tokens: Math.max(1, promptTokens ?? 1),
+		completion_tokens: completionTokens ?? 0,
 		total_tokens: (() => {
 			const fallbackTotal =
-				(promptTokens || 0) + (completionTokens || 0) + (reasoningTokens || 0);
+				(promptTokens ?? 0) + (completionTokens ?? 0) + (reasoningTokens ?? 0);
 			return Math.max(1, totalTokens ?? fallbackTotal);
 		})(),
 		...(reasoningTokens !== null && {
@@ -217,7 +217,7 @@ export function transformResponseToOpenai(
 									reasoning: reasoningContent,
 								}),
 							},
-							finish_reason: finishReason || "stop",
+							finish_reason: finishReason ?? "stop",
 						},
 					],
 					usage: buildUsageObject(
@@ -308,7 +308,7 @@ export function transformResponseToOpenai(
 							...(toolResults && { tool_calls: toolResults }),
 							...(annotations && annotations.length > 0 && { annotations }),
 						},
-						finish_reason: finishReason || "stop",
+						finish_reason: finishReason ?? "stop",
 					},
 				],
 				usage: buildUsageObject(
@@ -336,7 +336,7 @@ export function transformResponseToOpenai(
 			// These have output.choices format instead of direct choices
 			if (json.output?.choices) {
 				transformedResponse = {
-					id: json.request_id || `chatcmpl-${Date.now()}`,
+					id: json.request_id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
 					model: `${usedProvider}/${baseModelName}`,
@@ -348,7 +348,7 @@ export function transformResponseToOpenai(
 								content: content,
 								...(images && images.length > 0 && { images }),
 							},
-							finish_reason: finishReason || "stop",
+							finish_reason: finishReason ?? "stop",
 						},
 					],
 					usage: buildUsageObject(
@@ -426,9 +426,9 @@ export function transformResponseToOpenai(
 			if (json.output && Array.isArray(json.output)) {
 				// This is from the responses endpoint - transform to chat completions format
 				transformedResponse = {
-					id: json.id || `chatcmpl-${Date.now()}`,
+					id: json.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
-					created: json.created_at || Math.floor(Date.now() / 1000),
+					created: json.created_at ?? Math.floor(Date.now() / 1000),
 					model: `${usedProvider}/${baseModelName}`,
 					choices: [
 						{
@@ -442,7 +442,7 @@ export function transformResponseToOpenai(
 								...(toolResults && { tool_calls: toolResults }),
 								...(annotations && annotations.length > 0 && { annotations }),
 							},
-							finish_reason: finishReason || "stop",
+							finish_reason: finishReason ?? "stop",
 						},
 					],
 					usage: buildUsageObject(
@@ -528,7 +528,7 @@ export function transformResponseToOpenai(
 				transformedResponse = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
-					created: json.created || Math.floor(Date.now() / 1000),
+					created: json.created ?? Math.floor(Date.now() / 1000),
 					model: `${usedProvider}/${baseModelName}`,
 					choices: [
 						{
@@ -538,7 +538,7 @@ export function transformResponseToOpenai(
 								content: content,
 								...(images && images.length > 0 && { images }),
 							},
-							finish_reason: finishReason || "stop",
+							finish_reason: finishReason ?? "stop",
 						},
 					],
 					usage: buildUsageObject(
