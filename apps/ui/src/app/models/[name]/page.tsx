@@ -203,8 +203,12 @@ export default async function ModelPage({ params }: PageProps) {
 							})()}
 							<ModelStatusBadgeAuto
 								providers={modelProviders.map((p) => ({
-									deprecatedAt: p.deprecatedAt ?? null,
-									deactivatedAt: p.deactivatedAt ?? null,
+									deprecatedAt: p.deprecatedAt
+										? p.deprecatedAt.toISOString()
+										: null,
+									deactivatedAt: p.deactivatedAt
+										? p.deactivatedAt.toISOString()
+										: null,
 								}))}
 							/>
 
