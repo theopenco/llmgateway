@@ -16,7 +16,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
-import { ModelStatusBadge } from "@/components/models/model-status-badge";
+import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -201,35 +201,12 @@ export default async function ModelPage({ params }: PageProps) {
 									</Badge>
 								);
 							})()}
-							{(() => {
-								const now = new Date();
-								const allDeactivated =
-									modelProviders.length > 0 &&
-									modelProviders.every((p) => p.deactivatedAt);
-								const allDeprecated =
-									modelProviders.length > 0 &&
-									modelProviders.every((p) => p.deprecatedAt);
-
-								if (allDeactivated) {
-									const allPast = modelProviders.every(
-										(p) => new Date(p.deactivatedAt!) <= now,
-									);
-									return (
-										<ModelStatusBadge status="deactivated" isPast={allPast} />
-									);
-								}
-
-								if (allDeprecated) {
-									const allPast = modelProviders.every(
-										(p) => new Date(p.deprecatedAt!) <= now,
-									);
-									return (
-										<ModelStatusBadge status="deprecated" isPast={allPast} />
-									);
-								}
-
-								return null;
-							})()}
+							<ModelStatusBadgeAuto
+								providers={modelProviders.map((p) => ({
+									deprecatedAt: p.deprecatedAt ?? null,
+									deactivatedAt: p.deactivatedAt ?? null,
+								}))}
+							/>
 
 							<a
 								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${modelDef.providers[0]?.providerId}/${modelDef.id}`)}`}

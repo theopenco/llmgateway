@@ -81,35 +81,22 @@ export function ModelCard({
 	};
 
 	const now = new Date();
-	const allDeactivated =
+	const allHaveDeactivatedAt =
 		model.providerDetails.length > 0 &&
+		model.providerDetails.every(({ provider }) => provider.deactivatedAt);
+	const allHaveDeprecatedAt =
+		!allHaveDeactivatedAt &&
+		model.providerDetails.length > 0 &&
+		model.providerDetails.every(({ provider }) => provider.deprecatedAt);
+	const deactivationAllPast =
+		allHaveDeactivatedAt &&
 		model.providerDetails.every(
-			({ provider }) =>
-				provider.deactivatedAt && new Date(provider.deactivatedAt) <= now,
+			({ provider }) => new Date(provider.deactivatedAt!) <= now,
 		);
-	const allDeprecated =
-		!allDeactivated &&
-		model.providerDetails.length > 0 &&
+	const deprecationAllPast =
+		allHaveDeprecatedAt &&
 		model.providerDetails.every(
-			({ provider }) =>
-				provider.deprecatedAt && new Date(provider.deprecatedAt) <= now,
-		);
-	const allScheduledDeactivation =
-		!allDeactivated &&
-		!allDeprecated &&
-		model.providerDetails.length > 0 &&
-		model.providerDetails.every(
-			({ provider }) =>
-				provider.deactivatedAt && new Date(provider.deactivatedAt) > now,
-		);
-	const allScheduledDeprecation =
-		!allDeactivated &&
-		!allDeprecated &&
-		!allScheduledDeactivation &&
-		model.providerDetails.length > 0 &&
-		model.providerDetails.every(
-			({ provider }) =>
-				provider.deprecatedAt && new Date(provider.deprecatedAt) > now,
+			({ provider }) => new Date(provider.deprecatedAt!) <= now,
 		);
 
 	const hasProviderStabilityWarning = (
@@ -151,14 +138,17 @@ export function ModelCard({
 							>
 								{model.family}
 							</Badge>
-							{(allDeactivated || allScheduledDeactivation) && (
+							{allHaveDeactivatedAt && (
 								<ModelStatusBadge
 									status="deactivated"
-									isPast={allDeactivated}
+									isPast={deactivationAllPast}
 								/>
 							)}
-							{(allDeprecated || allScheduledDeprecation) && (
-								<ModelStatusBadge status="deprecated" isPast={allDeprecated} />
+							{allHaveDeprecatedAt && (
+								<ModelStatusBadge
+									status="deprecated"
+									isPast={deprecationAllPast}
+								/>
 							)}
 						</div>
 					</div>
