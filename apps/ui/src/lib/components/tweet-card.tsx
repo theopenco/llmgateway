@@ -5,7 +5,7 @@ import {
 	type TweetProps,
 	type TwitterComponents,
 } from "react-tweet";
-import { getTweet, type Tweet } from "react-tweet/api";
+import { fetchTweet, type Tweet } from "react-tweet/api";
 
 import { cn } from "@/lib/utils";
 
@@ -111,6 +111,8 @@ export const TweetHeader = ({ tweet }: { tweet: EnrichedTweet }) => (
 					height={48}
 					width={48}
 					src={tweet.user.profile_image_url_https}
+					loading="lazy"
+					decoding="async"
 					className="overflow-hidden rounded-full border border-transparent"
 				/>
 			</a>
@@ -207,6 +209,8 @@ export const TweetMedia = ({ tweet }: { tweet: EnrichedTweet }) => {
 							src={photo.url}
 							title={"Photo by " + tweet.user.name}
 							alt={tweet.text}
+							loading="lazy"
+							decoding="async"
 							className="h-64 w-5/6 shrink-0 snap-center snap-always rounded-xl border object-cover shadow-sm"
 						/>
 					))}
@@ -266,15 +270,28 @@ export const TweetCard = async ({
 }: TweetProps & {
 	className?: string;
 }) => {
-	const tweet = id
-		? await getTweet(id).catch((err) => {
-				if (onError) {
-					onError(err);
-				} else {
-					console.error(err);
-				}
-			})
-		: undefined;
+	let tweet: Tweet | undefined;
+
+	if (!id) {
+		const NotFound = components?.TweetNotFound || TweetNotFound;
+		return <NotFound {...props} />;
+	}
+
+	try {
+		const result = await fetchTweet(id);
+		if (result.tombstone || result.notFound || !result.data?.user) {
+			tweet = undefined;
+		} else {
+			tweet = result.data;
+		}
+	} catch (err) {
+		if (onError) {
+			onError(err);
+		} else {
+			console.error("Failed to fetch tweet:", err);
+		}
+		tweet = undefined;
+	}
 
 	if (!tweet) {
 		const NotFound = components?.TweetNotFound || TweetNotFound;

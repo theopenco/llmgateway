@@ -1,5 +1,5 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
+import { RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -55,7 +55,6 @@ import {
 	ToolInput,
 	ToolOutput,
 } from "@/components/ai-elements/tool";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -190,7 +189,8 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			textParts.push(p.text);
 		} else if (p.type === "reasoning") {
 			reasoningParts.push(p.text);
-		} else if (p.type === "dynamic-tool") {
+		} else if (p.type.startsWith("tool-")) {
+			// AI SDK v6 uses tool-{toolName} as the part type (e.g., "tool-fetch_weather")
 			toolParts.push(p);
 		} else if (p.type === "source-url") {
 			sourceParts.push(p);
@@ -226,7 +226,9 @@ const AssistantMessage = memo(
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
-			useMemo(() => extractMessageParts(message.parts), [message.parts]);
+			useMemo(() => {
+				return extractMessageParts(message.parts);
+			}, [message.parts]);
 		const textContent = textParts.join("");
 
 		return (
@@ -244,6 +246,7 @@ const AssistantMessage = memo(
 				{toolParts.map((tool) => (
 					<Tool key={tool.toolCallId}>
 						<ToolHeader
+							title={tool.toolName}
 							type={tool.type as `tool-${string}`}
 							state={tool.state}
 						/>
@@ -254,7 +257,11 @@ const AssistantMessage = memo(
 					</Tool>
 				))}
 
-				{textContent ? <Response>{textContent}</Response> : null}
+				{textContent ? (
+					<Response isStreaming={status === "streaming" && isLastMessage}>
+						{textContent}
+					</Response>
+				) : null}
 
 				{imageParts.length > 0 ? (
 					<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -587,23 +594,17 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)]"
+					? "absolute bottom-0 left-0 right-0 z-10 px-4 pb-0"
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
 			<div
 				className={
 					floatingInput
-						? "max-w-4xl mx-auto px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 bg-background"
+						? "max-w-4xl mx-auto px-4 pb-0 pt-2 bg-background"
 						: undefined
 				}
 			>
-				{error && (
-					<Alert variant="destructive" className="mb-4">
-						<AlertCircle className="h-4 w-4" />
-						<AlertDescription>{error}</AlertDescription>
-					</Alert>
-				)}
 				<PromptInput
 					accept={supportsImages ? "image/*" : undefined}
 					multiple

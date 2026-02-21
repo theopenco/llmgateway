@@ -1,0 +1,192 @@
+---
+title: Agent Skills
+description: Packaged instructions and guidelines for AI coding agents
+icon: Sparkles
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+**Agent Skills** are structured guidelines for AI coding agents, optimized for use with LLM Gateway and the AI SDK. They provide best practices and reusable instructions that help AI agents generate higher-quality code.
+
+## What Are Agent Skills?
+
+Agent Skills are packaged sets of rules and guidelines that teach AI coding agents how to implement specific features correctly. Each skill covers:
+
+- API integration patterns
+- Frontend rendering best practices
+- Error handling strategies
+- Performance optimization techniques
+
+## Available Skills
+
+### Image Generation
+
+The Image Generation skill teaches AI agents how to properly implement image generation features:
+
+- **API Integration** — correctly calling image generation APIs
+- **Frontend Rendering** — displaying generated images efficiently
+- **Error Handling** — graceful degradation and retry logic
+- **Performance** — caching, lazy loading, and optimization
+
+## Installation
+
+<Steps>
+<Step>
+### Prerequisites
+
+Ensure you have Node.js 18+ and pnpm 9+ installed:
+
+```bash
+node --version  # v18.0.0 or higher
+pnpm --version  # 9.0.0 or higher
+```
+
+</Step>
+
+<Step>
+### Clone the Repository
+
+```bash
+git clone https://github.com/theopenco/agent-skills.git
+cd agent-skills
+```
+
+</Step>
+
+<Step>
+### Install Dependencies
+
+```bash
+pnpm install
+```
+
+</Step>
+
+<Step>
+### Build Skills
+
+Build all skills to generate the documentation:
+
+```bash
+pnpm build:all
+```
+
+Or build a specific skill:
+
+```bash
+pnpm build
+```
+
+</Step>
+</Steps>
+
+## Using Skills in Your Project
+
+After building, each skill generates an `AGENTS.md` file that can be used with AI coding agents like Claude, Cursor, or Copilot.
+
+### With Claude Code
+
+Add the generated `AGENTS.md` content to your project's `CLAUDE.md` file:
+
+```bash
+cat skills/image-generation/AGENTS.md >> CLAUDE.md
+```
+
+### With Cursor
+
+Add the skill content to your `.cursorrules` file:
+
+```bash
+cat skills/image-generation/AGENTS.md >> .cursorrules
+```
+
+### With Other AI Agents
+
+Most AI coding tools support custom instructions. Copy the skill content into your tool's configuration.
+
+## Project Structure
+
+```
+agent-skills/
+├── packages/
+│   └── skills-build/          # Build tooling
+├── skills/
+│   └── image-generation/      # Individual skill
+│       ├── rules/             # Rule files
+│       ├── AGENTS.md          # Generated documentation
+│       └── metadata.json      # Skill metadata
+└── package.json
+```
+
+## Contributing
+
+### Adding New Rules
+
+<Steps>
+<Step>
+### Fork and Clone
+
+Fork the repository and create a feature branch:
+
+```bash
+git checkout -b feat/new-rule
+```
+
+</Step>
+
+<Step>
+### Create a Rule File
+
+Rules follow a standardized template with YAML frontmatter containing `title`, `impact` (high/medium/low), and `tags`. The body includes sections for Context, Incorrect examples, and Correct examples with TypeScript code blocks.
+
+See existing rules in `skills/image-generation/rules/` for reference.
+
+</Step>
+
+<Step>
+### Validate and Build
+
+```bash
+pnpm validate
+pnpm build:all
+```
+
+</Step>
+
+<Step>
+### Submit a Pull Request
+
+Push your changes and open a PR.
+
+</Step>
+</Steps>
+
+### Impact Levels
+
+When creating rules, use these impact levels:
+
+- **high** — Critical for correctness or security
+- **medium** — Important for quality and maintainability
+- **low** — Nice-to-have improvements
+
+## Development Commands
+
+| Command          | Description                 |
+| ---------------- | --------------------------- |
+| `pnpm install`   | Install dependencies        |
+| `pnpm build:all` | Build all skills            |
+| `pnpm build`     | Build a specific skill      |
+| `pnpm validate`  | Validate rule files         |
+| `pnpm dev`       | Development mode with watch |
+
+## More Resources
+
+- [GitHub Repository](https://github.com/theopenco/agent-skills) — Source code and contributions
+- [LLM Gateway CLI](/guides/cli) — Project scaffolding tool
+- [Templates](https://llmgateway.io/templates) — Production-ready starter projects
+
+<Callout type="info">
+	Want to contribute a new skill or rule? Check out the [contribution
+	guidelines](https://github.com/theopenco/agent-skills#contributing) on GitHub.
+</Callout>

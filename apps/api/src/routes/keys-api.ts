@@ -5,6 +5,7 @@ import { z } from "zod";
 import { maskToken } from "@/lib/maskToken.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { eq, db, shortid, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -218,13 +219,12 @@ keysApi.openapi(create, async (c) => {
 		},
 	});
 
-	// Check plan limits
-	const maxApiKeys = project.organization.plan === "pro" ? 20 : 5;
+	// Check API key limit
+	const maxApiKeys = 20;
 
 	if (existingApiKeys.length >= maxApiKeys) {
-		const planName = project.organization.plan === "pro" ? "Pro" : "Free";
 		throw new HTTPException(400, {
-			message: `API key limit reached. ${planName} plan allows maximum ${maxApiKeys} API keys per project.`,
+			message: `API key limit reached. Maximum ${maxApiKeys} API keys per project. Contact us at contact@llmgateway.io to unlock more.`,
 		});
 	}
 
@@ -244,6 +244,19 @@ keysApi.openapi(create, async (c) => {
 			createdBy: user.id,
 		})
 		.returning();
+
+	await logAuditEvent({
+		organizationId: project.organization.id,
+		userId: user.id,
+		action: "api_key.create",
+		resourceType: "api_key",
+		resourceId: apiKey.id,
+		metadata: {
+			resourceName: description,
+			projectId,
+			usageLimit,
+		},
+	});
 
 	return c.json({
 		apiKey: {
@@ -545,6 +558,17 @@ keysApi.openapi(deleteKey, async (c) => {
 		})
 		.where(eq(tables.apiKey.id, id));
 
+	await logAuditEvent({
+		organizationId: projectOrgId,
+		userId: user.id,
+		action: "api_key.delete",
+		resourceType: "api_key",
+		resourceId: id,
+		metadata: {
+			resourceName: apiKey.description,
+		},
+	});
+
 	return c.json({
 		message: "API key deleted successfully",
 	});
@@ -688,6 +712,22 @@ keysApi.openapi(updateStatus, async (c) => {
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
+
+	if (apiKey.status !== status) {
+		await logAuditEvent({
+			organizationId: projectOrgId,
+			userId: user.id,
+			action: "api_key.update_status",
+			resourceType: "api_key",
+			resourceId: id,
+			metadata: {
+				resourceName: apiKey.description,
+				changes: {
+					status: { old: apiKey.status, new: status },
+				},
+			},
+		});
+	}
 
 	return c.json({
 		message: `API key status updated to ${status}`,
@@ -838,6 +878,22 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
+	if (apiKey.usageLimit !== usageLimit) {
+		await logAuditEvent({
+			organizationId: projectOrgId,
+			userId: user.id,
+			action: "api_key.update_limit",
+			resourceType: "api_key",
+			resourceId: id,
+			metadata: {
+				resourceName: apiKey.description,
+				changes: {
+					usageLimit: { old: apiKey.usageLimit, new: usageLimit },
+				},
+			},
+		});
+	}
+
 	return c.json({
 		message: `API key usage limit updated to ${usageLimit}`,
 		apiKey: {
@@ -959,6 +1015,19 @@ keysApi.openapi(createIamRule, async (c) => {
 			...ruleData,
 		})
 		.returning();
+
+	await logAuditEvent({
+		organizationId: projectOrgId,
+		userId: user.id,
+		action: "api_key.iam_rule.create",
+		resourceType: "iam_rule",
+		resourceId: rule.id,
+		metadata: {
+			apiKeyId: id,
+			ruleType: ruleData.ruleType,
+			ruleValue: ruleData.ruleValue,
+		},
+	});
 
 	return c.json({
 		message: "IAM rule created successfully",
@@ -1163,6 +1232,15 @@ keysApi.openapi(updateIamRule, async (c) => {
 		});
 	}
 
+	// Get the existing rule to track changes
+	const existingRule = await db.query.apiKeyIamRule.findFirst({
+		where: {
+			id: {
+				eq: ruleId,
+			},
+		},
+	});
+
 	// Update the IAM rule
 	const [updatedRule] = await db
 		.update(tables.apiKeyIamRule)
@@ -1175,6 +1253,32 @@ keysApi.openapi(updateIamRule, async (c) => {
 			message: "IAM rule not found",
 		});
 	}
+
+	await logAuditEvent({
+		organizationId: projectOrgId,
+		userId: user.id,
+		action: "api_key.iam_rule.update",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			apiKeyId: id,
+			changes: {
+				...(updateData.ruleType !== undefined &&
+				existingRule?.ruleType !== updateData.ruleType
+					? {
+							ruleType: {
+								old: existingRule?.ruleType,
+								new: updateData.ruleType,
+							},
+						}
+					: {}),
+				...(updateData.status !== undefined &&
+				existingRule?.status !== updateData.status
+					? { status: { old: existingRule?.status, new: updateData.status } }
+					: {}),
+			},
+		},
+	});
 
 	return c.json({
 		message: "IAM rule updated successfully",
@@ -1288,6 +1392,18 @@ keysApi.openapi(deleteIamRule, async (c) => {
 			message: "IAM rule not found",
 		});
 	}
+
+	await logAuditEvent({
+		organizationId: projectOrgId,
+		userId: user.id,
+		action: "api_key.iam_rule.delete",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			apiKeyId: id,
+			ruleType: result[0].ruleType,
+		},
+	});
 
 	return c.json({
 		message: "IAM rule deleted successfully",

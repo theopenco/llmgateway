@@ -61,6 +61,14 @@ export function getProviderEndpoint(
 			case "google-vertex":
 				url = "https://aiplatform.googleapis.com";
 				break;
+			case "obsidian":
+				url = getProviderEnvValue("obsidian", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Obsidian provider requires LLM_OBSIDIAN_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
@@ -108,14 +116,14 @@ export function getProviderEndpoint(
 			case "zai":
 				url = "https://api.z.ai";
 				break;
-			case "routeway":
-				url = "https://api.routeway.ai";
-				break;
 			case "nanogpt":
 				url = "https://nano-gpt.com/api";
 				break;
 			case "bytedance":
 				url = "https://ark.ap-southeast.bytepluses.com/api/v3";
+				break;
+			case "minimax":
+				url = "https://api.minimax.io";
 				break;
 			case "aws-bedrock":
 				url =
@@ -170,6 +178,19 @@ export function getProviderEndpoint(
 			if (token) {
 				queryParams.push(`key=${token}`);
 			}
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
+		}
+		case "obsidian": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = modelName
+				? `${url}/v1beta/models/${modelName}:${endpoint}`
+				: `${url}/v1beta/models/gemini-3-pro-image-preview:${endpoint}`;
+			const queryParams = [];
 			if (stream) {
 				queryParams.push("alt=sse");
 			}
@@ -268,6 +289,32 @@ export function getProviderEndpoint(
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
+				const useResponsesApiEnv = getProviderEnvValue(
+					"azure",
+					"useResponsesApi",
+					configIndex,
+					"true",
+				);
+
+				if (model && useResponsesApiEnv !== "false") {
+					const modelDef = models.find(
+						(m) =>
+							m.id === model ||
+							m.providers.some(
+								(p) => p.modelName === model && p.providerId === "azure",
+							),
+					);
+					const providerMapping = modelDef?.providers.find(
+						(p) => p.providerId === "azure",
+					);
+					const supportsResponsesApi =
+						(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+						true;
+
+					if (supportsResponsesApi) {
+						return `${url}/openai/v1/responses`;
+					}
+				}
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
@@ -314,9 +361,9 @@ export function getProviderEndpoint(
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
-		case "routeway":
 		case "nanogpt":
 		case "canopywave":
+		case "minimax":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

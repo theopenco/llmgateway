@@ -56,6 +56,7 @@ FROM base-builder AS api-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=api
@@ -65,6 +66,7 @@ FROM base-builder AS gateway-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=gateway
@@ -74,6 +76,7 @@ FROM base-builder AS ui-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=ui
@@ -83,6 +86,7 @@ FROM base-builder AS playground-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=playground
@@ -92,6 +96,7 @@ FROM base-builder AS worker-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=worker
@@ -101,6 +106,7 @@ FROM base-builder AS docs-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=docs
@@ -110,6 +116,7 @@ FROM base-builder AS admin-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=admin... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=admin
@@ -119,6 +126,7 @@ FROM base-builder AS code-builder
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
+COPY --parents ee/**/package.json .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=code... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=code

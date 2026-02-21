@@ -277,6 +277,10 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                accounts: {
+                                    providerId: string;
+                                }[];
+                                hasPasskeys: boolean;
                             };
                         };
                     };
@@ -362,7 +366,22 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                accounts: {
+                                    providerId: string;
+                                }[];
+                                hasPasskeys: boolean;
                             };
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Bad request. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
                             message: string;
                         };
                     };
@@ -534,6 +553,10 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                accounts: {
+                                    providerId: string;
+                                }[];
+                                hasPasskeys: boolean;
                             };
                             message: string;
                         };
@@ -563,6 +586,167 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Single log entry */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            log: {
+                                id: string;
+                                requestId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                organizationId: string;
+                                projectId: string;
+                                apiKeyId: string;
+                                duration: number;
+                                requestedModel: string;
+                                requestedProvider: string | null;
+                                usedModel: string;
+                                usedProvider: string;
+                                responseSize: number;
+                                content: string | null;
+                                reasoningContent: string | null;
+                                unifiedFinishReason: string | null;
+                                finishReason: string | null;
+                                promptTokens: string | null;
+                                completionTokens: string | null;
+                                totalTokens: string | null;
+                                reasoningTokens: string | null;
+                                messages?: unknown;
+                                temperature: number | null;
+                                maxTokens: number | null;
+                                topP: number | null;
+                                frequencyPenalty: number | null;
+                                presencePenalty: number | null;
+                                reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
+                                responseFormat?: unknown;
+                                tools: ({
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                        description?: string;
+                                        parameters?: {
+                                            [key: string]: unknown;
+                                        };
+                                    };
+                                } | {
+                                    /** @enum {string} */
+                                    type: "web_search";
+                                    user_location?: {
+                                        city?: string;
+                                        region?: string;
+                                        country?: string;
+                                        timezone?: string;
+                                    };
+                                    /** @enum {string} */
+                                    search_context_size?: "low" | "medium" | "high";
+                                    max_uses?: number;
+                                })[] | null;
+                                toolChoice: "none" | "auto" | "required" | {
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                    };
+                                } | unknown;
+                                toolResults: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                        arguments: string;
+                                    };
+                                }[] | null;
+                                hasError: boolean | null;
+                                errorDetails: {
+                                    statusCode: number;
+                                    statusText: string;
+                                    responseText: string;
+                                } | null;
+                                cost: number | null;
+                                inputCost: number | null;
+                                outputCost: number | null;
+                                requestCost: number | null;
+                                imageInputTokens: string | null;
+                                imageOutputTokens: string | null;
+                                imageInputCost: number | null;
+                                imageOutputCost: number | null;
+                                estimatedCost: boolean | null;
+                                canceled: boolean | null;
+                                streamed: boolean | null;
+                                cached: boolean | null;
+                                customHeaders?: unknown;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string} */
+                                usedMode: "api-keys" | "credits";
+                                source: string | null;
+                                routingMetadata?: {
+                                    availableProviders?: string[];
+                                    selectedProvider?: string;
+                                    selectionReason?: string;
+                                    providerScores?: {
+                                        providerId: string;
+                                        score: number;
+                                        uptime?: number;
+                                        latency?: number;
+                                        price?: number;
+                                    }[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
+                                } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Log not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -641,6 +825,7 @@ export interface paths {
                                 frequencyPenalty: number | null;
                                 presencePenalty: number | null;
                                 reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
                                 responseFormat?: unknown;
                                 tools: ({
                                     /** @enum {string} */
@@ -691,6 +876,10 @@ export interface paths {
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 requestCost: number | null;
+                                imageInputTokens: string | null;
+                                imageOutputTokens: string | null;
+                                imageInputCost: number | null;
+                                imageOutputCost: number | null;
                                 estimatedCost: boolean | null;
                                 canceled: boolean | null;
                                 streamed: boolean | null;
@@ -712,7 +901,16 @@ export interface paths {
                                         latency?: number;
                                         price?: number;
                                     }[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
                                 } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {
@@ -788,8 +986,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query: {
-                    days: string;
+                query?: {
+                    days?: string;
+                    from?: string;
+                    to?: string;
                     projectId?: string;
                     apiKeyId?: string;
                 };
@@ -811,17 +1011,29 @@ export interface paths {
                                 requestCount: number;
                                 inputTokens: number;
                                 outputTokens: number;
+                                cachedTokens: number;
                                 totalTokens: number;
                                 cost: number;
                                 inputCost: number;
                                 outputCost: number;
                                 requestCost: number;
                                 dataStorageCost: number;
+                                imageInputCost: number;
+                                imageOutputCost: number;
+                                cachedInputCost: number;
                                 errorCount: number;
                                 errorRate: number;
                                 cacheCount: number;
                                 cacheRate: number;
                                 discountSavings: number;
+                                creditsRequestCount: number;
+                                apiKeysRequestCount: number;
+                                creditsCost: number;
+                                apiKeysCost: number;
+                                creditsServiceFee: number;
+                                apiKeysServiceFee: number;
+                                creditsDataStorageCost: number;
+                                apiKeysDataStorageCost: number;
                                 modelBreakdown: {
                                     id: string;
                                     provider: string;
@@ -854,7 +1066,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    range?: "7d" | "30d" | "90d" | "365d" | "all";
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -868,15 +1082,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            totalCreditsIssued: number;
-                            totalRevenue: number;
-                            netProfit: number;
                             totalSignups: number;
                             verifiedUsers: number;
                             payingCustomers: number;
-                            revenuePerCustomerPerMonth: number;
-                            peakLoadSuccessRate: number;
-                            customerInfraReplacementRate: number;
+                            totalRevenue: number;
+                            totalOrganizations: number;
+                            totalToppedUp: number;
+                            totalSpent: number;
+                            unusedCredits: number;
+                            overage: number;
                         };
                     };
                 };
@@ -890,7 +1104,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/tokens": {
+    "/admin/metrics/timeseries": {
         parameters: {
             query?: never;
             header?: never;
@@ -900,7 +1114,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "7d" | "30d";
+                    range?: "7d" | "30d" | "90d" | "365d" | "all";
                 };
                 header?: never;
                 path?: never;
@@ -908,7 +1122,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Admin token usage metrics. */
+                /** @description Admin dashboard timeseries metrics. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -916,7 +1130,130 @@ export interface paths {
                     content: {
                         "application/json": {
                             /** @enum {string} */
-                            window: "7d" | "30d";
+                            range: "7d" | "30d" | "90d" | "365d" | "all";
+                            data: {
+                                date: string;
+                                signups: number;
+                                paidCustomers: number;
+                                revenue: number;
+                            }[];
+                            totals: {
+                                signups: number;
+                                paidCustomers: number;
+                                revenue: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                    search?: string;
+                    sortBy?: "name" | "billingEmail" | "plan" | "devPlan" | "credits" | "createdAt" | "status" | "totalCreditsAllTime" | "totalSpent";
+                    sortOrder?: "asc" | "desc";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of organizations. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            organizations: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                plan: string;
+                                devPlan: string;
+                                credits: string;
+                                totalCreditsAllTime?: string;
+                                totalSpent?: string;
+                                createdAt: string;
+                                status: string | null;
+                            }[];
+                            total: number;
+                            totalCredits: string;
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            organization: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                plan: string;
+                                devPlan: string;
+                                credits: string;
+                                totalCreditsAllTime?: string;
+                                totalSpent?: string;
+                                createdAt: string;
+                                status: string | null;
+                            };
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             startDate: string;
                             endDate: string;
                             totalRequests: number;
@@ -930,7 +1267,822 @@ export interface paths {
                             cachedCost: number;
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
-                            mostUsedModelRequestCount: number;
+                            mostUsedModelCost: number;
+                            discountSavings: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization transactions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            organization: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                plan: string;
+                                devPlan: string;
+                                credits: string;
+                                totalCreditsAllTime?: string;
+                                totalSpent?: string;
+                                createdAt: string;
+                                status: string | null;
+                            };
+                            transactions: {
+                                id: string;
+                                createdAt: string;
+                                type: string;
+                                amount: string | null;
+                                creditAmount: string | null;
+                                currency: string;
+                                status: string;
+                                description: string | null;
+                            }[];
+                            total: number;
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization projects. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            projects: {
+                                id: string;
+                                name: string;
+                                mode: string;
+                                status: string | null;
+                                cachingEnabled: boolean;
+                                createdAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization API keys. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKeys: {
+                                id: string;
+                                token: string;
+                                description: string;
+                                status: string | null;
+                                usage: string;
+                                usageLimit: string | null;
+                                projectId: string;
+                                projectName: string;
+                                createdAt: string;
+                            }[];
+                            total: number;
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project metrics. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            project: {
+                                id: string;
+                                name: string;
+                                mode: string;
+                                status: string | null;
+                                cachingEnabled: boolean;
+                                createdAt: string;
+                            };
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            startDate: string;
+                            endDate: string;
+                            totalRequests: number;
+                            totalTokens: number;
+                            totalCost: number;
+                            inputTokens: number;
+                            inputCost: number;
+                            outputTokens: number;
+                            outputCost: number;
+                            cachedTokens: number;
+                            cachedCost: number;
+                            mostUsedModel: string | null;
+                            mostUsedProvider: string | null;
+                            mostUsedModelCost: number;
+                            discountSavings: number;
+                        };
+                    };
+                };
+                /** @description Project not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project logs. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            logs: {
+                                id: string;
+                                createdAt: string;
+                                duration: number;
+                                usedModel: string;
+                                usedProvider: string;
+                                totalTokens: string | null;
+                                cost: number | null;
+                                hasError: boolean | null;
+                                unifiedFinishReason: string | null;
+                                cached: boolean | null;
+                                cachedTokens: string | null;
+                                source: string | null;
+                                content: string | null;
+                                usedMode: string;
+                                discount: number | null;
+                            }[];
+                            pagination: {
+                                nextCursor: string | null;
+                                hasMore: boolean;
+                                limit: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Project not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of global discounts. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            discounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        provider?: string | null;
+                        model?: string | null;
+                        discountPercent: number | null;
+                        reason?: string | null;
+                        expiresAt?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created global discount. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string | null;
+                            provider: string | null;
+                            model: string | null;
+                            discountPercent: string;
+                            reason: string | null;
+                            expiresAt: string | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+                /** @description Invalid discount data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Discount already exists for this provider/model combination. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/discounts/{discountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    discountId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Discount deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Discount not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of organization discounts. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            discounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        provider?: string | null;
+                        model?: string | null;
+                        discountPercent: number | null;
+                        reason?: string | null;
+                        expiresAt?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created organization discount. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string | null;
+                            provider: string | null;
+                            model: string | null;
+                            discountPercent: string;
+                            reason: string | null;
+                            expiresAt: string | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+                /** @description Invalid discount data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Discount already exists for this provider/model combination. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/discounts/{discountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                    discountId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Discount deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Discount not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/discounts/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Available providers and provider/model mappings for discount selection. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                id: string;
+                                name: string;
+                            }[];
+                            mappings: {
+                                providerId: string;
+                                providerName: string;
+                                modelId: string;
+                                modelName: string;
+                                rootModelId: string;
+                                rootModelName: string;
+                                family: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    sortBy?: "name" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "modelCount";
+                    sortOrder?: "asc" | "desc";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of providers with stats. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                id: string;
+                                name: string;
+                                color: string | null;
+                                status: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                modelCount: number;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                    family?: string;
+                    sortBy?: "name" | "family" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount";
+                    sortOrder?: "asc" | "desc";
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of models with stats. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            models: {
+                                id: string;
+                                name: string;
+                                family: string;
+                                free: boolean;
+                                stability: string;
+                                status: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                providerCount: number;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                            limit: number;
+                            offset: number;
                         };
                     };
                 };
@@ -2172,7 +3324,7 @@ export interface paths {
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
                                 retentionLevel: "retain" | "none";
@@ -2231,7 +3383,7 @@ export interface paths {
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
                                 retentionLevel: "retain" | "none";
@@ -2418,7 +3570,7 @@ export interface paths {
                                 billingNotes: string | null;
                                 credits: string;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                                 planExpiresAt: string | null;
                                 /** @enum {string} */
                                 retentionLevel: "retain" | "none";
@@ -3023,10 +4175,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             baseAmount: number;
-                            stripeFee: number;
-                            internationalFee: number;
-                            planFee: number;
-                            totalFees: number;
+                            platformFee: number;
                             totalAmount: number;
                             bonusAmount?: number;
                             finalCreditAmount?: number;
@@ -3576,7 +4725,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             /** @enum {string} */
-                            plan: "free" | "pro";
+                            plan: "free" | "pro" | "enterprise";
                             subscriptionId: string | null;
                             planExpiresAt: string | null;
                             subscriptionCancelled: boolean;
@@ -3897,6 +5046,865 @@ export interface paths {
         };
         trace?: never;
     };
+    "/audit-logs/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: string;
+                    startDate?: string;
+                    endDate?: string;
+                    action?: string;
+                    resourceType?: string;
+                    userId?: string;
+                };
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Audit logs for the organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Array of audit log entries */
+                            auditLogs: {
+                                id: string;
+                                createdAt: string;
+                                organizationId: string;
+                                userId: string;
+                                /** @enum {string} */
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                /** @enum {string} */
+                                resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
+                                resourceId: string | null;
+                                metadata?: unknown;
+                                user?: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            }[];
+                            /** @description Pagination metadata */
+                            pagination: {
+                                /** @description Cursor to use for the next page of results, null if no more results */
+                                nextCursor: string | null;
+                                /** @description Whether there are more results available */
+                                hasMore: boolean;
+                                /** @description Number of items requested per page */
+                                limit: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit-logs/{organizationId}/filters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Filter options for audit logs */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Available action types */
+                            actions: string[];
+                            /** @description Available resource types */
+                            resourceTypes: string[];
+                            /** @description Users who have performed actions */
+                            users: {
+                                id: string;
+                                email: string;
+                                name: string | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/config/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Guardrail configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            enabled: boolean;
+                            systemRules: {
+                                prompt_injection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                jailbreak: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                pii_detection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                secrets: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                file_types: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                document_leakage: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                            } | null;
+                            maxFileSizeMb: number;
+                            allowedFileTypes: string[];
+                            /** @enum {string|null} */
+                            piiAction: "block" | "redact" | "warn" | "allow" | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                        systemRules?: {
+                            prompt_injection: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            jailbreak: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            pii_detection: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            secrets: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            file_types: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                            document_leakage: {
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                            };
+                        };
+                        maxFileSizeMb?: number;
+                        allowedFileTypes?: string[];
+                        /** @enum {string} */
+                        piiAction?: "block" | "redact" | "warn" | "allow";
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated guardrail configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            enabled: boolean;
+                            systemRules: {
+                                prompt_injection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                jailbreak: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                pii_detection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                secrets: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                file_types: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                document_leakage: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                            } | null;
+                            maxFileSizeMb: number;
+                            allowedFileTypes: string[];
+                            /** @enum {string|null} */
+                            piiAction: "block" | "redact" | "warn" | "allow" | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/config/{organizationId}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reset guardrail configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            enabled: boolean;
+                            systemRules: {
+                                prompt_injection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                jailbreak: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                pii_detection: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                secrets: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                file_types: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                                document_leakage: {
+                                    enabled: boolean;
+                                    /** @enum {string} */
+                                    action: "block" | "redact" | "warn" | "allow";
+                                };
+                            } | null;
+                            maxFileSizeMb: number;
+                            allowedFileTypes: string[];
+                            /** @enum {string|null} */
+                            piiAction: "block" | "redact" | "warn" | "allow" | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/rules/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of custom guardrail rules */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                organizationId: string;
+                                name: string;
+                                /** @enum {string} */
+                                type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                                config: {
+                                    /** @enum {string} */
+                                    type: "blocked_terms";
+                                    terms: string[];
+                                    /** @enum {string} */
+                                    matchType: "exact" | "contains" | "regex";
+                                    caseSensitive: boolean;
+                                } | {
+                                    /** @enum {string} */
+                                    type: "custom_regex";
+                                    pattern: string;
+                                } | {
+                                    /** @enum {string} */
+                                    type: "topic_restriction";
+                                    blockedTopics: string[];
+                                    allowedTopics?: string[];
+                                };
+                                priority: number;
+                                enabled: boolean;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        /** @enum {string} */
+                        type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                        config: {
+                            /** @enum {string} */
+                            type: "blocked_terms";
+                            terms: string[];
+                            /** @enum {string} */
+                            matchType: "exact" | "contains" | "regex";
+                            caseSensitive: boolean;
+                        } | {
+                            /** @enum {string} */
+                            type: "custom_regex";
+                            pattern: string;
+                        } | {
+                            /** @enum {string} */
+                            type: "topic_restriction";
+                            blockedTopics: string[];
+                            allowedTopics?: string[];
+                        };
+                        priority?: number;
+                        enabled?: boolean;
+                        /** @enum {string} */
+                        action?: "block" | "redact" | "warn" | "allow";
+                    };
+                };
+            };
+            responses: {
+                /** @description Created custom rule */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            name: string;
+                            /** @enum {string} */
+                            type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                            config: {
+                                /** @enum {string} */
+                                type: "blocked_terms";
+                                terms: string[];
+                                /** @enum {string} */
+                                matchType: "exact" | "contains" | "regex";
+                                caseSensitive: boolean;
+                            } | {
+                                /** @enum {string} */
+                                type: "custom_regex";
+                                pattern: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "topic_restriction";
+                                blockedTopics: string[];
+                                allowedTopics?: string[];
+                            };
+                            priority: number;
+                            enabled: boolean;
+                            /** @enum {string} */
+                            action: "block" | "redact" | "warn" | "allow";
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/rules/{organizationId}/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Rule deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        config?: {
+                            /** @enum {string} */
+                            type: "blocked_terms";
+                            terms: string[];
+                            /** @enum {string} */
+                            matchType: "exact" | "contains" | "regex";
+                            caseSensitive: boolean;
+                        } | {
+                            /** @enum {string} */
+                            type: "custom_regex";
+                            pattern: string;
+                        } | {
+                            /** @enum {string} */
+                            type: "topic_restriction";
+                            blockedTopics: string[];
+                            allowedTopics?: string[];
+                        };
+                        priority?: number;
+                        enabled?: boolean;
+                        /** @enum {string} */
+                        action?: "block" | "redact" | "warn" | "allow";
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated custom rule */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string;
+                            name: string;
+                            /** @enum {string} */
+                            type: "blocked_terms" | "custom_regex" | "topic_restriction";
+                            config: {
+                                /** @enum {string} */
+                                type: "blocked_terms";
+                                terms: string[];
+                                /** @enum {string} */
+                                matchType: "exact" | "contains" | "regex";
+                                caseSensitive: boolean;
+                            } | {
+                                /** @enum {string} */
+                                type: "custom_regex";
+                                pattern: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "topic_restriction";
+                                blockedTopics: string[];
+                                allowedTopics?: string[];
+                            };
+                            priority: number;
+                            enabled: boolean;
+                            /** @enum {string} */
+                            action: "block" | "redact" | "warn" | "allow";
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/guardrails/violations/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: string;
+                    startDate?: string;
+                    endDate?: string;
+                    actionTaken?: string;
+                    ruleId?: string;
+                };
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of guardrail violations */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            violations: {
+                                id: string;
+                                organizationId: string;
+                                logId: string | null;
+                                ruleId: string;
+                                ruleName: string;
+                                category: string;
+                                /** @enum {string} */
+                                actionTaken: "blocked" | "redacted" | "warned";
+                                matchedPattern: string | null;
+                                matchedContent: string | null;
+                                contentHash: string | null;
+                                apiKeyId: string | null;
+                                model: string | null;
+                                createdAt: string;
+                            }[];
+                            pagination: {
+                                nextCursor: string | null;
+                                hasMore: boolean;
+                                limit: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/stats/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    days?: string;
+                };
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Violation statistics */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            blocked: number;
+                            redacted: number;
+                            warned: number;
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/test/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        content: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Test result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            passed: boolean;
+                            blocked: boolean;
+                            violations: {
+                                ruleId: string;
+                                ruleName: string;
+                                category: string;
+                                /** @enum {string} */
+                                action: "block" | "redact" | "warn" | "allow";
+                                matchedPattern?: string;
+                                matchedContent?: string;
+                            }[];
+                            rulesChecked: number;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/guardrails/system-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of system rules */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                name: string;
+                                category: string;
+                                defaultEnabled: boolean;
+                                /** @enum {string} */
+                                defaultAction: "block" | "redact" | "warn" | "allow";
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3960,6 +5968,7 @@ export interface operations {
                                 jsonOutput: boolean | null;
                                 jsonOutputSchema: boolean | null;
                                 webSearch: boolean | null;
+                                webSearchPrice: string | null;
                                 discount: string | null;
                                 /** @enum {string|null} */
                                 stability: "stable" | "beta" | "unstable" | "experimental" | null;

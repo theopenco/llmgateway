@@ -357,7 +357,7 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
-					{provider.requestPrice !== undefined && (
+					{provider.requestPrice !== undefined && provider.requestPrice > 0 && (
 						<div className="grid grid-cols-3 gap-3 mt-3">
 							<div className="col-span-3">
 								<div className="text-muted-foreground text-xs mb-1">
@@ -419,6 +419,13 @@ export function ModelProviderCard({
 											<span className="font-mono">
 												<span className="line-through text-muted-foreground">
 													{formatPrice(tier.inputPrice)} in /{" "}
+													{tier.cachedInputPrice !== null &&
+														tier.cachedInputPrice !== undefined && (
+															<>
+																{formatPrice(tier.cachedInputPrice)} cached
+																/{" "}
+															</>
+														)}
 													{formatPrice(tier.outputPrice)} out
 												</span>
 												<span className="text-green-600 font-semibold ml-2">
@@ -426,6 +433,16 @@ export function ModelProviderCard({
 														tier.inputPrice * (1 - provider.discount),
 													)}{" "}
 													in /{" "}
+													{tier.cachedInputPrice !== null &&
+														tier.cachedInputPrice !== undefined && (
+															<>
+																{formatPrice(
+																	tier.cachedInputPrice *
+																		(1 - provider.discount),
+																)}{" "}
+																cached /{" "}
+															</>
+														)}
 													{formatPrice(
 														tier.outputPrice * (1 - provider.discount),
 													)}{" "}
@@ -435,6 +452,10 @@ export function ModelProviderCard({
 										) : (
 											<span className="font-mono">
 												{formatPrice(tier.inputPrice)} in /{" "}
+												{tier.cachedInputPrice !== null &&
+													tier.cachedInputPrice !== undefined && (
+														<>{formatPrice(tier.cachedInputPrice)} cached / </>
+													)}
 												{formatPrice(tier.outputPrice)} out
 											</span>
 										)}

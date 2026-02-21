@@ -1,14 +1,16 @@
 packages:
   - apps/*
   - packages/*
+  - ee/*
 
 ignoredBuiltDependencies:
   - protobufjs
   - unrs-resolver
 
 onlyBuiltDependencies:
-  - "@parcel/watcher"
-  - "@tailwindcss/oxide"
+  - '@parcel/watcher'
+  - '@tailwindcss/oxide'
+  - better-sqlite3
   - core-js
   - esbuild
   - sharp

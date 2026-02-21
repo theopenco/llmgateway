@@ -322,44 +322,92 @@ function transformContentForResponsesApi(content: any, role: string): any {
 		});
 	}
 
+	// Responses API requires content to be a string or array, never null
+	if (content === null || content === undefined) {
+		if (role === "assistant") {
+			return [{ type: "output_text", text: "" }];
+		}
+		return [{ type: "input_text", text: "" }];
+	}
+
 	// Return as-is if not string or array
 	return content;
 }
 
 /**
  * Transforms messages for OpenAI's Responses API format.
- * This includes:
- * - Converting content types (text -> input_text/output_text, image_url -> input_image)
- * - Removing unsupported fields (tool_calls, tool_call_id)
- * - Converting tool role to user role
+ * The Responses API uses a flat list of "items" rather than messages:
+ * - Regular messages become items with role/content
+ * - Assistant tool_calls become separate { type: "function_call" } items
+ * - Tool result messages become { type: "function_call_output" } items
+ * Content types are also transformed (text -> input_text/output_text, image_url -> input_image)
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
-	return messages.map((msg: any) => {
-		const transformed: any = {
-			role: msg.role,
-		};
+	const items: any[] = [];
 
-		// Responses API doesn't support 'tool' role - convert to 'user'
-		if (transformed.role === "tool") {
-			transformed.role = "user";
+	for (const msg of messages) {
+		// Tool result messages become function_call_output items
+		if (msg.role === "tool") {
+			if (!msg.tool_call_id) {
+				throw new Error(
+					"tool message is missing tool_call_id, required for Responses API function_call_output",
+				);
+			}
+			const output =
+				typeof msg.content === "string"
+					? msg.content
+					: msg.content !== null && msg.content !== undefined
+						? JSON.stringify(msg.content)
+						: "";
+			items.push({
+				type: "function_call_output",
+				call_id: msg.tool_call_id,
+				output,
+			});
+			continue;
 		}
 
-		// Transform content types
-		transformed.content = transformContentForResponsesApi(
-			msg.content,
-			transformed.role,
-		);
+		// Assistant messages with tool_calls: emit the message, then function_call items
+		if (
+			msg.role === "assistant" &&
+			msg.tool_calls &&
+			msg.tool_calls.length > 0
+		) {
+			// Emit assistant message content if present (preserve empty strings)
+			if (msg.content !== null && msg.content !== undefined) {
+				items.push({
+					role: "assistant",
+					content: transformContentForResponsesApi(msg.content, "assistant"),
+				});
+			}
+
+			// Emit each tool call as a separate function_call item
+			for (const toolCall of msg.tool_calls) {
+				items.push({
+					type: "function_call",
+					call_id: toolCall.id,
+					name: toolCall.function.name,
+					arguments: toolCall.function.arguments,
+				});
+			}
+			continue;
+		}
+
+		// Regular messages: transform content types
+		const transformed: any = {
+			role: msg.role,
+			content: transformContentForResponsesApi(msg.content, msg.role),
+		};
 
 		// Copy name if present (for developer/system messages)
 		if (msg.name) {
 			transformed.name = msg.name;
 		}
 
-		// Note: tool_calls and tool_call_id are intentionally NOT copied
-		// as they are not supported in Responses API input
+		items.push(transformed);
+	}
 
-		return transformed;
-	});
+	return items;
 }
 
 /**
@@ -378,11 +426,11 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
-	userPlan: "free" | "pro" | null = null,
+	userPlan: "free" | "pro" | "enterprise" | null = null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 	image_config?: {
 		aspect_ratio?: string;
@@ -393,6 +441,8 @@ export async function prepareRequestBody(
 	effort?: "low" | "medium" | "high",
 	imageGenerations?: boolean,
 	webSearchTool?: WebSearchTool,
+	reasoning_max_tokens?: number,
+	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
@@ -552,24 +602,32 @@ export async function prepareRequestBody(
 	}
 
 	switch (usedProvider) {
+		case "azure":
 		case "openai": {
-			// Check if the model supports responses API
-			const providerMapping = modelDef?.providers.find(
-				(p) => p.providerId === "openai",
-			);
-			const supportsResponsesApi =
-				(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-				true;
+			// Determine whether to use Responses API format.
+			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
+			// Otherwise, fall back to checking the model definition.
+			let shouldUseResponsesApi: boolean;
+			if (useResponsesApi !== undefined) {
+				shouldUseResponsesApi = useResponsesApi;
+			} else {
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === usedProvider,
+				);
+				shouldUseResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+			}
 
-			if (supportsResponsesApi) {
+			if (shouldUseResponsesApi) {
 				// Transform to responses API format
 				// gpt-5-pro only supports "high" reasoning effort
 				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
 
 				// Transform messages for responses API:
 				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
-				// - Remove tool_calls and tool_call_id (not supported)
-				// - Convert tool role to user role
+				// - Convert assistant tool_calls to function_call items
+				// - Convert tool role messages to function_call_output items
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
 
@@ -788,9 +846,15 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice;
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
+			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
 				if (!supportsReasoning) {
 					return 0;
+				}
+				// If explicit reasoning_max_tokens is provided, use it
+				if (reasoning_max_tokens !== undefined) {
+					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
+					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 				}
 				if (!reasoning_effort) {
 					return 0;
@@ -800,6 +864,8 @@ export async function prepareRequestBody(
 						return 1024; // Anthropic minimum
 					case "high":
 						return 4000;
+					case "xhigh":
+						return 16000;
 					default:
 						return 2000; // medium or undefined
 				}
@@ -952,8 +1018,8 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort is specified
-			if (supportsReasoning && reasoning_effort) {
+			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
 				requestBody.thinking = {
 					type: "enabled",
 					budget_tokens: thinkingBudget,
@@ -967,12 +1033,7 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.top_p = top_p;
 			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
 			if (effort !== undefined) {
 				if (!requestBody.output_config) {
 					requestBody.output_config = {};
@@ -1215,6 +1276,46 @@ export async function prepareRequestBody(
 				requestBody.inferenceConfig = inferenceConfig;
 			}
 
+			// Enable thinking for Bedrock Anthropic models when reasoning is supported
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+				const getThinkingBudget = (effort?: string) => {
+					if (reasoning_max_tokens !== undefined) {
+						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+					}
+					if (!effort) {
+						return 2000;
+					}
+					switch (effort) {
+						case "low":
+							return 1024;
+						case "high":
+							return 4000;
+						case "xhigh":
+							return 16000;
+						default:
+							return 2000;
+					}
+				};
+				const thinkingBudget = getThinkingBudget(reasoning_effort);
+				requestBody.additionalModelRequestFields =
+					requestBody.additionalModelRequestFields || {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "enabled",
+					budget_tokens: thinkingBudget,
+				};
+				// Ensure max_tokens is sufficient for thinking + response
+				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+				if (
+					!inferenceConfig.maxTokens ||
+					inferenceConfig.maxTokens < minMaxTokens
+				) {
+					inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
+				}
+				if (Object.keys(inferenceConfig).length > 0) {
+					requestBody.inferenceConfig = inferenceConfig;
+				}
+			}
+
 			// Handle response_format for AWS Bedrock via additionalModelRequestFields
 			// This passes Anthropic-specific parameters through the Converse API
 			if (
@@ -1238,7 +1339,8 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "google-ai-studio":
-		case "google-vertex": {
+		case "google-vertex":
+		case "obsidian": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
@@ -1313,8 +1415,13 @@ export async function prepareRequestBody(
 					includeThoughts: true,
 				};
 
-				// Map reasoning_effort to thinking_budget
-				if (reasoning_effort !== undefined) {
+				// Use reasoning_max_tokens if provided, otherwise map reasoning_effort to thinking_budget
+				if (reasoning_max_tokens !== undefined) {
+					// Google's thinkingBudget: just use the provided value directly
+					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
+					requestBody.generationConfig.thinkingConfig.thinkingBudget =
+						reasoning_max_tokens;
+				} else if (reasoning_effort !== undefined) {
 					const getThinkingBudget = (effort: string) => {
 						switch (effort) {
 							case "minimal":
@@ -1322,7 +1429,9 @@ export async function prepareRequestBody(
 							case "low":
 								return 2048;
 							case "high":
-								return 24576; // Maximum for Flash models
+								return 24576;
+							case "xhigh":
+								return 65536;
 							case "medium":
 							default:
 								return 8192; // Balanced default

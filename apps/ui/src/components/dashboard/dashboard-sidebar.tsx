@@ -17,6 +17,7 @@ import {
 	MoonIcon,
 	Settings,
 	Shield,
+	ShieldAlert,
 	SunIcon,
 	User as UserIcon,
 	X,
@@ -140,6 +141,10 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/team",
 		label: "Team",
+	},
+	{
+		href: "org/audit-logs",
+		label: "Audit Logs",
 	},
 ] as const;
 
@@ -324,6 +329,46 @@ function OrganizationSection({
 						>
 							<KeyRound className="h-4 w-4" />
 							<span>Provider Keys</span>
+						</Link>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<Link
+							href={buildOrgUrl("org/guardrails")}
+							className={cn(
+								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+								isActive("org/guardrails")
+									? "bg-primary/10 text-primary"
+									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
+							)}
+							onClick={() => {
+								if (isMobile) {
+									toggleSidebar();
+								}
+							}}
+							prefetch={true}
+						>
+							<Shield className="h-4 w-4" />
+							<span>Guardrails</span>
+						</Link>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<Link
+							href={buildOrgUrl("org/security-events")}
+							className={cn(
+								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+								isActive("org/security-events")
+									? "bg-primary/10 text-primary"
+									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
+							)}
+							onClick={() => {
+								if (isMobile) {
+									toggleSidebar();
+								}
+							}}
+							prefetch={true}
+						>
+							<ShieldAlert className="h-4 w-4" />
+							<span>Security Events</span>
 						</Link>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
@@ -601,6 +646,45 @@ function UserDropdownMenu({
 	);
 }
 
+function useInviteBannerEligible(
+	selectedOrganization: Organization | null,
+): boolean {
+	const [eligible, setEligible] = useState(false);
+
+	useEffect(() => {
+		if (!selectedOrganization) {
+			return;
+		}
+
+		// Check if user has been active for at least 7 days
+		const orgCreatedAt = new Date(selectedOrganization.createdAt);
+		const daysSinceCreation =
+			(Date.now() - orgCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
+		if (daysSinceCreation >= 7) {
+			setEligible(true);
+			return;
+		}
+
+		// Check if user has purchased credits (credits > 0)
+		if (Number(selectedOrganization.credits) > 0) {
+			setEligible(true);
+			return;
+		}
+
+		// Check if user has made 50+ API calls (set by dashboard)
+		const hasEnoughCalls =
+			localStorage.getItem("user_has_50_plus_calls") === "true";
+		if (hasEnoughCalls) {
+			setEligible(true);
+			return;
+		}
+
+		setEligible(false);
+	}, [selectedOrganization]);
+
+	return eligible;
+}
+
 function UpgradeCTA({
 	show,
 	onHide,
@@ -610,7 +694,9 @@ function UpgradeCTA({
 	onHide: () => void;
 	selectedOrganization: Organization | null;
 }) {
-	if (!show || !selectedOrganization) {
+	const eligible = useInviteBannerEligible(selectedOrganization);
+
+	if (!show || !selectedOrganization || !eligible) {
 		return null;
 	}
 

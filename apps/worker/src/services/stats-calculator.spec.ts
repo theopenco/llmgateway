@@ -569,7 +569,7 @@ describe("stats-calculator", () => {
 					duration: 2000,
 					requestedModel: "gpt-4",
 					requestedProvider: "anthropic",
-					usedModel: "openai/gpt-4",
+					usedModel: "anthropic/gpt-4", // Must match usedProvider for correct stats tracking
 					usedProvider: "anthropic",
 					responseSize: 150,
 					hasError: true,

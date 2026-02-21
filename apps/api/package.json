@@ -22,7 +22,9 @@
 		"@hono/zod-validator": "^0.7.2",
 		"@kubiks/otel-better-auth": "2.0.2",
 		"@llmgateway/actions": "workspace:*",
+		"@llmgateway/audit": "workspace:*",
 		"@llmgateway/db": "workspace:*",
+		"@llmgateway/guardrails": "workspace:*",
 		"@llmgateway/instrumentation": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
@@ -35,18 +37,16 @@
 		"dotenv": "16.5.0",
 		"drizzle-zod": "0.8.3",
 		"gateway": "workspace:*",
-		"hono": "^4.11.4",
+		"hono": "^4.11.7",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
-		"jspdf": "4.0.0",
-		"nodemailer": "^7.0.11",
+		"jspdf": "4.1.0",
 		"openai": "^5.19.1",
 		"posthog-node": "5.10.4",
+		"resend": "6.8.0",
 		"stripe": "18.1.1",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
 	},
-	"devDependencies": {
-		"@types/nodemailer": "7.0.2"
-	}
+	"devDependencies": {}
 }

@@ -43,6 +43,7 @@ const modelProviderMappingSchema = z.object({
 	jsonOutput: z.boolean().nullable(),
 	jsonOutputSchema: z.boolean().nullable(),
 	webSearch: z.boolean().nullable(),
+	webSearchPrice: z.string().nullable(),
 	discount: z.string().nullable(),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),

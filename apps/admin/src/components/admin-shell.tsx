@@ -1,7 +1,15 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LayoutDashboard, LogOut, Users } from "lucide-react";
+import {
+	Building2,
+	Cpu,
+	LayoutDashboard,
+	LogOut,
+	Menu,
+	Percent,
+	Server,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -19,6 +27,7 @@ import {
 	SidebarMenuItem,
 	SidebarProvider,
 	SidebarTrigger,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth-client";
 
@@ -30,6 +39,37 @@ interface AdminShellProps {
 	children: ReactNode;
 }
 
+function MobileHeader() {
+	const { toggleSidebar } = useSidebar();
+
+	return (
+		<header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-border/60 bg-background px-4 md:hidden">
+			<Button
+				variant="ghost"
+				size="icon"
+				className="h-9 w-9"
+				onClick={toggleSidebar}
+			>
+				<Menu className="h-5 w-5" />
+				<span className="sr-only">Toggle menu</span>
+			</Button>
+			<div className="flex items-center gap-2">
+				<div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+					<Logo className="h-4 w-4" />
+				</div>
+				<div className="flex flex-col">
+					<span className="text-sm font-semibold leading-tight">
+						LLM Gateway
+					</span>
+					<span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+						Admin
+					</span>
+				</div>
+			</div>
+		</header>
+	);
+}
+
 export function AdminShell({ children }: AdminShellProps) {
 	const pathname = usePathname();
 	const router = useRouter();
@@ -37,7 +77,10 @@ export function AdminShell({ children }: AdminShellProps) {
 	const queryClient = useQueryClient();
 
 	const isDashboard = pathname === "/" || pathname === "";
-	const isTokens = pathname === "/tokens";
+	const isOrganizations = pathname.startsWith("/organizations");
+	const isDiscounts = pathname === "/discounts";
+	const isProviders = pathname === "/providers";
+	const isModels = pathname === "/models";
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -68,7 +111,7 @@ export function AdminShell({ children }: AdminShellProps) {
 								</span>
 							</div>
 						</div>
-						<SidebarTrigger />
+						<SidebarTrigger className="hidden md:flex" />
 					</div>
 				</SidebarHeader>
 				<SidebarContent>
@@ -82,25 +125,38 @@ export function AdminShell({ children }: AdminShellProps) {
 										<span>Dashboard</span>
 									</SidebarMenuButton>
 								</Link>
-								<Link href="/tokens" className="block">
-									<SidebarMenuButton isActive={isTokens} size="lg">
-										<KeyRound className="h-4 w-4" />
-										<span>Tokens</span>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/organizations" className="block">
+									<SidebarMenuButton isActive={isOrganizations} size="lg">
+										<Building2 className="h-4 w-4" />
+										<span>Organizations</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
-						</SidebarMenu>
-					</SidebarGroup>
-					<SidebarGroup>
-						<SidebarGroupLabel>People</SidebarGroupLabel>
-						<SidebarMenu>
 							<SidebarMenuItem>
-								<SidebarMenuButton size="lg" asChild>
-									<div className="flex w-full items-center gap-2 text-sidebar-foreground/80 hover:text-sidebar-accent-foreground">
-										<Users className="h-4 w-4" />
-										<span>Users (coming soon)</span>
-									</div>
-								</SidebarMenuButton>
+								<Link href="/discounts" className="block">
+									<SidebarMenuButton isActive={isDiscounts} size="lg">
+										<Percent className="h-4 w-4" />
+										<span>Global Discounts</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/providers" className="block">
+									<SidebarMenuButton isActive={isProviders} size="lg">
+										<Server className="h-4 w-4" />
+										<span>Providers</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/models" className="block">
+									<SidebarMenuButton isActive={isModels} size="lg">
+										<Cpu className="h-4 w-4" />
+										<span>Models</span>
+									</SidebarMenuButton>
+								</Link>
 							</SidebarMenuItem>
 						</SidebarMenu>
 					</SidebarGroup>
@@ -117,7 +173,10 @@ export function AdminShell({ children }: AdminShellProps) {
 					</Button>
 				</SidebarFooter>
 			</Sidebar>
-			<SidebarInset>{children}</SidebarInset>
+			<SidebarInset>
+				<MobileHeader />
+				{children}
+			</SidebarInset>
 		</SidebarProvider>
 	);
 }

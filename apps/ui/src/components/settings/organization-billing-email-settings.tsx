@@ -9,12 +9,12 @@ import { Label } from "@/lib/components/label";
 import { Separator } from "@/lib/components/separator";
 import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
-import { useDashboardState } from "@/lib/dashboard-state";
+import { useDashboardContext } from "@/lib/dashboard-context";
 import { useApi } from "@/lib/fetch-client";
 
 export function OrganizationBillingEmailSettings() {
 	const queryClient = useQueryClient();
-	const { selectedOrganization } = useDashboardState();
+	const { selectedOrganization } = useDashboardContext();
 
 	const api = useApi();
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {

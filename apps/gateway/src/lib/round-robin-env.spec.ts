@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
-import { reportKeyError, resetKeyHealth } from "./api-key-health.js";
+import {
+	reportKeyError,
+	reportKeySuccess,
+	resetKeyHealth,
+} from "./api-key-health.js";
 import {
 	parseCommaSeparatedEnv,
 	getRoundRobinValue,
@@ -141,6 +145,51 @@ describe("round-robin-env", () => {
 			const result3 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
 			expect(result3.value).toBe("value2");
 			expect(result3.index).toBe(1);
+		});
+
+		it("should prefer keys with better uptime when one is significantly worse", () => {
+			// Key 0: 100% uptime (10 successes)
+			for (let i = 0; i < 10; i++) {
+				reportKeySuccess("UPTIME_TEST", 0);
+			}
+
+			// Key 1: 50% uptime (5 successes, 5 errors) - keep consecutiveErrors < 3
+			reportKeySuccess("UPTIME_TEST", 1);
+			reportKeyError("UPTIME_TEST", 1, 500);
+			reportKeySuccess("UPTIME_TEST", 1);
+			reportKeyError("UPTIME_TEST", 1, 500);
+			reportKeySuccess("UPTIME_TEST", 1);
+			reportKeyError("UPTIME_TEST", 1, 500);
+			reportKeySuccess("UPTIME_TEST", 1);
+			reportKeyError("UPTIME_TEST", 1, 500);
+			reportKeySuccess("UPTIME_TEST", 1);
+			reportKeyError("UPTIME_TEST", 1, 500);
+
+			// Should prefer key 0 (100% uptime) over key 1 (50% uptime)
+			const result1 = getRoundRobinValue("UPTIME_TEST", "value1,value2");
+			expect(result1.index).toBe(0);
+
+			// Should continue preferring key 0
+			const result2 = getRoundRobinValue("UPTIME_TEST", "value1,value2");
+			expect(result2.index).toBe(0);
+		});
+
+		it("should round-robin among keys with identical uptime", () => {
+			// Key 0 and 1 both have 100% uptime
+			for (let i = 0; i < 5; i++) {
+				reportKeySuccess("IDENTICAL_UPTIME", 0);
+				reportKeySuccess("IDENTICAL_UPTIME", 1);
+			}
+
+			// Should round-robin between key 0 and 1
+			const result1 = getRoundRobinValue("IDENTICAL_UPTIME", "value1,value2");
+			expect(result1.index).toBe(0);
+
+			const result2 = getRoundRobinValue("IDENTICAL_UPTIME", "value1,value2");
+			expect(result2.index).toBe(1);
+
+			const result3 = getRoundRobinValue("IDENTICAL_UPTIME", "value1,value2");
+			expect(result3.index).toBe(0);
 		});
 	});
 

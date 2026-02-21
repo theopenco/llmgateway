@@ -57,8 +57,10 @@ async function sendDiscordNotification(
 export async function notifyUserSignup(
 	email: string,
 	name: string | null | undefined,
+	authMethod?: string,
 ): Promise<void> {
 	const displayName = name || "Unknown";
+	const method = authMethod || "Unknown";
 
 	await sendDiscordNotification({
 		embeds: [
@@ -74,6 +76,11 @@ export async function notifyUserSignup(
 					{
 						name: "Name",
 						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Auth Method",
+						value: method,
 						inline: true,
 					},
 				],

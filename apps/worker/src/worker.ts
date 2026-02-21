@@ -3,35 +3,38 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	closeRedisClient,
 	consumeFromQueue,
 	LOG_QUEUE,
-	closeRedisClient,
 	publishToQueue,
 } from "@llmgateway/cache";
 import {
-	db,
-	log,
-	organization,
-	eq,
-	sql,
 	and,
-	lt,
-	tables,
 	apiKey,
-	inArray,
-	type LogInsertData,
 	closeDatabase,
-	closeCachedDatabase,
+	db,
+	eq,
+	inArray,
+	log,
+	type LogInsertData,
+	lt,
+	organization,
+	sql,
+	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees } from "@llmgateway/shared";
+import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
 
 import {
-	calculateMinutelyHistory,
-	calculateCurrentMinuteHistory,
-	calculateAggregatedStatistics,
+	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
+	refreshProjectHourlyStats,
+} from "./services/project-stats-aggregator.js";
+import {
 	backfillHistoryIfNeeded,
+	calculateAggregatedStatistics,
+	calculateCurrentMinuteHistory,
+	calculateMinutelyHistory,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 
@@ -77,6 +80,19 @@ const schema = z.object({
 	total_tokens: z.string().nullable(),
 	reasoning_tokens: z.string().nullable(),
 	cached_tokens: z.string().nullable(),
+	input_cost: z.number().nullable(),
+	output_cost: z.number().nullable(),
+	cached_input_cost: z.number().nullable(),
+	estimated_cost: z.boolean().nullable(),
+	error_details: z
+		.object({
+			statusCode: z.number(),
+			statusText: z.string(),
+			responseText: z.string(),
+		})
+		.nullable(),
+	trace_id: z.string().nullable(),
+	unified_finish_reason: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -230,17 +246,9 @@ async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				const stripePaymentMethod = await stripe.paymentMethods.retrieve(
-					defaultPaymentMethod.stripePaymentMethodId,
-				);
-
-				const cardCountry = stripePaymentMethod.card?.country;
-
 				// Use centralized fee calculator
 				const feeBreakdown = calculateFees({
 					amount: topUpAmount,
-					organizationPlan: org.plan,
-					cardCountry: cardCountry || undefined,
 				});
 
 				// Insert pending transaction before creating payment intent
@@ -276,7 +284,7 @@ async function processAutoTopUp(): Promise<void> {
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
-							totalFees: feeBreakdown.totalFees.toString(),
+							platformFee: feeBreakdown.platformFee.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
 					});
@@ -357,41 +365,31 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	try {
 		logger.info("Starting data retention cleanup...");
 
-		// Define retention periods in days
-		const FREE_PLAN_RETENTION_DAYS = 3;
-		const PRO_PLAN_RETENTION_DAYS = 30;
+		// Unified retention period - 30 days for all users
+		const RETENTION_DAYS = 30;
 		const CLEANUP_BATCH_SIZE = 10000;
 
 		const now = new Date();
 
-		// Calculate cutoff dates
-		const freePlanCutoff = new Date(
-			now.getTime() - FREE_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-		);
-		const proPlanCutoff = new Date(
-			now.getTime() - PRO_PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+		// Calculate cutoff date (30 days ago)
+		const cutoffDate = new Date(
+			now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
 		);
 
-		let totalFreePlanCleaned = 0;
-		let totalProPlanCleaned = 0;
+		let totalCleaned = 0;
 
-		// Fetch project IDs for each plan upfront (small query, runs once)
-		const freePlanProjects = await db
-			.select({ id: tables.project.id })
-			.from(tables.project)
-			.innerJoin(
-				organization,
-				eq(tables.project.organizationId, organization.id),
-			)
-			.where(eq(organization.plan, "free"));
-		const freePlanProjectIds = freePlanProjects.map((p) => p.id);
-
-		// Process free plan organizations in batches
-		let hasMoreFreePlanRecords = freePlanProjectIds.length > 0;
-		while (hasMoreFreePlanRecords) {
+		// Process all organizations in batches (no plan distinction)
+		let hasMoreRecords = true;
+		while (hasMoreRecords) {
 			const batchResult = await db.transaction(async (tx) => {
+				// Hint the planner to prefer index scans for this transaction.
+				// Without this, PostgreSQL's default random_page_cost=4 causes it to
+				// choose a sequential scan over the partial index, even though the index
+				// is far more efficient (scanning ~500 rows vs ~11.5M rows).
+				// SET LOCAL resets automatically when the transaction commits.
+				await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
+
 				// Find IDs of records to clean up (with LIMIT for batching)
-				// Uses inArray with actual values to leverage index on (project_id, created_at)
 				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
 				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
 				const recordsToClean = await tx
@@ -399,8 +397,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 					.from(log)
 					.where(
 						and(
-							inArray(log.projectId, freePlanProjectIds),
-							lt(log.createdAt, freePlanCutoff),
+							lt(log.createdAt, cutoffDate),
 							sql`${log.dataRetentionCleanedUp} = false`,
 						),
 					)
@@ -436,102 +433,20 @@ export async function cleanupExpiredLogData(): Promise<void> {
 				return recordsToClean.length;
 			});
 
-			totalFreePlanCleaned += batchResult;
+			totalCleaned += batchResult;
 
 			if (batchResult < CLEANUP_BATCH_SIZE) {
-				hasMoreFreePlanRecords = false;
+				hasMoreRecords = false;
 			}
 
 			if (batchResult > 0) {
-				logger.info(
-					`Cleaned up ${batchResult} logs in batch for free plan organizations`,
-				);
+				logger.info(`Cleaned up ${batchResult} logs in batch`);
 			}
 		}
 
-		if (totalFreePlanCleaned > 0) {
+		if (totalCleaned > 0) {
 			logger.info(
-				`Total cleaned up verbose data from ${totalFreePlanCleaned} logs for free plan organizations (older than ${FREE_PLAN_RETENTION_DAYS} days)`,
-			);
-		}
-
-		// Fetch pro plan project IDs upfront
-		const proPlanProjects = await db
-			.select({ id: tables.project.id })
-			.from(tables.project)
-			.innerJoin(
-				organization,
-				eq(tables.project.organizationId, organization.id),
-			)
-			.where(eq(organization.plan, "pro"));
-		const proPlanProjectIds = proPlanProjects.map((p) => p.id);
-
-		// Process pro plan organizations in batches
-		let hasMoreProPlanRecords = proPlanProjectIds.length > 0;
-		while (hasMoreProPlanRecords) {
-			const batchResult = await db.transaction(async (tx) => {
-				// Find IDs of records to clean up (with LIMIT for batching)
-				// Uses inArray with actual values to leverage index on (project_id, created_at)
-				// IMPORTANT: Use raw SQL for the boolean condition to match the partial index exactly
-				// (parameterized values like $20 prevent PostgreSQL from using partial indexes)
-				const recordsToClean = await tx
-					.select({ id: log.id })
-					.from(log)
-					.where(
-						and(
-							inArray(log.projectId, proPlanProjectIds),
-							lt(log.createdAt, proPlanCutoff),
-							sql`${log.dataRetentionCleanedUp} = false`,
-						),
-					)
-					.limit(CLEANUP_BATCH_SIZE)
-					.for("update", { skipLocked: true });
-
-				if (recordsToClean.length === 0) {
-					return 0;
-				}
-
-				const idsToClean = recordsToClean.map((r) => r.id);
-
-				// Clean up the batch
-				await tx
-					.update(log)
-					.set({
-						messages: null,
-						content: null,
-						reasoningContent: null,
-						tools: null,
-						toolChoice: null,
-						toolResults: null,
-						customHeaders: null,
-						rawRequest: null,
-						rawResponse: null,
-						upstreamRequest: null,
-						upstreamResponse: null,
-						userAgent: null,
-						dataRetentionCleanedUp: true,
-					})
-					.where(inArray(log.id, idsToClean));
-
-				return recordsToClean.length;
-			});
-
-			totalProPlanCleaned += batchResult;
-
-			if (batchResult < CLEANUP_BATCH_SIZE) {
-				hasMoreProPlanRecords = false;
-			}
-
-			if (batchResult > 0) {
-				logger.info(
-					`Cleaned up ${batchResult} logs in batch for pro plan organizations`,
-				);
-			}
-		}
-
-		if (totalProPlanCleaned > 0) {
-			logger.info(
-				`Total cleaned up verbose data from ${totalProPlanCleaned} logs for pro plan organizations (older than ${PRO_PLAN_RETENTION_DAYS} days)`,
+				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${RETENTION_DAYS} days)`,
 			);
 		}
 
@@ -580,6 +495,13 @@ export async function batchProcessLogs(): Promise<void> {
 					total_tokens: log.totalTokens,
 					reasoning_tokens: log.reasoningTokens,
 					cached_tokens: log.cachedTokens,
+					input_cost: log.inputCost,
+					output_cost: log.outputCost,
+					cached_input_cost: log.cachedInputCost,
+					estimated_cost: log.estimatedCost,
+					error_details: log.errorDetails,
+					trace_id: log.traceId,
+					unified_finish_reason: log.unifiedFinishReason,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -601,6 +523,7 @@ export async function batchProcessLogs(): Promise<void> {
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
 			const apiKeyCosts = new Map<string, Decimal>();
+			const logServiceFees = new Map<string, number>();
 			const logIds: string[] = [];
 
 			for (const raw of unprocessedLogs.rows) {
@@ -615,6 +538,10 @@ export async function batchProcessLogs(): Promise<void> {
 					organizationId: row.organization_id,
 					projectId: row.project_id,
 					cost: row.cost,
+					inputCost: row.input_cost,
+					outputCost: row.output_cost,
+					cachedInputCost: row.cached_input_cost,
+					estimatedCost: row.estimated_cost,
 					error: !!row.hasError,
 					cached: row.cached,
 					apiKeyId: row.api_key_id,
@@ -632,6 +559,9 @@ export async function batchProcessLogs(): Promise<void> {
 					totalTokens: row.total_tokens,
 					reasoningTokens: row.reasoning_tokens,
 					cachedTokens: row.cached_tokens,
+					errorDetails: row.error_details,
+					traceId: row.trace_id,
+					unifiedFinishReason: row.unified_finish_reason,
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
@@ -654,15 +584,31 @@ export async function batchProcessLogs(): Promise<void> {
 							row.organization_id,
 							currentOrgCost.plus(new Decimal(row.cost)),
 						);
-					} else if (row.used_mode === "api-keys" && row.data_storage_cost) {
-						// In API keys mode, only deduct storage cost for data retention
-						const storageCost = new Decimal(row.data_storage_cost);
-						if (storageCost.greaterThan(0)) {
+					} else if (row.used_mode === "api-keys") {
+						// In API keys mode, charge BYOK fee (% of tracked cost) + storage cost
+						let totalToDeduct = new Decimal(0);
+
+						// Add BYOK fee (e.g., 1% of the tracked cost)
+						if (row.cost) {
+							const byokFee = new Decimal(row.cost).times(BYOK_FEE_PERCENTAGE);
+							totalToDeduct = totalToDeduct.plus(byokFee);
+							// Store the service fee for this log
+							logServiceFees.set(row.id, byokFee.toNumber());
+						}
+
+						// Add storage cost if applicable
+						if (row.data_storage_cost) {
+							totalToDeduct = totalToDeduct.plus(
+								new Decimal(row.data_storage_cost),
+							);
+						}
+
+						if (totalToDeduct.greaterThan(0)) {
 							const currentOrgCost =
 								orgCosts.get(row.organization_id) || new Decimal(0);
 							orgCosts.set(
 								row.organization_id,
-								currentOrgCost.plus(storageCost),
+								currentOrgCost.plus(totalToDeduct),
 							);
 						}
 					}
@@ -787,6 +733,16 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
+			// Update service fees for logs that have them (api-keys mode)
+			for (const [logId, serviceFee] of logServiceFees.entries()) {
+				await tx
+					.update(log)
+					.set({
+						serviceFee,
+					})
+					.where(eq(log.id, logId));
+			}
+
 			// Mark all logs as processed within the same transaction
 			await tx
 				.update(log)
@@ -909,11 +865,24 @@ export async function processLogQueue(): Promise<void> {
 
 let isWorkerRunning = false;
 let shouldStop = false;
-let minutelyIntervalId: NodeJS.Timeout | null = null;
-let currentMinuteIntervalId: NodeJS.Timeout | null = null;
-let aggregatedIntervalId: NodeJS.Timeout | null = null;
 let activeLoops = 0;
 let stopFailed = false;
+
+/**
+ * Sleep that can be interrupted by shouldStop.
+ * Breaks long delays into short chunks so loops exit promptly on shutdown.
+ */
+async function interruptibleSleep(ms: number): Promise<void> {
+	const chunkMs = 500;
+	let remaining = ms;
+	// eslint-disable-next-line no-unmodified-loop-condition
+	while (remaining > 0 && !shouldStop) {
+		await new Promise((resolve) => {
+			setTimeout(resolve, Math.min(remaining, chunkMs));
+		});
+		remaining -= chunkMs;
+	}
+}
 
 // Independent worker loops
 async function runLogQueueLoop() {
@@ -1020,6 +989,186 @@ async function runBatchProcessLoop() {
 	}
 }
 
+async function runMinutelyHistoryLoop() {
+	activeLoops++;
+	logger.info(
+		"Starting minutely history loop (every 60s, aligned to minute boundary)...",
+	);
+
+	try {
+		// Initial run immediately
+		try {
+			await calculateMinutelyHistory();
+		} catch (error) {
+			logger.error(
+				"Error in initial minutely history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			// Calculate delay to next minute boundary
+			const now = new Date();
+			const nextMinute = new Date(
+				now.getFullYear(),
+				now.getMonth(),
+				now.getDate(),
+				now.getHours(),
+				now.getMinutes() + 1,
+				0,
+				50, // 50ms buffer
+			);
+			const delay = nextMinute.getTime() - now.getTime();
+
+			await interruptibleSleep(delay);
+
+			if (shouldStop) {
+				break;
+			}
+
+			try {
+				await calculateMinutelyHistory();
+			} catch (error) {
+				logger.error(
+					"Error in minutely history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Minutely history loop stopped");
+	}
+}
+
+async function runCurrentMinuteHistoryLoop() {
+	activeLoops++;
+	const interval = CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting current minute history loop (interval: ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await calculateCurrentMinuteHistory();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in current minute history loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Current minute history loop stopped");
+	}
+}
+
+async function runAggregatedStatsLoop() {
+	activeLoops++;
+	logger.info(
+		"Starting aggregated stats loop (every 5min, aligned to 5-min boundary)...",
+	);
+
+	try {
+		// Initial run immediately
+		try {
+			await calculateAggregatedStatistics();
+		} catch (error) {
+			logger.error(
+				"Error in initial aggregated statistics calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			// Calculate delay to next 5-minute boundary
+			const now = new Date();
+			const currentMinute = now.getMinutes();
+			const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
+			const nextRun = new Date(now);
+			nextRun.setSeconds(0, 100); // 100ms buffer
+			if (nextFiveMinuteMark >= 60) {
+				nextRun.setMinutes(0);
+				nextRun.setHours(nextRun.getHours() + 1);
+			} else {
+				nextRun.setMinutes(nextFiveMinuteMark);
+			}
+
+			const delay = nextRun.getTime() - now.getTime();
+
+			await interruptibleSleep(delay);
+
+			if (shouldStop) {
+				break;
+			}
+
+			try {
+				await calculateAggregatedStatistics();
+			} catch (error) {
+				logger.error(
+					"Error in aggregated statistics calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Aggregated stats loop stopped");
+	}
+}
+
+async function runProjectStatsLoop() {
+	activeLoops++;
+	const interval = PROJECT_STATS_REFRESH_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting project stats loop (interval: ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		// eslint-disable-next-line no-unmodified-loop-condition
+		while (!shouldStop) {
+			try {
+				await refreshProjectHourlyStats();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in project stats loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Project stats loop stopped");
+	}
+}
+
 async function runDataRetentionLoop() {
 	activeLoops++;
 	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
@@ -1080,17 +1229,16 @@ export async function startWorker() {
 	shouldStop = false;
 	logger.info("Starting worker application...");
 
-	// Initialize providers and models sync
-	void syncProvidersAndModels()
-		.then(() => {
-			logger.info("Initial sync completed");
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during initial sync",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
+	// Initialize providers and models sync - must complete before other stats syncs
+	try {
+		await syncProvidersAndModels();
+		logger.info("Initial sync completed");
+	} catch (error) {
+		logger.error(
+			"Error during initial sync",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
 
 	void backfillHistoryIfNeeded()
 		.then(() => {
@@ -1103,8 +1251,8 @@ export async function startWorker() {
 			);
 		});
 
-	// Start statistics calculator
-	logger.info("Starting statistics calculator...");
+	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
+	logger.info("Starting worker loops...");
 	logger.info("- Minutely history: runs at the first second of every minute");
 	logger.info(
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
@@ -1112,126 +1260,14 @@ export async function startWorker() {
 	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
+	logger.info(
+		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
+	);
 
-	// Start minutely history calculation (runs at the beginning of every minute)
-	calculateMinutelyHistory().catch((error) => {
-		logger.error(
-			"Error in initial minutely history calculation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	// Calculate delay to next minute's first second
-	const scheduleMinutelyHistory = () => {
-		const now = new Date();
-		const nextMinute = new Date(
-			now.getFullYear(),
-			now.getMonth(),
-			now.getDate(),
-			now.getHours(),
-			now.getMinutes() + 1,
-			0, // 0 seconds
-			50, // 50ms buffer to ensure we're past the second boundary
-		);
-		const delayToNextMinute = nextMinute.getTime() - now.getTime();
-
-		setTimeout(() => {
-			calculateMinutelyHistory().catch((error) => {
-				logger.error(
-					"Error in scheduled minutely history calculation",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			});
-			// After the first run, schedule it to repeat every minute at the first second
-			minutelyIntervalId = setInterval(
-				() => {
-					calculateMinutelyHistory().catch((error) => {
-						logger.error(
-							"Error in interval minutely history calculation",
-							error instanceof Error ? error : new Error(String(error)),
-						);
-					});
-				},
-				60 * 1000, // 1 minute
-			);
-		}, delayToNextMinute);
-	};
-
-	scheduleMinutelyHistory();
-
-	// Start current minute history calculation (runs every N seconds for real-time metrics)
-	calculateCurrentMinuteHistory().catch((error) => {
-		logger.error(
-			"Error in initial current minute history calculation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	currentMinuteIntervalId = setInterval(() => {
-		calculateCurrentMinuteHistory().catch((error) => {
-			logger.error(
-				"Error in interval current minute history calculation",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		});
-	}, CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000);
-
-	// Start aggregated statistics calculation (runs every 5 minutes at minute boundaries)
-	calculateAggregatedStatistics().catch((error) => {
-		logger.error(
-			"Error in initial aggregated statistics calculation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-	});
-
-	// Calculate delay to next 5-minute boundary (0, 5, 10, 15, etc.)
-	const scheduleAggregatedStats = () => {
-		const now = new Date();
-		const currentMinute = now.getMinutes();
-		const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
-		const nextRun = new Date(
-			now.getFullYear(),
-			now.getMonth(),
-			now.getDate(),
-			now.getHours(),
-			nextFiveMinuteMark,
-			0, // 0 seconds
-			100, // 100ms buffer
-		);
-
-		// Handle hour rollover
-		if (nextFiveMinuteMark >= 60) {
-			nextRun.setHours(nextRun.getHours() + 1);
-			nextRun.setMinutes(0);
-		}
-
-		const delayToNext = nextRun.getTime() - now.getTime();
-
-		setTimeout(() => {
-			calculateAggregatedStatistics().catch((error) => {
-				logger.error(
-					"Error in scheduled aggregated statistics calculation",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			});
-			// After the first run, schedule it to repeat every 5 minutes
-			aggregatedIntervalId = setInterval(
-				() => {
-					calculateAggregatedStatistics().catch((error) => {
-						logger.error(
-							"Error in interval aggregated statistics calculation",
-							error instanceof Error ? error : new Error(String(error)),
-						);
-					});
-				},
-				5 * 60 * 1000, // 5 minutes
-			);
-		}, delayToNext);
-	};
-
-	scheduleAggregatedStats();
-
-	// Start all parallel worker loops
+	void runMinutelyHistoryLoop();
+	void runCurrentMinuteHistoryLoop();
+	void runAggregatedStatsLoop();
+	void runProjectStatsLoop();
 	void runLogQueueLoop();
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
@@ -1246,25 +1282,6 @@ export async function stopWorker(): Promise<boolean> {
 
 	logger.info("Stopping worker...");
 	shouldStop = true;
-
-	// Stop statistics calculator intervals
-	if (minutelyIntervalId) {
-		clearInterval(minutelyIntervalId);
-		minutelyIntervalId = null;
-		logger.info("Minutely history calculator stopped");
-	}
-
-	if (currentMinuteIntervalId) {
-		clearInterval(currentMinuteIntervalId);
-		currentMinuteIntervalId = null;
-		logger.info("Current minute history calculator stopped");
-	}
-
-	if (aggregatedIntervalId) {
-		clearInterval(aggregatedIntervalId);
-		aggregatedIntervalId = null;
-		logger.info("Aggregated statistics calculator stopped");
-	}
 
 	// Wait for all loops to finish by polling activeLoops counter
 	const maxWaitTime = 15000; // 15 seconds timeout
@@ -1302,11 +1319,7 @@ export async function stopWorker(): Promise<boolean> {
 
 	// Close database and Redis connections
 	try {
-		await Promise.all([
-			closeDatabase(),
-			closeCachedDatabase(),
-			closeRedisClient(),
-		]);
+		await Promise.all([closeDatabase(), closeRedisClient()]);
 		logger.info("All connections closed successfully");
 	} catch (error) {
 		logger.error(

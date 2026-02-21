@@ -23,7 +23,7 @@ export async function transformAnthropicMessages(
 	provider?: string,
 	_model?: string,
 	maxImageSizeMB = 20,
-	userPlan: "free" | "pro" | null = null,
+	userPlan: "free" | "pro" | "enterprise" | null = null,
 	initialCacheControlCount = 0,
 	minCacheableChars = 1024 * 4,
 ): Promise<AnthropicMessage[]> {

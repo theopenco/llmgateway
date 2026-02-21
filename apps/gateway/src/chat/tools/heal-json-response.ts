@@ -50,10 +50,16 @@ function extractFromMarkdown(content: string): string | null {
  * Uses proper bracket matching that respects string boundaries
  */
 function extractJsonFromMixedContent(content: string): string | null {
-	// Find all potential JSON start positions (all { and [)
+	// Find potential JSON start positions (all { and [)
+	// Limit to first 50 positions to avoid O(n²) worst case on large inputs
 	const startPositions: number[] = [];
+	const MAX_START_POSITIONS = 50;
 
-	for (let i = 0; i < content.length; i++) {
+	for (
+		let i = 0;
+		i < content.length && startPositions.length < MAX_START_POSITIONS;
+		i++
+	) {
 		if (content[i] === "{" || content[i] === "[") {
 			startPositions.push(i);
 		}

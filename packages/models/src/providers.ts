@@ -95,6 +95,7 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://ai.google.com",
 		announcement: null,
+		priority: 0.8,
 	},
 	{
 		id: "google-vertex",
@@ -115,7 +116,22 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.5,
+	},
+	{
+		id: "obsidian",
+		name: "Obsidian",
+		description: "Obsidian - Google-compatible LLM provider.",
+		env: {
+			required: {
+				apiKey: "LLM_OBSIDIAN_API_KEY",
+				baseUrl: "LLM_OBSIDIAN_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a1a",
+		website: null,
+		announcement: null,
 	},
 	{
 		id: "groq",
@@ -245,6 +261,7 @@ export const providers = [
 			optional: {
 				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
 				apiVersion: "LLM_AZURE_API_VERSION",
+				useResponsesApi: "LLM_AZURE_USE_RESPONSES_API",
 			},
 		},
 		streaming: true,
@@ -383,21 +400,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "routeway",
-		name: "RouteWay",
-		description: "RouteWay's OpenAI-compatible large language models",
-		env: {
-			required: {
-				apiKey: "LLM_ROUTEWAY_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4f46e5",
-		website: "https://routeway.ai",
-		announcement: null,
-	},
-	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
@@ -455,6 +457,22 @@ export const providers = [
 		cancellation: true,
 		color: "#FF4757",
 		website: "https://www.byteplus.com/en/product/modelark",
+		announcement: null,
+	},
+	{
+		id: "minimax",
+		name: "MiniMax",
+		description:
+			"MiniMax's large language models with advanced reasoning and coding capabilities",
+		env: {
+			required: {
+				apiKey: "LLM_MINIMAX_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#7C3AED",
+		website: "https://minimax.io",
 		announcement: null,
 	},
 ] as const satisfies ProviderDefinition[];

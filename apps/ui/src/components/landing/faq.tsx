@@ -13,7 +13,7 @@ const faqData = [
 	{
 		question: "What makes LLM Gateway different from OpenRouter?",
 		answer:
-			"Unlike OpenRouter, LLM Gateway offers: Full self-hosting under an AGPLv3 license – run the gateway entirely on your infra. Deeper, real-time cost & latency analytics for every request. Reduced gateway fee (2.5% vs 5%) on the $50 Pro plan. Flexible enterprise add-ons (dedicated shard, custom SLAs).",
+			"Unlike OpenRouter, LLM Gateway offers: Full self-hosting under an AGPLv3 license – run the gateway entirely on your infra. Deeper, real-time cost & latency analytics for every request. Bring Your Own Keys with just 1% tracking fee. Flexible enterprise add-ons (dedicated shard, custom SLAs).",
 	},
 	{
 		question: "What models do you support?",
@@ -23,12 +23,12 @@ const faqData = [
 	{
 		question: "What is your uptime guarantee?",
 		answer:
-			"Our public status page posts real-time metrics. Managed Pro & Enterprise instances come with a 99.9% uptime SLA; self-host installations depend on your infrastructure.",
+			"Our public status page posts real-time metrics. Enterprise instances come with a 99.9% uptime SLA; self-host installations depend on your infrastructure.",
 	},
 	{
 		question: "How much does it cost?",
 		answer:
-			"Free plan: Pay-as-you-go credits with 5% platform fee plus Stripe fees. Pro plan ($50/month): Bring your own keys or use credits with just 2.5% gateway fee, includes premium analytics and priority support. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.",
+			"Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys with just 1% tracking fee. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.",
 	},
 ];
 
@@ -103,8 +103,8 @@ export function Faq() {
 										for every request
 									</li>
 									<li>
-										<strong>Reduced gateway fee</strong> (2.5% vs 5%) on the $50
-										Pro plan
+										<strong>Bring Your Own Keys</strong> – use your own provider
+										API keys with just 1% tracking fee
 									</li>
 									<li>
 										Flexible <strong>enterprise add‑ons</strong> (dedicated
@@ -150,10 +150,9 @@ export function Faq() {
 								</AccordionPrimitive.Trigger>
 							</AccordionPrimitive.Header>
 							<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-gray-500 dark:text-gray-400 pb-2">
-								Our public status page posts real‑time metrics. Managed Pro &
-								Enterprise instances come with a{" "}
-								<strong>99.9 % uptime SLA</strong>; self‑host installations
-								depend on your infrastructure.
+								Our public status page posts real‑time metrics. Enterprise
+								instances come with a <strong>99.9 % uptime SLA</strong>;
+								self‑host installations depend on your infrastructure.
 							</AccordionContent>
 						</AccordionItem>
 
@@ -173,17 +172,14 @@ export function Faq() {
 								<p>Our pricing is simple and transparent:</p>
 								<ul className="list-disc pl-6 mt-2 space-y-1">
 									<li>
-										<strong>Free – credits + 5% fee + Stripe:</strong>{" "}
-										Pay‑as‑you‑go credits to use any model; a flat 5% platform
-										fee is applied to each request, plus standard Stripe
-										processing fees (2.9% + $0.35) on purchases.
+										<strong>Credits – 5% fee:</strong> Pay‑as‑you‑go credits to
+										use any model with a flat 5% platform fee on purchases.
 									</li>
 									<li>
-										<strong>Pro – $50/month:</strong> Bring your own LLM
-										provider keys <em>or</em> use credits with just a{" "}
-										<strong>2.5%</strong> gateway fee (half the free plan rate).
-										Includes premium analytics, higher rate limits, and priority
-										email support.
+										<strong>Bring Your Own Keys – 1% fee:</strong> Use your own
+										LLM provider API keys (OpenAI, Anthropic, Google, etc.) and
+										pay providers directly. We charge just 1% to track usage and
+										provide analytics.
 									</li>
 									<li>
 										<strong>Enterprise:</strong> Custom SLA, dedicated

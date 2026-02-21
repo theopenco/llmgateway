@@ -80,7 +80,7 @@ export type Organization = Omit<
 	OrganizationBase,
 	"status" | "plan" | "retentionLevel" | "devPlan"
 > & {
-	plan: "free" | "pro";
+	plan: "free" | "pro" | "enterprise";
 	retentionLevel: "retain" | "none";
 	status: "active" | "inactive" | "deleted" | null;
 	devPlan: "none" | "lite" | "pro" | "max";
@@ -102,7 +102,9 @@ export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
 export type LogInsertData = Omit<
 	InferInsertModel<typeof tables.log>,
 	"id" | "createdAt" | "updatedAt"
->;
+> & {
+	id?: string;
+};
 
 export type SerializedOrganization = Omit<
 	Organization,

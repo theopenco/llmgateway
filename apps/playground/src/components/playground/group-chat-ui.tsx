@@ -191,7 +191,9 @@ export const GroupChatUI = ({
 														{getModelLabel(message.model)}
 													</span>
 												</div>
-												<Response>{message.content}</Response>
+												<Response isStreaming={isStreaming}>
+													{message.content}
+												</Response>
 												{isLastMessage && isStreaming && <Loader />}
 											</div>
 										);

@@ -34,6 +34,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: ${{ inputs.cmd }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eux
           ${{ inputs.cmd }}

@@ -2,12 +2,9 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {
-	apiAuth as auth,
-	updateBrevoContactAttributes,
-} from "@/auth/config.js";
+import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -20,7 +17,29 @@ const publicUserSchema = z.object({
 	onboardingCompleted: z.boolean(),
 	emailVerified: z.boolean(),
 	isAdmin: z.boolean(),
+	accounts: z.array(
+		z.object({
+			providerId: z.string(),
+		}),
+	),
+	hasPasskeys: z.boolean(),
 });
+
+async function getUserAuthInfo(userId: string) {
+	const [accounts, passkeys] = await Promise.all([
+		db.query.account.findMany({
+			where: { userId },
+		}),
+		db.query.passkey.findMany({
+			where: { userId },
+		}),
+	]);
+	return {
+		accounts: accounts.map((a) => ({ providerId: a.providerId })),
+		hasPasskeys: passkeys.length > 0,
+		hasCredentialAccount: accounts.some((a) => a.providerId === "credential"),
+	};
+}
 
 function isAdminEmail(email: string | null | undefined): boolean {
 	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
@@ -74,6 +93,7 @@ user.openapi(get, async (c) => {
 		});
 	}
 
+	const authInfo = await getUserAuthInfo(authUser.id);
 	const isAdmin = isAdminEmail(user.email);
 
 	return c.json({
@@ -84,6 +104,8 @@ user.openapi(get, async (c) => {
 			onboardingCompleted: user.onboardingCompleted,
 			emailVerified: user.emailVerified,
 			isAdmin,
+			accounts: authInfo.accounts,
+			hasPasskeys: authInfo.hasPasskeys,
 		},
 	});
 });
@@ -135,7 +157,9 @@ user.openapi(deletePasskey, async (c) => {
 
 	await db
 		.delete(tables.passkey)
-		.where(eq(tables.passkey.id, id) && eq(tables.passkey.userId, authUser.id));
+		.where(
+			and(eq(tables.passkey.id, id), eq(tables.passkey.userId, authUser.id)),
+		);
 
 	return c.json({
 		message: "Passkey deleted successfully",
@@ -165,6 +189,16 @@ const updateUser = createRoute({
 				},
 			},
 			description: "User updated successfully.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Bad request.",
 		},
 		401: {
 			content: {
@@ -212,6 +246,16 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
+	const authInfo = await getUserAuthInfo(authUser.id);
+
+	// Block email changes for users without password authentication
+	if (updateData.email && !authInfo.hasCredentialAccount) {
+		throw new HTTPException(400, {
+			message:
+				"Email cannot be changed for accounts without password authentication",
+		});
+	}
+
 	const [updatedUser] = await db
 		.update(tables.user)
 		.set({
@@ -219,6 +263,11 @@ user.openapi(updateUser, async (c) => {
 		})
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
+
+	// Sync name to Resend if email is verified (contact exists in Resend)
+	if (updatedUser.emailVerified && updateData.name !== undefined) {
+		await updateResendContact(updatedUser.email, { name: updateData.name });
+	}
 
 	const isAdmin = isAdminEmail(updatedUser.email);
 
@@ -230,6 +279,8 @@ user.openapi(updateUser, async (c) => {
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
+			accounts: authInfo.accounts,
+			hasPasskeys: authInfo.hasPasskeys,
 		},
 		message: "User updated successfully",
 	});
@@ -466,10 +517,12 @@ user.openapi(completeOnboarding, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
-	// Only update Brevo if email is verified (contact exists in Brevo)
+	const authInfo = await getUserAuthInfo(authUser.id);
+
+	// Update Resend contact if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified) {
-		await updateBrevoContactAttributes(updatedUser.email, {
-			ONBOARDING_COMPLETED: true,
+		await updateResendContact(updatedUser.email, {
+			attributes: { onboarding_completed: true },
 		});
 	}
 
@@ -483,6 +536,8 @@ user.openapi(completeOnboarding, async (c) => {
 			onboardingCompleted: updatedUser.onboardingCompleted,
 			emailVerified: updatedUser.emailVerified,
 			isAdmin,
+			accounts: authInfo.accounts,
+			hasPasskeys: authInfo.hasPasskeys,
 		},
 		message: "Onboarding completed successfully",
 	});

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -177,12 +178,19 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
-	if (
-		process.env.PAID_MODE === "true" &&
-		userOrganization.organization?.plan !== "pro"
-	) {
+	// Check max team size limit (5 members)
+	const currentMembers = await db.query.userOrganization.findMany({
+		where: {
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (currentMembers.length >= 5) {
 		throw new HTTPException(403, {
-			message: "Team management is only available on the Pro plan",
+			message:
+				"Your organization has reached the maximum of 5 team members. Contact us at contact@llmgateway.io to unlock more seats.",
 		});
 	}
 
@@ -237,6 +245,19 @@ team.openapi(addMember, async (c) => {
 			role,
 		})
 		.returning();
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.add",
+		resourceType: "team_member",
+		resourceId: newMember.id,
+		metadata: {
+			targetUserId: targetUser.id,
+			targetUserEmail: email,
+			role,
+		},
+	});
 
 	return c.json({
 		message: "Member added successfully",
@@ -324,15 +345,6 @@ team.openapi(updateMember, async (c) => {
 		});
 	}
 
-	if (
-		process.env.PAID_MODE === "true" &&
-		userOrganization.organization?.plan !== "pro"
-	) {
-		throw new HTTPException(403, {
-			message: "Team management is only available on the Pro plan",
-		});
-	}
-
 	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
 		throw new HTTPException(403, {
 			message: "Only owners and admins can update member roles",
@@ -401,6 +413,23 @@ team.openapi(updateMember, async (c) => {
 		.set({ role })
 		.where(eq(tables.userOrganization.id, memberId))
 		.returning();
+
+	if (targetMember.role !== role) {
+		await logAuditEvent({
+			organizationId,
+			userId: authUser.id,
+			action: "team_member.update",
+			resourceType: "team_member",
+			resourceId: memberId,
+			metadata: {
+				targetUserId: targetMember.userId,
+				targetUserEmail: targetMember.user?.email,
+				changes: {
+					role: { old: targetMember.role, new: role },
+				},
+			},
+		});
+	}
 
 	return c.json({
 		message: "Member role updated successfully",
@@ -475,15 +504,6 @@ team.openapi(removeMember, async (c) => {
 		});
 	}
 
-	if (
-		process.env.PAID_MODE === "true" &&
-		userOrganization.organization?.plan !== "pro"
-	) {
-		throw new HTTPException(403, {
-			message: "Team management is only available on the Pro plan",
-		});
-	}
-
 	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
 		throw new HTTPException(403, {
 			message: "Only owners and admins can remove members",
@@ -497,6 +517,15 @@ team.openapi(removeMember, async (c) => {
 			},
 			organizationId: {
 				eq: organizationId,
+			},
+		},
+		with: {
+			user: {
+				columns: {
+					id: true,
+					email: true,
+					name: true,
+				},
 			},
 		},
 	});
@@ -535,6 +564,18 @@ team.openapi(removeMember, async (c) => {
 	await db
 		.delete(tables.userOrganization)
 		.where(eq(tables.userOrganization.id, memberId));
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.remove",
+		resourceType: "team_member",
+		resourceId: memberId,
+		metadata: {
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+		},
+	});
 
 	return c.json({
 		message: "Member removed successfully",

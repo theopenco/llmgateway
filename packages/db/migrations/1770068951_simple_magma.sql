@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "service_fee" real;

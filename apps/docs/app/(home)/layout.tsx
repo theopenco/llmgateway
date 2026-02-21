@@ -1,7 +1,7 @@
-import { GithubInfo } from "fumadocs-ui/components/github-info";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 
 import { baseOptions } from "@/app/layout.config";
+import { GithubInfo } from "@/components/github-info";
 import { source } from "@/lib/source";
 
 import type { DocsLayoutProps } from "fumadocs-ui/layouts/docs";
@@ -15,7 +15,12 @@ const docsOptions: DocsLayoutProps = {
 		{
 			type: "custom",
 			children: (
-				<GithubInfo owner="theopenco" repo="llmgateway" className="lg:-mx-2" />
+				<GithubInfo
+					owner="theopenco"
+					repo="llmgateway"
+					token={process.env.GITHUB_TOKEN}
+					className="lg:-mx-2"
+				/>
 			),
 		},
 	],

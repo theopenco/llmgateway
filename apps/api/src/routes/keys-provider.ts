@@ -6,6 +6,7 @@ import { maskToken } from "@/lib/maskToken.js";
 import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { providers } from "@llmgateway/models";
@@ -148,33 +149,6 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	const organization = userOrgs[0].organization;
-
-	// Check if organization has pro plan for provider keys (only if PAID_MODE is enabled)
-	if (process.env.PAID_MODE === "true" && organization?.plan !== "pro") {
-		throw new HTTPException(403, {
-			message:
-				"Provider keys are only available on the Pro plan. Please upgrade to Pro or use Credits mode.",
-		});
-	}
-
-	// Check if custom provider is allowed (only for pro plan or self-hosted mode)
-	if (provider === "custom") {
-		const isHosted = process.env.HOSTED === "true";
-		const isPaidMode = process.env.PAID_MODE === "true";
-		const isProPlan = organization?.plan === "pro";
-
-		// Custom providers are allowed if:
-		// 1. Self-hosted mode (HOSTED !== "true")
-		// 2. Pro plan in hosted mode
-		if (isHosted && isPaidMode && !isProPlan) {
-			throw new HTTPException(403, {
-				message:
-					"Custom providers are only available on the Pro plan. Please upgrade to Pro or use Credits mode with standard providers.",
-			});
-		}
-	}
-
 	// Check if a provider key already exists for this provider and organization
 	const existingKey = await db.query.providerKey.findFirst({
 		where: {
@@ -227,14 +201,21 @@ keysProvider.openapi(create, async (c) => {
 
 	if (validationResult.error) {
 		const errorMessage = validationResult.error || "Upstream server error";
-		logger.error("Provider key validation failed", {
+		logger.warn("Provider key validation failed", {
 			provider,
-			model: validationResult.model,
-			statusCode: validationResult.statusCode,
+			model: validationResult.model ?? "unknown",
+			statusCode: validationResult.statusCode ?? "none",
 			error: errorMessage,
 		});
-		throw new HTTPException(500, {
-			message: `Error from provider: ${errorMessage} and status code ${validationResult.statusCode} (using model ${validationResult.model}). Please try again later or contact support.`,
+
+		const statusPart = validationResult.statusCode
+			? ` (status ${validationResult.statusCode})`
+			: "";
+		const modelPart = validationResult.model
+			? ` using model ${validationResult.model}`
+			: "";
+		throw new HTTPException(400, {
+			message: `Error from provider: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});
 	}
 
@@ -257,6 +238,18 @@ keysProvider.openapi(create, async (c) => {
 			options,
 		})
 		.returning();
+
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "provider_key.create",
+		resourceType: "provider_key",
+		resourceId: providerKey.id,
+		metadata: {
+			provider,
+			hasCustomBaseUrl: !!baseUrl,
+		},
+	});
 
 	return c.json({
 		providerKey: {
@@ -407,6 +400,17 @@ keysProvider.openapi(deleteKey, async (c) => {
 		})
 		.where(eq(tables.providerKey.id, id));
 
+	await logAuditEvent({
+		organizationId: providerKey.organizationId,
+		userId: user.id,
+		action: "provider_key.delete",
+		resourceType: "provider_key",
+		resourceId: id,
+		metadata: {
+			provider: providerKey.provider,
+		},
+	});
+
 	return c.json({
 		message: "Provider key deleted successfully",
 	});
@@ -508,6 +512,22 @@ keysProvider.openapi(updateStatus, async (c) => {
 		})
 		.where(eq(tables.providerKey.id, id))
 		.returning();
+
+	if (providerKey.status !== status) {
+		await logAuditEvent({
+			organizationId: providerKey.organizationId,
+			userId: user.id,
+			action: "provider_key.update",
+			resourceType: "provider_key",
+			resourceId: id,
+			metadata: {
+				provider: providerKey.provider,
+				changes: {
+					status: { old: providerKey.status, new: status },
+				},
+			},
+		});
+	}
 
 	return c.json({
 		message: `Provider key status updated to ${status}`,

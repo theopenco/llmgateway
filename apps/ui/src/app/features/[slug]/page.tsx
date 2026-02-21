@@ -37,6 +37,8 @@ const demoComponents = {
 	"model-breakdown": ModelBreakdownDemo,
 	"errors-monitoring": ErrorsMonitoringDemo,
 	"activity-logs": ActivityLogsDemo,
+	"audit-logs": null,
+	guardrails: null,
 };
 
 export default async function FeaturePage({ params }: PageProps) {

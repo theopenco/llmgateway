@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
@@ -21,6 +22,7 @@ import {
 	useDataChat,
 	useDeleteChat,
 } from "@/hooks/useChats";
+import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -32,6 +34,27 @@ import type {
 	ApiProvider,
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
+
+/**
+ * Minimal interface for tool parts from AI SDK v6 (tool-{toolName} pattern)
+ */
+interface ToolPart {
+	type: string;
+	[key: string]: unknown;
+}
+
+/**
+ * Type guard to check if an object is a ToolPart (type starts with "tool-")
+ */
+function isToolPart(obj: unknown): obj is ToolPart {
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		"type" in obj &&
+		typeof (obj as ToolPart).type === "string" &&
+		(obj as ToolPart).type.startsWith("tool-")
+	);
+}
 
 interface ChatPageClientProps {
 	models: ApiModel[];
@@ -96,6 +119,17 @@ export default function ChatPageClient({
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [showTopUp, setShowTopUp] = useState(false);
+
+	// MCP servers management
+	const {
+		servers: mcpServers,
+		addServer: addMcpServer,
+		updateServer: updateMcpServer,
+		removeServer: removeMcpServer,
+		toggleServer: toggleMcpServer,
+		getEnabledServers: getEnabledMcpServers,
+	} = useMcpServers();
 
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("chat");
@@ -104,6 +138,7 @@ export default function ChatPageClient({
 	);
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
+	const errorOccurredRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
 	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
 	const shouldClearMessagesRef = useRef(false);
@@ -111,6 +146,7 @@ export default function ChatPageClient({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
 				setError(msg);
 				toast.error(msg);
@@ -135,6 +171,12 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
+
+				// If an error already occurred during streaming, skip saving the response
+				if (errorOccurredRef.current) {
+					errorOccurredRef.current = false;
+					return;
+				}
 
 				// Wait for chatId to be available (handleUserMessage might still be running)
 				let chatId = chatIdRef.current;
@@ -220,10 +262,8 @@ export default function ChatPageClient({
 
 				const images = [...imageUrlParts, ...fileParts];
 
-				// Extract tool parts (AI SDK dynamic tool UI parts)
-				const toolParts = (message.parts as any[]).filter(
-					(p: any) => p.type === "dynamic-tool",
-				);
+				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
+				const toolParts = message.parts.filter(isToolPart);
 
 				const bodyToSave = {
 					role: "assistant" as const,
@@ -358,10 +398,15 @@ export default function ChatPageClient({
 						: undefined
 				: undefined;
 
-			// Hidden feature: check localStorage for no-fallback setting
-			const noFallback =
+			// Automatically disable provider fallback for provider-specific model selections
+			const isProviderSpecific = selectedModel.includes("/");
+			const localStorageOverride =
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
+			const noFallback = isProviderSpecific || localStorageOverride;
+
+			// Get enabled MCP servers
+			const enabledMcpServers = getEnabledMcpServers();
 
 			const mergedOptions = {
 				...options,
@@ -375,6 +420,9 @@ export default function ChatPageClient({
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
+						: {}),
+					...(enabledMcpServers.length > 0
+						? { mcp_servers: enabledMcpServers }
 						: {}),
 				},
 			};
@@ -391,6 +439,7 @@ export default function ChatPageClient({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
+			getEnabledMcpServers,
 		],
 	);
 
@@ -418,19 +467,18 @@ export default function ChatPageClient({
 			return;
 		}
 
-		// Update the selected model when loading a chat
-		if (currentChatData.chat?.model) {
-			setSelectedModel(currentChatData.chat.model);
-		}
-
-		// Update the web search state when loading a chat
-		if (currentChatData.chat?.webSearch !== undefined) {
-			setWebSearchEnabled(currentChatData.chat.webSearch);
-		}
-
 		setMessages((prev) => {
 			// Load messages if empty (URL change clears messages first)
 			if (prev.length === 0) {
+				// Only update the selected model when first loading a chat
+				if (currentChatData.chat?.model) {
+					setSelectedModel(currentChatData.chat.model);
+				}
+
+				// Only update the web search state when first loading a chat
+				if (currentChatData.chat?.webSearch !== undefined) {
+					setWebSearchEnabled(currentChatData.chat.webSearch);
+				}
 				return currentChatData.messages.map((msg) => {
 					const parts: any[] = [];
 
@@ -580,8 +628,14 @@ export default function ChatPageClient({
 			image_url: { url: string };
 		}>,
 	) => {
+		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+			setShowTopUp(true);
+			return;
+		}
+
 		setError(null);
 		setIsLoading(true);
+		errorOccurredRef.current = false;
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {
@@ -841,6 +895,11 @@ export default function ChatPageClient({
 							showGlobalModelSelector={
 								!(comparisonEnabled && extraPanelIds.length > 0)
 							}
+							mcpServers={mcpServers}
+							onAddMcpServer={addMcpServer}
+							onUpdateMcpServer={updateMcpServer}
+							onRemoveMcpServer={removeMcpServer}
+							onToggleMcpServer={toggleMcpServer}
 						/>
 					</div>
 					{comparisonEnabled ? (
@@ -1018,6 +1077,7 @@ export default function ChatPageClient({
 					</div>
 				</div>
 			</div>
+			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
 	);
@@ -1163,9 +1223,11 @@ function ExtraChatPanel({
 						: undefined
 				: undefined;
 
-			const noFallback =
+			const isProviderSpecific = selectedModel.includes("/");
+			const localStorageOverride =
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
+			const noFallback = isProviderSpecific || localStorageOverride;
 
 			const mergedOptions = {
 				...options,

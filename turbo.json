@@ -6,15 +6,15 @@
 	},
 	"dangerouslyDisablePackageManagerCheck": true,
 	"globalDependencies": [
-		".npmrc",
 		".tool-versions",
+		".npmrc",
 		"turbo.json",
 		"package.json",
 		"pnpm-lock.yaml",
 		"tsconfig.json",
 		"pnpm-workspace.yaml"
 	],
-	"concurrency": "16",
+	"concurrency": "32",
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],

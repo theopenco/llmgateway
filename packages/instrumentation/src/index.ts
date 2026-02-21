@@ -116,3 +116,21 @@ export {
 
 // Re-export hono logger
 export { createHonoRequestLogger } from "./logger.js";
+
+// Re-export metrics
+export {
+	metricsRegistry,
+	chatCompletionsTotal,
+	chatCompletionDuration,
+	timeToFirstToken,
+	chatCompletionErrors,
+	finishReasonTotal,
+	tokenUsage,
+	requestsInFlight,
+	recordChatCompletionMetrics,
+	recordRequestStarted,
+	recordRequestCompleted,
+	getMetrics,
+	getMetricsContentType,
+	type ChatCompletionMetrics,
+} from "./metrics.js";

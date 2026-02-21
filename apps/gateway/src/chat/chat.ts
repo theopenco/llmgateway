@@ -5,10 +5,24 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
+import {
+	findApiKeyByToken,
+	findProjectById,
+	findOrganizationById,
+	findCustomProviderKey,
+	findProviderKey,
+	findActiveProviderKeys,
+	findProviderKeysByProviders,
+} from "@/lib/cached-queries.js";
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	createCombinedSignal,
+	createStreamingCombinedSignal,
+	isTimeoutError,
+} from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -26,20 +40,23 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	cdb as db,
 	getProviderMetricsForCombinations,
-	isCachingEnabled,
 	type InferSelectModel,
+	isCachingEnabled,
 	shortid,
 	type tables,
 } from "@llmgateway/db";
+import {
+	applyRedactions,
+	checkGuardrails,
+	logViolation,
+} from "@llmgateway/guardrails";
 import { logger } from "@llmgateway/logger";
 import {
 	type BaseMessage,
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasProviderEnvironmentToken,
-	type Model,
 	type ModelDefinition,
 	models,
 	type Provider,
@@ -49,7 +66,11 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 
+import { completionsRequestSchema } from "./schemas/completions.js";
+import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
+import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
+import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
@@ -59,329 +80,37 @@ import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
+import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
+import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
+import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { resolveModelInfo } from "./tools/resolve-model-info.js";
+import { resolveProviderContext } from "./tools/resolve-provider-context.js";
+import {
+	type RoutingAttempt,
+	getErrorType,
+	MAX_RETRIES,
+	selectNextProvider,
+	shouldRetryRequest,
+} from "./tools/retry-with-fallback.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
+import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
-import type { ImageObject } from "./tools/types.js";
+import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
 
-/**
- * Checks if a model is truly free (has free flag AND no per-request pricing)
- */
-function isModelTrulyFree(modelInfo: ModelDefinition): boolean {
-	if (!modelInfo.free) {
-		return false;
-	}
-	// Check if any provider has a per-request cost
-	return !modelInfo.providers.some((p) => p.requestPrice && p.requestPrice > 0);
-}
+// Pre-compiled regex pattern to avoid recompilation per request
+const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 
-/**
- * Estimates tokens from content length using simple division
- */
-export function estimateTokensFromContent(content: string): number {
-	return Math.max(1, Math.round(content.length / 4));
-}
-
-/**
- * Converts external image URLs to base64 data URLs
- * Used for providers like Alibaba that return external URLs instead of base64
- */
-async function convertImagesToBase64(
-	images: ImageObject[],
-): Promise<ImageObject[]> {
-	return await Promise.all(
-		images.map(async (image): Promise<ImageObject> => {
-			const url = image.image_url.url;
-			// Skip if already a data URL
-			if (url.startsWith("data:")) {
-				return image;
-			}
-
-			try {
-				const response = await fetch(url);
-				if (!response.ok) {
-					logger.warn("Failed to fetch image for base64 conversion", {
-						url,
-						status: response.status,
-					});
-					return image;
-				}
-
-				const contentType = response.headers.get("content-type") || "image/png";
-				const arrayBuffer = await response.arrayBuffer();
-				const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-				return {
-					type: "image_url",
-					image_url: {
-						url: `data:${contentType};base64,${base64}`,
-					},
-				};
-			} catch (error) {
-				logger.warn("Error converting image to base64", {
-					url,
-					error: error instanceof Error ? error.message : String(error),
-				});
-				return image;
-			}
-		}),
-	);
-}
-
-/**
- * Checks if any messages contain images (image_url or image type content)
- * Used to filter providers that don't support vision
- */
-function messagesContainImages(messages: BaseMessage[]): boolean {
-	for (const message of messages) {
-		if (Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (
-					typeof part === "object" &&
-					part !== null &&
-					"type" in part &&
-					(part.type === "image_url" || part.type === "image")
-				) {
-					return true;
-				}
-			}
-		}
-	}
-	return false;
-}
+// Reusable TextDecoder to avoid per-chunk allocation in the streaming hot path
+const sharedTextDecoder = new TextDecoder();
 
 export const chat = new OpenAPIHono<ServerTypes>();
-
-const completionsRequestSchema = z.object({
-	model: z.string().openapi({
-		example: "gpt-5",
-	}),
-	messages: z.array(
-		z.object({
-			role: z.string().openapi({
-				example: "user",
-			}),
-			content: z.union([
-				z.string().openapi({
-					example: "Hello!",
-				}),
-				z.array(
-					z.union([
-						z.object({
-							type: z.literal("text"),
-							text: z.string(),
-						}),
-						z.object({
-							type: z.literal("image_url"),
-							image_url: z.object({
-								url: z.string(),
-								detail: z.enum(["low", "high", "auto"]).optional(),
-							}),
-						}),
-					]),
-				),
-			]),
-			name: z.string().optional(),
-			tool_call_id: z.string().optional(),
-			tool_calls: z
-				.array(
-					z.object({
-						id: z.string(),
-						type: z.literal("function"),
-						function: z.object({
-							name: z.string(),
-							arguments: z.string(),
-						}),
-					}),
-				)
-				.optional()
-				.openapi({
-					description:
-						"A list of tool calls generated by the model in this message.",
-					example: [
-						{
-							id: "call_abc123",
-							type: "function",
-							function: {
-								name: "get_current_weather",
-								arguments: '{"location": "Boston, MA"}',
-							},
-						},
-					],
-				}),
-		}),
-	),
-	temperature: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.7,
-		}),
-	max_tokens: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 1000,
-		}),
-	top_p: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.9,
-		}),
-	frequency_penalty: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.0,
-		}),
-	presence_penalty: z
-		.number()
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			example: 0.0,
-		}),
-	response_format: z
-		.union([
-			z.object({
-				type: z.enum(["text", "json_object"]).openapi({
-					example: "json_object",
-				}),
-			}),
-			z.object({
-				type: z.literal("json_schema"),
-				json_schema: z.object({
-					name: z.string(),
-					description: z.string().optional(),
-					schema: z.record(z.any()),
-					strict: z.boolean().optional(),
-				}),
-			}),
-		])
-		.optional(),
-	stream: z.boolean().optional().default(false),
-	tools: z
-		.array(
-			z.union([
-				z.object({
-					type: z.literal("function"),
-					function: z.object({
-						name: z.string(),
-						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
-					}),
-				}),
-				z.object({
-					type: z.literal("web_search"),
-					user_location: z
-						.object({
-							city: z.string().optional(),
-							region: z.string().optional(),
-							country: z.string().optional(),
-							timezone: z.string().optional(),
-						})
-						.optional(),
-					search_context_size: z.enum(["low", "medium", "high"]).optional(),
-					max_uses: z.number().optional(),
-				}),
-			]),
-		)
-		.optional(),
-	tool_choice: z
-		.union([
-			z.literal("auto"),
-			z.literal("none"),
-			z.literal("required"),
-			z.object({
-				type: z.literal("function"),
-				function: z.object({
-					name: z.string(),
-				}),
-			}),
-		])
-		.optional(),
-	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high"])
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			description: "Controls the reasoning effort for reasoning-capable models",
-			example: "medium",
-		}),
-	effort: z
-		.enum(["low", "medium", "high"])
-		.nullable()
-		.optional()
-		.transform((val) => (val === null ? undefined : val))
-		.openapi({
-			description:
-				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
-			example: "medium",
-		}),
-	free_models_only: z.boolean().optional().default(false).openapi({
-		description:
-			"When used with auto routing, only route to free models (models with zero input and output pricing)",
-		example: false,
-	}),
-	no_reasoning: z.boolean().optional().default(false).openapi({
-		description:
-			"When used with auto routing, exclude reasoning models from selection",
-		example: false,
-	}),
-	// Z.ai specific parameter - not documented in OpenAPI
-	sensitive_word_check: z
-		.object({
-			status: z.enum(["DISABLE", "ENABLE"]),
-		})
-		.optional(),
-	// Image generation config (Google and Alibaba)
-	image_config: z
-		.object({
-			aspect_ratio: z.string().optional(),
-			image_size: z.string().optional(),
-			n: z.number().optional(),
-			seed: z.number().optional(),
-		})
-		.optional(),
-	// Web search enablement
-	web_search: z.boolean().optional().default(false).openapi({
-		description:
-			"Enable native web search for models that support it. When enabled, the model can search the web for real-time information.",
-		example: true,
-	}),
-	// Plugins configuration
-	plugins: z
-		.array(
-			z.object({
-				id: z.enum(["response-healing"]).openapi({
-					description: "Plugin identifier",
-					example: "response-healing",
-				}),
-			}),
-		)
-		.optional()
-		.openapi({
-			description:
-				"Plugins to enable for this request. Currently supported: response-healing (automatically repairs malformed JSON responses when using response_format)",
-			example: [{ id: "response-healing" }],
-		}),
-});
 
 const completions = createRoute({
 	operationId: "v1_chat_completions",
@@ -468,6 +197,16 @@ const completions = createRoute({
 							used_model: z.string(),
 							used_provider: z.string(),
 							underlying_used_model: z.string(),
+							routing: z
+								.array(
+									z.object({
+										provider: z.string(),
+										model: z.string(),
+										status_code: z.number(),
+										error_type: z.string(),
+									}),
+								)
+								.optional(),
 						}),
 					}),
 				},
@@ -549,6 +288,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		free_models_only,
+		onboarding,
 		no_reasoning,
 		sensitive_word_check,
 		image_config,
@@ -557,52 +297,64 @@ chat.openapi(completions, async (c) => {
 		plugins,
 	} = validationResult.data;
 
+	// Debug: Log tools received from the AI SDK (development only)
+	if (process.env.NODE_ENV !== "production" && tools && tools.length > 0) {
+		logger.debug("Tools received by gateway", { count: tools.length });
+		for (const tool of tools) {
+			if (tool.type === "function") {
+				logger.debug(`Function tool: ${tool.function?.name || "unknown"}`, {
+					hasParameters: !!tool.function?.parameters,
+					parametersPreview: tool.function?.parameters
+						? JSON.stringify(tool.function.parameters).slice(0, 500)
+						: "none",
+				});
+			} else if (tool.type === "web_search") {
+				logger.debug("Web search tool configured");
+			}
+		}
+	}
+
 	// If web_search parameter is true, automatically add the web_search tool
-	if (
-		web_search &&
-		(!tools || !tools.some((t: any) => t.type === "web_search"))
-	) {
+	if (web_search && (!tools || !tools.some((t) => t.type === "web_search"))) {
 		tools = tools || [];
 		tools.push({
 			type: "web_search" as const,
 		});
 	}
 
-	// Count input images from messages for cost calculation (only for gemini-3-pro-image-preview)
-	let inputImageCount = 0;
-	if (modelInput === "gemini-3-pro-image-preview") {
-		const imageUrlPattern = /https:\/\/[^\s]+/gi;
-		for (const message of messages) {
-			if (Array.isArray(message.content)) {
-				for (const part of message.content) {
-					if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "image_url"
-					) {
-						inputImageCount++;
-					} else if (
-						typeof part === "object" &&
-						part !== null &&
-						"type" in part &&
-						part.type === "text" &&
-						"text" in part &&
-						typeof part.text === "string"
-					) {
-						// Count image URLs in text content
-						const matches = part.text.match(imageUrlPattern);
-						if (matches) {
-							inputImageCount += matches.length;
-						}
-					}
-				}
-			}
-		}
+	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
+	const reasoning_object_effort = validationResult.data.reasoning?.effort;
+	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
+
+	// Validate that reasoning_effort and reasoning.effort are not both specified
+	if (
+		validationResult.data.reasoning_effort !== undefined &&
+		reasoning_object_effort !== undefined
+	) {
+		return c.json(
+			{
+				error: {
+					message:
+						"Cannot specify both reasoning_effort and reasoning.effort. Use one or the other.",
+					type: "invalid_request_error",
+					code: "invalid_request",
+				},
+			},
+			400,
+		);
 	}
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
-	let reasoning_effort = validationResult.data.reasoning_effort;
+	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort
+	// Map "none" to undefined for internal processing
+	let reasoning_effort = (() => {
+		const effort =
+			reasoning_object_effort ?? validationResult.data.reasoning_effort;
+		if (effort === "none") {
+			return undefined;
+		}
+		return effort;
+	})();
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -646,10 +398,15 @@ chat.openapi(completions, async (c) => {
 
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
-		c.req.header("x-debug") === "true" || process.env.NODE_ENV !== "production";
+		c.req.header("x-debug") === "true" ||
+		process.env.FORCE_DEBUG_MODE === "true" ||
+		process.env.NODE_ENV !== "production";
 
 	// Constants for raw data logging
 	const MAX_RAW_DATA_SIZE = 1 * 1024 * 1024; // 1MB limit for raw logging data
+	// Maximum buffer size for streaming responses (configurable via env var, default 50MB)
+	const MAX_BUFFER_SIZE =
+		(Number(process.env.MAX_STREAMING_BUFFER_MB) || 50) * 1024 * 1024;
 
 	c.header("x-request-id", requestId);
 
@@ -664,170 +421,25 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
-	let requestedModel: Model = modelInput as Model;
-	let requestedProvider: Provider | undefined;
-	let customProviderName: string | undefined;
+	// Parse model input to resolve model, provider, and custom provider name
+	const parseResult = parseModelInput(modelInput);
+	const requestedModel = parseResult.requestedModel;
+	const customProviderName = parseResult.customProviderName;
 
-	// check if there is an exact model match
-	if (modelInput === "auto" || modelInput === "custom") {
-		requestedProvider = "llmgateway";
-		requestedModel = modelInput as Model;
-	} else if (modelInput.includes("/")) {
-		const split = modelInput.split("/");
-		const providerCandidate = split[0];
+	// Count input images from messages for cost calculation
+	const inputImageCount =
+		requestedModel === "gemini-3-pro-image-preview"
+			? countInputImages(messages)
+			: 0;
 
-		// Check if the provider exists
-		const knownProvider = providers.find((p) => p.id === providerCandidate);
-		if (!knownProvider) {
-			// This might be a custom provider name - we'll validate against the database later
-			// For now, assume it's a potential custom provider
-			customProviderName = providerCandidate;
-			requestedProvider = "custom";
-		} else {
-			requestedProvider = providerCandidate as Provider;
-		}
-		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
-		const modelName = split.slice(1).join("/");
-
-		// For custom providers, we don't need to validate the model name
-		// since they can use any OpenAI-compatible model name
-		if (requestedProvider === "custom") {
-			requestedModel = modelName as Model;
-		} else {
-			// First try to find by base model name
-			let modelDef = models.find((m) => m.id === modelName);
-
-			if (!modelDef) {
-				modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.modelName === modelName && p.providerId === requestedProvider,
-					),
-				);
-			}
-
-			if (!modelDef) {
-				throw new HTTPException(400, {
-					message: `Requested model ${modelName} not supported`,
-				});
-			}
-
-			if (!modelDef.providers.some((p) => p.providerId === requestedProvider)) {
-				throw new HTTPException(400, {
-					message: `Provider ${requestedProvider} does not support model ${modelName}`,
-				});
-			}
-
-			// Use the provider-specific model name if available
-			const providerMapping = modelDef.providers.find(
-				(p) => p.providerId === requestedProvider,
-			);
-			if (providerMapping) {
-				requestedModel = providerMapping.modelName as Model;
-			} else {
-				requestedModel = modelName as Model;
-			}
-		}
-	} else if (models.find((m) => m.id === modelInput)) {
-		requestedModel = modelInput as Model;
-	} else if (
-		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
-	) {
-		const model = models.find((m) =>
-			m.providers.find((p) => p.modelName === modelInput),
-		);
-		const provider = model?.providers.find((p) => p.modelName === modelInput);
-
-		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
-		});
-	} else {
-		throw new HTTPException(400, {
-			message: `Requested model ${modelInput} not supported`,
-		});
-	}
-
-	if (
-		requestedProvider &&
-		requestedProvider !== "custom" &&
-		!providers.find((p) => p.id === requestedProvider)
-	) {
-		throw new HTTPException(400, {
-			message: `Requested provider ${requestedProvider} not supported`,
-		});
-	}
-
-	let modelInfo;
-
-	if (requestedProvider === "custom") {
-		// For custom providers, we create a mock model info that treats it as an OpenAI model
-		modelInfo = {
-			model: requestedModel,
-			providers: [
-				{
-					providerId: "custom" as const,
-					modelName: requestedModel,
-					inputPrice: 0,
-					outputPrice: 0,
-					contextSize: 8192,
-					maxOutput: 4096,
-					streaming: true,
-					vision: false,
-					jsonOutput: true,
-				},
-			],
-		};
-	} else {
-		// First try to find by model ID
-		modelInfo = models.find((m) => m.id === requestedModel);
-
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
-		if (!modelInfo) {
-			if (requestedProvider) {
-				modelInfo = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.modelName === requestedModel &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				modelInfo = models.find((m) =>
-					m.providers.find((p) => p.modelName === requestedModel),
-				);
-			}
-		}
-
-		if (!modelInfo) {
-			throw new HTTPException(400, {
-				message: `Unsupported model: ${requestedModel}`,
-			});
-		}
-	}
-
-	// Filter out deactivated provider mappings
-	const now = new Date();
-	const activeProviders = modelInfo.providers.filter(
-		(provider) =>
-			!(
-				(provider as ProviderModelMapping).deactivatedAt &&
-				now > (provider as ProviderModelMapping).deactivatedAt!
-			),
+	// Resolve model info and filter deactivated providers
+	const modelInfoResult = resolveModelInfo(
+		requestedModel,
+		parseResult.requestedProvider,
 	);
-
-	// Check if all providers are deactivated
-	if (activeProviders.length === 0) {
-		throw new HTTPException(410, {
-			message: `Model ${requestedModel} has been deactivated and is no longer available`,
-		});
-	}
-
-	// Update modelInfo to only include active providers
-	modelInfo = {
-		...modelInfo,
-		providers: activeProviders,
-	};
+	let modelInfo = modelInfoResult.modelInfo;
+	const allModelProviders = modelInfoResult.allModelProviders;
+	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -854,13 +466,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			token: {
-				eq: token,
-			},
-		},
-	});
+	const apiKey = await findApiKeyByToken(token);
 
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, {
@@ -876,13 +482,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Get the project to determine mode for routing decisions
-	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: apiKey.projectId,
-			},
-		},
-	});
+	const project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -897,14 +497,71 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Fetch organization for coding model restriction check
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: {
-				eq: project.organizationId,
-			},
-		},
-	});
+	// Fetch organization for coding model restriction check and credit validation
+	const organization = await findOrganizationById(project.organizationId);
+
+	if (!organization) {
+		throw new HTTPException(500, {
+			message: "Could not find organization",
+		});
+	}
+
+	// Run guardrails check for enterprise organizations
+	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
+	if (organization.plan === "enterprise") {
+		guardrailResult = await checkGuardrails({
+			organizationId: project.organizationId,
+			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
+		});
+
+		if (guardrailResult.blocked) {
+			// Log violations (don't let logging failures affect the request)
+			for (const violation of guardrailResult.violations) {
+				try {
+					await logViolation(project.organizationId, violation, {
+						apiKeyId: apiKey.id,
+						model: requestedModel,
+					});
+				} catch {
+					// Silently ignore logging failures
+				}
+			}
+
+			throw new HTTPException(400, {
+				message: "Request blocked by content policy",
+				cause: {
+					type: "guardrail_violation",
+					code: "content_policy_violation",
+					violations: guardrailResult.violations.map((v) => ({
+						rule: v.ruleName,
+						category: v.category,
+					})),
+				},
+			});
+		}
+
+		// Apply redactions if any
+		if (guardrailResult.redactions.length > 0) {
+			messages = applyRedactions(
+				messages as Parameters<typeof applyRedactions>[0],
+				guardrailResult.redactions,
+			) as typeof messages;
+		}
+
+		// Log non-blocking violations (redact/warn)
+		for (const violation of guardrailResult.violations.filter(
+			(v) => v.action !== "block",
+		)) {
+			try {
+				await logViolation(project.organizationId, violation, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+		}
+	}
 
 	// Validate coding model restriction for dev plan personal orgs
 	// This check must happen BEFORE capability checks to give the right error message
@@ -913,141 +570,25 @@ chat.openapi(completions, async (c) => {
 		organization.devPlan !== "none" &&
 		!organization.devPlanAllowAllModels
 	) {
-		const modelDef = models.find((m) => m.id === requestedModel);
-		if (modelDef && !isCodingModel(modelDef)) {
+		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
-				message: `Model ${requestedModel} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 			});
 		}
 	}
 
-	if (response_format?.type === "json_object") {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if the provider(s) support JSON output mode
-		const supportsJsonOutput = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
-		);
-
-		if (!supportsJsonOutput) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support JSON output mode`,
-			});
-		}
-	}
-
-	if (response_format?.type === "json_schema") {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// For non-auto/custom models, check if the provider supports json_schema
-		if (requestedModel !== "auto" && requestedModel !== "custom") {
-			const supportsJsonSchema = providersToCheck.some(
-				(provider) =>
-					(provider as ProviderModelMapping).jsonOutputSchema === true,
-			);
-
-			if (!supportsJsonSchema) {
-				throw new HTTPException(400, {
-					message: `Model ${requestedModel} does not support JSON schema output mode`,
-				});
-			}
-		}
-	}
-
-	// Check if reasoning_effort is specified but model doesn't support reasoning
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		reasoning_effort !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Check if any provider for this model supports reasoning
-		const supportsReasoning = modelInfo.providers.some(
-			(provider) => (provider as ProviderModelMapping).reasoning === true,
-		);
-
-		if (!supportsReasoning) {
-			logger.error(
-				`Reasoning effort specified for non-reasoning model: ${requestedModel}`,
-				{
-					requestedModel,
-					requestedProvider,
-					reasoning_effort,
-					modelProviders: modelInfo.providers.map((p) => ({
-						providerId: p.providerId,
-						reasoning: (p as ProviderModelMapping).reasoning,
-					})),
-				},
-			);
-
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
-			});
-		}
-	}
-
-	// Check if tools are specified but model doesn't support them
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
-	if (
-		(tools !== undefined || tool_choice !== undefined) &&
-		requestedModel !== "auto" &&
-		requestedModel !== "custom"
-	) {
-		// Filter providers by requestedProvider if specified
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
-		// Check if any provider for this model supports tools
-		const supportsTools = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).tools === true,
-		);
-
-		// Check if any provider supports web search
-		const supportsWebSearch = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).webSearch === true,
-		);
-
-		// Determine if we have function tools (web_search tools were already extracted earlier)
-		// After extraction, `tools` only contains function tools
-		const hasFunctionTools = tools && tools.length > 0;
-
-		// The request is web-search-only if:
-		// 1. A web search tool was extracted (webSearchTool is set)
-		// 2. No function tools remain in the tools array
-		const isWebSearchOnly = webSearchTool !== undefined && !hasFunctionTools;
-
-		// Allow the request if:
-		// 1. Model supports regular tools, OR
-		// 2. Model supports web search AND request only uses web search (no function tools)
-		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
-			});
-		}
-
-		// If web_search tool is specifically requested, ensure the model supports it
-		if (webSearchTool && !supportsWebSearch) {
-			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.`,
-			});
-		}
-	}
+	// Validate model capabilities (JSON output, reasoning, tools, web search)
+	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
+		response_format,
+		reasoning_effort,
+		reasoning_max_tokens,
+		tools,
+		tool_choice,
+		webSearchTool,
+	});
 
 	let usedProvider = requestedProvider;
-	let usedModel = requestedModel;
+	let usedModel: string = requestedModel;
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation
@@ -1064,46 +605,21 @@ chat.openapi(completions, async (c) => {
 	// Validate IAM rules for model access
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
-		requestedModel,
+		modelInfo.id,
 		requestedProvider,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
 	}
-
-	// Enforce Pro plan when using custom X-LLMGateway-* headers in hosted paid mode
-	const isHosted = process.env.HOSTED === "true";
-	const isPaidMode = process.env.PAID_MODE === "true";
-	if (Object.keys(customHeaders).length > 0 && isHosted && isPaidMode) {
-		if (!organization) {
-			throw new HTTPException(500, { message: "Could not find organization" });
-		}
-		if (organization.plan !== "pro") {
-			throw new HTTPException(402, {
-				message:
-					"Custom headers (X-LLMGateway-*) require a Pro plan. Please upgrade to Pro or remove these headers.",
-			});
-		}
-	}
+	// IAM allowed providers - used to filter available providers during routing
+	const iamAllowedProviders = iamValidation.allowedProviders;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await db.query.providerKey.findFirst({
-			where: {
-				status: {
-					eq: "active",
-				},
-				organizationId: {
-					eq: project.organizationId,
-				},
-				provider: {
-					eq: "custom",
-				},
-				name: {
-					eq: customProviderName,
-				},
-			},
-		});
+		const customProviderKey = await findCustomProviderKey(
+			project.organizationId,
+			customProviderName,
+		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
@@ -1168,20 +684,10 @@ chat.openapi(completions, async (c) => {
 		let availableProviders: string[] = [];
 
 		if (project.mode === "api-keys") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			availableProviders = providerKeys.map((key) => key.provider);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: { eq: "active" },
-					organizationId: { eq: project.organizationId },
-				},
-			});
+			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			const databaseProviders = providerKeys.map((key) => key.provider);
 
 			// Check which providers have environment tokens available
@@ -1206,30 +712,38 @@ chat.openapi(completions, async (c) => {
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
-		let allowedAutoModels = ["gpt-oss-120b", "gpt-5-nano", "gpt-4.1-nano"];
-
-		// If free_models_only is true, expand to include free models
-		if (free_models_only) {
-			allowedAutoModels = [...allowedAutoModels, "llama-3.3-70b-instruct-free"];
-		}
+		const allowedAutoModels = ["gpt-oss-120b", "gpt-5-nano", "gpt-4.1-nano"];
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
+		const now = new Date(); // Cache current time for deprecation checks
 
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
 			}
 
-			// Only consider allowed models for auto selection
-			if (!allowedAutoModels.includes(modelDef.id)) {
+			// When free_models_only is true, only consider models marked as free
+			// Otherwise, only consider hardcoded allowed models
+			if (free_models_only) {
+				if (!("free" in modelDef && modelDef.free)) {
+					continue;
+				}
+			} else if (!allowedAutoModels.includes(modelDef.id)) {
 				continue;
 			}
 
 			// Check if any of the model's providers are available
-			const availableModelProviders = modelDef.providers.filter((provider) =>
-				availableProviders.includes(provider.providerId),
+			// Note: We don't filter by iamAllowedProviders here because it was computed
+			// for the "auto" model, not the actual models being considered for selection
+			const availableModelProviders = modelDef.providers.filter(
+				(provider) =>
+					availableProviders.includes(provider.providerId) &&
+					// Filter by IAM allowed providers only for non-auto models
+					(requestedModel === "auto" ||
+						!iamAllowedProviders ||
+						iamAllowedProviders.includes(provider.providerId)),
 			);
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
@@ -1237,7 +751,7 @@ chat.openapi(completions, async (c) => {
 				// Skip deprecated provider mappings
 				if (
 					(provider as ProviderModelMapping).deprecatedAt &&
-					new Date() > (provider as ProviderModelMapping).deprecatedAt!
+					now > (provider as ProviderModelMapping).deprecatedAt!
 				) {
 					return false;
 				}
@@ -1258,6 +772,14 @@ chat.openapi(completions, async (c) => {
 				if (
 					reasoning_effort !== undefined &&
 					(provider as ProviderModelMapping).reasoning !== true
+				) {
+					return false;
+				}
+
+				// Check reasoning.max_tokens support if specified
+				if (
+					reasoning_max_tokens !== undefined &&
+					(provider as ProviderModelMapping).reasoningMaxTokens !== true
 				) {
 					return false;
 				}
@@ -1309,11 +831,6 @@ chat.openapi(completions, async (c) => {
 					const totalPrice =
 						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
 
-					// If free_models_only is true, only consider free models (totalPrice === 0)
-					if (free_models_only && totalPrice > 0) {
-						continue;
-					}
-
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
 						selectedModel = modelDef;
@@ -1325,56 +842,33 @@ chat.openapi(completions, async (c) => {
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
-			// If free_models_only is true, filter to only free providers
-			const finalProviders = free_models_only
-				? selectedProviders.filter((provider) => {
-						const totalPrice =
-							((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
-						return totalPrice === 0;
-					})
-				: selectedProviders;
+			// Fetch uptime/latency metrics from last 5 minutes for provider selection
+			const metricsCombinations = selectedProviders.map((p) => ({
+				modelId: selectedModel.id,
+				providerId: p.providerId,
+			}));
+			const metricsMap = await getProviderMetricsForCombinations(
+				metricsCombinations,
+				5,
+			);
 
-			if (finalProviders.length > 0) {
-				// Fetch uptime/latency metrics from last 5 minutes for provider selection
-				const metricsCombinations = finalProviders.map((p) => ({
-					modelId: selectedModel.id,
-					providerId: p.providerId,
-				}));
-				const metricsMap = await getProviderMetricsForCombinations(
-					metricsCombinations,
-					5,
-				);
+			const cheapestResult = getCheapestFromAvailableProviders(
+				selectedProviders,
+				selectedModel,
+				{ metricsMap, isStreaming: stream },
+			);
 
-				const cheapestResult = getCheapestFromAvailableProviders(
-					finalProviders,
-					selectedModel,
-					{ metricsMap, isStreaming: stream },
-				);
-
-				if (cheapestResult) {
-					usedProvider = cheapestResult.provider.providerId;
-					usedModel = cheapestResult.provider.modelName;
-					routingMetadata = {
-						...cheapestResult.metadata,
-						...(noFallback ? { noFallback: true } : {}),
-					};
-				} else {
-					// Fallback to first available provider if price comparison fails
-					usedProvider = finalProviders[0].providerId;
-					usedModel = finalProviders[0].modelName;
-				}
-			} else if (free_models_only) {
-				// If no free models are available, return error
-				throw new HTTPException(400, {
-					message:
-						"No free models are available for auto routing. Remove free_models_only parameter or use a specific model.",
-				});
-			} else if (no_reasoning) {
-				// If no non-reasoning models are available, return error
-				throw new HTTPException(400, {
-					message:
-						"No non-reasoning models are available for auto routing. Remove no_reasoning parameter or use a specific model.",
-				});
+			if (cheapestResult) {
+				usedProvider = cheapestResult.provider.providerId;
+				usedModel = cheapestResult.provider.modelName;
+				routingMetadata = {
+					...cheapestResult.metadata,
+					...(noFallback ? { noFallback: true } : {}),
+				};
+			} else {
+				// Fallback to first available provider if price comparison fails
+				usedProvider = selectedProviders[0].providerId;
+				usedModel = selectedProviders[0].modelName;
 			}
 		} else {
 			if (free_models_only) {
@@ -1394,6 +888,8 @@ chat.openapi(completions, async (c) => {
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
+		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
+		requestedProvider = undefined;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
@@ -1432,13 +928,10 @@ chat.openapi(completions, async (c) => {
 				.map((p) => p.providerId);
 
 			if (providerIds.length > 0) {
-				const providerKeys = await db.query.providerKey.findMany({
-					where: {
-						status: { eq: "active" },
-						organizationId: { eq: project.organizationId },
-						provider: { in: providerIds },
-					},
-				});
+				const providerKeys = await findProviderKeysByProviders(
+					project.organizationId,
+					providerIds,
+				);
 
 				const availableProviders =
 					project.mode === "api-keys"
@@ -1457,6 +950,13 @@ chat.openapi(completions, async (c) => {
 							return false;
 						}
 						if (provider.providerId === usedProvider) {
+							return false;
+						}
+						// Filter by IAM allowed providers
+						if (
+							iamAllowedProviders &&
+							!iamAllowedProviders.includes(provider.providerId)
+						) {
 							return false;
 						}
 						// If web search tool is requested, only include providers that support it
@@ -1507,59 +1007,64 @@ chat.openapi(completions, async (c) => {
 							5,
 						);
 
-						const cheapestResult = getCheapestFromAvailableProviders(
-							availableModelProviders,
-							modelWithPricing,
-							{ metricsMap: allMetricsMap, isStreaming: stream },
+						// Filter to only providers with better uptime than the original
+						// to avoid falling back to worse providers
+						const betterUptimeProviders = availableModelProviders.filter(
+							(p) => {
+								const providerMetrics = allMetricsMap.get(
+									`${modelWithPricing.id}:${p.providerId}`,
+								);
+								// If no metrics, assume the provider is healthy (100% uptime)
+								// If has metrics, only include if uptime is better than original
+								return (
+									!providerMetrics || providerMetrics.uptime > metrics.uptime
+								);
+							},
 						);
 
-						// Get price info for the original requested provider to include in scores
-						const originalProviderInfo = modelInfo.providers.find(
-							(p) => p.providerId === requestedProvider,
-						);
-						const originalProviderPrice = originalProviderInfo
-							? (originalProviderInfo.inputPrice ?? 0) +
-								(originalProviderInfo.outputPrice ?? 0)
-							: 0;
+						// Only proceed with fallback if there are providers with better uptime
+						// Otherwise stick with the original provider
+						if (betterUptimeProviders.length > 0) {
+							const cheapestResult = getCheapestFromAvailableProviders(
+								betterUptimeProviders,
+								modelWithPricing,
+								{ metricsMap: allMetricsMap, isStreaming: stream },
+							);
 
-						// Create score entry for the original requested provider
-						const originalProviderScore = {
-							providerId: requestedProvider,
-							score: -1, // Negative score indicates this provider was skipped due to low uptime
-							price: originalProviderPrice,
-							uptime: metrics.uptime,
-							latency: metrics.averageLatency,
-							throughput: metrics.throughput,
-						};
+							// Get price info for the original requested provider to include in scores
+							const originalProviderInfo = modelInfo.providers.find(
+								(p) => p.providerId === requestedProvider,
+							);
+							const originalProviderPrice = originalProviderInfo
+								? (originalProviderInfo.inputPrice ?? 0) +
+									(originalProviderInfo.outputPrice ?? 0)
+								: 0;
 
-						if (cheapestResult) {
-							usedProvider = cheapestResult.provider.providerId;
-							usedModel = cheapestResult.provider.modelName;
-							routingMetadata = {
-								...cheapestResult.metadata,
-								selectionReason: "low-uptime-fallback",
-								originalProvider: requestedProvider,
-								originalProviderUptime: metrics.uptime,
-								// Add the original provider's score to the scores array
-								providerScores: [
-									originalProviderScore,
-									...cheapestResult.metadata.providerScores,
-								],
+							// Create score entry for the original requested provider
+							const originalProviderScore = {
+								providerId: requestedProvider,
+								score: -1, // Negative score indicates this provider was skipped due to low uptime
+								price: originalProviderPrice,
+								uptime: metrics.uptime,
+								latency: metrics.averageLatency,
+								throughput: metrics.throughput,
 							};
-						} else {
-							// Use first available provider as fallback
-							usedProvider = availableModelProviders[0].providerId;
-							usedModel = availableModelProviders[0].modelName;
-							routingMetadata = {
-								availableProviders: availableModelProviders.map(
-									(p) => p.providerId,
-								),
-								selectedProvider: usedProvider,
-								selectionReason: "low-uptime-fallback",
-								providerScores: [originalProviderScore],
-								originalProvider: requestedProvider,
-								originalProviderUptime: metrics.uptime,
-							};
+
+							if (cheapestResult) {
+								usedProvider = cheapestResult.provider.providerId;
+								usedModel = cheapestResult.provider.modelName;
+								routingMetadata = {
+									...cheapestResult.metadata,
+									selectionReason: "low-uptime-fallback",
+									originalProvider: requestedProvider,
+									originalProviderUptime: metrics.uptime,
+									// Add the original provider's score to the scores array
+									providerScores: [
+										originalProviderScore,
+										...cheapestResult.metadata.providerScores,
+									],
+								};
+							}
 						}
 					}
 				}
@@ -1574,19 +1079,10 @@ chat.openapi(completions, async (c) => {
 			usedModel = modelInfo.providers[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
-			const providerKeys = await db.query.providerKey.findMany({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						in: providerIds,
-					},
-				},
-			});
+			const providerKeys = await findProviderKeysByProviders(
+				project.organizationId,
+				providerIds,
+			);
 
 			const availableProviders =
 				project.mode === "api-keys"
@@ -1601,6 +1097,13 @@ chat.openapi(completions, async (c) => {
 			// If JSON output is requested, also filter to providers that support it
 			const availableModelProviders = modelInfo.providers.filter((provider) => {
 				if (!availableProviders.includes(provider.providerId)) {
+					return false;
+				}
+				// Filter by IAM allowed providers
+				if (
+					iamAllowedProviders &&
+					!iamAllowedProviders.includes(provider.providerId)
+				) {
 					return false;
 				}
 				// If web search tool is requested, only include providers that support it
@@ -1618,7 +1121,7 @@ chat.openapi(completions, async (c) => {
 						return false;
 					}
 				}
-				// If JSON schema output is requested, only include providers that support it
+				// If JSON schema output is requested, also include providers that support it
 				if (response_format?.type === "json_schema") {
 					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
 						return false;
@@ -1699,44 +1202,45 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		// Get price info for the selected provider
-		const selectedProviderInfo = modelInfo.providers.find(
-			(p) => p.providerId === usedProvider,
-		);
-		const price = selectedProviderInfo
-			? (selectedProviderInfo.inputPrice ?? 0) +
-				(selectedProviderInfo.outputPrice ?? 0)
-			: 0;
-
-		// Fetch metrics for the selected provider to include in routing metadata
-		// This provides visibility into uptime/latency/throughput even for direct provider selection
+		// Fetch metrics for all providers (including deactivated) to include in routing metadata
+		// This provides visibility into uptime/latency/throughput for all providers
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		let providerMetrics:
-			| { uptime: number; averageLatency: number; throughput: number }
-			| undefined;
+		let metricsMap: Map<
+			string,
+			{ uptime: number; averageLatency: number; throughput: number }
+		> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
-			const directMetricsMap = await getProviderMetricsForCombinations(
-				[{ modelId: baseModelId, providerId: usedProvider }],
+			const metricsCombinations = allModelProviders.map((p) => ({
+				modelId: baseModelId,
+				providerId: p.providerId,
+			}));
+			metricsMap = await getProviderMetricsForCombinations(
+				metricsCombinations,
 				5,
 			);
-			providerMetrics = directMetricsMap.get(`${baseModelId}:${usedProvider}`);
 		}
 
+		// Build provider scores for all providers (including deactivated) with default values for missing metrics
+		const allProviderScores = allModelProviders.map((p) => {
+			const metrics = metricsMap.get(`${baseModelId}:${p.providerId}`);
+			const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
+			const isSelected = p.providerId === usedProvider;
+			return {
+				providerId: p.providerId,
+				score: isSelected ? 1 : 0,
+				price,
+				uptime: metrics?.uptime ?? 0,
+				latency: metrics?.averageLatency ?? 0,
+				throughput: metrics?.throughput ?? 0,
+			};
+		});
+
 		routingMetadata = {
-			availableProviders: [usedProvider],
+			availableProviders: allModelProviders.map((p) => p.providerId),
 			selectedProvider: usedProvider,
 			selectionReason,
-			providerScores: [
-				{
-					providerId: usedProvider,
-					score: 1,
-					price,
-					uptime: providerMetrics?.uptime,
-					latency: providerMetrics?.averageLatency,
-					throughput: providerMetrics?.throughput,
-				},
-			],
+			providerScores: allProviderScores,
 			...(noFallback ? { noFallback: true } : {}),
 		};
 	}
@@ -1770,19 +1274,21 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	const baseModelName = finalModelInfo?.id || usedModel;
+	// Use the canonical model ID from finalModelInfo (looked up after routing)
+	// Fall back to usedModel (raw provider model name) for custom providers
+	let baseModelName = finalModelInfo?.id || usedModel;
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
 		(p) => p.providerId === usedProvider && p.modelName === usedModel,
 	);
-	const isImageGeneration =
+	let isImageGeneration =
 		(imageGenProviderMapping as ProviderModelMapping)?.imageGenerations ===
 		true;
 
 	// Create the model mapping values according to new schema
-	const usedModelMapping = usedModel; // Store the original provider model name
-	const usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
+	let usedModelMapping = usedModel; // Store the original provider model name
+	let usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
@@ -1816,7 +1322,10 @@ chat.openapi(completions, async (c) => {
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 
-	if (project.mode === "credits" && usedProvider === "custom") {
+	if (
+		project.mode === "credits" &&
+		(usedProvider === "custom" || usedProvider === "llmgateway")
+	) {
 		throw new HTTPException(400, {
 			message:
 				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
@@ -1824,65 +1333,14 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (project.mode === "api-keys") {
-		// Check if pro plan is required for API keys mode in hosted environment
-		const isHosted = process.env.HOSTED === "true";
-		const isPaidMode = process.env.PAID_MODE === "true";
-
-		if (isHosted && isPaidMode) {
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
-
-			if (!organization) {
-				throw new HTTPException(500, {
-					message: "Could not find organization",
-				});
-			}
-
-			if (organization.plan !== "pro") {
-				throw new HTTPException(402, {
-					message:
-						"API Keys mode requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
-				});
-			}
-		}
-
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (!providerKey) {
@@ -1897,21 +1355,6 @@ chat.openapi(completions, async (c) => {
 
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
-		// Check if the organization has enough credits using cached helper function
-		const organization = await db.query.organization.findFirst({
-			where: {
-				id: {
-					eq: project.organizationId,
-				},
-			},
-		});
-
-		if (!organization) {
-			throw new HTTPException(500, {
-				message: "Could not find organization",
-			});
-		}
-
 		// Check both regular credits AND dev plan credits
 		const regularCredits = parseFloat(organization.credits || "0");
 		const devPlanCreditsRemaining =
@@ -1921,7 +1364,11 @@ chat.openapi(completions, async (c) => {
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
-		if (totalAvailableCredits <= 0 && !(modelInfo as ModelDefinition).free) {
+		if (
+			totalAvailableCredits <= 0 &&
+			!free_models_only &&
+			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
+		) {
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 				const renewalDate = organization.devPlanExpiresAt
 					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -1931,7 +1378,7 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 			throw new HTTPException(402, {
-				message: "Organization has insufficient credits",
+				message: `Organization ${organization.id} has insufficient credits`,
 			});
 		}
 
@@ -1942,83 +1389,18 @@ chat.openapi(completions, async (c) => {
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: "custom",
-					},
-					name: {
-						eq: customProviderName,
-					},
-				},
-			});
+			providerKey = await findCustomProviderKey(
+				project.organizationId,
+				customProviderName,
+			);
 		} else {
-			providerKey = await db.query.providerKey.findFirst({
-				where: {
-					status: {
-						eq: "active",
-					},
-					organizationId: {
-						eq: project.organizationId,
-					},
-					provider: {
-						eq: usedProvider,
-					},
-				},
-			});
+			providerKey = await findProviderKey(project.organizationId, usedProvider);
 		}
 
 		if (providerKey) {
-			// Check if pro plan is required when using API keys in hybrid mode in hosted environment
-			const isHosted = process.env.HOSTED === "true";
-			const isPaidMode = process.env.PAID_MODE === "true";
-
-			if (isHosted && isPaidMode) {
-				const organization = await db.query.organization.findFirst({
-					where: {
-						id: {
-							eq: project.organizationId,
-						},
-					},
-				});
-
-				if (!organization) {
-					throw new HTTPException(500, {
-						message: "Could not find organization",
-					});
-				}
-
-				if (organization.plan !== "pro") {
-					throw new HTTPException(402, {
-						message:
-							"Hybrid mode with API keys requires a Pro plan. Please upgrade to Pro or switch to Credits mode.",
-					});
-				}
-			}
-
 			usedToken = providerKey.token;
 		} else {
-			// No API key available, fall back to credits - no pro plan required
-			const organization = await db.query.organization.findFirst({
-				where: {
-					id: {
-						eq: project.organizationId,
-					},
-				},
-			});
-
-			if (!organization) {
-				throw new HTTPException(500, {
-					message: "Could not find organization",
-				});
-			}
-
+			// No API key available, fall back to credits
 			// Check both regular credits AND dev plan credits
 			const regularCredits = parseFloat(organization.credits || "0");
 			const devPlanCreditsRemaining =
@@ -2030,7 +1412,8 @@ chat.openapi(completions, async (c) => {
 
 			if (
 				totalAvailableCredits <= 0 &&
-				!isModelTrulyFree(modelInfo as ModelDefinition)
+				!free_models_only &&
+				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
 			) {
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 					const renewalDate = organization.devPlanExpiresAt
@@ -2059,7 +1442,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
-		isModelTrulyFree(modelInfo as ModelDefinition) &&
+		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
 		(!providerKey || !providerKey.token)
 	) {
 		await validateFreeModelUsage(
@@ -2067,6 +1450,7 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedModel,
 			modelInfo as ModelDefinition,
+			{ skipEmailVerification: onboarding },
 		);
 	}
 
@@ -2095,10 +1479,12 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if the model supports reasoning
-	const supportsReasoning = modelInfo.providers.some(
-		(provider) => (provider as ProviderModelMapping).reasoning === true,
+	// Check if the selected provider supports reasoning (from specific mapping, not any)
+	const selectedProviderMapping = modelInfo.providers.find(
+		(p) => p.providerId === usedProvider && p.modelName === usedModel,
 	);
+	let supportsReasoning =
+		(selectedProviderMapping as ProviderModelMapping)?.reasoning === true;
 
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
@@ -2139,6 +1525,8 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	let useResponsesApi = url?.includes("/responses") ?? false;
+
 	if (!url) {
 		throw new HTTPException(400, {
 			message: `No base URL set for provider: ${usedProvider}. Please add a base URL in your settings.`,
@@ -2163,6 +1551,8 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
+			reasoning_effort,
+			reasoning_max_tokens,
 		};
 
 		if (stream) {
@@ -2179,8 +1569,11 @@ chat.openapi(completions, async (c) => {
 				let reasoningTokens = null;
 				let cachedTokens = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
+				let cachedResponseSize = 0; // Track size incrementally to avoid expensive stringify
 
 				for (const chunk of cachedStreamingResponse.chunks) {
+					// Track response size incrementally (sum of chunk data lengths + overhead)
+					cachedResponseSize += chunk.data.length + 50; // 50 bytes overhead per chunk for metadata
 					// Reconstruct raw SSE data for logging only in debug mode and within size limit
 					if (debugMode && rawCachedResponseData.length < MAX_RAW_DATA_SIZE) {
 						const sseString = `${chunk.event ? `event: ${chunk.event}\n` : ""}data: ${chunk.data}${chunk.eventId ? `\nid: ${chunk.eventId}` : ""}\n\n`;
@@ -2253,6 +1646,7 @@ chat.openapi(completions, async (c) => {
 					frequency_penalty,
 					presence_penalty,
 					reasoning_effort,
+					reasoning_max_tokens,
 					effort,
 					response_format,
 					tools,
@@ -2272,7 +1666,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const costs = calculateCosts(
+				const costs = await calculateCosts(
 					usedModel,
 					usedProvider,
 					promptTokens || null,
@@ -2283,6 +1677,8 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
 
 				await insertLog({
@@ -2290,13 +1686,20 @@ chat.openapi(completions, async (c) => {
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
-					responseSize: JSON.stringify(cachedStreamingResponse).length,
+					responseSize: cachedResponseSize,
 					content: fullContent || null,
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
-					promptTokens: promptTokens?.toString() || null,
+					promptTokens:
+						(costs.promptTokens ?? promptTokens)?.toString() || null,
 					completionTokens: completionTokens?.toString() || null,
-					totalTokens: totalTokens?.toString() || null,
+					totalTokens: costs.imageInputTokens
+						? (
+								(costs.promptTokens || promptTokens || 0) +
+								(completionTokens || 0) +
+								(reasoningTokens || 0)
+							).toString()
+						: totalTokens?.toString() || null,
 					reasoningTokens: reasoningTokens?.toString() || null,
 					cachedTokens: cachedTokens?.toString() || null,
 					hasError: false,
@@ -2308,12 +1711,16 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost ?? 0,
 					requestCost: costs.requestCost ?? 0,
 					webSearchCost: costs.webSearchCost ?? 0,
+					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+					imageInputCost: costs.imageInputCost ?? null,
+					imageOutputCost: costs.imageOutputCost ?? null,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						promptTokens,
+						costs.promptTokens ?? promptTokens,
 						cachedTokens,
 						completionTokens,
 						reasoningTokens,
@@ -2326,30 +1733,42 @@ chat.openapi(completions, async (c) => {
 				});
 
 				// Return cached streaming response by replaying chunks with original timing
-				return streamSSE(c, async (stream) => {
-					let previousTimestamp = 0;
+				return streamSSE(
+					c,
+					async (stream) => {
+						let previousTimestamp = 0;
 
-					for (const chunk of cachedStreamingResponse.chunks) {
-						// Calculate delay based on original chunk timing
-						const delay = Math.max(0, chunk.timestamp - previousTimestamp);
-						// Cap the delay to prevent excessively long waits (max 1 second)
-						const cappedDelay = Math.min(delay, 1000);
+						for (const chunk of cachedStreamingResponse.chunks) {
+							// Calculate delay based on original chunk timing
+							const delay = Math.max(0, chunk.timestamp - previousTimestamp);
+							// Cap the delay to prevent excessively long waits (max 1 second)
+							const cappedDelay = Math.min(delay, 1000);
 
-						if (cappedDelay > 0) {
-							await new Promise<void>((resolve) => {
-								setTimeout(() => resolve(), cappedDelay);
+							if (cappedDelay > 0) {
+								await new Promise<void>((resolve) => {
+									setTimeout(() => resolve(), cappedDelay);
+								});
+							}
+
+							await stream.writeSSE({
+								data: chunk.data,
+								id: String(chunk.eventId),
+								event: chunk.event,
 							});
+
+							previousTimestamp = chunk.timestamp;
 						}
-
-						await stream.writeSSE({
-							data: chunk.data,
-							id: String(chunk.eventId),
-							event: chunk.event,
-						});
-
-						previousTimestamp = chunk.timestamp;
-					}
-				});
+					},
+					async (error) => {
+						if (error.name === "AbortError") {
+							logger.info("Cached stream replay aborted by client", {
+								path: c.req.path,
+							});
+						} else {
+							logger.error("Error replaying cached stream", error);
+						}
+					},
+				);
 			}
 		} else {
 			cacheKey = generateCacheKey(cachePayload);
@@ -2377,6 +1796,7 @@ chat.openapi(completions, async (c) => {
 					frequency_penalty,
 					presence_penalty,
 					reasoning_effort,
+					reasoning_max_tokens,
 					effort,
 					response_format,
 					tools,
@@ -2396,7 +1816,7 @@ chat.openapi(completions, async (c) => {
 				);
 
 				// Calculate costs for cached response
-				const cachedCosts = calculateCosts(
+				const cachedCosts = await calculateCosts(
 					usedModel,
 					usedProvider,
 					cachedResponse.usage?.prompt_tokens || null,
@@ -2407,21 +1827,42 @@ chat.openapi(completions, async (c) => {
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
 				);
+
+				// Estimate cached response size based on content to avoid expensive stringify
+				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
+				const cachedReasoningContent =
+					cachedResponse.choices?.[0]?.message?.reasoning;
+				const estimatedCachedSize =
+					(cachedContent?.length || 0) +
+					(cachedReasoningContent?.length || 0) +
+					500; // overhead for metadata
 
 				await insertLog({
 					...baseLogEntry,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
-					responseSize: JSON.stringify(cachedResponse).length,
-					content: cachedResponse.choices?.[0]?.message?.content || null,
-					reasoningContent:
-						cachedResponse.choices?.[0]?.message?.reasoning || null,
+					responseSize: estimatedCachedSize,
+					content: cachedContent || null,
+					reasoningContent: cachedReasoningContent || null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
-					promptTokens: cachedResponse.usage?.prompt_tokens || null,
+					promptTokens:
+						(
+							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
+						)?.toString() || null,
 					completionTokens: cachedResponse.usage?.completion_tokens || null,
-					totalTokens: cachedResponse.usage?.total_tokens || null,
+					totalTokens: cachedCosts.imageInputTokens
+						? (
+								(cachedCosts.promptTokens ||
+									cachedResponse.usage?.prompt_tokens ||
+									0) +
+								(cachedResponse.usage?.completion_tokens || 0) +
+								(cachedResponse.usage?.reasoning_tokens || 0)
+							).toString()
+						: cachedResponse.usage?.total_tokens || null,
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
 					cachedTokens:
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
@@ -2434,12 +1875,16 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
 					requestCost: cachedCosts.requestCost ?? 0,
 					webSearchCost: cachedCosts.webSearchCost ?? 0,
+					imageInputTokens: cachedCosts.imageInputTokens?.toString() ?? null,
+					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
+					imageInputCost: cachedCosts.imageInputCost ?? null,
+					imageOutputCost: cachedCosts.imageOutputCost ?? null,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
 					dataStorageCost: calculateDataStorageCost(
-						cachedResponse.usage?.prompt_tokens,
+						cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
 						cachedResponse.usage?.completion_tokens,
 						cachedResponse.usage?.reasoning_tokens,
@@ -2507,13 +1952,65 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Save original parameters before provider-specific stripping for retry fallback
+	const originalRequestParams: OriginalRequestParams = {
+		temperature,
+		max_tokens,
+		top_p,
+		frequency_penalty,
+		presence_penalty,
+	};
+
+	// Strip unsupported parameters based on model's supportedParameters
+	if (finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		);
+		const supported = (providerMapping as ProviderModelMapping | undefined)
+			?.supportedParameters;
+		if (supported && supported.length > 0) {
+			if (temperature !== undefined && !supported.includes("temperature")) {
+				temperature = undefined;
+			}
+			if (top_p !== undefined && !supported.includes("top_p")) {
+				top_p = undefined;
+			}
+			if (
+				frequency_penalty !== undefined &&
+				!supported.includes("frequency_penalty")
+			) {
+				frequency_penalty = undefined;
+			}
+			if (
+				presence_penalty !== undefined &&
+				!supported.includes("presence_penalty")
+			) {
+				presence_penalty = undefined;
+			}
+			if (max_tokens !== undefined && !supported.includes("max_tokens")) {
+				max_tokens = undefined;
+			}
+		}
+	}
+
+	// Anthropic does not allow temperature and top_p to be set simultaneously
+	if (usedProvider === "anthropic") {
+		if (temperature !== undefined && top_p !== undefined) {
+			top_p = undefined;
+		}
+	}
+
 	// Check if the request can be canceled
-	const requestCanBeCanceled =
+	let requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+	if (
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "obsidian"
+	) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -2548,7 +2045,39 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	const requestBody: ProviderRequestBody = await prepareRequestBody(
+	// For Moonshot provider, enrich assistant messages with cached reasoning_content
+	// This is needed for multi-turn tool call conversations with thinking models
+	// Moonshot requires reasoning_content in assistant messages with tool_calls
+	if (usedProvider === "moonshot") {
+		const { redisClient } = await import("@llmgateway/cache");
+		for (const message of messages) {
+			if (
+				message.role === "assistant" &&
+				message.tool_calls &&
+				Array.isArray(message.tool_calls) &&
+				message.tool_calls.length > 0 &&
+				!(message as any).reasoning_content // Only add if not already present
+			) {
+				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
+				const firstToolCall = message.tool_calls[0];
+				if (firstToolCall?.id) {
+					try {
+						const cachedReasoningContent = await redisClient.get(
+							`reasoning_content:${firstToolCall.id}`,
+						);
+						if (cachedReasoningContent) {
+							// Add reasoning_content to the message for Moonshot
+							(message as any).reasoning_content = cachedReasoningContent;
+						}
+					} catch {
+						// Silently fail - reasoning_content caching is optional
+					}
+				}
+			}
+		}
+	}
+
+	let requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
 		usedModel,
 		messages as BaseMessage[],
@@ -2571,6 +2100,8 @@ chat.openapi(completions, async (c) => {
 		effort,
 		isImageGeneration,
 		webSearchTool,
+		reasoning_max_tokens,
+		useResponsesApi,
 	);
 
 	// Validate effective max_tokens value after prepareRequestBody
@@ -2601,792 +2132,2228 @@ chat.openapi(completions, async (c) => {
 	// Handle streaming response if requested
 	// For image generation models, we skip real streaming and use fake streaming later
 	if (effectiveStream) {
-		return streamSSE(c, async (stream) => {
-			let eventId = 0;
-			let canceled = false;
-			let streamingError: unknown = null;
+		return streamSSE(
+			c,
+			async (stream) => {
+				let eventId = 0;
+				let canceled = false;
+				let streamingError: unknown = null;
 
-			// Raw logging variables
-			let streamingRawResponseData = ""; // Raw SSE data sent back to the client
+				// Raw logging variables
+				let streamingRawResponseData = ""; // Raw SSE data sent back to the client
 
-			// Streaming cache variables
-			const streamingChunks: Array<{
-				data: string;
-				eventId: number;
-				event?: string;
-				timestamp: number;
-			}> = [];
-			const streamStartTime = Date.now();
+				// Streaming cache variables
+				const streamingChunks: Array<{
+					data: string;
+					eventId: number;
+					event?: string;
+					timestamp: number;
+				}> = [];
+				const streamStartTime = Date.now();
 
-			// Timing tracking variables
-			let timeToFirstToken: number | null = null;
-			let timeToFirstReasoningToken: number | null = null;
-			let firstTokenReceived = false;
-			let firstReasoningTokenReceived = false;
-
-			// Helper function to write SSE and capture for cache
-			const writeSSEAndCache = async (sseData: {
-				data: string;
-				event?: string;
-				id?: string;
-			}) => {
-				await stream.writeSSE(sseData);
-
-				// Collect raw response data for logging only in debug mode and within size limit
-				if (debugMode && streamingRawResponseData.length < MAX_RAW_DATA_SIZE) {
-					const sseString = `${sseData.event ? `event: ${sseData.event}\n` : ""}data: ${sseData.data}${sseData.id ? `\nid: ${sseData.id}` : ""}\n\n`;
-					streamingRawResponseData += sseString;
-				}
-
-				// Capture for streaming cache if enabled
-				if (cachingEnabled && streamingCacheKey) {
-					streamingChunks.push({
-						data: sseData.data,
-						eventId: sseData.id ? parseInt(sseData.id, 10) : eventId,
-						event: sseData.event,
-						timestamp: Date.now() - streamStartTime,
+				// SSE keepalive to prevent proxy/load balancer timeouts
+				// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+				const KEEPALIVE_INTERVAL_MS = 15000;
+				const keepaliveInterval = setInterval(() => {
+					stream.write(": ping\n\n").catch(() => {
+						// Stream likely closed, cleanup will happen via abort handler or finally
 					});
-				}
-			};
+				}, KEEPALIVE_INTERVAL_MS);
+				const clearKeepalive = () => clearInterval(keepaliveInterval);
 
-			// Set up cancellation handling
-			const controller = new AbortController();
-			// Set up a listener for the request being aborted
-			const onAbort = () => {
-				if (requestCanBeCanceled) {
-					canceled = true;
-					controller.abort();
-				}
-			};
+				// Timing tracking variables
+				let timeToFirstToken: number | null = null;
+				let timeToFirstReasoningToken: number | null = null;
+				let firstTokenReceived = false;
+				let firstReasoningTokenReceived = false;
 
-			// Add event listener for the abort event on the connection
-			c.req.raw.signal.addEventListener("abort", onAbort);
+				// Helper function to write SSE and capture for cache
+				const writeSSEAndCache = async (sseData: {
+					data: string;
+					event?: string;
+					id?: string;
+				}) => {
+					await stream.writeSSE(sseData);
 
-			let res;
-			try {
-				const headers = getProviderHeaders(usedProvider, usedToken, {
-					webSearchEnabled: !!webSearchTool,
-				});
-				headers["Content-Type"] = "application/json";
+					// Collect raw response data for logging only in debug mode and within size limit
+					if (
+						debugMode &&
+						streamingRawResponseData.length < MAX_RAW_DATA_SIZE
+					) {
+						const sseString = `${sseData.event ? `event: ${sseData.event}\n` : ""}data: ${sseData.data}${sseData.id ? `\nid: ${sseData.id}` : ""}\n\n`;
+						streamingRawResponseData += sseString;
+					}
 
-				// Add effort beta header for Anthropic if effort parameter is specified
-				if (usedProvider === "anthropic" && effort !== undefined) {
-					const currentBeta = headers["anthropic-beta"];
-					headers["anthropic-beta"] = currentBeta
-						? `${currentBeta},effort-2025-11-24`
-						: "effort-2025-11-24";
-				}
+					// Capture for streaming cache if enabled
+					if (cachingEnabled && streamingCacheKey) {
+						streamingChunks.push({
+							data: sseData.data,
+							eventId: sseData.id ? parseInt(sseData.id, 10) : eventId,
+							event: sseData.event,
+							timestamp: Date.now() - streamStartTime,
+						});
+					}
+				};
 
-				// Add structured outputs beta header for Anthropic if json_schema response_format is specified
-				if (
-					usedProvider === "anthropic" &&
-					response_format?.type === "json_schema"
+				// Set up cancellation handling
+				const controller = new AbortController();
+				// Set up a listener for the request being aborted
+				const onAbort = () => {
+					clearKeepalive();
+					if (requestCanBeCanceled) {
+						canceled = true;
+						controller.abort();
+					}
+				};
+
+				// Add event listener for the abort event on the connection
+				c.req.raw.signal.addEventListener("abort", onAbort);
+
+				// --- Retry loop for provider fallback ---
+				const routingAttempts: RoutingAttempt[] = [];
+				const failedProviderIds = new Set<string>();
+				let res: Response | undefined;
+				const finalLogId = shortid();
+				for (
+					let retryAttempt = 0;
+					retryAttempt <= MAX_RETRIES;
+					retryAttempt++
 				) {
-					const currentBeta = headers["anthropic-beta"];
-					headers["anthropic-beta"] = currentBeta
-						? `${currentBeta},structured-outputs-2025-11-13`
-						: "structured-outputs-2025-11-13";
-				}
+					const perAttemptStartTime = Date.now();
 
-				res = await fetch(url, {
-					method: "POST",
-					headers,
-					body: JSON.stringify(requestBody),
-					signal: requestCanBeCanceled ? controller.signal : undefined,
-				});
-			} catch (error) {
-				// Clean up the event listeners
-				c.req.raw.signal.removeEventListener("abort", onAbort);
+					// Type guard: narrow variables that TypeScript widens due to loop reassignment
+					if (
+						!usedProvider ||
+						!usedToken ||
+						!url ||
+						!usedModelFormatted ||
+						!usedModelMapping
+					) {
+						throw new Error("Provider context not initialized");
+					}
 
-				if (error instanceof Error && error.name === "AbortError") {
-					// Log the canceled request
-					// Extract plugin IDs for logging (canceled request)
-					const canceledPluginIds = plugins?.map((p) => p.id) || [];
+					if (retryAttempt > 0) {
+						// Re-add abort listener (catch block removes it on error)
+						c.req.raw.signal.addEventListener("abort", onAbort);
 
-					// Calculate costs for cancelled request if billing is enabled
-					const billCancelled = shouldBillCancelledRequests();
-					let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
-					let estimatedPromptTokens: number | null = null;
-
-					if (billCancelled) {
-						// Estimate prompt tokens from messages
-						const tokenEstimation = estimateTokens(
-							usedProvider,
-							messages,
-							null,
-							null,
-							null,
+						const nextProvider = selectNextProvider(
+							routingMetadata?.providerScores ?? [],
+							failedProviderIds,
+							modelInfo.providers,
 						);
-						estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-						// Calculate costs based on prompt tokens only (no completion yet)
-						// If web search tool was enabled, count it as 1 search for billing
-						cancelledCosts = calculateCosts(
-							usedModel,
-							usedProvider,
-							estimatedPromptTokens,
-							0, // No completion tokens yet
-							null, // No cached tokens
-							{
-								prompt: messages.map((m) => m.content).join("\n"),
-								completion: "",
-							},
-							null, // No reasoning tokens
-							0, // No output images
-							undefined,
-							inputImageCount,
-							webSearchTool ? 1 : null, // Bill for web search if it was enabled
-						);
-					}
-
-					const baseLogEntry = createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						providerKey?.id,
-						usedModelFormatted,
-						usedModelMapping,
-						usedProvider,
-						initialRequestedModel,
-						requestedProvider,
-						messages,
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						effort,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-						image_config,
-						routingMetadata,
-						rawBody,
-						null, // No response for canceled request
-						requestBody, // The request that was sent before cancellation
-						null, // No upstream response for canceled request
-						canceledPluginIds,
-						undefined, // No plugin results for canceled request
-					);
-
-					await insertLog({
-						...baseLogEntry,
-						duration: Date.now() - startTime,
-						timeToFirstToken: null, // Not applicable for canceled request
-						timeToFirstReasoningToken: null, // Not applicable for canceled request
-						responseSize: 0,
-						content: null,
-						reasoningContent: null,
-						finishReason: "canceled",
-						promptTokens: billCancelled
-							? estimatedPromptTokens?.toString()
-							: null,
-						completionTokens: billCancelled ? "0" : null,
-						totalTokens: billCancelled
-							? estimatedPromptTokens?.toString()
-							: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: false,
-						streamed: true,
-						canceled: true,
-						errorDetails: null,
-						inputCost: cancelledCosts?.inputCost ?? null,
-						outputCost: cancelledCosts?.outputCost ?? null,
-						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-						requestCost: cancelledCosts?.requestCost ?? null,
-						webSearchCost: cancelledCosts?.webSearchCost ?? null,
-						cost: cancelledCosts?.totalCost ?? null,
-						estimatedCost: cancelledCosts?.estimatedCost ?? false,
-						discount: cancelledCosts?.discount ?? null,
-						dataStorageCost: billCancelled
-							? calculateDataStorageCost(
-									estimatedPromptTokens,
-									null,
-									0,
-									null,
-									retentionLevel,
-								)
-							: "0",
-						cached: false,
-						toolResults: null,
-					});
-
-					// Send a cancellation event to the client
-					await writeSSEAndCache({
-						event: "canceled",
-						data: JSON.stringify({
-							message: "Request canceled by client",
-						}),
-						id: String(eventId++),
-					});
-					await writeSSEAndCache({
-						event: "done",
-						data: "[DONE]",
-						id: String(eventId++),
-					});
-					return;
-				} else if (error instanceof Error) {
-					// Handle fetch errors (timeout, connection failures, etc.)
-					const errorMessage = error.message;
-					logger.warn("Fetch error", {
-						error: errorMessage,
-						usedProvider,
-						requestedProvider,
-						usedModel,
-						initialRequestedModel,
-					});
-
-					// Log the error in the database
-					// Extract plugin IDs for logging (fetch error)
-					const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
-
-					const baseLogEntry = createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						providerKey?.id,
-						usedModelFormatted,
-						usedModelMapping,
-						usedProvider,
-						initialRequestedModel,
-						requestedProvider,
-						messages,
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						effort,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-						image_config,
-						routingMetadata,
-						rawBody,
-						null, // No response for fetch error
-						requestBody, // The request that resulted in error
-						null, // No upstream response for fetch error
-						fetchErrorPluginIds,
-						undefined, // No plugin results for error case
-					);
-
-					await insertLog({
-						...baseLogEntry,
-						duration: Date.now() - startTime,
-						timeToFirstToken: null, // Not applicable for error case
-						timeToFirstReasoningToken: null, // Not applicable for error case
-						responseSize: 0,
-						content: null,
-						reasoningContent: null,
-						finishReason: "upstream_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: true,
-						canceled: false,
-						errorDetails: {
-							statusCode: 0,
-							statusText: error.name,
-							responseText: errorMessage,
-						},
-						cachedInputCost: null,
-						requestCost: null,
-						webSearchCost: null,
-						discount: null,
-						dataStorageCost: "0",
-						cached: false,
-						toolResults: null,
-					});
-
-					// Report key health for environment-based tokens
-					if (envVarName !== undefined) {
-						reportKeyError(envVarName, configIndex, 0);
-					}
-
-					// Send error event to the client
-					await writeSSEAndCache({
-						event: "error",
-						data: JSON.stringify({
-							error: {
-								message: `Failed to connect to provider: ${errorMessage}`,
-								type: "upstream_error",
-								code: "fetch_failed",
-							},
-						}),
-						id: String(eventId++),
-					});
-					await writeSSEAndCache({
-						event: "done",
-						data: "[DONE]",
-						id: String(eventId++),
-					});
-					return;
-				} else {
-					throw error;
-				}
-			}
-
-			if (!res.ok) {
-				const errorResponseText = await res.text();
-
-				// Determine the finish reason for error handling
-				const finishReason = getFinishReasonFromError(
-					res.status,
-					errorResponseText,
-				);
-
-				if (finishReason !== "client_error") {
-					logger.warn("Provider error", {
-						status: res.status,
-						errorText: errorResponseText,
-						usedProvider,
-						requestedProvider,
-						usedModel,
-						initialRequestedModel,
-					});
-				}
-
-				// For client errors, return the original provider error response
-				let errorData;
-				if (finishReason === "client_error") {
-					try {
-						errorData = JSON.parse(errorResponseText);
-					} catch {
-						// If we can't parse the original error, fall back to our format
-						errorData = {
-							error: {
-								message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
-								type: finishReason,
-								param: null,
-								code: finishReason,
-								responseText: errorResponseText,
-							},
-						};
-					}
-				} else {
-					errorData = {
-						error: {
-							message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
-							type: finishReason,
-							param: null,
-							code: finishReason,
-							responseText: errorResponseText,
-						},
-					};
-				}
-
-				await writeSSEAndCache({
-					event: "error",
-					data: JSON.stringify(errorData),
-					id: String(eventId++),
-				});
-				await writeSSEAndCache({
-					event: "done",
-					data: "[DONE]",
-					id: String(eventId++),
-				});
-
-				// Log the error in the database
-				// Extract plugin IDs for logging (streaming error)
-				const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
-
-				const baseLogEntry = createLogEntry(
-					requestId,
-					project,
-					apiKey,
-					providerKey?.id,
-					usedModelFormatted,
-					usedModelMapping,
-					usedProvider,
-					initialRequestedModel,
-					requestedProvider,
-					messages,
-					temperature,
-					max_tokens,
-					top_p,
-					frequency_penalty,
-					presence_penalty,
-					reasoning_effort,
-					effort,
-					response_format,
-					tools,
-					tool_choice,
-					source,
-					customHeaders,
-					debugMode,
-					userAgent,
-					image_config,
-					routingMetadata,
-					rawBody,
-					null, // No response for error case
-					requestBody, // The request that was sent and resulted in error
-					null, // No upstream response for error case
-					streamingErrorPluginIds,
-					undefined, // No plugin results for error case
-				);
-
-				await insertLog({
-					...baseLogEntry,
-					duration: Date.now() - startTime,
-					timeToFirstToken: null, // Not applicable for error case
-					timeToFirstReasoningToken: null, // Not applicable for error case
-					responseSize: errorResponseText.length,
-					content: null,
-					reasoningContent: null,
-					finishReason: getFinishReasonFromError(res.status, errorResponseText),
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: true,
-					canceled: false,
-					errorDetails: {
-						statusCode: res.status,
-						statusText: res.statusText,
-						responseText: errorResponseText,
-					},
-					cachedInputCost: null,
-					requestCost: null,
-					webSearchCost: null,
-					discount: null,
-					dataStorageCost: "0",
-					cached: false,
-					toolResults: null,
-				});
-
-				// Report key health for environment-based tokens
-				if (envVarName !== undefined) {
-					reportKeyError(envVarName, configIndex, res.status);
-				}
-
-				return;
-			}
-
-			if (!res.body) {
-				await writeSSEAndCache({
-					event: "error",
-					data: JSON.stringify({
-						error: {
-							message: "No response body from provider",
-							type: "gateway_error",
-							param: null,
-							code: "gateway_error",
-						},
-					}),
-					id: String(eventId++),
-				});
-				await writeSSEAndCache({
-					event: "done",
-					data: "[DONE]",
-					id: String(eventId++),
-				});
-				return;
-			}
-
-			const reader = res.body.getReader();
-			let fullContent = "";
-			let fullReasoningContent = "";
-			let finishReason = null;
-			let promptTokens = null;
-			let completionTokens = null;
-			let totalTokens = null;
-			let reasoningTokens = null;
-			let cachedTokens = null;
-			let streamingToolCalls = null;
-			let imageByteSize = 0; // Track total image data size for token estimation
-			let outputImageCount = 0; // Track number of output images for cost calculation
-			let webSearchCount = 0; // Track web search calls for cost calculation
-			let doneSent = false; // Track if [DONE] has been sent
-			let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
-			let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
-			let rawUpstreamData = ""; // Raw data received from upstream provider
-			// const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
-			const isAwsBedrock = usedProvider === "aws-bedrock";
-
-			try {
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) {
-						break;
-					}
-
-					// For AWS Bedrock, convert binary event stream to SSE format
-					let chunk: string;
-					if (isAwsBedrock) {
-						// Append binary data to buffer
-						const newBuffer = new Uint8Array(
-							binaryBuffer.length + value.length,
-						);
-						newBuffer.set(binaryBuffer);
-						newBuffer.set(value, binaryBuffer.length);
-						binaryBuffer = newBuffer;
-
-						// Parse and convert available events
-						const { sse, bytesConsumed } =
-							convertAwsEventStreamToSSE(binaryBuffer);
-						chunk = sse;
-
-						// Remove consumed bytes from binary buffer
-						if (bytesConsumed > 0) {
-							binaryBuffer = binaryBuffer.slice(bytesConsumed);
-						}
-					} else {
-						// Convert the Uint8Array to a string for SSE
-						chunk = new TextDecoder().decode(value);
-					}
-
-					buffer += chunk;
-					// Collect raw upstream data for logging only in debug mode and within size limit
-					if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
-						rawUpstreamData += chunk;
-					}
-
-					// // Check buffer size to prevent memory exhaustion
-					// if (buffer.length > MAX_BUFFER_SIZE) {
-					// 	logger.warn(
-					// 		"Buffer size exceeded 10MB, clearing buffer to prevent memory exhaustion",
-					// 	);
-					// 	buffer = "";
-					// 	continue;
-					// }
-
-					// Process SSE events from buffer
-					let processedLength = 0;
-					const bufferCopy = buffer;
-
-					// Look for complete SSE events, handling events at buffer start
-					let searchStart = 0;
-					while (searchStart < bufferCopy.length) {
-						// Find "data: " - could be at start of buffer or after newline
-						let dataIndex = -1;
-
-						if (searchStart === 0 && bufferCopy.startsWith("data: ")) {
-							// Event at buffer start
-							dataIndex = 0;
-						} else {
-							// Look for "\ndata: " pattern
-							const newlineDataIndex = bufferCopy.indexOf(
-								"\ndata: ",
-								searchStart,
-							);
-							if (newlineDataIndex !== -1) {
-								dataIndex = newlineDataIndex + 1; // Skip the newline
-							}
-						}
-
-						if (dataIndex === -1) {
+						if (!nextProvider) {
 							break;
 						}
 
-						// Find the end of this SSE event
-						// Look for next event or proper event termination
-						let eventEnd = -1;
-
-						// First, look for the next "data: " event (after a newline)
-						const nextEventIndex = bufferCopy.indexOf(
-							"\ndata: ",
-							dataIndex + 6,
-						);
-						if (nextEventIndex !== -1) {
-							// Found next data event, but we still need to check if there are SSE fields in between
-							// For Anthropic, we might have: data: {...}\n\nevent: something\n\ndata: {...}
-							const betweenEvents = bufferCopy.slice(
-								dataIndex + 6,
-								nextEventIndex,
+						try {
+							const ctx = await resolveProviderContext(
+								nextProvider,
+								{
+									mode: project.mode,
+									organizationId: project.organizationId,
+								},
+								{
+									id: organization.id,
+									credits: organization.credits,
+									devPlan: organization.devPlan,
+									devPlanCreditsLimit: organization.devPlanCreditsLimit,
+									devPlanCreditsUsed: organization.devPlanCreditsUsed,
+									devPlanExpiresAt: organization.devPlanExpiresAt,
+								},
+								modelInfo,
+								originalRequestParams,
+								{
+									stream: true,
+									effectiveStream,
+									messages: messages as BaseMessage[],
+									response_format,
+									tools,
+									tool_choice,
+									reasoning_effort,
+									reasoning_max_tokens,
+									effort,
+									webSearchTool,
+									image_config,
+									sensitive_word_check,
+									maxImageSizeMB,
+									userPlan,
+									hasExistingToolCalls,
+									customProviderName,
+									webSearchEnabled: !!webSearchTool,
+								},
 							);
-							const firstNewline = betweenEvents.indexOf("\n");
+							usedProvider = ctx.usedProvider;
+							usedModel = ctx.usedModel;
+							usedModelFormatted = ctx.usedModelFormatted;
+							usedModelMapping = ctx.usedModelMapping;
+							baseModelName = ctx.baseModelName;
+							usedToken = ctx.usedToken;
+							providerKey = ctx.providerKey;
+							configIndex = ctx.configIndex;
+							envVarName = ctx.envVarName;
+							url = ctx.url;
+							requestBody = ctx.requestBody;
+							useResponsesApi = ctx.useResponsesApi;
+							requestCanBeCanceled = ctx.requestCanBeCanceled;
+							isImageGeneration = ctx.isImageGeneration;
+							supportsReasoning = ctx.supportsReasoning;
+							temperature = ctx.temperature;
+							max_tokens = ctx.max_tokens;
+							top_p = ctx.top_p;
+							frequency_penalty = ctx.frequency_penalty;
+							presence_penalty = ctx.presence_penalty;
+						} catch {
+							failedProviderIds.add(nextProvider.providerId);
+							// Don't consume a retry slot for context-resolution failures
+							retryAttempt--;
+							continue;
+						}
+					}
 
-							if (firstNewline !== -1) {
-								// Check if JSON up to first newline is valid
-								const jsonCandidate = betweenEvents
-									.slice(0, firstNewline)
-									.trim();
-								try {
-									JSON.parse(jsonCandidate);
-									// JSON is valid - end at first newline to exclude SSE fields
-									eventEnd = dataIndex + 6 + firstNewline;
-								} catch {
-									// JSON is not complete, use the full segment to next data event
-									eventEnd = nextEventIndex;
-								}
-							} else {
-								// No newline found, use full segment
-								eventEnd = nextEventIndex;
-							}
-						} else {
-							// No next event found - check for proper event termination
-							// SSE events should end with at least one newline
-							const eventStartPos = dataIndex + 6; // Start of event data
+					try {
+						const headers = getProviderHeaders(usedProvider, usedToken, {
+							webSearchEnabled: !!webSearchTool,
+						});
+						headers["Content-Type"] = "application/json";
 
-							// For Anthropic SSE format, we need to be more careful about event boundaries
-							// Try to find the end of the JSON data by looking for the closing brace
-							let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
-							if (newlinePos !== -1) {
-								// We found a newline - check if the JSON before it is valid
-								const jsonCandidate = bufferCopy
-									.slice(eventStartPos, newlinePos)
-									.trim();
-								try {
-									JSON.parse(jsonCandidate);
-									// JSON is valid - this newline marks the end of our data
-									eventEnd = newlinePos;
-								} catch {
-									// JSON is not valid, check if there's more content after the newline
-									if (newlinePos + 1 >= bufferCopy.length) {
-										// Newline is at the end of buffer - event is incomplete
-										break;
-									} else {
-										// There's content after the newline
-										// Check if it's another SSE field (like event:, id:, retry:, etc.) or if the event continues
-										const restOfBuffer = bufferCopy.slice(newlinePos + 1);
-
-										// Check for SSE field patterns (event:, id:, retry:, etc.)
-										// Handle both single and double newlines before checking for SSE fields
-										const trimmedRest = restOfBuffer.replace(/^\n+/, ""); // Remove leading newlines
-										if (
-											restOfBuffer.startsWith("\n") || // Empty line - end of event
-											restOfBuffer.startsWith("data: ") || // Next data field
-											trimmedRest.startsWith("event:") || // Event field (after newlines)
-											trimmedRest.startsWith("id:") || // ID field (after newlines)
-											trimmedRest.startsWith("retry:") || // Retry field (after newlines)
-											trimmedRest.match(/^[a-zA-Z_-]+:\s*/) // Generic SSE field pattern (after newlines, allow no space)
-										) {
-											// This is the end of our data event
-											eventEnd = newlinePos;
-										} else {
-											// Content continues on next line - use full buffer
-											eventEnd = bufferCopy.length;
-										}
-									}
-								}
-							} else {
-								// No newline found after event data - event is incomplete
-								// Try to detect if we have a complete JSON object
-								const eventDataCandidate = bufferCopy.slice(eventStartPos);
-								if (eventDataCandidate.length > 0) {
-									// Try to validate if this looks like complete JSON
-									try {
-										JSON.parse(eventDataCandidate.trim());
-										// If we can parse it, it's complete
-										eventEnd = bufferCopy.length;
-									} catch {
-										// JSON parsing failed - event is incomplete
-										break;
-									}
-								} else {
-									// No event data yet
-									break;
-								}
-							}
+						// Add effort beta header for Anthropic if effort parameter is specified
+						if (usedProvider === "anthropic" && effort !== undefined) {
+							const currentBeta = headers["anthropic-beta"];
+							headers["anthropic-beta"] = currentBeta
+								? `${currentBeta},effort-2025-11-24`
+								: "effort-2025-11-24";
 						}
 
-						const eventData = bufferCopy.slice(dataIndex + 6, eventEnd).trim();
+						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+						if (
+							usedProvider === "anthropic" &&
+							response_format?.type === "json_schema"
+						) {
+							const currentBeta = headers["anthropic-beta"];
+							headers["anthropic-beta"] = currentBeta
+								? `${currentBeta},structured-outputs-2025-11-13`
+								: "structured-outputs-2025-11-13";
+						}
 
-						// Debug logging for troublesome events
-						if (eventData.includes("event:") || eventData.includes("id:")) {
-							logger.warn("Event data contains SSE field", {
-								eventData:
-									eventData.substring(0, 200) +
-									(eventData.length > 200 ? "..." : ""),
-								dataIndex,
-								eventEnd,
-								bufferLength: bufferCopy.length,
-								provider: usedProvider,
+						// Create a combined signal for both timeout and cancellation
+						const fetchSignal = createStreamingCombinedSignal(
+							requestCanBeCanceled ? controller : undefined,
+						);
+
+						res = await fetch(url, {
+							method: "POST",
+							headers,
+							body: JSON.stringify(requestBody),
+							signal: fetchSignal,
+						});
+					} catch (error) {
+						// Clean up the event listeners
+						c.req.raw.signal.removeEventListener("abort", onAbort);
+
+						// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
+						if (isTimeoutError(error)) {
+							// Handle timeout error
+							const errorMessage =
+								error instanceof Error ? error.message : "Request timeout";
+							logger.warn("Upstream request timeout", {
+								error: errorMessage,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
 							});
-						}
 
-						if (eventData === "[DONE]") {
-							// Set default finish_reason if not provided by the stream
-							// Some providers (like Novita) don't send finish_reason in streaming chunks
-							if (finishReason === null) {
-								// Default to "stop" unless we have tool calls
-								finishReason =
-									streamingToolCalls && streamingToolCalls.length > 0
-										? "tool_calls"
-										: "stop";
+							// Log the timeout error in the database
+							const timeoutPluginIds = plugins?.map((p) => p.id) || [];
+
+							// Check if we should retry before logging so we can mark the log as retried
+							const willRetryTimeout = shouldRetryRequest({
+								requestedProvider,
+								noFallback,
+								statusCode: 0,
+								retryCount: retryAttempt,
+								remainingProviders:
+									(routingMetadata?.providerScores.length ?? 0) -
+									failedProviderIds.size -
+									1,
+								usedProvider,
+							});
+
+							const baseLogEntry = createLogEntry(
+								requestId,
+								project,
+								apiKey,
+								providerKey?.id,
+								usedModelFormatted,
+								usedModelMapping,
+								usedProvider,
+								initialRequestedModel,
+								requestedProvider,
+								messages,
+								temperature,
+								max_tokens,
+								top_p,
+								frequency_penalty,
+								presence_penalty,
+								reasoning_effort,
+								reasoning_max_tokens,
+								effort,
+								response_format,
+								tools,
+								tool_choice,
+								source,
+								customHeaders,
+								debugMode,
+								userAgent,
+								image_config,
+								routingMetadata,
+								rawBody,
+								null, // No response for timeout error
+								requestBody,
+								null, // No upstream response for timeout error
+								timeoutPluginIds,
+								undefined, // No plugin results for error case
+							);
+
+							await insertLog({
+								...baseLogEntry,
+								duration: Date.now() - perAttemptStartTime,
+								timeToFirstToken: null,
+								timeToFirstReasoningToken: null,
+								responseSize: 0,
+								content: null,
+								reasoningContent: null,
+								finishReason: "upstream_error",
+								promptTokens: null,
+								completionTokens: null,
+								totalTokens: null,
+								reasoningTokens: null,
+								cachedTokens: null,
+								hasError: true,
+								streamed: true,
+								canceled: false,
+								errorDetails: {
+									statusCode: 0,
+									statusText: "TimeoutError",
+									responseText: errorMessage,
+								},
+								cachedInputCost: null,
+								requestCost: null,
+								webSearchCost: null,
+								imageInputTokens: null,
+								imageOutputTokens: null,
+								imageInputCost: null,
+								imageOutputCost: null,
+								discount: null,
+								dataStorageCost: "0",
+								cached: false,
+								toolResults: null,
+								retried: willRetryTimeout,
+								retriedByLogId: willRetryTimeout ? finalLogId : null,
+							});
+
+							if (willRetryTimeout) {
+								routingAttempts.push({
+									provider: usedProvider,
+									model: usedModel,
+									status_code: 0,
+									error_type: getErrorType(0),
+									succeeded: false,
+								});
+								failedProviderIds.add(usedProvider);
+								continue;
 							}
 
-							// Calculate final usage if we don't have complete data
-							let finalPromptTokens = promptTokens;
-							let finalCompletionTokens = completionTokens;
-							let finalTotalTokens = totalTokens;
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Upstream provider timeout: ${errorMessage}`,
+										type: "upstream_timeout",
+										code: "timeout",
+									},
+								}),
+								id: String(eventId++),
+							});
+							return;
+						} else if (error instanceof Error && error.name === "AbortError") {
+							// Log the canceled request
+							// Extract plugin IDs for logging (canceled request)
+							const canceledPluginIds = plugins?.map((p) => p.id) || [];
 
-							// Estimate missing tokens if needed using helper function
-							if (finalPromptTokens === null || finalPromptTokens === 0) {
-								const estimation = estimateTokens(
+							// Calculate costs for cancelled request if billing is enabled
+							const billCancelled = shouldBillCancelledRequests();
+							let cancelledCosts: Awaited<
+								ReturnType<typeof calculateCosts>
+							> | null = null;
+							let estimatedPromptTokens: number | null = null;
+
+							if (billCancelled) {
+								// Estimate prompt tokens from messages
+								const tokenEstimation = estimateTokens(
 									usedProvider,
 									messages,
 									null,
 									null,
 									null,
 								);
-								finalPromptTokens = estimation.calculatedPromptTokens;
-							}
+								estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
 
-							if (finalCompletionTokens === null) {
-								let textTokens = estimateTokensFromContent(fullContent);
-								// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-								// This is based on Google's image token calculation
-								let imageTokens = 0;
-								if (imageByteSize > 0) {
-									// Base tokens per image (258) + additional tokens based on size
-									imageTokens = 258 + Math.ceil(imageByteSize / 750);
-								}
-								finalCompletionTokens = textTokens + imageTokens;
-							}
-
-							if (finalTotalTokens === null) {
-								finalTotalTokens =
-									(finalPromptTokens || 0) +
-									(finalCompletionTokens || 0) +
-									(reasoningTokens || 0);
-							}
-
-							// Send final usage chunk before [DONE] if we have any usage data
-							if (
-								finalPromptTokens !== null ||
-								finalCompletionTokens !== null ||
-								finalTotalTokens !== null
-							) {
-								// Calculate costs for streaming response
-								const streamingCosts = calculateCosts(
+								// Calculate costs based on prompt tokens only (no completion yet)
+								// If web search tool was enabled, count it as 1 search for billing
+								cancelledCosts = await calculateCosts(
 									usedModel,
 									usedProvider,
-									finalPromptTokens,
-									finalCompletionTokens,
-									cachedTokens,
+									estimatedPromptTokens,
+									0, // No completion tokens yet
+									null, // No cached tokens
 									{
 										prompt: messages.map((m) => m.content).join("\n"),
-										completion: fullContent,
-										toolResults: streamingToolCalls || undefined,
+										completion: "",
 									},
-									reasoningTokens,
-									outputImageCount,
-									image_config?.image_size,
+									null, // No reasoning tokens
+									0, // No output images
+									undefined,
 									inputImageCount,
-									webSearchCount,
+									webSearchTool ? 1 : null, // Bill for web search if it was enabled
+									project.organizationId,
+								);
+							}
+
+							const baseLogEntry = createLogEntry(
+								requestId,
+								project,
+								apiKey,
+								providerKey?.id,
+								usedModelFormatted,
+								usedModelMapping,
+								usedProvider,
+								initialRequestedModel,
+								requestedProvider,
+								messages,
+								temperature,
+								max_tokens,
+								top_p,
+								frequency_penalty,
+								presence_penalty,
+								reasoning_effort,
+								reasoning_max_tokens,
+								effort,
+								response_format,
+								tools,
+								tool_choice,
+								source,
+								customHeaders,
+								debugMode,
+								userAgent,
+								image_config,
+								routingMetadata,
+								rawBody,
+								null, // No response for canceled request
+								requestBody, // The request that was sent before cancellation
+								null, // No upstream response for canceled request
+								canceledPluginIds,
+								undefined, // No plugin results for canceled request
+							);
+
+							await insertLog({
+								...baseLogEntry,
+								duration: Date.now() - perAttemptStartTime,
+								timeToFirstToken: null, // Not applicable for canceled request
+								timeToFirstReasoningToken: null, // Not applicable for canceled request
+								responseSize: 0,
+								content: null,
+								reasoningContent: null,
+								finishReason: "canceled",
+								promptTokens: billCancelled
+									? (
+											cancelledCosts?.promptTokens ?? estimatedPromptTokens
+										)?.toString()
+									: null,
+								completionTokens: billCancelled ? "0" : null,
+								totalTokens: billCancelled
+									? (
+											cancelledCosts?.promptTokens ?? estimatedPromptTokens
+										)?.toString()
+									: null,
+								reasoningTokens: null,
+								cachedTokens: null,
+								hasError: false,
+								streamed: true,
+								canceled: true,
+								errorDetails: null,
+								inputCost: cancelledCosts?.inputCost ?? null,
+								outputCost: cancelledCosts?.outputCost ?? null,
+								cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+								requestCost: cancelledCosts?.requestCost ?? null,
+								webSearchCost: cancelledCosts?.webSearchCost ?? null,
+								imageInputTokens:
+									cancelledCosts?.imageInputTokens?.toString() ?? null,
+								imageOutputTokens:
+									cancelledCosts?.imageOutputTokens?.toString() ?? null,
+								imageInputCost: cancelledCosts?.imageInputCost ?? null,
+								imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+								cost: cancelledCosts?.totalCost ?? null,
+								estimatedCost: cancelledCosts?.estimatedCost ?? false,
+								discount: cancelledCosts?.discount ?? null,
+								dataStorageCost: billCancelled
+									? calculateDataStorageCost(
+											cancelledCosts?.promptTokens ?? estimatedPromptTokens,
+											null,
+											0,
+											null,
+											retentionLevel,
+										)
+									: "0",
+								cached: false,
+								toolResults: null,
+							});
+
+							// Send a cancellation event to the client
+							await writeSSEAndCache({
+								event: "canceled",
+								data: JSON.stringify({
+									message: "Request canceled by client",
+								}),
+								id: String(eventId++),
+							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							clearKeepalive();
+							return;
+						} else if (error instanceof Error) {
+							// Handle fetch errors (timeout, connection failures, etc.)
+							const errorMessage = error.message;
+							logger.warn("Fetch error", {
+								error: errorMessage,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
+							});
+
+							// Log the error in the database
+							// Extract plugin IDs for logging (fetch error)
+							const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
+							// Check if we should retry before logging so we can mark the log as retried
+							const willRetryFetch = shouldRetryRequest({
+								requestedProvider,
+								noFallback,
+								statusCode: 0,
+								retryCount: retryAttempt,
+								remainingProviders:
+									(routingMetadata?.providerScores.length ?? 0) -
+									failedProviderIds.size -
+									1,
+								usedProvider,
+							});
+
+							const baseLogEntry = createLogEntry(
+								requestId,
+								project,
+								apiKey,
+								providerKey?.id,
+								usedModelFormatted,
+								usedModelMapping,
+								usedProvider,
+								initialRequestedModel,
+								requestedProvider,
+								messages,
+								temperature,
+								max_tokens,
+								top_p,
+								frequency_penalty,
+								presence_penalty,
+								reasoning_effort,
+								reasoning_max_tokens,
+								effort,
+								response_format,
+								tools,
+								tool_choice,
+								source,
+								customHeaders,
+								debugMode,
+								userAgent,
+								image_config,
+								routingMetadata,
+								rawBody,
+								null, // No response for fetch error
+								requestBody, // The request that resulted in error
+								null, // No upstream response for fetch error
+								fetchErrorPluginIds,
+								undefined, // No plugin results for error case
+							);
+
+							await insertLog({
+								...baseLogEntry,
+								duration: Date.now() - perAttemptStartTime,
+								timeToFirstToken: null, // Not applicable for error case
+								timeToFirstReasoningToken: null, // Not applicable for error case
+								responseSize: 0,
+								content: null,
+								reasoningContent: null,
+								finishReason: "upstream_error",
+								promptTokens: null,
+								completionTokens: null,
+								totalTokens: null,
+								reasoningTokens: null,
+								cachedTokens: null,
+								hasError: true,
+								streamed: true,
+								canceled: false,
+								errorDetails: {
+									statusCode: 0,
+									statusText: error.name,
+									responseText: errorMessage,
+								},
+								cachedInputCost: null,
+								requestCost: null,
+								webSearchCost: null,
+								imageInputTokens: null,
+								imageOutputTokens: null,
+								imageInputCost: null,
+								imageOutputCost: null,
+								discount: null,
+								dataStorageCost: "0",
+								cached: false,
+								toolResults: null,
+								retried: willRetryFetch,
+								retriedByLogId: willRetryFetch ? finalLogId : null,
+							});
+
+							// Report key health for environment-based tokens
+							if (envVarName !== undefined) {
+								reportKeyError(envVarName, configIndex, 0);
+							}
+
+							if (willRetryFetch) {
+								routingAttempts.push({
+									provider: usedProvider,
+									model: usedModel,
+									status_code: 0,
+									error_type: getErrorType(0),
+									succeeded: false,
+								});
+								failedProviderIds.add(usedProvider);
+								continue;
+							}
+
+							// Send error event to the client
+							await writeSSEAndCache({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Failed to connect to provider: ${errorMessage}`,
+										type: "upstream_error",
+										code: "fetch_failed",
+									},
+								}),
+								id: String(eventId++),
+							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							clearKeepalive();
+							return;
+						} else {
+							throw error;
+						}
+					}
+
+					if (!res.ok) {
+						const errorResponseText = await res.text();
+
+						// Determine the finish reason for error handling
+						const finishReason = getFinishReasonFromError(
+							res.status,
+							errorResponseText,
+						);
+
+						if (
+							finishReason !== "client_error" &&
+							finishReason !== "content_filter"
+						) {
+							logger.warn("Provider error", {
+								status: res.status,
+								errorText: errorResponseText,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
+							});
+						}
+
+						// Log the request in the database
+						// Extract plugin IDs for logging
+						const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
+
+						// Check if we should retry before logging so we can mark the log as retried
+						const willRetryHttpError = shouldRetryRequest({
+							requestedProvider,
+							noFallback,
+							statusCode: res.status,
+							retryCount: retryAttempt,
+							remainingProviders:
+								(routingMetadata?.providerScores.length ?? 0) -
+								failedProviderIds.size -
+								1,
+							usedProvider,
+						});
+
+						const baseLogEntry = createLogEntry(
+							requestId,
+							project,
+							apiKey,
+							providerKey?.id,
+							usedModelFormatted,
+							usedModelMapping,
+							usedProvider,
+							initialRequestedModel,
+							requestedProvider,
+							messages,
+							temperature,
+							max_tokens,
+							top_p,
+							frequency_penalty,
+							presence_penalty,
+							reasoning_effort,
+							reasoning_max_tokens,
+							effort,
+							response_format,
+							tools,
+							tool_choice,
+							source,
+							customHeaders,
+							debugMode,
+							userAgent,
+							image_config,
+							routingMetadata,
+							rawBody,
+							null, // No response for error case
+							requestBody, // The request that was sent and resulted in error
+							null, // No upstream response for error case
+							streamingErrorPluginIds,
+							undefined, // No plugin results for error case
+						);
+
+						await insertLog({
+							...baseLogEntry,
+							duration: Date.now() - perAttemptStartTime,
+							timeToFirstToken: null,
+							timeToFirstReasoningToken: null,
+							responseSize: errorResponseText.length,
+							content: null,
+							reasoningContent: null,
+							finishReason,
+							promptTokens: null,
+							completionTokens: null,
+							totalTokens: null,
+							reasoningTokens: null,
+							cachedTokens: null,
+							hasError: finishReason !== "content_filter", // content_filter is not an error
+							streamed: true,
+							canceled: false,
+							errorDetails:
+								finishReason === "content_filter"
+									? null
+									: {
+											statusCode: res.status,
+											statusText: res.statusText,
+											responseText: errorResponseText,
+										},
+							cachedInputCost: null,
+							requestCost: null,
+							webSearchCost: null,
+							imageInputTokens: null,
+							imageOutputTokens: null,
+							imageInputCost: null,
+							imageOutputCost: null,
+							discount: null,
+							dataStorageCost: "0",
+							cached: false,
+							toolResults: null,
+							retried: willRetryHttpError,
+							retriedByLogId: willRetryHttpError ? finalLogId : null,
+						});
+
+						// Report key health for environment-based tokens
+						// Don't report content_filter as a key error - it's intentional provider behavior
+						if (envVarName !== undefined && finishReason !== "content_filter") {
+							reportKeyError(
+								envVarName,
+								configIndex,
+								res.status,
+								errorResponseText,
+							);
+						}
+
+						if (willRetryHttpError) {
+							routingAttempts.push({
+								provider: usedProvider,
+								model: usedModel,
+								status_code: res.status,
+								error_type: getErrorType(res.status),
+								succeeded: false,
+							});
+							failedProviderIds.add(usedProvider);
+							continue;
+						}
+
+						// For content_filter, return a proper completion chunk (not an error)
+						// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
+						if (finishReason === "content_filter") {
+							const contentFilterChunk = {
+								id: `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: Math.floor(Date.now() / 1000),
+								model: `${usedProvider}/${baseModelName}`,
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: "content_filter",
+									},
+								],
+								metadata: {
+									requested_model: initialRequestedModel,
+									requested_provider: requestedProvider,
+									used_model: baseModelName,
+									used_provider: usedProvider,
+									underlying_used_model: usedModel,
+								},
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(contentFilterChunk),
+								id: String(eventId++),
+							});
+
+							// Send a usage chunk for SDK compatibility (stream_options: { include_usage: true })
+							const contentFilterUsageChunk = {
+								id: `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: Math.floor(Date.now() / 1000),
+								model: `${usedProvider}/${baseModelName}`,
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: null,
+									},
+								],
+								usage: {
+									prompt_tokens: 0,
+									completion_tokens: 0,
+									total_tokens: 0,
+								},
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(contentFilterUsageChunk),
+								id: String(eventId++),
+							});
+
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+						} else {
+							// For client errors, return the original provider error response
+							let errorData;
+							if (finishReason === "client_error") {
+								try {
+									errorData = JSON.parse(errorResponseText);
+								} catch {
+									// If we can't parse the original error, fall back to our format
+									errorData = {
+										error: {
+											message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+											type: finishReason,
+											param: null,
+											code: finishReason,
+											responseText: errorResponseText,
+										},
+									};
+								}
+							} else {
+								errorData = {
+									error: {
+										message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+										type: finishReason,
+										param: null,
+										code: finishReason,
+										responseText: errorResponseText,
+									},
+								};
+							}
+
+							await writeSSEAndCache({
+								event: "error",
+								data: JSON.stringify(errorData),
+								id: String(eventId++),
+							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+						}
+
+						clearKeepalive();
+						return;
+					}
+
+					break; // Fetch succeeded, exit retry loop
+				} // End of retry for loop
+
+				// Add the final attempt (successful or last failed) to routing
+				if (res && res.ok && usedProvider) {
+					routingAttempts.push({
+						provider: usedProvider,
+						model: usedModel,
+						status_code: res.status,
+						error_type: "none",
+						succeeded: true,
+					});
+				}
+
+				// Update routingMetadata with all routing attempts for DB logging
+				if (routingMetadata) {
+					// Enrich providerScores with failure info from routing attempts
+					const failedMap = new Map(
+						routingAttempts
+							.filter((a) => !a.succeeded)
+							.map((f) => [f.provider, f]),
+					);
+					routingMetadata = {
+						...routingMetadata,
+						routing: routingAttempts,
+						providerScores: routingMetadata.providerScores.map((score) => {
+							const failure = failedMap.get(score.providerId);
+							if (failure) {
+								return {
+									...score,
+									failed: true,
+									status_code: failure.status_code,
+									error_type: failure.error_type,
+								};
+							}
+							return score;
+						}),
+					};
+				}
+
+				// If all retries exhausted without a successful response
+				if (!res || !res.ok) {
+					await writeSSEAndCache({
+						event: "error",
+						data: JSON.stringify({
+							error: {
+								message: "All provider attempts failed",
+								type: "upstream_error",
+								code: "all_providers_failed",
+							},
+						}),
+						id: String(eventId++),
+					});
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					clearKeepalive();
+					return;
+				}
+
+				// After retry loop: narrow provider variables for the rest of the streaming body
+				if (
+					!usedProvider ||
+					!usedToken ||
+					!url ||
+					!usedModelFormatted ||
+					!usedModelMapping
+				) {
+					throw new Error("Provider context not initialized");
+				}
+
+				if (!res.body) {
+					await writeSSEAndCache({
+						event: "error",
+						data: JSON.stringify({
+							error: {
+								message: "No response body from provider",
+								type: "gateway_error",
+								param: null,
+								code: "gateway_error",
+							},
+						}),
+						id: String(eventId++),
+					});
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					clearKeepalive();
+					return;
+				}
+
+				const reader = res.body.getReader();
+				let fullContent = "";
+				let fullReasoningContent = "";
+				let finishReason = null;
+				let promptTokens = null;
+				let completionTokens = null;
+				let totalTokens = null;
+				let reasoningTokens = null;
+				let cachedTokens = null;
+				let streamingToolCalls = null;
+				let imageByteSize = 0; // Track total image data size for token estimation
+				let outputImageCount = 0; // Track number of output images for cost calculation
+				let webSearchCount = 0; // Track web search calls for cost calculation
+				let doneSent = false; // Track if [DONE] has been sent
+				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
+				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
+				let rawUpstreamData = ""; // Raw data received from upstream provider
+				const isAwsBedrock = usedProvider === "aws-bedrock";
+
+				// Response healing for streaming mode
+				const streamingResponseHealingEnabled = plugins?.some(
+					(p) => p.id === "response-healing",
+				);
+				const streamingIsJsonResponseFormat =
+					response_format?.type === "json_object" ||
+					response_format?.type === "json_schema";
+				const shouldBufferForHealing =
+					streamingResponseHealingEnabled && streamingIsJsonResponseFormat;
+
+				// Buffer for storing chunks when healing is enabled
+				// We need to buffer content, track last chunk info, and replay healed content at the end
+				let bufferedContentChunks: string[] = [];
+				let lastChunkId: string | null = null;
+				let lastChunkModel: string | null = null;
+				let lastChunkCreated: number | null = null;
+				let streamingPluginResults: {
+					responseHealing?: {
+						healed: boolean;
+						healingMethod?: string;
+					};
+				} = {};
+
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							break;
+						}
+
+						// For AWS Bedrock, convert binary event stream to SSE format
+						let chunk: string;
+						if (isAwsBedrock) {
+							// Append binary data to buffer
+							const newBuffer = new Uint8Array(
+								binaryBuffer.length + value.length,
+							);
+							newBuffer.set(binaryBuffer);
+							newBuffer.set(value, binaryBuffer.length);
+							binaryBuffer = newBuffer;
+
+							// Parse and convert available events
+							const { sse, bytesConsumed } =
+								convertAwsEventStreamToSSE(binaryBuffer);
+							chunk = sse;
+
+							// Remove consumed bytes from binary buffer
+							if (bytesConsumed > 0) {
+								binaryBuffer = binaryBuffer.slice(bytesConsumed);
+							}
+						} else {
+							// Convert the Uint8Array to a string for SSE
+							chunk = sharedTextDecoder.decode(value, { stream: true });
+						}
+
+						// Log error on large chunks (1MB+) - should almost never happen
+						if (chunk.length > 1024 * 1024) {
+							logger.error(
+								`Large chunk received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB`,
+							);
+						}
+
+						buffer += chunk;
+						// Collect raw upstream data for logging only in debug mode and within size limit
+						if (debugMode && rawUpstreamData.length < MAX_RAW_DATA_SIZE) {
+							rawUpstreamData += chunk;
+						}
+
+						// Check buffer size to prevent memory exhaustion
+						if (buffer.length > MAX_BUFFER_SIZE) {
+							const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
+							logger.error(
+								`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
+							);
+
+							// Send error to client
+							try {
+								await stream.writeSSE({
+									event: "error",
+									data: JSON.stringify({
+										error: {
+											message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+											type: "gateway_error",
+											param: null,
+											code: "buffer_overflow",
+										},
+									}),
+									id: String(eventId++),
+								});
+								await stream.writeSSE({
+									event: "done",
+									data: "[DONE]",
+									id: String(eventId++),
+								});
+								doneSent = true;
+							} catch (sseError) {
+								logger.error(
+									"Failed to send buffer overflow error SSE",
+									sseError instanceof Error
+										? sseError
+										: new Error(String(sseError)),
+								);
+							}
+
+							// Set error for logging
+							streamingError = {
+								message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+								type: "buffer_overflow",
+								code: "buffer_overflow",
+								details: {
+									bufferSize: buffer.length,
+									maxBufferSize: MAX_BUFFER_SIZE,
+									provider: usedProvider,
+									model: usedModel,
+								},
+							};
+
+							break;
+						}
+
+						// Process SSE events from buffer
+						let processedLength = 0;
+						const bufferCopy = buffer;
+
+						// Look for complete SSE events, handling events at buffer start
+						let searchStart = 0;
+						while (searchStart < bufferCopy.length) {
+							// Find "data: " - could be at start of buffer or after newline
+							let dataIndex = -1;
+
+							if (searchStart === 0 && bufferCopy.startsWith("data: ")) {
+								// Event at buffer start
+								dataIndex = 0;
+							} else {
+								// Look for "\ndata: " pattern
+								const newlineDataIndex = bufferCopy.indexOf(
+									"\ndata: ",
+									searchStart,
+								);
+								if (newlineDataIndex !== -1) {
+									dataIndex = newlineDataIndex + 1; // Skip the newline
+								}
+							}
+
+							if (dataIndex === -1) {
+								break;
+							}
+
+							// Find the end of this SSE event
+							// Look for next event or proper event termination
+							let eventEnd = -1;
+
+							// First, look for the next "data: " event (after a newline)
+							const nextEventIndex = bufferCopy.indexOf(
+								"\ndata: ",
+								dataIndex + 6,
+							);
+							if (nextEventIndex !== -1) {
+								// Found next data event, but we still need to check if there are SSE fields in between
+								// For Anthropic, we might have: data: {...}\n\nevent: something\n\ndata: {...}
+								const betweenEvents = bufferCopy.slice(
+									dataIndex + 6,
+									nextEventIndex,
+								);
+								const firstNewline = betweenEvents.indexOf("\n");
+
+								if (firstNewline !== -1) {
+									// Check if JSON up to first newline is valid
+									const jsonCandidate = betweenEvents
+										.slice(0, firstNewline)
+										.trim();
+									// Quick heuristic check before expensive JSON.parse
+									let isValidJson = false;
+									if (mightBeCompleteJson(jsonCandidate)) {
+										try {
+											JSON.parse(jsonCandidate);
+											isValidJson = true;
+										} catch {
+											// JSON is not complete
+										}
+									}
+									if (isValidJson) {
+										// JSON is valid - end at first newline to exclude SSE fields
+										eventEnd = dataIndex + 6 + firstNewline;
+									} else {
+										// JSON is not complete, use the full segment to next data event
+										eventEnd = nextEventIndex;
+									}
+								} else {
+									// No newline found, use full segment
+									eventEnd = nextEventIndex;
+								}
+							} else {
+								// No next event found - check for proper event termination
+								// SSE events should end with at least one newline
+								const eventStartPos = dataIndex + 6; // Start of event data
+
+								// For Anthropic SSE format, we need to be more careful about event boundaries
+								// Try to find the end of the JSON data by looking for the closing brace
+								let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
+								if (newlinePos !== -1) {
+									// We found a newline - check if the JSON before it is valid
+									const jsonCandidate = bufferCopy
+										.slice(eventStartPos, newlinePos)
+										.trim();
+									// Quick heuristic check before expensive JSON.parse
+									let isValidJson = false;
+									if (mightBeCompleteJson(jsonCandidate)) {
+										try {
+											JSON.parse(jsonCandidate);
+											isValidJson = true;
+										} catch {
+											// JSON is not complete
+										}
+									}
+									if (isValidJson) {
+										// JSON is valid - this newline marks the end of our data
+										eventEnd = newlinePos;
+									} else {
+										// JSON is not valid, check if there's more content after the newline
+										if (newlinePos + 1 >= bufferCopy.length) {
+											// Newline is at the end of buffer - event is incomplete
+											break;
+										} else {
+											// There's content after the newline
+											// Check if it's another SSE field (like event:, id:, retry:, etc.) or if the event continues
+											const restOfBuffer = bufferCopy.slice(newlinePos + 1);
+
+											// Check for SSE field patterns (event:, id:, retry:, etc.)
+											// Skip leading newlines efficiently without creating new strings
+											let trimStart = 0;
+											while (
+												trimStart < restOfBuffer.length &&
+												restOfBuffer[trimStart] === "\n"
+											) {
+												trimStart++;
+											}
+
+											if (
+												restOfBuffer.startsWith("\n") || // Empty line - end of event
+												restOfBuffer.startsWith("data: ") // Next data field
+											) {
+												// This is the end of our data event
+												eventEnd = newlinePos;
+											} else if (trimStart > 0) {
+												// Had leading newlines - check for SSE fields after them
+												const afterNewlines = restOfBuffer.substring(trimStart);
+												if (
+													afterNewlines.startsWith("event:") ||
+													afterNewlines.startsWith("id:") ||
+													afterNewlines.startsWith("retry:") ||
+													SSE_FIELD_PATTERN.test(afterNewlines)
+												) {
+													eventEnd = newlinePos;
+												} else {
+													// Content continues on next line - use full buffer
+													eventEnd = bufferCopy.length;
+												}
+											} else {
+												// No leading newlines - check SSE field directly
+												if (SSE_FIELD_PATTERN.test(restOfBuffer)) {
+													eventEnd = newlinePos;
+												} else {
+													// Content continues on next line - use full buffer
+													eventEnd = bufferCopy.length;
+												}
+											}
+										}
+									}
+								} else {
+									// No newline found after event data - event is incomplete
+									// Try to detect if we have a complete JSON object
+									const eventDataCandidate = bufferCopy.slice(eventStartPos);
+									if (eventDataCandidate.length > 0) {
+										// Quick heuristic check before expensive JSON.parse
+										const trimmedCandidate = eventDataCandidate.trim();
+										if (mightBeCompleteJson(trimmedCandidate)) {
+											try {
+												JSON.parse(trimmedCandidate);
+												// If we can parse it, it's complete
+												eventEnd = bufferCopy.length;
+											} catch {
+												// JSON parsing failed - event is incomplete
+												break;
+											}
+										} else {
+											// Heuristic says incomplete - don't bother parsing
+											break;
+										}
+									} else {
+										// No event data yet
+										break;
+									}
+								}
+							}
+
+							const eventData = bufferCopy
+								.slice(dataIndex + 6, eventEnd)
+								.trim();
+
+							// Debug logging for troublesome events
+							// Only scan for SSE field contamination on small events to avoid
+							// O(n) scans on multi-MB payloads (e.g. base64 image data).
+							// Large events (>64KB) are almost always valid image/binary data.
+							if (
+								eventData.length < 65536 &&
+								(eventData.includes("event:") || eventData.includes("id:"))
+							) {
+								logger.warn("Event data contains SSE field", {
+									eventData:
+										eventData.substring(0, 200) +
+										(eventData.length > 200 ? "..." : ""),
+									dataIndex,
+									eventEnd,
+									bufferLength: bufferCopy.length,
+									provider: usedProvider,
+								});
+							}
+
+							if (eventData === "[DONE]") {
+								// Set default finish_reason if not provided by the stream
+								// Some providers (like Novita) don't send finish_reason in streaming chunks
+								if (finishReason === null) {
+									// Default to "stop" unless we have tool calls
+									finishReason =
+										streamingToolCalls && streamingToolCalls.length > 0
+											? "tool_calls"
+											: "stop";
+								}
+
+								// Calculate final usage if we don't have complete data
+								let finalPromptTokens = promptTokens;
+								let finalCompletionTokens = completionTokens;
+								let finalTotalTokens = totalTokens;
+
+								// Estimate missing tokens if needed using helper function
+								if (finalPromptTokens === null || finalPromptTokens === 0) {
+									const estimation = estimateTokens(
+										usedProvider,
+										messages,
+										null,
+										null,
+										null,
+									);
+									finalPromptTokens = estimation.calculatedPromptTokens;
+								}
+
+								if (finalCompletionTokens === null) {
+									let textTokens = estimateTokensFromContent(fullContent);
+									// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+									// This is based on Google's image token calculation
+									let imageTokens = 0;
+									if (imageByteSize > 0) {
+										// Base tokens per image (258) + additional tokens based on size
+										imageTokens = 258 + Math.ceil(imageByteSize / 750);
+									}
+									finalCompletionTokens = textTokens + imageTokens;
+								}
+
+								if (finalTotalTokens === null) {
+									finalTotalTokens =
+										(finalPromptTokens || 0) +
+										(finalCompletionTokens || 0) +
+										(reasoningTokens || 0);
+								}
+
+								// Send final usage chunk before [DONE] if we have any usage data
+								if (
+									finalPromptTokens !== null ||
+									finalCompletionTokens !== null ||
+									finalTotalTokens !== null
+								) {
+									// Calculate costs for streaming response
+									const streamingCosts = await calculateCosts(
+										usedModel,
+										usedProvider,
+										finalPromptTokens,
+										finalCompletionTokens,
+										cachedTokens,
+										{
+											prompt: messages.map((m) => m.content).join("\n"),
+											completion: fullContent,
+											toolResults: streamingToolCalls || undefined,
+										},
+										reasoningTokens,
+										outputImageCount,
+										image_config?.image_size,
+										inputImageCount,
+										webSearchCount,
+										project.organizationId,
+									);
+
+									// Include costs in response for all users
+									const shouldIncludeCosts = true;
+
+									const finalUsageChunk = {
+										id: `chatcmpl-${Date.now()}`,
+										object: "chat.completion.chunk",
+										created: Math.floor(Date.now() / 1000),
+										model: usedModel,
+										choices: [
+											{
+												index: 0,
+												delta: {},
+												finish_reason: null,
+											},
+										],
+										usage: {
+											prompt_tokens: Math.max(
+												1,
+												streamingCosts.promptTokens || finalPromptTokens || 1,
+											),
+											completion_tokens:
+												streamingCosts.completionTokens ||
+												finalCompletionTokens ||
+												0,
+											total_tokens: Math.max(
+												1,
+												(streamingCosts.promptTokens ||
+													finalPromptTokens ||
+													0) +
+													(streamingCosts.completionTokens ||
+														finalCompletionTokens ||
+														0) +
+													(reasoningTokens || 0),
+											),
+											...(shouldIncludeCosts && {
+												cost_usd_total: streamingCosts.totalCost,
+												cost_usd_input: streamingCosts.inputCost,
+												cost_usd_output: streamingCosts.outputCost,
+												cost_usd_cached_input: streamingCosts.cachedInputCost,
+												cost_usd_request: streamingCosts.requestCost,
+												cost_usd_image_input: streamingCosts.imageInputCost,
+												cost_usd_image_output: streamingCosts.imageOutputCost,
+											}),
+										},
+									};
+
+									await writeSSEAndCache({
+										data: JSON.stringify(finalUsageChunk),
+										id: String(eventId++),
+									});
+								}
+
+								await writeSSEAndCache({
+									event: "done",
+									data: "[DONE]",
+									id: String(eventId++),
+								});
+								doneSent = true;
+
+								processedLength = eventEnd;
+							} else {
+								// Try to parse JSON data - it might span multiple lines
+								let data;
+								try {
+									data = JSON.parse(eventData);
+								} catch (e) {
+									// If JSON parsing fails, this might be an incomplete event
+									// Since we already validated JSON completeness above, this is likely a format issue
+									// Create structured error for logging
+									streamingError = {
+										message: e instanceof Error ? e.message : String(e),
+										type: "json_parse_error",
+										code: "json_parse_error",
+										details: {
+											name: e instanceof Error ? e.name : "ParseError",
+											eventData: eventData.substring(0, 5000),
+											provider: usedProvider,
+											model: usedModel,
+											eventLength: eventData.length,
+											bufferEnd: eventEnd,
+											bufferLength: bufferCopy.length,
+											timestamp: new Date().toISOString(),
+										},
+									};
+									logger.warn("Failed to parse streaming JSON", {
+										error: e instanceof Error ? e.message : String(e),
+										eventData:
+											eventData.substring(0, 200) +
+											(eventData.length > 200 ? "..." : ""),
+										provider: usedProvider,
+										eventLength: eventData.length,
+										bufferEnd: eventEnd,
+										bufferLength: bufferCopy.length,
+									});
+
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									continue;
+								}
+
+								// Transform streaming responses to OpenAI format for all providers
+								const transformedData = transformStreamingToOpenai(
+									usedProvider,
+									usedModel,
+									data,
+									messages,
 								);
 
-								// Only include costs in response if not hosted or if org is pro
-								const shouldIncludeCosts = !isHosted || userPlan === "pro";
-								const showUpgradeMessage = isHosted && userPlan !== "pro";
+								// Skip null events (some providers have non-data events)
+								if (!transformedData) {
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									continue;
+								}
 
+								// For Anthropic, if we have partial usage data, complete it
+								if (usedProvider === "anthropic" && transformedData.usage) {
+									const usage = transformedData.usage;
+									if (
+										usage.output_tokens !== undefined &&
+										usage.prompt_tokens === undefined
+									) {
+										// Estimate prompt tokens if not provided
+										const estimation = estimateTokens(
+											usedProvider,
+											messages,
+											null,
+											null,
+											null,
+										);
+										const estimatedPromptTokens =
+											estimation.calculatedPromptTokens;
+										transformedData.usage = {
+											prompt_tokens: estimatedPromptTokens,
+											completion_tokens: usage.output_tokens,
+											total_tokens: estimatedPromptTokens + usage.output_tokens,
+										};
+									}
+								}
+
+								// For Google providers, add usage information when available
+								if (
+									usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex"
+								) {
+									const usage = extractTokenUsage(
+										data,
+										usedProvider,
+										fullContent,
+										imageByteSize,
+									);
+
+									// If we have usage data from Google, add it to the streaming chunk
+									if (
+										usage.promptTokens !== null ||
+										usage.completionTokens !== null ||
+										usage.totalTokens !== null
+									) {
+										transformedData.usage = {
+											prompt_tokens: usage.promptTokens ?? 0,
+											completion_tokens: usage.completionTokens ?? 0,
+											total_tokens: usage.totalTokens ?? 0,
+											...(usage.reasoningTokens !== null && {
+												reasoning_tokens: usage.reasoningTokens,
+											}),
+										};
+									}
+								}
+
+								// Normalize usage.prompt_tokens_details to always include cached_tokens
+								if (transformedData.usage) {
+									if (transformedData.usage.prompt_tokens_details) {
+										// Preserve all existing keys and only default cached_tokens
+										transformedData.usage.prompt_tokens_details = {
+											...transformedData.usage.prompt_tokens_details,
+											cached_tokens:
+												transformedData.usage.prompt_tokens_details
+													.cached_tokens ?? 0,
+										};
+									} else {
+										// Create prompt_tokens_details with cached_tokens set to 0
+										transformedData.usage.prompt_tokens_details = {
+											cached_tokens: 0,
+										};
+									}
+								}
+
+								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
+								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
+								if (usedProvider === "anthropic") {
+									const toolCalls =
+										transformedData.choices?.[0]?.delta?.tool_calls;
+									if (toolCalls && toolCalls.length > 0) {
+										// First, extract tool calls to update our tracking
+										const rawToolCalls = extractToolCalls(data, usedProvider);
+										if (rawToolCalls && rawToolCalls.length > 0) {
+											if (!streamingToolCalls) {
+												streamingToolCalls = [];
+											}
+											for (const newCall of rawToolCalls) {
+												// For content_block_start events (have id), add to tracking
+												if (newCall.id) {
+													const contentBlockIndex: number =
+														typeof data.index === "number"
+															? data.index
+															: streamingToolCalls.length;
+													// Store at the content block index position
+													streamingToolCalls[contentBlockIndex] = {
+														...newCall,
+														_contentBlockIndex: contentBlockIndex,
+													};
+												}
+												// For content_block_delta events, enrich with stored id/type/name
+												else if (newCall._contentBlockIndex !== undefined) {
+													const existingCall =
+														streamingToolCalls[newCall._contentBlockIndex];
+													if (existingCall) {
+														// Enrich the transformed data with id, type, and function.name
+														for (const tc of toolCalls) {
+															if (tc.index === newCall._contentBlockIndex) {
+																tc.id = existingCall.id;
+																tc.type = "function";
+																if (!tc.function) {
+																	tc.function = {};
+																}
+																tc.function.name = existingCall.function.name;
+															}
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+
+								// When buffering for healing, strip content from chunks and buffer it
+								// We still send metadata (usage, finish_reason, tool_calls) but buffer text content
+								if (shouldBufferForHealing) {
+									const deltaContent =
+										transformedData.choices?.[0]?.delta?.content;
+									if (deltaContent) {
+										bufferedContentChunks.push(deltaContent);
+										// Store chunk metadata for later use when sending healed content
+										lastChunkId = transformedData.id || lastChunkId;
+										lastChunkModel = transformedData.model || lastChunkModel;
+										lastChunkCreated =
+											transformedData.created || lastChunkCreated;
+									}
+
+									// Create a copy without content in delta for streaming
+									const chunkWithoutContent = JSON.parse(
+										JSON.stringify(transformedData),
+									);
+									if (chunkWithoutContent.choices?.[0]?.delta?.content) {
+										delete chunkWithoutContent.choices[0].delta.content;
+									}
+
+									// Only send chunk if it has meaningful data (not just empty delta)
+									const hasUsage = !!chunkWithoutContent.usage;
+									const hasToolCalls =
+										!!chunkWithoutContent.choices?.[0]?.delta?.tool_calls;
+									const hasFinishReason =
+										!!chunkWithoutContent.choices?.[0]?.finish_reason;
+									const hasRole =
+										!!chunkWithoutContent.choices?.[0]?.delta?.role;
+
+									if (hasUsage || hasToolCalls || hasFinishReason || hasRole) {
+										await writeSSEAndCache({
+											data: JSON.stringify(chunkWithoutContent),
+											id: String(eventId++),
+										});
+									}
+								} else {
+									await writeSSEAndCache({
+										data: JSON.stringify(transformedData),
+										id: String(eventId++),
+									});
+								}
+
+								// Extract usage data from transformedData to update tracking variables
+								if (transformedData.usage && usedProvider === "openai") {
+									const usage = transformedData.usage;
+									if (
+										usage.prompt_tokens !== undefined &&
+										usage.prompt_tokens > 0
+									) {
+										promptTokens = usage.prompt_tokens;
+									}
+									if (
+										usage.completion_tokens !== undefined &&
+										usage.completion_tokens > 0
+									) {
+										completionTokens = usage.completion_tokens;
+									}
+									if (
+										usage.total_tokens !== undefined &&
+										usage.total_tokens > 0
+									) {
+										totalTokens = usage.total_tokens;
+									}
+									if (usage.reasoning_tokens !== undefined) {
+										reasoningTokens = usage.reasoning_tokens;
+									}
+								}
+
+								// Extract finishReason from transformedData to update tracking variable
+								if (transformedData.choices?.[0]?.finish_reason) {
+									finishReason = transformedData.choices[0].finish_reason;
+								}
+
+								// Extract content for logging using helper function
+								// For providers with custom extraction logic (google-ai-studio, anthropic),
+								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
+								const contentChunk = extractContent(
+									usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "anthropic"
+										? data
+										: transformedData,
+									usedProvider,
+								);
+								if (contentChunk) {
+									fullContent += contentChunk;
+
+									// Track time to first token if this is the first content chunk
+									if (!firstTokenReceived) {
+										timeToFirstToken = Date.now() - startTime;
+										firstTokenReceived = true;
+									}
+								}
+
+								// Track image data size for Google providers (for token estimation)
+								if (
+									usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex" ||
+									usedProvider === "obsidian"
+								) {
+									const parts = data.candidates?.[0]?.content?.parts || [];
+									for (const part of parts) {
+										if (part.inlineData?.data) {
+											// Base64 string length * 0.75 ≈ actual byte size
+											imageByteSize += Math.ceil(
+												part.inlineData.data.length * 0.75,
+											);
+											outputImageCount++;
+										}
+									}
+								}
+
+								// Track web search calls for cost calculation
+								// Check for web search results based on provider-specific data
+								if (usedProvider === "anthropic") {
+									// For Anthropic, count web_search_tool_result blocks
+									if (
+										data.type === "content_block_start" &&
+										data.content_block?.type === "web_search_tool_result"
+									) {
+										webSearchCount++;
+									}
+								} else if (
+									usedProvider === "google-ai-studio" ||
+									usedProvider === "google-vertex" ||
+									usedProvider === "obsidian"
+								) {
+									// For Google, count when grounding metadata is present
+									if (data.candidates?.[0]?.groundingMetadata) {
+										const groundingMetadata =
+											data.candidates[0].groundingMetadata;
+										if (
+											groundingMetadata.webSearchQueries &&
+											groundingMetadata.webSearchQueries.length > 0 &&
+											webSearchCount === 0
+										) {
+											// Only count once for the entire response
+											webSearchCount =
+												groundingMetadata.webSearchQueries.length;
+										} else if (
+											groundingMetadata.groundingChunks &&
+											webSearchCount === 0
+										) {
+											// Fallback: count once if we have grounding chunks
+											webSearchCount = 1;
+										}
+									}
+								} else if (usedProvider === "openai") {
+									// For OpenAI Responses API, count web_search_call.completed events
+									if (data.type === "response.web_search_call.completed") {
+										webSearchCount++;
+									}
+								}
+
+								// Extract reasoning content for logging using helper function
+								// For providers with custom extraction logic (google-ai-studio, anthropic),
+								// use raw data. For others, use transformed OpenAI format.
+								const reasoningContentChunk = extractReasoning(
+									usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "anthropic"
+										? data
+										: transformedData,
+									usedProvider,
+								);
+								if (reasoningContentChunk) {
+									fullReasoningContent += reasoningContentChunk;
+
+									// Track time to first reasoning token if this is the first reasoning chunk
+									if (!firstReasoningTokenReceived) {
+										timeToFirstReasoningToken = Date.now() - startTime;
+										firstReasoningTokenReceived = true;
+									}
+								}
+
+								// Extract and accumulate tool calls
+								const toolCallsChunk = extractToolCalls(data, usedProvider);
+								if (toolCallsChunk && toolCallsChunk.length > 0) {
+									if (!streamingToolCalls) {
+										streamingToolCalls = [];
+									}
+									// Merge tool calls (accumulating function arguments)
+									for (const newCall of toolCallsChunk) {
+										let existingCall = null;
+
+										// For Anthropic content_block_delta events, match by content block index
+										if (
+											usedProvider === "anthropic" &&
+											newCall._contentBlockIndex !== undefined
+										) {
+											existingCall =
+												streamingToolCalls[newCall._contentBlockIndex];
+										} else {
+											// For other providers and Anthropic content_block_start, match by ID
+											// Note: Array may have sparse entries due to index-based assignment, so check for null/undefined
+											existingCall = streamingToolCalls.find(
+												(call) => call && call.id === newCall.id,
+											);
+										}
+
+										if (existingCall) {
+											// Accumulate function arguments
+											if (newCall.function?.arguments) {
+												existingCall.function.arguments =
+													(existingCall.function.arguments || "") +
+													newCall.function.arguments;
+											}
+										} else {
+											// Clean up temporary fields and add new tool call
+											const cleanCall = { ...newCall };
+											delete cleanCall._contentBlockIndex;
+											streamingToolCalls.push(cleanCall);
+										}
+									}
+								}
+
+								// Handle provider-specific finish reason extraction
+								switch (usedProvider) {
+									case "google-ai-studio":
+									case "google-vertex":
+									case "obsidian":
+										// Preserve original Google finish reason for logging
+										if (data.promptFeedback?.blockReason) {
+											finishReason = data.promptFeedback.blockReason;
+										} else if (data.candidates?.[0]?.finishReason) {
+											finishReason = data.candidates[0].finishReason;
+										}
+										break;
+									case "anthropic":
+										if (
+											data.type === "message_delta" &&
+											data.delta?.stop_reason
+										) {
+											finishReason = data.delta.stop_reason;
+										} else if (
+											data.type === "message_stop" ||
+											data.stop_reason
+										) {
+											finishReason = data.stop_reason || "end_turn";
+										} else if (data.delta?.stop_reason) {
+											finishReason = data.delta.stop_reason;
+										}
+										break;
+									default: // OpenAI format
+										if (data.choices && data.choices[0]?.finish_reason) {
+											finishReason = data.choices[0].finish_reason;
+										}
+										break;
+								}
+
+								// Extract token usage using helper function
+								const usage = extractTokenUsage(
+									data,
+									usedProvider,
+									fullContent,
+									imageByteSize,
+								);
+								if (usage.promptTokens !== null) {
+									promptTokens = usage.promptTokens;
+								}
+								if (usage.completionTokens !== null) {
+									completionTokens = usage.completionTokens;
+								}
+								if (usage.totalTokens !== null) {
+									totalTokens = usage.totalTokens;
+								}
+								if (usage.reasoningTokens !== null) {
+									reasoningTokens = usage.reasoningTokens;
+								}
+								if (usage.cachedTokens !== null) {
+									cachedTokens = usage.cachedTokens;
+								}
+
+								// Estimate tokens if not provided and we have a finish reason
+								if (finishReason && (!promptTokens || !completionTokens)) {
+									if (!promptTokens) {
+										const estimation = estimateTokens(
+											usedProvider,
+											messages,
+											null,
+											null,
+											null,
+										);
+										promptTokens = estimation.calculatedPromptTokens;
+									}
+
+									if (!completionTokens) {
+										let textTokens = estimateTokensFromContent(fullContent);
+										// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+										let imageTokens = 0;
+										if (imageByteSize > 0) {
+											imageTokens = 258 + Math.ceil(imageByteSize / 750);
+										}
+										completionTokens = textTokens + imageTokens;
+									}
+
+									totalTokens = (promptTokens || 0) + (completionTokens || 0);
+								}
+
+								processedLength = eventEnd;
+							}
+
+							searchStart = eventEnd;
+						}
+
+						// Remove processed data from buffer
+						if (processedLength > 0) {
+							buffer = bufferCopy.slice(processedLength);
+						}
+					}
+				} catch (error) {
+					if (error instanceof Error && error.name === "AbortError") {
+						canceled = true;
+					} else if (isTimeoutError(error)) {
+						const errorMessage =
+							error instanceof Error ? error.message : "Stream reading timeout";
+						logger.warn("Stream reading timeout", {
+							error: errorMessage,
+							usedProvider,
+							requestedProvider,
+							usedModel,
+							initialRequestedModel,
+						});
+
+						try {
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Upstream provider timeout: ${errorMessage}`,
+										type: "upstream_timeout",
+										param: null,
+										code: "timeout",
+									},
+								}),
+								id: String(eventId++),
+							});
+							await stream.writeSSE({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send timeout error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+
+						streamingError = {
+							message: errorMessage,
+							type: "upstream_timeout",
+							code: "timeout",
+							details: {
+								name: "TimeoutError",
+								timestamp: new Date().toISOString(),
+								provider: usedProvider,
+								model: usedModel,
+							},
+						};
+					} else {
+						logger.warn(
+							"Error reading stream",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+
+						// Forward the error to the client with the buffered content that caused the error
+						try {
+							await stream.writeSSE({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+										type: "gateway_error",
+										param: null,
+										code: "streaming_error",
+										// Include the buffer content that caused the parsing error
+										responseText: buffer.substring(0, 5000), // Limit to 5000 chars to avoid too large error messages
+									},
+								}),
+								id: String(eventId++),
+							});
+							await stream.writeSSE({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+
+						// Create structured error object for logging
+						streamingError = {
+							message: error instanceof Error ? error.message : String(error),
+							type: "streaming_error",
+							code: "streaming_error",
+							details: {
+								name: error instanceof Error ? error.name : "UnknownError",
+								stack: error instanceof Error ? error.stack : undefined,
+								timestamp: new Date().toISOString(),
+								provider: usedProvider,
+								model: usedModel,
+								bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
+							},
+						};
+					}
+				} finally {
+					// Clean up the reader to prevent file descriptor leaks
+					try {
+						await reader.cancel();
+					} catch {
+						// Ignore errors from cancel - the stream may already be aborted due to timeout
+					}
+					// Clean up the event listeners
+					c.req.raw.signal.removeEventListener("abort", onAbort);
+
+					// Log the streaming request
+					const duration = Date.now() - startTime;
+
+					// Calculate estimated tokens if not provided
+					let calculatedPromptTokens = promptTokens;
+					let calculatedCompletionTokens = completionTokens;
+					let calculatedTotalTokens = totalTokens;
+
+					// Estimate tokens for providers that don't provide them during streaming
+					if (!promptTokens || !completionTokens) {
+						if (!promptTokens && messages && messages.length > 0) {
+							try {
+								// Convert messages to the format expected by gpt-tokenizer
+								const chatMessages: any[] = messages.map((m) => ({
+									role: m.role as "user" | "assistant" | "system" | undefined,
+									content: m.content || "",
+									name: m.name,
+								}));
+								calculatedPromptTokens = encodeChat(
+									chatMessages,
+									DEFAULT_TOKENIZER_MODEL,
+								).length;
+							} catch (error) {
+								// Fallback to simple estimation if encoding fails
+								logger.error(
+									"Failed to encode chat messages in streaming",
+									error instanceof Error ? error : new Error(String(error)),
+								);
+								calculatedPromptTokens =
+									messages.reduce(
+										(acc, m) => acc + (m.content?.length || 0),
+										0,
+									) / 4;
+							}
+						}
+
+						if (!completionTokens && (fullContent || imageByteSize > 0)) {
+							// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+							let imageTokens = 0;
+							if (imageByteSize > 0) {
+								imageTokens = 258 + Math.ceil(imageByteSize / 750);
+							}
+
+							// Skip expensive token encoding for image responses - use simple estimation
+							// Token encoding on large base64 content causes CPU spikes
+							if (imageByteSize > 0) {
+								const textTokens = estimateTokensFromContent(fullContent);
+								calculatedCompletionTokens = textTokens + imageTokens;
+							} else {
+								try {
+									const textTokens = fullContent
+										? encode(JSON.stringify(fullContent)).length
+										: 0;
+									calculatedCompletionTokens = textTokens + imageTokens;
+								} catch (error) {
+									// Fallback to simple estimation if encoding fails
+									logger.error(
+										"Failed to encode completion text in streaming",
+										error instanceof Error ? error : new Error(String(error)),
+									);
+									const textTokens = estimateTokensFromContent(fullContent);
+									calculatedCompletionTokens = textTokens + imageTokens;
+								}
+							}
+						}
+
+						calculatedTotalTokens =
+							(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
+					}
+
+					// Estimate reasoning tokens if not provided but reasoning content exists
+					let calculatedReasoningTokens = reasoningTokens;
+					if (!reasoningTokens && fullReasoningContent) {
+						try {
+							calculatedReasoningTokens = encode(fullReasoningContent).length;
+						} catch (error) {
+							// Fallback to simple estimation if encoding fails
+							logger.error(
+								"Failed to encode reasoning text in streaming",
+								error instanceof Error ? error : new Error(String(error)),
+							);
+							calculatedReasoningTokens =
+								estimateTokensFromContent(fullReasoningContent);
+						}
+					}
+					// Check if the response finished successfully but has no content, tokens, or tool calls
+					// This indicates an empty response which should be marked as an error
+					// Do this check BEFORE sending usage chunks to ensure proper event ordering
+					// Exclude content_filter responses as they are intentionally empty (blocked by provider)
+					// For Google, check for original finish reasons that indicate content filtering
+					// These include both finishReason values and promptFeedback.blockReason values
+					const isGoogleContentFilterStreaming =
+						(usedProvider === "google-ai-studio" ||
+							usedProvider === "google-vertex") &&
+						(finishReason === "SAFETY" ||
+							finishReason === "PROHIBITED_CONTENT" ||
+							finishReason === "RECITATION" ||
+							finishReason === "BLOCKLIST" ||
+							finishReason === "SPII" ||
+							finishReason === "OTHER");
+					const hasEmptyResponse =
+						!streamingError &&
+						finishReason &&
+						finishReason !== "content_filter" &&
+						finishReason !== "incomplete" &&
+						!isGoogleContentFilterStreaming &&
+						(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
+						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
+						(!fullContent || fullContent.trim() === "") &&
+						(!streamingToolCalls || streamingToolCalls.length === 0);
+
+					if (hasEmptyResponse) {
+						logger.warn("[streaming] Empty response detected", {
+							provider: usedProvider,
+							model: usedModel,
+							finishReason,
+							calculatedCompletionTokens,
+							calculatedReasoningTokens,
+							fullContentLength: fullContent?.length ?? 0,
+							fullContentTrimmed: fullContent?.trim()?.length ?? 0,
+							streamingToolCallsCount: streamingToolCalls?.length ?? 0,
+							promptTokens,
+							completionTokens,
+							totalTokens,
+							reasoningTokens,
+						});
+						const errorMessage =
+							"Response finished successfully but returned no content or tool calls";
+						streamingError = errorMessage;
+						finishReason = "upstream_error";
+
+						// Send error event to client using writeSSEAndCache to cache the error
+						try {
+							await writeSSEAndCache({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: errorMessage,
+										type: "upstream_error",
+										code: "upstream_error",
+										param: null,
+										responseText: errorMessage,
+									},
+								}),
+								id: String(eventId++),
+							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send upstream error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+					} else {
+						// Send final usage chunk if we need to send usage data
+						// This includes cases where:
+						// 1. No usage tokens were provided at all (all null)
+						// 2. Some tokens are missing (e.g., Google AI Studio doesn't provide completion tokens during streaming)
+						const needsUsageChunk =
+							(promptTokens === null &&
+								completionTokens === null &&
+								totalTokens === null &&
+								(calculatedPromptTokens !== null ||
+									calculatedCompletionTokens !== null)) ||
+							(completionTokens === null &&
+								calculatedCompletionTokens !== null);
+
+						if (needsUsageChunk) {
+							try {
 								const finalUsageChunk = {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
@@ -3399,983 +4366,447 @@ chat.openapi(completions, async (c) => {
 											finish_reason: null,
 										},
 									],
-									usage: {
-										prompt_tokens: Math.max(
+									usage: (() => {
+										// Only add image input tokens for providers that
+										// exclude them from upstream usage (Google)
+										const providerExcludesImageInput =
+											usedProvider === "google-ai-studio" ||
+											usedProvider === "google-vertex" ||
+											usedProvider === "obsidian";
+										const imageInputAdj = providerExcludesImageInput
+											? inputImageCount * 560
+											: 0;
+										const adjPrompt = Math.max(
 											1,
-											streamingCosts.promptTokens || finalPromptTokens || 1,
-										),
-										completion_tokens:
-											streamingCosts.completionTokens ||
-											finalCompletionTokens ||
-											0,
-										total_tokens: (() => {
-											const fallbackTotal =
-												(streamingCosts.promptTokens ||
-													finalPromptTokens ||
-													0) +
-												(streamingCosts.completionTokens ||
-													finalCompletionTokens ||
-													0) +
-												(reasoningTokens || 0);
-											return Math.max(1, finalTotalTokens ?? fallbackTotal);
-										})(),
-										...(shouldIncludeCosts && {
-											cost_usd_total: streamingCosts.totalCost,
-											cost_usd_input: streamingCosts.inputCost,
-											cost_usd_output: streamingCosts.outputCost,
-											cost_usd_cached_input: streamingCosts.cachedInputCost,
-											cost_usd_request: streamingCosts.requestCost,
-										}),
-										...(showUpgradeMessage && {
-											info: "upgrade to pro to include usd cost breakdown",
-										}),
-									},
+											Math.round(
+												promptTokens && promptTokens > 0
+													? promptTokens + imageInputAdj
+													: (calculatedPromptTokens || 1) + imageInputAdj,
+											),
+										);
+										const adjCompletion = Math.round(
+											completionTokens || calculatedCompletionTokens || 0,
+										);
+										return {
+											prompt_tokens: adjPrompt,
+											completion_tokens: adjCompletion,
+											total_tokens: Math.max(
+												1,
+												Math.round(adjPrompt + adjCompletion),
+											),
+											...(cachedTokens !== null && {
+												prompt_tokens_details: {
+													cached_tokens: cachedTokens,
+												},
+											}),
+										};
+									})(),
 								};
 
 								await writeSSEAndCache({
 									data: JSON.stringify(finalUsageChunk),
 									id: String(eventId++),
 								});
+							} catch (error) {
+								logger.error(
+									"Error sending final usage chunk",
+									error instanceof Error ? error : new Error(String(error)),
+								);
 							}
+						}
 
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
-							});
-							doneSent = true;
-
-							processedLength = eventEnd;
-						} else {
-							// Try to parse JSON data - it might span multiple lines
-							let data;
+						// Send healed content if buffering was enabled
+						if (
+							shouldBufferForHealing &&
+							bufferedContentChunks.length > 0 &&
+							!streamingError
+						) {
 							try {
-								data = JSON.parse(eventData);
-							} catch (e) {
-								// If JSON parsing fails, this might be an incomplete event
-								// Since we already validated JSON completeness above, this is likely a format issue
-								// Create structured error for logging
-								streamingError = {
-									message: e instanceof Error ? e.message : String(e),
-									type: "json_parse_error",
-									code: "json_parse_error",
-									details: {
-										name: e instanceof Error ? e.name : "ParseError",
-										eventData: eventData.substring(0, 5000),
-										provider: usedProvider,
-										model: usedModel,
-										eventLength: eventData.length,
-										bufferEnd: eventEnd,
-										bufferLength: bufferCopy.length,
-										timestamp: new Date().toISOString(),
-									},
+								// Combine buffered content and apply healing
+								const bufferedContent = bufferedContentChunks.join("");
+								const healingResult = healJsonResponse(bufferedContent);
+
+								// Store plugin results for logging
+								streamingPluginResults.responseHealing = {
+									healed: healingResult.healed,
+									healingMethod: healingResult.healingMethod,
 								};
-								logger.warn("Failed to parse streaming JSON", {
-									error: e instanceof Error ? e.message : String(e),
-									eventData:
-										eventData.substring(0, 200) +
-										(eventData.length > 200 ? "..." : ""),
-									provider: usedProvider,
-									eventLength: eventData.length,
-									bufferEnd: eventEnd,
-									bufferLength: bufferCopy.length,
+
+								if (healingResult.healed) {
+									logger.debug("Streaming response healing applied", {
+										method: healingResult.healingMethod,
+										originalLength: healingResult.originalContent.length,
+										healedLength: healingResult.content.length,
+									});
+									// Update fullContent with healed version for logging
+									fullContent = healingResult.content;
+								}
+
+								// Send the healed (or original if no healing needed) content as a single chunk
+								const healedContentChunk = {
+									id: lastChunkId || `chatcmpl-${Date.now()}`,
+									object: "chat.completion.chunk",
+									created: lastChunkCreated || Math.floor(Date.now() / 1000),
+									model: lastChunkModel || usedModel,
+									choices: [
+										{
+											index: 0,
+											delta: {
+												content: healingResult.content,
+											},
+											finish_reason: null,
+										},
+									],
+								};
+
+								await writeSSEAndCache({
+									data: JSON.stringify(healedContentChunk),
+									id: String(eventId++),
 								});
 
-								processedLength = eventEnd;
-								searchStart = eventEnd;
-								continue;
+								// Send finish_reason chunk
+								const finishChunk = {
+									id: lastChunkId || `chatcmpl-${Date.now()}`,
+									object: "chat.completion.chunk",
+									created: lastChunkCreated || Math.floor(Date.now() / 1000),
+									model: lastChunkModel || usedModel,
+									choices: [
+										{
+											index: 0,
+											delta: {},
+											finish_reason: finishReason || "stop",
+										},
+									],
+								};
+
+								await writeSSEAndCache({
+									data: JSON.stringify(finishChunk),
+									id: String(eventId++),
+								});
+							} catch (error) {
+								logger.error(
+									"Error sending healed content chunk",
+									error instanceof Error ? error : new Error(String(error)),
+								);
 							}
+						}
 
-							// Transform streaming responses to OpenAI format for all providers
-							const transformedData = transformStreamingToOpenai(
-								usedProvider,
-								usedModel,
-								data,
-								messages,
-							);
-
-							// Skip null events (some providers have non-data events)
-							if (!transformedData) {
-								processedLength = eventEnd;
-								searchStart = eventEnd;
-								continue;
+						// Send routing metadata for all attempts (including successful)
+						if (routingAttempts.length > 0 && !doneSent) {
+							try {
+								const routingChunk = {
+									id: `chatcmpl-${Date.now()}`,
+									object: "chat.completion.chunk",
+									created: Math.floor(Date.now() / 1000),
+									model: usedModel,
+									choices: [
+										{
+											index: 0,
+											delta: {},
+											finish_reason: null,
+										},
+									],
+									metadata: {
+										requested_model: initialRequestedModel,
+										requested_provider: requestedProvider || null,
+										used_model: baseModelName,
+										used_provider: usedProvider,
+										underlying_used_model: usedModel,
+										routing: routingAttempts,
+									},
+								};
+								await writeSSEAndCache({
+									data: JSON.stringify(routingChunk),
+									id: String(eventId++),
+								});
+							} catch (error) {
+								logger.error(
+									"Error sending routing metadata chunk",
+									error instanceof Error ? error : new Error(String(error)),
+								);
 							}
+						}
 
-							// For Anthropic, if we have partial usage data, complete it
-							if (usedProvider === "anthropic" && transformedData.usage) {
-								const usage = transformedData.usage;
-								if (
-									usage.output_tokens !== undefined &&
-									usage.prompt_tokens === undefined
-								) {
-									// Estimate prompt tokens if not provided
-									const estimation = estimateTokens(
-										usedProvider,
-										messages,
-										null,
-										null,
-										null,
-									);
-									const estimatedPromptTokens =
-										estimation.calculatedPromptTokens;
-									transformedData.usage = {
-										prompt_tokens: estimatedPromptTokens,
-										completion_tokens: usage.output_tokens,
-										total_tokens: estimatedPromptTokens + usage.output_tokens,
-									};
+						// Always send [DONE] at the end of streaming if not already sent
+						if (!doneSent) {
+							try {
+								await writeSSEAndCache({
+									event: "done",
+									data: "[DONE]",
+									id: String(eventId++),
+								});
+							} catch (error) {
+								logger.error(
+									"Error sending [DONE] event",
+									error instanceof Error ? error : new Error(String(error)),
+								);
+							}
+						}
+					}
+
+					// Clean up keepalive before any potentially-throwing operations (insertLog, etc.)
+					// clearInterval is idempotent so calling it multiple times is safe
+					clearKeepalive();
+
+					// Check if we should bill cancelled requests
+					const billCancelledRequests = shouldBillCancelledRequests();
+
+					// Calculate costs - for cancelled requests, only bill if env var is enabled
+					const costs =
+						canceled && !billCancelledRequests
+							? {
+									inputCost: null,
+									outputCost: null,
+									cachedInputCost: null,
+									requestCost: null,
+									webSearchCost: null,
+									imageInputTokens: null,
+									imageOutputTokens: null,
+									imageInputCost: null,
+									imageOutputCost: null,
+									totalCost: null,
+									promptTokens: null,
+									completionTokens: null,
+									cachedTokens: null,
+									estimatedCost: false,
+									discount: undefined,
+									pricingTier: undefined,
 								}
-							}
-
-							// For Google providers, add usage information when available
-							if (
-								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
-							) {
-								const usage = extractTokenUsage(
-									data,
+							: await calculateCosts(
+									usedModel,
 									usedProvider,
-									fullContent,
-									imageByteSize,
+									calculatedPromptTokens,
+									calculatedCompletionTokens,
+									cachedTokens,
+									{
+										prompt: messages.map((m) => m.content).join("\n"),
+										completion: fullContent,
+										toolResults: streamingToolCalls || undefined,
+									},
+									reasoningTokens,
+									outputImageCount,
+									image_config?.image_size,
+									inputImageCount,
+									webSearchCount,
+									project.organizationId,
 								);
 
-								// If we have usage data from Google, add it to the streaming chunk
-								if (
-									usage.promptTokens !== null ||
-									usage.completionTokens !== null ||
-									usage.totalTokens !== null
-								) {
-									transformedData.usage = {
-										prompt_tokens: usage.promptTokens ?? 0,
-										completion_tokens: usage.completionTokens ?? 0,
-										total_tokens: usage.totalTokens ?? 0,
-										...(usage.reasoningTokens !== null && {
-											reasoning_tokens: usage.reasoningTokens,
-										}),
-									};
-								}
-							}
-
-							// Normalize usage.prompt_tokens_details to always include cached_tokens
-							if (transformedData.usage) {
-								if (transformedData.usage.prompt_tokens_details) {
-									// Preserve all existing keys and only default cached_tokens
-									transformedData.usage.prompt_tokens_details = {
-										...transformedData.usage.prompt_tokens_details,
-										cached_tokens:
-											transformedData.usage.prompt_tokens_details
-												.cached_tokens ?? 0,
-									};
-								} else {
-									// Create prompt_tokens_details with cached_tokens set to 0
-									transformedData.usage.prompt_tokens_details = {
-										cached_tokens: 0,
-									};
-								}
-							}
-
-							// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
-							// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-							if (usedProvider === "anthropic") {
-								const toolCalls =
-									transformedData.choices?.[0]?.delta?.tool_calls;
-								if (toolCalls && toolCalls.length > 0) {
-									// First, extract tool calls to update our tracking
-									const rawToolCalls = extractToolCalls(data, usedProvider);
-									if (rawToolCalls && rawToolCalls.length > 0) {
-										if (!streamingToolCalls) {
-											streamingToolCalls = [];
-										}
-										for (const newCall of rawToolCalls) {
-											// For content_block_start events (have id), add to tracking
-											if (newCall.id) {
-												const contentBlockIndex: number =
-													typeof data.index === "number"
-														? data.index
-														: streamingToolCalls.length;
-												// Store at the content block index position
-												streamingToolCalls[contentBlockIndex] = {
-													...newCall,
-													_contentBlockIndex: contentBlockIndex,
-												};
-											}
-											// For content_block_delta events, enrich with stored id/type/name
-											else if (newCall._contentBlockIndex !== undefined) {
-												const existingCall =
-													streamingToolCalls[newCall._contentBlockIndex];
-												if (existingCall) {
-													// Enrich the transformed data with id, type, and function.name
-													for (const tc of toolCalls) {
-														if (tc.index === newCall._contentBlockIndex) {
-															tc.id = existingCall.id;
-															tc.type = "function";
-															if (!tc.function) {
-																tc.function = {};
-															}
-															tc.function.name = existingCall.function.name;
-														}
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-
-							await writeSSEAndCache({
-								data: JSON.stringify(transformedData),
-								id: String(eventId++),
-							});
-
-							// Extract usage data from transformedData to update tracking variables
-							if (transformedData.usage && usedProvider === "openai") {
-								const usage = transformedData.usage;
-								if (
-									usage.prompt_tokens !== undefined &&
-									usage.prompt_tokens > 0
-								) {
-									promptTokens = usage.prompt_tokens;
-								}
-								if (
-									usage.completion_tokens !== undefined &&
-									usage.completion_tokens > 0
-								) {
-									completionTokens = usage.completion_tokens;
-								}
-								if (
-									usage.total_tokens !== undefined &&
-									usage.total_tokens > 0
-								) {
-									totalTokens = usage.total_tokens;
-								}
-								if (usage.reasoning_tokens !== undefined) {
-									reasoningTokens = usage.reasoning_tokens;
-								}
-							}
-
-							// Extract finishReason from transformedData to update tracking variable
-							if (transformedData.choices?.[0]?.finish_reason) {
-								finishReason = transformedData.choices[0].finish_reason;
-							}
-
-							// Extract content for logging using helper function
-							// For providers with custom extraction logic (google-ai-studio, anthropic),
-							// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
-							const contentChunk = extractContent(
-								usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex" ||
-									usedProvider === "anthropic"
-									? data
-									: transformedData,
-								usedProvider,
-							);
-							if (contentChunk) {
-								fullContent += contentChunk;
-
-								// Track time to first token if this is the first content chunk
-								if (!firstTokenReceived) {
-									timeToFirstToken = Date.now() - startTime;
-									firstTokenReceived = true;
-								}
-							}
-
-							// Track image data size for Google providers (for token estimation)
-							if (
-								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
-							) {
-								const parts = data.candidates?.[0]?.content?.parts || [];
-								for (const part of parts) {
-									if (part.inlineData?.data) {
-										// Base64 string length * 0.75 ≈ actual byte size
-										imageByteSize += Math.ceil(
-											part.inlineData.data.length * 0.75,
-										);
-										outputImageCount++;
-									}
-								}
-							}
-
-							// Track web search calls for cost calculation
-							// Check for web search results based on provider-specific data
-							if (usedProvider === "anthropic") {
-								// For Anthropic, count web_search_tool_result blocks
-								if (
-									data.type === "content_block_start" &&
-									data.content_block?.type === "web_search_tool_result"
-								) {
-									webSearchCount++;
-								}
-							} else if (
-								usedProvider === "google-ai-studio" ||
-								usedProvider === "google-vertex"
-							) {
-								// For Google, count when grounding metadata is present
-								if (data.candidates?.[0]?.groundingMetadata) {
-									const groundingMetadata =
-										data.candidates[0].groundingMetadata;
-									if (
-										groundingMetadata.webSearchQueries &&
-										groundingMetadata.webSearchQueries.length > 0 &&
-										webSearchCount === 0
-									) {
-										// Only count once for the entire response
-										webSearchCount = groundingMetadata.webSearchQueries.length;
-									} else if (
-										groundingMetadata.groundingChunks &&
-										webSearchCount === 0
-									) {
-										// Fallback: count once if we have grounding chunks
-										webSearchCount = 1;
-									}
-								}
-							} else if (usedProvider === "openai") {
-								// For OpenAI Responses API, count web_search_call.completed events
-								if (data.type === "response.web_search_call.completed") {
-									webSearchCount++;
-								}
-							}
-
-							// Extract reasoning content for logging using helper function
-							// For providers with custom extraction logic (google-ai-studio, anthropic),
-							// use raw data. For others, use transformed OpenAI format.
-							const reasoningContentChunk = extractReasoning(
-								usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex" ||
-									usedProvider === "anthropic"
-									? data
-									: transformedData,
-								usedProvider,
-							);
-							if (reasoningContentChunk) {
-								fullReasoningContent += reasoningContentChunk;
-
-								// Track time to first reasoning token if this is the first reasoning chunk
-								if (!firstReasoningTokenReceived) {
-									timeToFirstReasoningToken = Date.now() - startTime;
-									firstReasoningTokenReceived = true;
-								}
-							}
-
-							// Extract and accumulate tool calls
-							const toolCallsChunk = extractToolCalls(data, usedProvider);
-							if (toolCallsChunk && toolCallsChunk.length > 0) {
-								if (!streamingToolCalls) {
-									streamingToolCalls = [];
-								}
-								// Merge tool calls (accumulating function arguments)
-								for (const newCall of toolCallsChunk) {
-									let existingCall = null;
-
-									// For Anthropic content_block_delta events, match by content block index
-									if (
-										usedProvider === "anthropic" &&
-										newCall._contentBlockIndex !== undefined
-									) {
-										existingCall =
-											streamingToolCalls[newCall._contentBlockIndex];
-									} else {
-										// For other providers and Anthropic content_block_start, match by ID
-										// Note: Array may have sparse entries due to index-based assignment, so check for null/undefined
-										existingCall = streamingToolCalls.find(
-											(call) => call && call.id === newCall.id,
-										);
-									}
-
-									if (existingCall) {
-										// Accumulate function arguments
-										if (newCall.function?.arguments) {
-											existingCall.function.arguments =
-												(existingCall.function.arguments || "") +
-												newCall.function.arguments;
-										}
-									} else {
-										// Clean up temporary fields and add new tool call
-										const cleanCall = { ...newCall };
-										delete cleanCall._contentBlockIndex;
-										streamingToolCalls.push(cleanCall);
-									}
-								}
-							}
-
-							// Handle provider-specific finish reason extraction
-							switch (usedProvider) {
-								case "google-ai-studio":
-								case "google-vertex":
-									// Preserve original Google finish reason for logging
-									if (data.promptFeedback?.blockReason) {
-										finishReason = data.promptFeedback.blockReason;
-									} else if (data.candidates?.[0]?.finishReason) {
-										finishReason = data.candidates[0].finishReason;
-									}
-									break;
-								case "anthropic":
-									if (
-										data.type === "message_delta" &&
-										data.delta?.stop_reason
-									) {
-										finishReason = data.delta.stop_reason;
-									} else if (data.type === "message_stop" || data.stop_reason) {
-										finishReason = data.stop_reason || "end_turn";
-									} else if (data.delta?.stop_reason) {
-										finishReason = data.delta.stop_reason;
-									}
-									break;
-								default: // OpenAI format
-									if (data.choices && data.choices[0]?.finish_reason) {
-										finishReason = data.choices[0].finish_reason;
-									}
-									break;
-							}
-
-							// Extract token usage using helper function
-							const usage = extractTokenUsage(
-								data,
-								usedProvider,
-								fullContent,
-								imageByteSize,
-							);
-							if (usage.promptTokens !== null) {
-								promptTokens = usage.promptTokens;
-							}
-							if (usage.completionTokens !== null) {
-								completionTokens = usage.completionTokens;
-							}
-							if (usage.totalTokens !== null) {
-								totalTokens = usage.totalTokens;
-							}
-							if (usage.reasoningTokens !== null) {
-								reasoningTokens = usage.reasoningTokens;
-							}
-							if (usage.cachedTokens !== null) {
-								cachedTokens = usage.cachedTokens;
-							}
-
-							// Estimate tokens if not provided and we have a finish reason
-							if (finishReason && (!promptTokens || !completionTokens)) {
-								if (!promptTokens) {
-									const estimation = estimateTokens(
-										usedProvider,
-										messages,
-										null,
-										null,
-										null,
-									);
-									promptTokens = estimation.calculatedPromptTokens;
-								}
-
-								if (!completionTokens) {
-									let textTokens = estimateTokensFromContent(fullContent);
-									// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-									let imageTokens = 0;
-									if (imageByteSize > 0) {
-										imageTokens = 258 + Math.ceil(imageByteSize / 750);
-									}
-									completionTokens = textTokens + imageTokens;
-								}
-
-								totalTokens = (promptTokens || 0) + (completionTokens || 0);
-							}
-
-							processedLength = eventEnd;
+					// Use costs.promptTokens as canonical value (includes image input
+					// tokens for providers that exclude them from upstream usage)
+					if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+						const promptDelta =
+							(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+						if (promptDelta > 0) {
+							calculatedPromptTokens = costs.promptTokens;
+							calculatedTotalTokens =
+								(calculatedTotalTokens || 0) + promptDelta;
 						}
-
-						searchStart = eventEnd;
 					}
 
-					// Remove processed data from buffer
-					if (processedLength > 0) {
-						buffer = bufferCopy.slice(processedLength);
-					}
-				}
-			} catch (error) {
-				if (error instanceof Error && error.name === "AbortError") {
-					canceled = true;
-				} else {
-					logger.error(
-						"Error reading stream",
-						error instanceof Error ? error : new Error(String(error)),
+					// Extract plugin IDs for logging
+					const streamingPluginIds = plugins?.map((p) => p.id) || [];
+
+					// Determine plugin results for logging (includes healing results if applicable)
+					const finalPluginResults =
+						Object.keys(streamingPluginResults).length > 0
+							? streamingPluginResults
+							: undefined;
+
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						streamingError
+							? streamingError // Pass structured error when there's an error
+							: streamingRawResponseData, // Raw SSE data sent back to the client
+						requestBody, // The request sent to the provider
+						streamingError
+							? streamingError // Pass structured error as upstream response too
+							: rawUpstreamData, // Raw streaming data received from upstream provider
+						streamingPluginIds,
+						finalPluginResults, // Plugin results including healing (if enabled)
 					);
 
-					// Forward the error to the client with the buffered content that caused the error
-					try {
-						await stream.writeSSE({
-							event: "error",
-							data: JSON.stringify({
-								error: {
-									message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
-									type: "gateway_error",
-									param: null,
-									code: "streaming_error",
-									// Include the buffer content that caused the parsing error
-									responseText: buffer.substring(0, 5000), // Limit to 5000 chars to avoid too large error messages
-								},
-							}),
-							id: String(eventId++),
+					// Enhanced logging for Google models streaming to debug missing responses
+					if (
+						usedProvider === "google-ai-studio" ||
+						usedProvider === "google-vertex"
+					) {
+						logger.debug("Google model streaming response completed", {
+							usedProvider,
+							usedModel,
+							hasContent: !!fullContent,
+							contentLength: fullContent.length,
+							finishReason,
+							promptTokens: calculatedPromptTokens,
+							completionTokens: calculatedCompletionTokens,
+							totalTokens: calculatedTotalTokens,
+							reasoningTokens,
+							streamingError: streamingError ? String(streamingError) : null,
+							canceled,
+							hasToolCalls:
+								!!streamingToolCalls && streamingToolCalls.length > 0,
 						});
-						await stream.writeSSE({
-							event: "done",
-							data: "[DONE]",
-							id: String(eventId++),
-						});
-						doneSent = true;
-					} catch (sseError) {
-						logger.error(
-							"Failed to send error SSE",
-							sseError instanceof Error
-								? sseError
-								: new Error(String(sseError)),
-						);
 					}
 
-					// Create structured error object for logging
-					streamingError = {
-						message: error instanceof Error ? error.message : String(error),
-						type: "streaming_error",
-						code: "streaming_error",
-						details: {
-							name: error instanceof Error ? error.name : "UnknownError",
-							stack: error instanceof Error ? error.stack : undefined,
-							timestamp: new Date().toISOString(),
-							provider: usedProvider,
-							model: usedModel,
-							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
-						},
-					};
-				}
-			} finally {
-				// Clean up the event listeners
-				c.req.raw.signal.removeEventListener("abort", onAbort);
+					// For cancelled requests, determine if we should include token counts for billing
+					const shouldIncludeTokensForBilling =
+						!canceled || (canceled && billCancelledRequests);
 
-				// Log the streaming request
-				const duration = Date.now() - startTime;
+					await insertLog({
+						...baseLogEntry,
+						id: routingAttempts.length > 0 ? finalLogId : undefined,
+						duration,
+						timeToFirstToken,
+						timeToFirstReasoningToken,
+						responseSize: fullContent.length,
+						content: fullContent,
+						reasoningContent: fullReasoningContent || null,
+						finishReason: canceled ? "canceled" : finishReason,
+						promptTokens: shouldIncludeTokensForBilling
+							? calculatedPromptTokens?.toString() || null
+							: null,
+						completionTokens: shouldIncludeTokensForBilling
+							? calculatedCompletionTokens?.toString() || null
+							: null,
+						totalTokens: shouldIncludeTokensForBilling
+							? calculatedTotalTokens?.toString() || null
+							: null,
+						reasoningTokens: shouldIncludeTokensForBilling
+							? calculatedReasoningTokens?.toString() || null
+							: null,
+						cachedTokens: shouldIncludeTokensForBilling
+							? cachedTokens?.toString() || null
+							: null,
+						hasError: streamingError !== null,
+						errorDetails: streamingError
+							? {
+									statusCode: 500,
+									statusText: "Streaming Error",
+									responseText:
+										typeof streamingError === "object" &&
+										"details" in streamingError
+											? JSON.stringify(streamingError) // Store structured error as JSON string
+											: streamingError instanceof Error
+												? streamingError.message
+												: String(streamingError),
+								}
+							: null,
+						streamed: true,
+						canceled: canceled,
+						inputCost: costs.inputCost,
+						outputCost: costs.outputCost,
+						cachedInputCost: costs.cachedInputCost,
+						requestCost: costs.requestCost,
+						webSearchCost: costs.webSearchCost,
+						imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+						imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+						imageInputCost: costs.imageInputCost ?? null,
+						imageOutputCost: costs.imageOutputCost ?? null,
+						cost: costs.totalCost,
+						estimatedCost: costs.estimatedCost,
+						discount: costs.discount,
+						pricingTier: costs.pricingTier,
+						dataStorageCost: shouldIncludeTokensForBilling
+							? calculateDataStorageCost(
+									calculatedPromptTokens,
+									cachedTokens,
+									calculatedCompletionTokens,
+									calculatedReasoningTokens,
+									retentionLevel,
+								)
+							: "0",
+						cached: false,
+						tools,
+						toolResults: streamingToolCalls,
+						toolChoice: tool_choice,
+					});
 
-				// Calculate estimated tokens if not provided
-				let calculatedPromptTokens = promptTokens;
-				let calculatedCompletionTokens = completionTokens;
-				let calculatedTotalTokens = totalTokens;
-
-				// Estimate tokens for providers that don't provide them during streaming
-				if (!promptTokens || !completionTokens) {
-					if (!promptTokens && messages && messages.length > 0) {
-						try {
-							// Convert messages to the format expected by gpt-tokenizer
-							const chatMessages: any[] = messages.map((m) => ({
-								role: m.role as "user" | "assistant" | "system" | undefined,
-								content: m.content || "",
-								name: m.name,
-							}));
-							calculatedPromptTokens = encodeChat(
-								chatMessages,
-								DEFAULT_TOKENIZER_MODEL,
-							).length;
-						} catch (error) {
-							// Fallback to simple estimation if encoding fails
-							logger.error(
-								"Failed to encode chat messages in streaming",
-								error instanceof Error ? error : new Error(String(error)),
-							);
-							calculatedPromptTokens =
-								messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) /
-								4;
+					// Report key health for environment-based tokens
+					if (envVarName !== undefined) {
+						if (streamingError !== null) {
+							reportKeyError(envVarName, configIndex, 500);
+						} else {
+							reportKeySuccess(envVarName, configIndex);
 						}
 					}
 
-					if (!completionTokens && (fullContent || imageByteSize > 0)) {
+					// Save streaming cache if enabled and not canceled and no errors
+					if (
+						cachingEnabled &&
+						streamingCacheKey &&
+						!canceled &&
+						finishReason &&
+						!streamingError
+					) {
 						try {
-							let textTokens = fullContent
-								? encode(JSON.stringify(fullContent)).length
-								: 0;
-							// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
-							}
-							calculatedCompletionTokens = textTokens + imageTokens;
-						} catch (error) {
-							// Fallback to simple estimation if encoding fails
-							logger.error(
-								"Failed to encode completion text in streaming",
-								error instanceof Error ? error : new Error(String(error)),
-							);
-							let textTokens = estimateTokensFromContent(fullContent);
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
-							}
-							calculatedCompletionTokens = textTokens + imageTokens;
-						}
-					}
-
-					calculatedTotalTokens =
-						(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
-				}
-
-				// Estimate reasoning tokens if not provided but reasoning content exists
-				let calculatedReasoningTokens = reasoningTokens;
-				if (!reasoningTokens && fullReasoningContent) {
-					try {
-						calculatedReasoningTokens = encode(fullReasoningContent).length;
-					} catch (error) {
-						// Fallback to simple estimation if encoding fails
-						logger.error(
-							"Failed to encode reasoning text in streaming",
-							error instanceof Error ? error : new Error(String(error)),
-						);
-						calculatedReasoningTokens =
-							estimateTokensFromContent(fullReasoningContent);
-					}
-				}
-				// Check if the response finished successfully but has no content, tokens, or tool calls
-				// This indicates an empty response which should be marked as an error
-				// Do this check BEFORE sending usage chunks to ensure proper event ordering
-				const hasEmptyResponse =
-					!streamingError &&
-					finishReason &&
-					(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
-					(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
-					(!fullContent || fullContent.trim() === "") &&
-					(!streamingToolCalls || streamingToolCalls.length === 0);
-
-				if (hasEmptyResponse) {
-					const errorMessage =
-						"Response finished successfully but returned no content or tool calls";
-					streamingError = errorMessage;
-					finishReason = "upstream_error";
-
-					// Send error event to client using writeSSEAndCache to cache the error
-					try {
-						await writeSSEAndCache({
-							event: "error",
-							data: JSON.stringify({
-								error: {
-									message: errorMessage,
-									type: "upstream_error",
-									code: "upstream_error",
-									param: null,
-									responseText: errorMessage,
-								},
-							}),
-							id: String(eventId++),
-						});
-						await writeSSEAndCache({
-							event: "done",
-							data: "[DONE]",
-							id: String(eventId++),
-						});
-						doneSent = true;
-					} catch (sseError) {
-						logger.error(
-							"Failed to send upstream error SSE",
-							sseError instanceof Error
-								? sseError
-								: new Error(String(sseError)),
-						);
-					}
-				} else {
-					// Send final usage chunk if we need to send usage data
-					// This includes cases where:
-					// 1. No usage tokens were provided at all (all null)
-					// 2. Some tokens are missing (e.g., Google AI Studio doesn't provide completion tokens during streaming)
-					const needsUsageChunk =
-						(promptTokens === null &&
-							completionTokens === null &&
-							totalTokens === null &&
-							(calculatedPromptTokens !== null ||
-								calculatedCompletionTokens !== null)) ||
-						(completionTokens === null && calculatedCompletionTokens !== null);
-
-					if (needsUsageChunk) {
-						try {
-							const finalUsageChunk = {
-								id: `chatcmpl-${Date.now()}`,
-								object: "chat.completion.chunk",
-								created: Math.floor(Date.now() / 1000),
-								model: usedModel,
-								choices: [
-									{
-										index: 0,
-										delta: {},
-										finish_reason: null,
-									},
-								],
-								usage: {
-									prompt_tokens: Math.max(
-										1,
-										Math.round(
-											promptTokens && promptTokens > 0
-												? promptTokens + inputImageCount * 560
-												: (calculatedPromptTokens || 1) + inputImageCount * 560,
-										),
-									),
-									completion_tokens: Math.round(
-										completionTokens || calculatedCompletionTokens || 0,
-									),
-									total_tokens: Math.round(
-										totalTokens ||
-											calculatedTotalTokens ||
-											Math.max(
-												1,
-												(promptTokens && promptTokens > 0
-													? promptTokens + inputImageCount * 560
-													: (calculatedPromptTokens || 1) +
-														inputImageCount * 560) +
-													(completionTokens || calculatedCompletionTokens || 0),
-											),
-									),
-									...(cachedTokens !== null && {
-										prompt_tokens_details: {
-											cached_tokens: cachedTokens,
-										},
-									}),
+							const streamingCacheData = {
+								chunks: streamingChunks,
+								metadata: {
+									model: usedModel,
+									provider: usedProvider,
+									finishReason: finishReason,
+									totalChunks: streamingChunks.length,
+									duration: duration,
+									completed: true,
 								},
 							};
 
-							await writeSSEAndCache({
-								data: JSON.stringify(finalUsageChunk),
-								id: String(eventId++),
-							});
-						} catch (error) {
-							logger.error(
-								"Error sending final usage chunk",
-								error instanceof Error ? error : new Error(String(error)),
+							await setStreamingCache(
+								streamingCacheKey,
+								streamingCacheData,
+								cacheDuration,
 							);
-						}
-					}
-
-					// Always send [DONE] at the end of streaming if not already sent
-					if (!doneSent) {
-						try {
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
-							});
 						} catch (error) {
 							logger.error(
-								"Error sending [DONE] event",
+								"Error saving streaming cache",
 								error instanceof Error ? error : new Error(String(error)),
 							);
 						}
 					}
 				}
-
-				// Check if we should bill cancelled requests
-				const billCancelledRequests = shouldBillCancelledRequests();
-
-				// Calculate costs - for cancelled requests, only bill if env var is enabled
-				const costs =
-					canceled && !billCancelledRequests
-						? {
-								inputCost: null,
-								outputCost: null,
-								cachedInputCost: null,
-								requestCost: null,
-								webSearchCost: null,
-								totalCost: null,
-								promptTokens: null,
-								completionTokens: null,
-								cachedTokens: null,
-								estimatedCost: false,
-								discount: undefined,
-								pricingTier: undefined,
-							}
-						: calculateCosts(
-								usedModel,
-								usedProvider,
-								calculatedPromptTokens,
-								calculatedCompletionTokens,
-								cachedTokens,
-								{
-									prompt: messages.map((m) => m.content).join("\n"),
-									completion: fullContent,
-									toolResults: streamingToolCalls || undefined,
-								},
-								reasoningTokens,
-								outputImageCount,
-								image_config?.image_size,
-								inputImageCount,
-								webSearchCount,
-							);
-
-				// Extract plugin IDs for logging (streaming - no healing applied)
-				const streamingPluginIds = plugins?.map((p) => p.id) || [];
-
-				const baseLogEntry = createLogEntry(
-					requestId,
-					project,
-					apiKey,
-					providerKey?.id,
-					usedModelFormatted,
-					usedModelMapping,
-					usedProvider,
-					initialRequestedModel,
-					requestedProvider,
-					messages,
-					temperature,
-					max_tokens,
-					top_p,
-					frequency_penalty,
-					presence_penalty,
-					reasoning_effort,
-					effort,
-					response_format,
-					tools,
-					tool_choice,
-					source,
-					customHeaders,
-					debugMode,
-					userAgent,
-					image_config,
-					routingMetadata,
-					rawBody,
-					streamingError
-						? streamingError // Pass structured error when there's an error
-						: streamingRawResponseData, // Raw SSE data sent back to the client
-					requestBody, // The request sent to the provider
-					streamingError
-						? streamingError // Pass structured error as upstream response too
-						: rawUpstreamData, // Raw streaming data received from upstream provider
-					streamingPluginIds,
-					undefined, // No plugin results for streaming
-				);
-
-				if (!finishReason && !streamingError && usedProvider === "routeway") {
-					finishReason = "stop";
-				}
-
-				// Enhanced logging for Google models streaming to debug missing responses
-				if (
-					usedProvider === "google-ai-studio" ||
-					usedProvider === "google-vertex"
-				) {
-					logger.debug("Google model streaming response completed", {
-						usedProvider,
-						usedModel,
-						hasContent: !!fullContent,
-						contentLength: fullContent.length,
-						finishReason,
-						promptTokens: calculatedPromptTokens,
-						completionTokens: calculatedCompletionTokens,
-						totalTokens: calculatedTotalTokens,
-						reasoningTokens,
-						streamingError: streamingError ? String(streamingError) : null,
-						canceled,
-						hasToolCalls: !!streamingToolCalls && streamingToolCalls.length > 0,
+			},
+			async (error) => {
+				if (error.name === "TimeoutError") {
+					logger.warn("Streaming request timeout (escaped handler)", {
+						message: error.message,
+						path: c.req.path,
 					});
+				} else if (error.name === "AbortError") {
+					logger.info("Streaming request aborted by client (escaped handler)", {
+						message: error.message,
+						path: c.req.path,
+					});
+				} else {
+					logger.error("Streaming request error (escaped handler)", error);
 				}
-
-				// For cancelled requests, determine if we should include token counts for billing
-				const shouldIncludeTokensForBilling =
-					!canceled || (canceled && billCancelledRequests);
-
-				await insertLog({
-					...baseLogEntry,
-					duration,
-					timeToFirstToken,
-					timeToFirstReasoningToken,
-					responseSize: fullContent.length,
-					content: fullContent,
-					reasoningContent: fullReasoningContent || null,
-					finishReason: canceled ? "canceled" : finishReason,
-					promptTokens: shouldIncludeTokensForBilling
-						? calculatedPromptTokens?.toString() || null
-						: null,
-					completionTokens: shouldIncludeTokensForBilling
-						? calculatedCompletionTokens?.toString() || null
-						: null,
-					totalTokens: shouldIncludeTokensForBilling
-						? calculatedTotalTokens?.toString() || null
-						: null,
-					reasoningTokens: shouldIncludeTokensForBilling
-						? calculatedReasoningTokens?.toString() || null
-						: null,
-					cachedTokens: shouldIncludeTokensForBilling
-						? cachedTokens?.toString() || null
-						: null,
-					hasError: streamingError !== null,
-					errorDetails: streamingError
-						? {
-								statusCode: 500,
-								statusText: "Streaming Error",
-								responseText:
-									typeof streamingError === "object" &&
-									"details" in streamingError
-										? JSON.stringify(streamingError) // Store structured error as JSON string
-										: streamingError instanceof Error
-											? streamingError.message
-											: String(streamingError),
-							}
-						: null,
-					streamed: true,
-					canceled: canceled,
-					inputCost: costs.inputCost,
-					outputCost: costs.outputCost,
-					cachedInputCost: costs.cachedInputCost,
-					requestCost: costs.requestCost,
-					webSearchCost: costs.webSearchCost,
-					cost: costs.totalCost,
-					estimatedCost: costs.estimatedCost,
-					discount: costs.discount,
-					pricingTier: costs.pricingTier,
-					dataStorageCost: shouldIncludeTokensForBilling
-						? calculateDataStorageCost(
-								calculatedPromptTokens,
-								cachedTokens,
-								calculatedCompletionTokens,
-								calculatedReasoningTokens,
-								retentionLevel,
-							)
-						: "0",
-					cached: false,
-					tools,
-					toolResults: streamingToolCalls,
-					toolChoice: tool_choice,
-				});
-
-				// Report key health for environment-based tokens
-				if (envVarName !== undefined) {
-					if (streamingError !== null) {
-						reportKeyError(envVarName, configIndex, 500);
-					} else {
-						reportKeySuccess(envVarName, configIndex);
-					}
-				}
-
-				// Save streaming cache if enabled and not canceled and no errors
-				if (
-					cachingEnabled &&
-					streamingCacheKey &&
-					!canceled &&
-					finishReason &&
-					!streamingError
-				) {
-					try {
-						const streamingCacheData = {
-							chunks: streamingChunks,
-							metadata: {
-								model: usedModel,
-								provider: usedProvider,
-								finishReason: finishReason,
-								totalChunks: streamingChunks.length,
-								duration: duration,
-								completed: true,
-							},
-						};
-
-						await setStreamingCache(
-							streamingCacheKey,
-							streamingCacheData,
-							cacheDuration,
-						);
-					} catch (error) {
-						logger.error(
-							"Error saving streaming cache",
-							error instanceof Error ? error : new Error(String(error)),
-						);
-					}
-				}
-			}
-		});
+			},
+		);
 	}
 
 	// Handle non-streaming response
@@ -4390,443 +4821,938 @@ chat.openapi(completions, async (c) => {
 	// Add event listener for the 'close' event on the connection
 	c.req.raw.signal.addEventListener("abort", onAbort);
 
+	// --- Retry loop for provider fallback ---
+	const routingAttempts: RoutingAttempt[] = [];
+	const failedProviderIds = new Set<string>();
 	let canceled = false;
 	let fetchError: Error | null = null;
-	let res;
-	try {
-		const headers = getProviderHeaders(usedProvider, usedToken, {
-			webSearchEnabled: !!webSearchTool,
-		});
-		headers["Content-Type"] = "application/json";
+	let isTimeoutFetchError = false;
+	let res: Response | undefined;
+	let duration = 0;
+	const finalLogId = shortid();
+	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+		const perAttemptStartTime = Date.now();
 
-		// Add effort beta header for Anthropic if effort parameter is specified
-		if (usedProvider === "anthropic" && effort !== undefined) {
-			const currentBeta = headers["anthropic-beta"];
-			headers["anthropic-beta"] = currentBeta
-				? `${currentBeta},effort-2025-11-24`
-				: "effort-2025-11-24";
-		}
-
-		// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+		// Type guard: narrow variables that TypeScript widens due to loop reassignment
 		if (
-			usedProvider === "anthropic" &&
-			response_format?.type === "json_schema"
+			!usedProvider ||
+			!usedToken ||
+			!url ||
+			!usedModelFormatted ||
+			!usedModelMapping
 		) {
-			const currentBeta = headers["anthropic-beta"];
-			headers["anthropic-beta"] = currentBeta
-				? `${currentBeta},structured-outputs-2025-11-13`
-				: "structured-outputs-2025-11-13";
+			throw new Error("Provider context not initialized");
 		}
 
-		res = await fetch(url, {
-			method: "POST",
-			headers,
-			body: JSON.stringify(requestBody),
-			signal: requestCanBeCanceled ? controller.signal : undefined,
-		});
-	} catch (error) {
-		if (error instanceof Error && error.name === "AbortError") {
-			canceled = true;
-		} else if (error instanceof Error) {
-			// Capture fetch errors (timeout, connection failures, etc.)
-			fetchError = error;
-		} else {
-			throw error;
+		if (retryAttempt > 0) {
+			// Re-add abort listener (finally block removes it)
+			c.req.raw.signal.addEventListener("abort", onAbort);
+
+			const nextProvider = selectNextProvider(
+				routingMetadata?.providerScores ?? [],
+				failedProviderIds,
+				modelInfo.providers,
+			);
+			if (!nextProvider) {
+				break;
+			}
+
+			try {
+				const ctx = await resolveProviderContext(
+					nextProvider,
+					{
+						mode: project.mode,
+						organizationId: project.organizationId,
+					},
+					{
+						id: organization.id,
+						credits: organization.credits,
+						devPlan: organization.devPlan,
+						devPlanCreditsLimit: organization.devPlanCreditsLimit,
+						devPlanCreditsUsed: organization.devPlanCreditsUsed,
+						devPlanExpiresAt: organization.devPlanExpiresAt,
+					},
+					modelInfo,
+					originalRequestParams,
+					{
+						stream,
+						effectiveStream,
+						messages: messages as BaseMessage[],
+						response_format,
+						tools,
+						tool_choice,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						webSearchTool,
+						image_config,
+						sensitive_word_check,
+						maxImageSizeMB,
+						userPlan,
+						hasExistingToolCalls,
+						customProviderName,
+						webSearchEnabled: !!webSearchTool,
+					},
+				);
+				usedProvider = ctx.usedProvider;
+				usedModel = ctx.usedModel;
+				usedModelFormatted = ctx.usedModelFormatted;
+				usedModelMapping = ctx.usedModelMapping;
+				baseModelName = ctx.baseModelName;
+				usedToken = ctx.usedToken;
+				providerKey = ctx.providerKey;
+				configIndex = ctx.configIndex;
+				envVarName = ctx.envVarName;
+				url = ctx.url;
+				requestBody = ctx.requestBody;
+				useResponsesApi = ctx.useResponsesApi;
+				requestCanBeCanceled = ctx.requestCanBeCanceled;
+				isImageGeneration = ctx.isImageGeneration;
+				supportsReasoning = ctx.supportsReasoning;
+				temperature = ctx.temperature;
+				max_tokens = ctx.max_tokens;
+				top_p = ctx.top_p;
+				frequency_penalty = ctx.frequency_penalty;
+				presence_penalty = ctx.presence_penalty;
+			} catch {
+				failedProviderIds.add(nextProvider.providerId);
+				// Don't consume a retry slot for context-resolution failures
+				retryAttempt--;
+				continue;
+			}
 		}
-	} finally {
-		// Clean up the event listener
-		c.req.raw.signal.removeEventListener("abort", onAbort);
+
+		// Reset per-attempt state
+		canceled = false;
+		fetchError = null;
+		isTimeoutFetchError = false;
+		res = undefined;
+
+		try {
+			const headers = getProviderHeaders(usedProvider, usedToken, {
+				webSearchEnabled: !!webSearchTool,
+			});
+			headers["Content-Type"] = "application/json";
+
+			// Add effort beta header for Anthropic if effort parameter is specified
+			if (usedProvider === "anthropic" && effort !== undefined) {
+				const currentBeta = headers["anthropic-beta"];
+				headers["anthropic-beta"] = currentBeta
+					? `${currentBeta},effort-2025-11-24`
+					: "effort-2025-11-24";
+			}
+
+			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
+			if (
+				usedProvider === "anthropic" &&
+				response_format?.type === "json_schema"
+			) {
+				const currentBeta = headers["anthropic-beta"];
+				headers["anthropic-beta"] = currentBeta
+					? `${currentBeta},structured-outputs-2025-11-13`
+					: "structured-outputs-2025-11-13";
+			}
+
+			// Create a combined signal for both timeout and cancellation
+			// Non-streaming requests use a shorter timeout (default 80s)
+			const fetchSignal = createCombinedSignal(
+				requestCanBeCanceled ? controller : undefined,
+			);
+
+			res = await fetch(url, {
+				method: "POST",
+				headers,
+				body: JSON.stringify(requestBody),
+				signal: fetchSignal,
+			});
+		} catch (error) {
+			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
+			if (isTimeoutError(error)) {
+				// Capture timeout as a fetch error for logging
+				fetchError =
+					error instanceof Error ? error : new Error("Request timeout");
+				isTimeoutFetchError = true;
+			} else if (error instanceof Error && error.name === "AbortError") {
+				canceled = true;
+			} else if (error instanceof Error) {
+				// Capture fetch errors (connection failures, etc.)
+				fetchError = error;
+			} else {
+				throw error;
+			}
+		} finally {
+			// Clean up the event listener
+			c.req.raw.signal.removeEventListener("abort", onAbort);
+		}
+
+		const perAttemptDuration = Date.now() - perAttemptStartTime;
+		duration = Date.now() - startTime;
+
+		// Handle fetch errors (timeout, connection failures, etc.)
+		if (fetchError) {
+			const errorMessage = fetchError.message;
+			logger.warn("Fetch error", {
+				error: errorMessage,
+				usedProvider,
+				requestedProvider,
+				usedModel,
+				initialRequestedModel,
+			});
+
+			// Log the error in the database
+			// Extract plugin IDs for logging (non-streaming fetch error)
+			const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+
+			// Check if we should retry before logging so we can mark the log as retried
+			const willRetryFetchNonStreaming = shouldRetryRequest({
+				requestedProvider,
+				noFallback,
+				statusCode: 0,
+				retryCount: retryAttempt,
+				remainingProviders:
+					(routingMetadata?.providerScores.length ?? 0) -
+					failedProviderIds.size -
+					1,
+				usedProvider,
+			});
+
+			const baseLogEntry = createLogEntry(
+				requestId,
+				project,
+				apiKey,
+				providerKey?.id,
+				usedModelFormatted,
+				usedModelMapping,
+				usedProvider,
+				initialRequestedModel,
+				requestedProvider,
+				messages,
+				temperature,
+				max_tokens,
+				top_p,
+				frequency_penalty,
+				presence_penalty,
+				reasoning_effort,
+				reasoning_max_tokens,
+				effort,
+				response_format,
+				tools,
+				tool_choice,
+				source,
+				customHeaders,
+				debugMode,
+				userAgent,
+				image_config,
+				routingMetadata,
+				rawBody,
+				null, // No response for fetch error
+				requestBody, // The request that resulted in error
+				null, // No upstream response for fetch error
+				nonStreamingFetchErrorPluginIds,
+				undefined, // No plugin results for error case
+			);
+
+			await insertLog({
+				...baseLogEntry,
+				duration: perAttemptDuration,
+				timeToFirstToken: null, // Not applicable for error case
+				timeToFirstReasoningToken: null, // Not applicable for error case
+				responseSize: 0,
+				content: null,
+				reasoningContent: null,
+				finishReason: "upstream_error",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: true,
+				streamed: false,
+				canceled: false,
+				errorDetails: {
+					statusCode: 0,
+					statusText: fetchError.name,
+					responseText: errorMessage,
+				},
+				cachedInputCost: null,
+				requestCost: null,
+				webSearchCost: null,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				estimatedCost: false,
+				discount: null,
+				dataStorageCost: "0",
+				cached: false,
+				toolResults: null,
+				retried: willRetryFetchNonStreaming,
+				retriedByLogId: willRetryFetchNonStreaming ? finalLogId : null,
+			});
+
+			// Report key health for environment-based tokens
+			if (envVarName !== undefined) {
+				reportKeyError(envVarName, configIndex, 0);
+			}
+
+			if (willRetryFetchNonStreaming) {
+				routingAttempts.push({
+					provider: usedProvider,
+					model: usedModel,
+					status_code: 0,
+					error_type: getErrorType(0),
+					succeeded: false,
+				});
+				failedProviderIds.add(usedProvider);
+				continue;
+			}
+
+			// Return error response - use 504 for timeouts, 502 for other connection failures
+			return c.json(
+				{
+					error: {
+						message: isTimeoutFetchError
+							? `Upstream provider timeout: ${errorMessage}`
+							: `Failed to connect to provider: ${errorMessage}`,
+						type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
+						param: null,
+						code: isTimeoutFetchError ? "timeout" : "fetch_failed",
+						requestedProvider,
+						usedProvider,
+						requestedModel: initialRequestedModel,
+						usedModel,
+					},
+				},
+				isTimeoutFetchError ? 504 : 502,
+			);
+		}
+
+		// If the request was canceled, log it and return a response
+		if (canceled) {
+			// Log the canceled request
+			// Extract plugin IDs for logging (canceled non-streaming)
+			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
+
+			// Calculate costs for cancelled request if billing is enabled
+			const billCancelled = shouldBillCancelledRequests();
+			let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
+				null;
+			let estimatedPromptTokens: number | null = null;
+
+			if (billCancelled) {
+				// Estimate prompt tokens from messages
+				const tokenEstimation = estimateTokens(
+					usedProvider,
+					messages,
+					null,
+					null,
+					null,
+				);
+				estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+				// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
+				// If web search tool was enabled, count it as 1 search for billing
+				cancelledCosts = await calculateCosts(
+					usedModel,
+					usedProvider,
+					estimatedPromptTokens,
+					0, // No completion tokens
+					null, // No cached tokens
+					{
+						prompt: messages.map((m) => m.content).join("\n"),
+						completion: "",
+					},
+					null, // No reasoning tokens
+					0, // No output images
+					undefined,
+					inputImageCount,
+					webSearchTool ? 1 : null, // Bill for web search if it was enabled
+					project.organizationId,
+				);
+			}
+
+			const baseLogEntry = createLogEntry(
+				requestId,
+				project,
+				apiKey,
+				providerKey?.id,
+				usedModelFormatted,
+				usedModelMapping,
+				usedProvider,
+				initialRequestedModel,
+				requestedProvider,
+				messages,
+				temperature,
+				max_tokens,
+				top_p,
+				frequency_penalty,
+				presence_penalty,
+				reasoning_effort,
+				reasoning_max_tokens,
+				effort,
+				response_format,
+				tools,
+				tool_choice,
+				source,
+				customHeaders,
+				debugMode,
+				userAgent,
+				image_config,
+				routingMetadata,
+				rawBody,
+				null, // No response for canceled request
+				requestBody, // The request that was prepared before cancellation
+				null, // No upstream response for canceled request
+				canceledNonStreamingPluginIds,
+				undefined, // No plugin results for canceled request
+			);
+
+			await insertLog({
+				...baseLogEntry,
+				duration,
+				timeToFirstToken: null, // Not applicable for canceled request
+				timeToFirstReasoningToken: null, // Not applicable for canceled request
+				responseSize: 0,
+				content: null,
+				reasoningContent: null,
+				finishReason: "canceled",
+				promptTokens: billCancelled
+					? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+					: null,
+				completionTokens: billCancelled ? "0" : null,
+				totalTokens: billCancelled
+					? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+					: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: false,
+				streamed: false,
+				canceled: true,
+				errorDetails: null,
+				inputCost: cancelledCosts?.inputCost ?? null,
+				outputCost: cancelledCosts?.outputCost ?? null,
+				cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+				requestCost: cancelledCosts?.requestCost ?? null,
+				webSearchCost: cancelledCosts?.webSearchCost ?? null,
+				imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
+				imageOutputTokens:
+					cancelledCosts?.imageOutputTokens?.toString() ?? null,
+				imageInputCost: cancelledCosts?.imageInputCost ?? null,
+				imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+				cost: cancelledCosts?.totalCost ?? null,
+				estimatedCost: cancelledCosts?.estimatedCost ?? false,
+				discount: cancelledCosts?.discount ?? null,
+				dataStorageCost: billCancelled
+					? calculateDataStorageCost(
+							cancelledCosts?.promptTokens ?? estimatedPromptTokens,
+							null,
+							0,
+							null,
+							retentionLevel,
+						)
+					: "0",
+				cached: false,
+				toolResults: null,
+			});
+
+			return c.json(
+				{
+					error: {
+						message: "Request canceled by client",
+						type: "canceled",
+						param: null,
+						code: "request_canceled",
+					},
+				},
+				400,
+			); // Using 400 status code for client closed request
+		}
+
+		if (res && !res.ok) {
+			// Get the error response text
+			// Body read can throw TimeoutError if the abort signal fires during consumption
+			let errorResponseText: string;
+			try {
+				errorResponseText = await res.text();
+			} catch (bodyError) {
+				if (isTimeoutError(bodyError)) {
+					const errorMessage =
+						bodyError instanceof Error
+							? bodyError.message
+							: "Timeout reading error response body";
+					logger.warn("Timeout reading error response body", {
+						usedProvider,
+						usedModel,
+						status: res.status,
+					});
+
+					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted,
+						usedModelMapping!,
+						usedProvider!,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						null,
+						requestBody,
+						null,
+						bodyTimeoutPluginIds,
+						undefined,
+					);
+
+					await insertLog({
+						...baseLogEntry,
+						duration: Date.now() - perAttemptStartTime,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: res.status,
+							statusText: "TimeoutError",
+							responseText: errorMessage,
+						},
+						cachedInputCost: null,
+						requestCost: null,
+						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						estimatedCost: false,
+						discount: null,
+						dataStorageCost: "0",
+						cached: false,
+						toolResults: null,
+					});
+
+					return c.json(
+						{
+							error: {
+								message: `Upstream provider timeout: ${errorMessage}`,
+								type: "upstream_timeout",
+								param: null,
+								code: "timeout",
+							},
+						},
+						504,
+					);
+				}
+				throw bodyError;
+			}
+
+			// Determine the finish reason first
+			const finishReason = getFinishReasonFromError(
+				res.status,
+				errorResponseText,
+			);
+
+			if (
+				finishReason !== "client_error" &&
+				finishReason !== "content_filter"
+			) {
+				logger.warn("Provider error", {
+					status: res.status,
+					errorText: errorResponseText,
+					usedProvider,
+					requestedProvider,
+					usedModel,
+					initialRequestedModel,
+				});
+			}
+
+			// Log the request in the database
+			// Extract plugin IDs for logging
+			const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
+
+			// Check if we should retry before logging so we can mark the log as retried
+			const willRetryHttpNonStreaming = shouldRetryRequest({
+				requestedProvider,
+				noFallback,
+				statusCode: res.status,
+				retryCount: retryAttempt,
+				remainingProviders:
+					(routingMetadata?.providerScores.length ?? 0) -
+					failedProviderIds.size -
+					1,
+				usedProvider,
+			});
+
+			const baseLogEntry = createLogEntry(
+				requestId,
+				project,
+				apiKey,
+				providerKey?.id,
+				usedModelFormatted,
+				usedModelMapping,
+				usedProvider,
+				initialRequestedModel,
+				requestedProvider,
+				messages,
+				temperature,
+				max_tokens,
+				top_p,
+				frequency_penalty,
+				presence_penalty,
+				reasoning_effort,
+				reasoning_max_tokens,
+				effort,
+				response_format,
+				tools,
+				tool_choice,
+				source,
+				customHeaders,
+				debugMode,
+				userAgent,
+				image_config,
+				routingMetadata,
+				rawBody,
+				errorResponseText, // Our formatted error response
+				requestBody, // The request that resulted in error
+				errorResponseText, // Raw upstream error response
+				providerErrorPluginIds,
+				undefined, // No plugin results for error case
+			);
+
+			await insertLog({
+				...baseLogEntry,
+				duration: perAttemptDuration,
+				timeToFirstToken: null, // Not applicable for error case
+				timeToFirstReasoningToken: null, // Not applicable for error case
+				responseSize: errorResponseText.length,
+				content: null,
+				reasoningContent: null,
+				finishReason,
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: finishReason !== "content_filter", // content_filter is not an error
+				streamed: false,
+				canceled: false,
+				errorDetails: (() => {
+					// content_filter is not an error, no error details needed
+					if (finishReason === "content_filter") {
+						return null;
+					}
+					// For client errors, try to parse the original error and include the message
+					if (finishReason === "client_error") {
+						try {
+							const originalError = JSON.parse(errorResponseText);
+							return {
+								statusCode: res.status,
+								statusText: res.statusText,
+								responseText: errorResponseText,
+								message: originalError.error?.message || errorResponseText,
+							};
+						} catch {
+							// If parsing fails, use default format
+						}
+					}
+					return {
+						statusCode: res.status,
+						statusText: res.statusText,
+						responseText: errorResponseText,
+					};
+				})(),
+				cachedInputCost: null,
+				requestCost: null,
+				webSearchCost: null,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				estimatedCost: false,
+				discount: null,
+				dataStorageCost: "0",
+				cached: false,
+				toolResults: null,
+				retried: willRetryHttpNonStreaming,
+				retriedByLogId: willRetryHttpNonStreaming ? finalLogId : null,
+			});
+
+			// Report key health for environment-based tokens
+			// Don't report content_filter as a key error - it's intentional provider behavior
+			if (envVarName !== undefined && finishReason !== "content_filter") {
+				reportKeyError(envVarName, configIndex, res.status, errorResponseText);
+			}
+
+			if (willRetryHttpNonStreaming) {
+				routingAttempts.push({
+					provider: usedProvider,
+					model: usedModel,
+					status_code: res.status,
+					error_type: getErrorType(res.status),
+					succeeded: false,
+				});
+				failedProviderIds.add(usedProvider);
+				continue;
+			}
+
+			// For content_filter, return a proper completion response (not an error)
+			// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
+			if (finishReason === "content_filter") {
+				return c.json({
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: Math.floor(Date.now() / 1000),
+					model: `${usedProvider}/${baseModelName}`,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: null,
+							},
+							finish_reason: "content_filter",
+						},
+					],
+					usage: {
+						prompt_tokens: 0,
+						completion_tokens: 0,
+						total_tokens: 0,
+					},
+					metadata: {
+						requested_model: initialRequestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+					},
+				});
+			}
+
+			// For client errors, return the original provider error response
+			if (finishReason === "client_error") {
+				try {
+					const originalError = JSON.parse(errorResponseText);
+					return c.json(originalError, res.status as 400);
+				} catch {
+					// If we can't parse the original error, fall back to our format
+				}
+			}
+
+			// Return our wrapped error response for non-client errors
+			return c.json(
+				{
+					error: {
+						message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+						type: finishReason,
+						param: null,
+						code: finishReason,
+						requestedProvider,
+						usedProvider,
+						requestedModel: initialRequestedModel,
+						usedModel,
+						responseText: errorResponseText,
+					},
+				},
+				500,
+			);
+		}
+
+		break; // Fetch succeeded, exit retry loop
+	} // End of retry for loop
+
+	// Add the final attempt (successful or last failed) to routing
+	if (res && res.ok && usedProvider) {
+		routingAttempts.push({
+			provider: usedProvider,
+			model: usedModel,
+			status_code: res.status,
+			error_type: "none",
+			succeeded: true,
+		});
 	}
 
-	const duration = Date.now() - startTime;
-
-	// Handle fetch errors (timeout, connection failures, etc.)
-	if (fetchError) {
-		const errorMessage = fetchError.message;
-		logger.warn("Fetch error", {
-			error: errorMessage,
-			usedProvider,
-			requestedProvider,
-			usedModel,
-			initialRequestedModel,
-		});
-
-		// Log the error in the database
-		// Extract plugin IDs for logging (non-streaming fetch error)
-		const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
-
-		const baseLogEntry = createLogEntry(
-			requestId,
-			project,
-			apiKey,
-			providerKey?.id,
-			usedModelFormatted,
-			usedModelMapping,
-			usedProvider,
-			initialRequestedModel,
-			requestedProvider,
-			messages,
-			temperature,
-			max_tokens,
-			top_p,
-			frequency_penalty,
-			presence_penalty,
-			reasoning_effort,
-			effort,
-			response_format,
-			tools,
-			tool_choice,
-			source,
-			customHeaders,
-			debugMode,
-			userAgent,
-			image_config,
-			routingMetadata,
-			rawBody,
-			null, // No response for fetch error
-			requestBody, // The request that resulted in error
-			null, // No upstream response for fetch error
-			nonStreamingFetchErrorPluginIds,
-			undefined, // No plugin results for error case
+	// Update routingMetadata with all routing attempts for DB logging
+	if (routingMetadata) {
+		// Enrich providerScores with failure info from routing attempts
+		const failedMap = new Map(
+			routingAttempts.filter((a) => !a.succeeded).map((f) => [f.provider, f]),
 		);
+		routingMetadata = {
+			...routingMetadata,
+			routing: routingAttempts,
+			providerScores: routingMetadata.providerScores.map((score) => {
+				const failure = failedMap.get(score.providerId);
+				if (failure) {
+					return {
+						...score,
+						failed: true,
+						status_code: failure.status_code,
+						error_type: failure.error_type,
+					};
+				}
+				return score;
+			}),
+		};
+	}
 
-		await insertLog({
-			...baseLogEntry,
-			duration,
-			timeToFirstToken: null, // Not applicable for error case
-			timeToFirstReasoningToken: null, // Not applicable for error case
-			responseSize: 0,
-			content: null,
-			reasoningContent: null,
-			finishReason: "upstream_error",
-			promptTokens: null,
-			completionTokens: null,
-			totalTokens: null,
-			reasoningTokens: null,
-			cachedTokens: null,
-			hasError: true,
-			streamed: false,
-			canceled: false,
-			errorDetails: {
-				statusCode: 0,
-				statusText: fetchError.name,
-				responseText: errorMessage,
-			},
-			cachedInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			estimatedCost: false,
-			discount: null,
-			dataStorageCost: "0",
-			cached: false,
-			toolResults: null,
-		});
-
-		// Report key health for environment-based tokens
-		if (envVarName !== undefined) {
-			reportKeyError(envVarName, configIndex, 0);
-		}
-
-		// Return error response
+	if (!res || !res.ok) {
+		// All retries exhausted
 		return c.json(
 			{
 				error: {
-					message: `Failed to connect to provider: ${errorMessage}`,
+					message: "All provider attempts failed",
 					type: "upstream_error",
 					param: null,
-					code: "fetch_failed",
-					requestedProvider,
-					usedProvider,
-					requestedModel: initialRequestedModel,
-					usedModel,
+					code: "all_providers_failed",
 				},
 			},
 			502,
 		);
 	}
 
-	// If the request was canceled, log it and return a response
-	if (canceled) {
-		// Log the canceled request
-		// Extract plugin IDs for logging (canceled non-streaming)
-		const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
-
-		// Calculate costs for cancelled request if billing is enabled
-		const billCancelled = shouldBillCancelledRequests();
-		let cancelledCosts: ReturnType<typeof calculateCosts> | null = null;
-		let estimatedPromptTokens: number | null = null;
-
-		if (billCancelled) {
-			// Estimate prompt tokens from messages
-			const tokenEstimation = estimateTokens(
-				usedProvider,
-				messages,
-				null,
-				null,
-				null,
-			);
-			estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-			// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
-			// If web search tool was enabled, count it as 1 search for billing
-			cancelledCosts = calculateCosts(
-				usedModel,
-				usedProvider,
-				estimatedPromptTokens,
-				0, // No completion tokens
-				null, // No cached tokens
-				{
-					prompt: messages.map((m) => m.content).join("\n"),
-					completion: "",
-				},
-				null, // No reasoning tokens
-				0, // No output images
-				undefined,
-				inputImageCount,
-				webSearchTool ? 1 : null, // Bill for web search if it was enabled
-			);
-		}
-
-		const baseLogEntry = createLogEntry(
-			requestId,
-			project,
-			apiKey,
-			providerKey?.id,
-			usedModelFormatted,
-			usedModelMapping,
-			usedProvider,
-			initialRequestedModel,
-			requestedProvider,
-			messages,
-			temperature,
-			max_tokens,
-			top_p,
-			frequency_penalty,
-			presence_penalty,
-			reasoning_effort,
-			effort,
-			response_format,
-			tools,
-			tool_choice,
-			source,
-			customHeaders,
-			debugMode,
-			userAgent,
-			image_config,
-			routingMetadata,
-			rawBody,
-			null, // No response for canceled request
-			requestBody, // The request that was prepared before cancellation
-			null, // No upstream response for canceled request
-			canceledNonStreamingPluginIds,
-			undefined, // No plugin results for canceled request
-		);
-
-		await insertLog({
-			...baseLogEntry,
-			duration,
-			timeToFirstToken: null, // Not applicable for canceled request
-			timeToFirstReasoningToken: null, // Not applicable for canceled request
-			responseSize: 0,
-			content: null,
-			reasoningContent: null,
-			finishReason: "canceled",
-			promptTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
-			completionTokens: billCancelled ? "0" : null,
-			totalTokens: billCancelled ? estimatedPromptTokens?.toString() : null,
-			reasoningTokens: null,
-			cachedTokens: null,
-			hasError: false,
-			streamed: false,
-			canceled: true,
-			errorDetails: null,
-			inputCost: cancelledCosts?.inputCost ?? null,
-			outputCost: cancelledCosts?.outputCost ?? null,
-			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-			requestCost: cancelledCosts?.requestCost ?? null,
-			webSearchCost: cancelledCosts?.webSearchCost ?? null,
-			cost: cancelledCosts?.totalCost ?? null,
-			estimatedCost: cancelledCosts?.estimatedCost ?? false,
-			discount: cancelledCosts?.discount ?? null,
-			dataStorageCost: billCancelled
-				? calculateDataStorageCost(
-						estimatedPromptTokens,
-						null,
-						0,
-						null,
-						retentionLevel,
-					)
-				: "0",
-			cached: false,
-			toolResults: null,
-		});
-
-		return c.json(
-			{
-				error: {
-					message: "Request canceled by client",
-					type: "canceled",
-					param: null,
-					code: "request_canceled",
-				},
-			},
-			400,
-		); // Using 400 status code for client closed request
+	// After successful retry loop, all provider variables are guaranteed set
+	if (!usedProvider || !url) {
+		throw new Error("No provider context after retry loop");
 	}
 
-	if (res && !res.ok) {
-		// Get the error response text
-		const errorResponseText = await res.text();
-
-		// Determine the finish reason first
-		const finishReason = getFinishReasonFromError(
-			res.status,
-			errorResponseText,
-		);
-
-		if (finishReason !== "client_error") {
-			logger.warn("Provider error", {
-				status: res.status,
-				errorText: errorResponseText,
+	let json: any;
+	try {
+		json = await res.json();
+	} catch (bodyError) {
+		if (isTimeoutError(bodyError)) {
+			const errorMessage =
+				bodyError instanceof Error
+					? bodyError.message
+					: "Timeout reading response body";
+			logger.warn("Timeout reading response body", {
 				usedProvider,
-				requestedProvider,
 				usedModel,
 				initialRequestedModel,
 			});
-		}
 
-		// Log the error in the database
-		// Extract plugin IDs for logging (provider error)
-		const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
+			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+			const baseLogEntry = createLogEntry(
+				requestId,
+				project,
+				apiKey,
+				providerKey?.id,
+				usedModelFormatted!,
+				usedModelMapping,
+				usedProvider,
+				initialRequestedModel,
+				requestedProvider,
+				messages,
+				temperature,
+				max_tokens,
+				top_p,
+				frequency_penalty,
+				presence_penalty,
+				reasoning_effort,
+				reasoning_max_tokens,
+				effort,
+				response_format,
+				tools,
+				tool_choice,
+				source,
+				customHeaders,
+				debugMode,
+				userAgent,
+				image_config,
+				routingMetadata,
+				rawBody,
+				null,
+				requestBody,
+				null,
+				bodyTimeoutPluginIds,
+				undefined,
+			);
 
-		const baseLogEntry = createLogEntry(
-			requestId,
-			project,
-			apiKey,
-			providerKey?.id,
-			usedModelFormatted,
-			usedModelMapping,
-			usedProvider,
-			initialRequestedModel,
-			requestedProvider,
-			messages,
-			temperature,
-			max_tokens,
-			top_p,
-			frequency_penalty,
-			presence_penalty,
-			reasoning_effort,
-			effort,
-			response_format,
-			tools,
-			tool_choice,
-			source,
-			customHeaders,
-			debugMode,
-			userAgent,
-			image_config,
-			routingMetadata,
-			rawBody,
-			errorResponseText, // Our formatted error response
-			requestBody, // The request that resulted in error
-			errorResponseText, // Raw upstream error response
-			providerErrorPluginIds,
-			undefined, // No plugin results for error case
-		);
-
-		await insertLog({
-			...baseLogEntry,
-			duration,
-			timeToFirstToken: null, // Not applicable for error case
-			timeToFirstReasoningToken: null, // Not applicable for error case
-			responseSize: errorResponseText.length,
-			content: null,
-			reasoningContent: null,
-			finishReason,
-			promptTokens: null,
-			completionTokens: null,
-			totalTokens: null,
-			reasoningTokens: null,
-			cachedTokens: null,
-			hasError: true,
-			streamed: false,
-			canceled: false,
-			errorDetails: (() => {
-				// For client errors, try to parse the original error and include the message
-				if (finishReason === "client_error") {
-					try {
-						const originalError = JSON.parse(errorResponseText);
-						return {
-							statusCode: res.status,
-							statusText: res.statusText,
-							responseText: errorResponseText,
-							message: originalError.error?.message || errorResponseText,
-						};
-					} catch {
-						// If parsing fails, use default format
-					}
-				}
-				return {
+			await insertLog({
+				...baseLogEntry,
+				duration: Date.now() - startTime,
+				timeToFirstToken: null,
+				timeToFirstReasoningToken: null,
+				responseSize: 0,
+				content: null,
+				reasoningContent: null,
+				finishReason: "upstream_error",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: true,
+				streamed: false,
+				canceled: false,
+				errorDetails: {
 					statusCode: res.status,
-					statusText: res.statusText,
-					responseText: errorResponseText,
-				};
-			})(),
-			cachedInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			estimatedCost: false,
-			discount: null,
-			dataStorageCost: "0",
-			cached: false,
-			toolResults: null,
-		});
-
-		// Report key health for environment-based tokens
-		if (envVarName !== undefined) {
-			reportKeyError(envVarName, configIndex, res.status);
-		}
-
-		// Use the already determined finish reason for response logic
-
-		// For client errors, return the original provider error response
-		if (finishReason === "client_error") {
-			try {
-				const originalError = JSON.parse(errorResponseText);
-				return c.json(originalError, res.status as 400);
-			} catch {
-				// If we can't parse the original error, fall back to our format
-			}
-		}
-
-		// Return our wrapped error response for non-client errors
-		return c.json(
-			{
-				error: {
-					message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
-					type: finishReason,
-					param: null,
-					code: finishReason,
-					requestedProvider,
-					usedProvider,
-					requestedModel: initialRequestedModel,
-					usedModel,
-					responseText: errorResponseText,
+					statusText: "TimeoutError",
+					responseText: errorMessage,
 				},
-			},
-			500,
-		);
-	}
+				cachedInputCost: null,
+				requestCost: null,
+				webSearchCost: null,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				estimatedCost: false,
+				discount: null,
+				dataStorageCost: "0",
+				cached: false,
+				toolResults: null,
+			});
 
-	if (!res) {
-		throw new Error("No response from provider");
+			return c.json(
+				{
+					error: {
+						message: `Upstream provider timeout: ${errorMessage}`,
+						type: "upstream_timeout",
+						param: null,
+						code: "timeout",
+					},
+				},
+				504,
+			);
+		}
+		throw bodyError;
 	}
-
-	const json = await res.json();
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
 	}
-	const responseText = JSON.stringify(json);
+	// Track response size - prefer Content-Length header to avoid expensive stringify on large responses
+	const contentLengthHeader = res.headers.get("Content-Length");
+	let responseSize = contentLengthHeader
+		? parseInt(contentLengthHeader, 10)
+		: 0;
 
 	// Extract content and token usage based on provider
 	let {
@@ -4842,7 +5768,7 @@ chat.openapi(completions, async (c) => {
 		images,
 		annotations,
 		webSearchCount,
-	} = parseProviderResponse(usedProvider, json, messages);
+	} = parseProviderResponse(usedProvider, usedModel, json, messages);
 
 	// Apply response healing if enabled and response_format is json_object or json_schema
 	const responseHealingEnabled = plugins?.some(
@@ -4877,7 +5803,11 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Enhanced logging for Google models to debug missing responses
-	if (usedProvider === "google-ai-studio" || usedProvider === "google-vertex") {
+	if (
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "obsidian"
+	) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
 			usedModel,
@@ -4913,7 +5843,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Estimate tokens if not provided by the API
-	const { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
+	let { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
 		usedProvider,
 		messages,
 		content,
@@ -4935,7 +5865,7 @@ chat.openapi(completions, async (c) => {
 			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 		}
 	}
-	const costs = calculateCosts(
+	const costs = await calculateCosts(
 		usedModel,
 		usedProvider,
 		calculatedPromptTokens,
@@ -4951,12 +5881,27 @@ chat.openapi(completions, async (c) => {
 		image_config?.image_size,
 		inputImageCount,
 		webSearchCount,
+		project.organizationId,
 	);
 
+	// Use costs.promptTokens as canonical value (includes image input
+	// tokens for providers that exclude them from upstream usage)
+	if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
+		const promptDelta =
+			(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+		if (promptDelta > 0) {
+			calculatedPromptTokens = costs.promptTokens;
+			totalTokens = (
+				(calculatedPromptTokens || 0) +
+				(calculatedCompletionTokens || 0) +
+				(calculatedReasoningTokens || 0)
+			).toString();
+		}
+	}
+
 	// Transform response to OpenAI format for non-OpenAI providers
-	// Only include costs in response if not hosted or if org is pro
-	const shouldIncludeCosts = !isHosted || userPlan === "pro";
-	const showUpgradeMessage = isHosted && userPlan !== "pro";
+	// Include costs in response for all users
+	const shouldIncludeCosts = true;
 	const transformedResponse = transformResponseToOpenai(
 		usedProvider,
 		usedModel,
@@ -4983,11 +5928,14 @@ chat.openapi(completions, async (c) => {
 					cachedInputCost: costs.cachedInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					imageInputCost: costs.imageInputCost,
+					imageOutputCost: costs.imageOutputCost,
 					totalCost: costs.totalCost,
 				}
 			: null,
-		showUpgradeMessage,
+		false, // showUpgradeMessage - never show since Pro plan is removed
 		annotations,
+		routingAttempts.length > 0 ? routingAttempts : null,
 	);
 
 	// Extract plugin IDs for logging
@@ -5010,6 +5958,7 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		reasoning_effort,
+		reasoning_max_tokens,
 		effort,
 		response_format,
 		tools,
@@ -5031,16 +5980,21 @@ chat.openapi(completions, async (c) => {
 	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
 	// Exclude content_filter responses as they are intentionally empty (blocked by provider)
 	// For Google, check for original finish reasons that indicate content filtering
+	// These include both finishReason values and promptFeedback.blockReason values
 	const isGoogleContentFilter =
-		(usedProvider === "google-ai-studio" || usedProvider === "google-vertex") &&
+		(usedProvider === "google-ai-studio" ||
+			usedProvider === "google-vertex" ||
+			usedProvider === "obsidian") &&
 		(finishReason === "SAFETY" ||
 			finishReason === "PROHIBITED_CONTENT" ||
 			finishReason === "RECITATION" ||
 			finishReason === "BLOCKLIST" ||
-			finishReason === "SPII");
+			finishReason === "SPII" ||
+			finishReason === "OTHER");
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "content_filter" &&
+		finishReason !== "incomplete" &&
 		!isGoogleContentFilter &&
 		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 		(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
@@ -5058,12 +6012,27 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Calculate response size if Content-Length was not available
+	// For large responses, use content length estimation to avoid CPU spikes from stringify
+	if (!responseSize) {
+		const contentLength = content?.length || 0;
+		// If content is very large (likely contains base64 images), use estimation
+		// Otherwise stringify is acceptable for smaller responses
+		if (contentLength > 1_000_000) {
+			// Estimate: content + JSON overhead
+			responseSize = contentLength + 500;
+		} else {
+			responseSize = JSON.stringify(json).length;
+		}
+	}
+
 	await insertLog({
 		...baseLogEntry,
+		id: routingAttempts.length > 0 ? finalLogId : undefined,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
-		responseSize: responseText.length,
+		responseSize,
 		content: content,
 		reasoningContent: reasoningContent,
 		finishReason: hasEmptyNonStreamingResponse
@@ -5094,6 +6063,10 @@ chat.openapi(completions, async (c) => {
 		cachedInputCost: costs.cachedInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
+		imageInputTokens: costs.imageInputTokens?.toString() ?? null,
+		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
+		imageInputCost: costs.imageInputCost ?? null,
+		imageOutputCost: costs.imageOutputCost ?? null,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,

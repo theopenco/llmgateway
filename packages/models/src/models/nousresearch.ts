@@ -24,4 +24,27 @@ export const nousresearchModels = [
 			},
 		],
 	},
+	{
+		id: "hermes-2-pro-llama-3-8b",
+		name: "Hermes 2 Pro Llama 3 8B",
+		description: "Nous Research Hermes 2 Pro based on Llama 3 8B.",
+		family: "nousresearch",
+		releasedAt: new Date("2024-05-27"),
+		providers: [
+			{
+				providerId: "novita",
+				stability: "unstable",
+				modelName: "nousresearch/hermes-2-pro-llama-3-8b",
+				inputPrice: 0.14 / 1e6,
+				outputPrice: 0.14 / 1e6,
+				requestPrice: 0,
+				contextSize: 8192,
+				maxOutput: 8192,
+				streaming: true,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

@@ -82,12 +82,19 @@ export async function fetchServerData<T>(
 		}
 
 		if (response.error) {
+			console.error(
+				`[server-api] API error for ${method} ${path}:`,
+				response.error,
+			);
 			return null;
 		}
 
 		return response.data ?? null;
-	} catch {
-		console.error(`Server API error for ${method} ${path}`);
+	} catch (error) {
+		console.error(
+			`[server-api] Server API error for ${method} ${path}:`,
+			error,
+		);
 		return null;
 	}
 }

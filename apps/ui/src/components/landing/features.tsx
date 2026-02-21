@@ -291,6 +291,57 @@ const features: FeatureItem[] = [
 			"Drill into each project's requests, models, errors, cache, and costs with dedicated charts and tables.",
 		slug: "project-level-usage-explorer",
 	},
+	{
+		icon: (
+			<svg
+				className="h-8 w-8"
+				fill="none"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 144 144"
+			>
+				<rect x="24" y="16" width="96" height="112" rx="8" fill="#616163" />
+				<rect x="34" y="28" width="76" height="88" rx="4" fill="#D4CFCB" />
+				<rect x="44" y="42" width="56" height="6" rx="2" fill="#4ADE80" />
+				<rect x="44" y="56" width="40" height="6" rx="2" fill="#38BDF8" />
+				<rect x="44" y="70" width="48" height="6" rx="2" fill="#A855F7" />
+				<rect x="44" y="84" width="36" height="6" rx="2" fill="#F97316" />
+				<rect x="44" y="98" width="52" height="6" rx="2" fill="#22C55E" />
+				<circle cx="44" cy="45" r="2" fill="#020617" />
+				<circle cx="44" cy="59" r="2" fill="#020617" />
+				<circle cx="44" cy="73" r="2" fill="#020617" />
+				<circle cx="44" cy="87" r="2" fill="#020617" />
+				<circle cx="44" cy="101" r="2" fill="#020617" />
+			</svg>
+		),
+		title: "Enterprise Audit Logs",
+		description:
+			"Track who did what, when, and maintain compliance with comprehensive audit trails.",
+		slug: "audit-logs",
+	},
+	{
+		icon: (
+			<svg
+				className="h-8 w-8"
+				fill="none"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 144 144"
+			>
+				<path
+					d="M72 12L24 32v40c0 33.137 21.49 62.627 48 72 26.51-9.373 48-38.863 48-72V32L72 12Z"
+					fill="#616163"
+				/>
+				<path
+					d="M72 24L36 40v28c0 26.51 17.192 50.102 36 57.6 18.808-7.498 36-31.09 36-57.6V40L72 24Z"
+					fill="#4ADE80"
+				/>
+				<path d="M64 72l-8-8-6 6 14 14 24-24-6-6-18 18Z" fill="#020617" />
+			</svg>
+		),
+		title: "LLM Guardrails",
+		description:
+			"Prevent prompt injection, detect PII, and block malicious requests with intelligent guardrails.",
+		slug: "guardrails",
+	},
 ];
 
 export default function Features() {

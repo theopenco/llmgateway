@@ -201,14 +201,32 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "minimal" | "low" | "medium" | "high";
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
 }
+
+export interface OpenAIResponsesFunctionCall {
+	type: "function_call";
+	call_id: string;
+	name: string;
+	arguments: string;
+}
+
+export interface OpenAIResponsesFunctionCallOutput {
+	type: "function_call_output";
+	call_id: string;
+	output: string;
+}
+
+export type OpenAIResponsesInputItem =
+	| OpenAIMessage
+	| OpenAIResponsesFunctionCall
+	| OpenAIResponsesFunctionCallOutput;
 
 export interface OpenAIResponsesRequestBody {
 	model: string;
-	input: OpenAIMessage[];
+	input: OpenAIResponsesInputItem[];
 	reasoning: {
-		effort: "minimal" | "low" | "medium" | "high";
+		effort: "minimal" | "low" | "medium" | "high" | "xhigh";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -332,7 +350,7 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAITool[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high",
+	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,

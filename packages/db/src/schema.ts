@@ -126,7 +126,7 @@ export const organization = pgTable("organization", {
 	autoTopUpThreshold: decimal().default("10"),
 	autoTopUpAmount: decimal().default("10"),
 	plan: text({
-		enum: ["free", "pro"],
+		enum: ["free", "pro", "enterprise"],
 	})
 		.notNull()
 		.default("free"),
@@ -441,6 +441,7 @@ export const log = pgTable(
 		frequencyPenalty: real(),
 		presencePenalty: real(),
 		reasoningEffort: text(),
+		reasoningMaxTokens: integer(),
 		effort: text(),
 		responseFormat: json(),
 		hasError: boolean().default(false),
@@ -451,8 +452,13 @@ export const log = pgTable(
 		cachedInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		imageInputTokens: decimal(),
+		imageOutputTokens: decimal(),
+		imageInputCost: real(),
+		imageOutputCost: real(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		serviceFee: real(),
 		pricingTier: text(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),
@@ -477,6 +483,19 @@ export const log = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				failed?: boolean;
+				status_code?: number;
+				error_type?: string;
+			}>;
+			originalProvider?: string;
+			originalProviderUptime?: number;
+			noFallback?: boolean;
+			routing?: Array<{
+				provider: string;
+				model: string;
+				status_code: number;
+				error_type: string;
+				succeeded: boolean;
 			}>;
 		}>(),
 		processedAt: timestamp(),
@@ -501,6 +520,8 @@ export const log = pgTable(
 				healingMethod?: string;
 			};
 		}>(),
+		retried: boolean().default(false),
+		retriedByLogId: text(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -510,10 +531,10 @@ export const log = pgTable(
 			table.usedModel,
 			table.usedProvider,
 		),
-		// Partial index for data retention cleanup: project_id first for filtering, then created_at for range
+		// Partial index for data retention cleanup: created_at for range filtering
 		// Only indexes rows that need cleanup (data_retention_cleaned_up = false)
 		index("log_data_retention_pending_idx")
-			.on(table.projectId, table.createdAt)
+			.on(table.createdAt)
 			.where(sql`data_retention_cleaned_up = false`),
 		// Index for distinct usedModel queries by project
 		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
@@ -754,11 +775,13 @@ export const modelProviderMapping = pgTable(
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
 		reasoning: boolean(),
+		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
 		tools: boolean(),
 		jsonOutput: boolean().default(false).notNull(),
 		jsonOutputSchema: boolean().default(false).notNull(),
 		webSearch: boolean().default(false).notNull(),
+		webSearchPrice: decimal(),
 		discount: decimal().default("0").notNull(),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
@@ -873,5 +896,598 @@ export const modelHistory = pgTable(
 		unique().on(table.modelId, table.minuteTimestamp),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
+	],
+);
+
+// Audit Log - Enterprise feature for tracking all API actions
+export const auditLogActions = [
+	// Organization
+	"organization.create",
+	"organization.update",
+	"organization.delete",
+	// Project
+	"project.create",
+	"project.update",
+	"project.delete",
+	// Team
+	"team_member.add",
+	"team_member.update",
+	"team_member.remove",
+	// API Key
+	"api_key.create",
+	"api_key.update_status",
+	"api_key.update_limit",
+	"api_key.delete",
+	"api_key.iam_rule.create",
+	"api_key.iam_rule.update",
+	"api_key.iam_rule.delete",
+	// Provider Key
+	"provider_key.create",
+	"provider_key.update",
+	"provider_key.delete",
+	// Subscription
+	"subscription.create",
+	"subscription.cancel",
+	"subscription.resume",
+	"subscription.upgrade_yearly",
+	// Payment
+	"payment.method.set_default",
+	"payment.method.delete",
+	"payment.credit_topup",
+	// Dev Plan
+	"dev_plan.subscribe",
+	"dev_plan.cancel",
+	"dev_plan.resume",
+	"dev_plan.change_tier",
+	"dev_plan.update_settings",
+] as const;
+
+export const auditLogResourceTypes = [
+	"organization",
+	"project",
+	"team_member",
+	"api_key",
+	"iam_rule",
+	"provider_key",
+	"subscription",
+	"payment_method",
+	"payment",
+	"dev_plan",
+] as const;
+
+export type AuditLogAction = (typeof auditLogActions)[number];
+export type AuditLogResourceType = (typeof auditLogResourceTypes)[number];
+
+export interface AuditLogMetadata {
+	changes?: Record<string, { old: unknown; new: unknown }>;
+	resourceName?: string;
+	targetUserId?: string;
+	targetUserEmail?: string;
+	ipAddress?: string;
+	userAgent?: string;
+	[key: string]: unknown;
+}
+
+export const auditLog = pgTable(
+	"audit_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		action: text({ enum: auditLogActions }).notNull(),
+		resourceType: text({ enum: auditLogResourceTypes }).notNull(),
+		resourceId: text(),
+		metadata: jsonb().$type<AuditLogMetadata>(),
+	},
+	(table) => [
+		index("audit_log_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("audit_log_user_id_idx").on(table.userId),
+		index("audit_log_action_idx").on(table.action),
+		index("audit_log_resource_type_idx").on(table.resourceType),
+	],
+);
+
+// Guardrails - Enterprise feature for content safety
+
+export type GuardrailAction = "block" | "redact" | "warn" | "allow";
+
+export interface SystemRuleConfig {
+	enabled: boolean;
+	action: GuardrailAction;
+}
+
+export interface SystemRulesConfig {
+	prompt_injection: SystemRuleConfig;
+	jailbreak: SystemRuleConfig;
+	pii_detection: SystemRuleConfig;
+	secrets: SystemRuleConfig;
+	file_types: SystemRuleConfig;
+	document_leakage: SystemRuleConfig;
+}
+
+export const defaultSystemRulesConfig: SystemRulesConfig = {
+	prompt_injection: { enabled: true, action: "block" },
+	jailbreak: { enabled: true, action: "block" },
+	pii_detection: { enabled: true, action: "redact" },
+	secrets: { enabled: true, action: "block" },
+	file_types: { enabled: true, action: "block" },
+	document_leakage: { enabled: false, action: "warn" },
+};
+
+export const defaultAllowedFileTypes = [
+	"image/jpeg",
+	"image/png",
+	"image/gif",
+	"image/webp",
+];
+
+export const guardrailActionsTaken = ["blocked", "redacted", "warned"] as const;
+
+export type GuardrailActionTaken = (typeof guardrailActionsTaken)[number];
+
+export const customRuleTypes = [
+	"blocked_terms",
+	"custom_regex",
+	"topic_restriction",
+] as const;
+
+export type CustomRuleType = (typeof customRuleTypes)[number];
+
+export interface BlockedTermsRuleConfig {
+	type: "blocked_terms";
+	terms: string[];
+	matchType: "exact" | "contains" | "regex";
+	caseSensitive: boolean;
+}
+
+export interface CustomRegexRuleConfig {
+	type: "custom_regex";
+	pattern: string;
+}
+
+export interface TopicRestrictionRuleConfig {
+	type: "topic_restriction";
+	blockedTopics: string[];
+	allowedTopics?: string[];
+}
+
+export type CustomRuleConfig =
+	| BlockedTermsRuleConfig
+	| CustomRegexRuleConfig
+	| TopicRestrictionRuleConfig;
+
+export const guardrailConfig = pgTable(
+	"guardrail_config",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" })
+			.unique(),
+		enabled: boolean().default(true).notNull(),
+		systemRules: jsonb("system_rules")
+			.$type<SystemRulesConfig>()
+			.default(defaultSystemRulesConfig),
+		maxFileSizeMb: integer("max_file_size_mb").default(10).notNull(),
+		allowedFileTypes: text("allowed_file_types")
+			.array()
+			.default(defaultAllowedFileTypes)
+			.notNull(),
+		piiAction: text("pii_action").$type<GuardrailAction>().default("redact"),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		index("guardrail_config_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const guardrailRule = pgTable(
+	"guardrail_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		type: text({ enum: customRuleTypes }).notNull(),
+		config: jsonb().$type<CustomRuleConfig>().notNull(),
+		priority: integer().default(100).notNull(),
+		enabled: boolean().default(true).notNull(),
+		action: text().$type<GuardrailAction>().default("block").notNull(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		index("guardrail_rule_organization_id_idx").on(table.organizationId),
+		index("guardrail_rule_priority_idx").on(table.priority),
+	],
+);
+
+export const guardrailViolation = pgTable(
+	"guardrail_violation",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		logId: text("log_id"),
+		ruleId: text("rule_id").notNull(),
+		ruleName: text("rule_name").notNull(),
+		category: text().notNull(),
+		actionTaken: text("action_taken", {
+			enum: guardrailActionsTaken,
+		}).notNull(),
+		matchedPattern: text("matched_pattern"),
+		matchedContent: text("matched_content"),
+		contentHash: text("content_hash"),
+		apiKeyId: text("api_key_id"),
+		model: text(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(table) => [
+		index("guardrail_violation_org_created_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("guardrail_violation_rule_created_idx").on(
+			table.ruleId,
+			table.createdAt,
+		),
+	],
+);
+
+// Discount - Admin-configurable discounts for providers/models
+// Can be global (organizationId = null) or org-specific
+export const discount = pgTable(
+	"discount",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Scope: null = global discount, otherwise org-specific
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// Target: provider-only, model-only, or both
+		// null provider = applies to all providers
+		provider: text(),
+		// null model = applies to all models (of provider if specified)
+		model: text(),
+		// Discount value (0-1, where 0.3 = 30% off, user pays 70%)
+		discountPercent: decimal().notNull(),
+		// Optional metadata
+		reason: text(),
+		expiresAt: timestamp(),
+	},
+	(table) => [
+		// Unique constraint: one discount per org+provider+model combo
+		// Using COALESCE to handle nulls in unique constraint
+		unique("discount_org_provider_model_unique").on(
+			table.organizationId,
+			table.provider,
+			table.model,
+		),
+		index("discount_organization_id_idx").on(table.organizationId),
+		index("discount_provider_idx").on(table.provider),
+		index("discount_model_idx").on(table.model),
+	],
+);
+
+// Project hourly statistics aggregation - used for fast dashboard queries
+export const projectHourlyStats = pgTable(
+	"project_hourly_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsServiceFee: real().notNull().default(0),
+		apiKeysServiceFee: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per project-hour (also creates implicit index)
+		unique().on(table.projectId, table.hourTimestamp),
+		// Index for worker refresh queries (find hours to update)
+		index("project_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
+	],
+);
+
+// Project hourly model statistics aggregation - model breakdown per hour
+export const projectHourlyModelStats = pgTable(
+	"project_hourly_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsServiceFee: real().notNull().default(0),
+		apiKeysServiceFee: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per project-hour-model-provider
+		unique().on(
+			table.projectId,
+			table.hourTimestamp,
+			table.usedModel,
+			table.usedProvider,
+		),
+		// Index for dashboard queries (project + time range)
+		index("project_hourly_model_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("project_hourly_model_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);
+
+// API key hourly statistics aggregation - for per-key breakdown queries
+export const apiKeyHourlyStats = pgTable(
+	"api_key_hourly_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for efficient queries
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsServiceFee: real().notNull().default(0),
+		apiKeysServiceFee: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per api-key-hour
+		unique().on(table.apiKeyId, table.hourTimestamp),
+		// Index for dashboard queries (api key + time range)
+		index("api_key_hourly_stats_api_key_id_hour_timestamp_idx").on(
+			table.apiKeyId,
+			table.hourTimestamp,
+		),
+		// Index for project-level queries (all keys in a project)
+		index("api_key_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("api_key_hourly_stats_hour_timestamp_idx").on(table.hourTimestamp),
+	],
+);
+
+// API key hourly model statistics aggregation - model breakdown per API key per hour
+export const apiKeyHourlyModelStats = pgTable(
+	"api_key_hourly_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for efficient queries
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		serviceFee: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsServiceFee: real().notNull().default(0),
+		apiKeysServiceFee: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per api-key-hour-model-provider
+		unique().on(
+			table.apiKeyId,
+			table.hourTimestamp,
+			table.usedModel,
+			table.usedProvider,
+		),
+		// Index for dashboard queries (api key + time range)
+		index("api_key_hourly_model_stats_api_key_id_hour_timestamp_idx").on(
+			table.apiKeyId,
+			table.hourTimestamp,
+		),
+		// Index for project-level queries (all keys in a project)
+		index("api_key_hourly_model_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("api_key_hourly_model_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
 	],
 );

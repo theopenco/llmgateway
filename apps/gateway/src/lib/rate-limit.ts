@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
+
+import { findOrganizationById } from "@/lib/cached-queries.js";
+
 import { redisClient } from "@llmgateway/cache";
-import { cdb as db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import type { ModelDefinition } from "@llmgateway/models";
@@ -50,13 +53,7 @@ function getRateLimitKey(organizationId: string, model: string): string {
  */
 async function hasElevatedLimits(organizationId: string): Promise<boolean> {
 	try {
-		const org = await db.query.organization.findFirst({
-			where: {
-				id: {
-					eq: organizationId,
-				},
-			},
-		});
+		const org = await findOrganizationById(organizationId);
 		return Boolean(org && parseFloat(org.credits || "0") > 0);
 	} catch (error) {
 		logger.error(
@@ -129,8 +126,10 @@ export async function checkFreeModelRateLimit(
 			return { allowed: false, retryAfter, remaining: 0, limit };
 		}
 
-		// Add current request to sliding window
-		await redisClient.zadd(key, now, now.toString());
+		// Add current request to sliding window with a unique member.
+		// Using only `now` as member can collide under same-millisecond concurrency.
+		const member = `${now}:${randomUUID()}`;
+		await redisClient.zadd(key, now, member);
 		await redisClient.expire(key, window * 2); // Set expiry to 2x window for cleanup
 
 		logger.debug(`Free model rate limit check passed`, {

@@ -1,4 +1,4 @@
-import { ProviderIcons } from "@/lib/components/providers-icons";
+import { ProviderIcons } from "@llmgateway/shared/components";
 
 import type { ProviderId } from "@llmgateway/models";
 
@@ -22,7 +22,6 @@ export const providerLogoUrls: Partial<
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
-	routeway: ProviderIcons.routeway,
 	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,

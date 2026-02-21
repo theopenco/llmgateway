@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 import { logger } from "@llmgateway/logger";
 
@@ -17,17 +17,29 @@ function escapeHtml(text: string): string {
 	return text.replace(/[&<>"'/]/g, (char) => htmlEscapeMap[char] || char);
 }
 
-const smtpHost = process.env.SMTP_HOST;
-const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASS;
-const smtpFromEmail = process.env.SMTP_FROM_EMAIL || "contact@llmgateway.io";
-const replyToEmail = process.env.SMTP_REPLY_TO_EMAIL || "contact@llmgateway.io";
+const resendApiKey = process.env.RESEND_API_KEY;
+const fromEmail =
+	process.env.RESEND_FROM_EMAIL || "LLMGateway <contact@mail.llmgateway.io>";
+const replyToEmail =
+	process.env.RESEND_REPLY_TO_EMAIL || "contact@llmgateway.io";
+
+let resendClient: Resend | null = null;
+
+function getResendClient(): Resend | null {
+	if (!resendApiKey) {
+		return null;
+	}
+	if (!resendClient) {
+		resendClient = new Resend(resendApiKey);
+	}
+	return resendClient;
+}
 
 export interface TransactionalEmailOptions {
 	to: string;
 	subject: string;
-	html: string;
+	html?: string;
+	text?: string;
 	attachments?: Array<{
 		filename: string;
 		content: Buffer;
@@ -39,6 +51,7 @@ export async function sendTransactionalEmail({
 	to,
 	subject,
 	html,
+	text,
 	attachments,
 }: TransactionalEmailOptions): Promise<void> {
 	// In non-production environments, just log the email content
@@ -47,54 +60,54 @@ export async function sendTransactionalEmail({
 			to,
 			subject,
 			html,
+			text,
 			attachments: attachments?.map((a) => ({
 				filename: a.filename,
 				size: a.content.length,
 			})),
-			from: smtpFromEmail,
+			from: fromEmail,
 			replyTo: replyToEmail,
 		});
 		return;
 	}
 
-	if (!smtpHost || !smtpUser || !smtpPass) {
+	const client = getResendClient();
+	if (!client) {
 		logger.error(
-			"SMTP configuration is not set. Transactional email will not be sent.",
+			"RESEND_API_KEY is not configured. Transactional email will not be sent.",
 			new Error(
-				`SMTP not configured for email to ${to} with subject: ${subject}`,
+				`Resend not configured for email to ${to} with subject: ${subject}`,
 			),
 		);
 		return;
 	}
 
-	const transporter = nodemailer.createTransport({
-		host: smtpHost,
-		port: smtpPort,
-		secure: smtpPort === 465,
-		auth: {
-			user: smtpUser,
-			pass: smtpPass,
-		},
-	});
-
 	try {
-		await transporter.sendMail({
-			from: `LLMGateway <${smtpFromEmail}>`,
+		const emailPayload = {
+			from: fromEmail,
+			to: [to],
 			replyTo: replyToEmail,
-			to,
 			subject,
-			html,
 			attachments: attachments?.map((att) => ({
 				filename: att.filename,
 				content: att.content,
 				contentType: att.contentType,
 			})),
-		});
+		};
+
+		const { data, error } = await client.emails.send(
+			text ? { ...emailPayload, text } : { ...emailPayload, html: html ?? "" },
+		);
+
+		if (error) {
+			throw new Error(`Resend API error: ${error.message}`);
+		}
 
 		logger.info("Transactional email sent successfully", {
 			to,
 			subject,
 			hasAttachments: !!attachments?.length,
+			messageId: data?.id,
 		});
 	} catch (error) {
 		logger.error(
