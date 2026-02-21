@@ -22,7 +22,7 @@ import {
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
-import { formatContextSize } from "@/lib/utils";
+import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -253,6 +253,33 @@ export function ModelCard({
 											</Badge>
 										</div>
 									</div>
+
+									{(provider.deprecatedAt || provider.deactivatedAt) && (
+										<div className="flex flex-wrap gap-2">
+											{provider.deprecatedAt && (
+												<Badge
+													variant="outline"
+													className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+												>
+													{formatDeprecationDate(
+														provider.deprecatedAt,
+														"deprecated",
+													)}
+												</Badge>
+											)}
+											{provider.deactivatedAt && (
+												<Badge
+													variant="destructive"
+													className="text-xs px-2 py-0.5"
+												>
+													{formatDeprecationDate(
+														provider.deactivatedAt,
+														"deactivated",
+													)}
+												</Badge>
+											)}
+										</div>
+									)}
 
 									<div>
 										<div className="text-xs text-muted-foreground mb-2">

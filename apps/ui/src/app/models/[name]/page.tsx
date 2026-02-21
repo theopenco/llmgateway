@@ -8,6 +8,7 @@ import {
 	MessageSquare,
 	ImagePlus,
 	Braces,
+	AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -17,6 +18,7 @@ import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
 import { ProviderTabs } from "@/components/models/provider-tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/lib/components/alert";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
@@ -164,6 +166,59 @@ export default async function ModelPage({ params }: PageProps) {
 							Back to all models
 						</Link>
 					</div>
+					{(() => {
+						const now = new Date();
+						const allDeactivated =
+							modelProviders.length > 0 &&
+							modelProviders.every((p) => p.deactivatedAt);
+						const allDeprecated =
+							modelProviders.length > 0 &&
+							modelProviders.every((p) => p.deprecatedAt);
+
+						if (allDeactivated) {
+							const allPast = modelProviders.every(
+								(p) => new Date(p.deactivatedAt!) <= now,
+							);
+							return (
+								<Alert variant="destructive" className="mb-6">
+									<AlertCircle className="h-4 w-4" />
+									<AlertTitle>
+										{allPast
+											? "Model Deactivated"
+											: "Model Scheduled for Deactivation"}
+									</AlertTitle>
+									<AlertDescription>
+										{allPast
+											? "All providers for this model have been deactivated. Requests will return errors."
+											: "All providers for this model are scheduled to be deactivated. Plan to migrate to an alternative model."}
+									</AlertDescription>
+								</Alert>
+							);
+						}
+
+						if (allDeprecated) {
+							const allPast = modelProviders.every(
+								(p) => new Date(p.deprecatedAt!) <= now,
+							);
+							return (
+								<Alert className="mb-6 border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400">
+									<AlertTriangle className="h-4 w-4" />
+									<AlertTitle>
+										{allPast
+											? "Model Deprecated"
+											: "Model Scheduled for Deprecation"}
+									</AlertTitle>
+									<AlertDescription className="text-amber-600/90 dark:text-amber-400/90">
+										{allPast
+											? "All providers for this model have been deprecated. The model still works but may be removed in the future."
+											: "All providers for this model are scheduled for deprecation. Consider migrating to an alternative model."}
+									</AlertDescription>
+								</Alert>
+							);
+						}
+
+						return null;
+					})()}
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2 flex-wrap">
 							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
