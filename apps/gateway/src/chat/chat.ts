@@ -4818,6 +4818,7 @@ chat.openapi(completions, async (c) => {
 	let isTimeoutFetchError = false;
 	let res: Response | undefined;
 	let duration = 0;
+	let json: any;
 	const finalLogId = shortid();
 	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
 		const perAttemptStartTime = Date.now();
@@ -5275,6 +5276,19 @@ chat.openapi(completions, async (c) => {
 						status: res.status,
 					});
 
+					// Check if we should retry before logging so we can mark the log as retried
+					const willRetryBodyTimeoutNonStreaming = shouldRetryRequest({
+						requestedProvider,
+						noFallback,
+						statusCode: res.status,
+						retryCount: retryAttempt,
+						remainingProviders:
+							(routingMetadata?.providerScores.length ?? 0) -
+							failedProviderIds.size -
+							1,
+						usedProvider,
+					});
+
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
@@ -5346,7 +5360,28 @@ chat.openapi(completions, async (c) => {
 						dataStorageCost: "0",
 						cached: false,
 						toolResults: null,
+						retried: willRetryBodyTimeoutNonStreaming,
+						retriedByLogId: willRetryBodyTimeoutNonStreaming
+							? finalLogId
+							: null,
 					});
+
+					// Report key health for environment-based tokens
+					if (envVarName !== undefined) {
+						reportKeyError(envVarName, configIndex, res.status);
+					}
+
+					if (willRetryBodyTimeoutNonStreaming) {
+						routingAttempts.push({
+							provider: usedProvider,
+							model: usedModel,
+							status_code: res.status,
+							error_type: getErrorType(res.status),
+							succeeded: false,
+						});
+						failedProviderIds.add(usedProvider);
+						continue;
+					}
 
 					return c.json(
 						{
@@ -5577,7 +5612,150 @@ chat.openapi(completions, async (c) => {
 			);
 		}
 
-		break; // Fetch succeeded, exit retry loop
+		// At this point, res must be defined and ok (otherwise we would have continued/returned above)
+		if (!res || !res.ok) {
+			throw new Error("Response not ok after error handling");
+		}
+
+		// Parse response body before exiting retry loop so we can retry on timeout
+		// Body read can throw TimeoutError if the abort signal fires during consumption
+		try {
+			json = await res.json();
+		} catch (bodyError) {
+			if (isTimeoutError(bodyError)) {
+				const errorMessage =
+					bodyError instanceof Error
+						? bodyError.message
+						: "Timeout reading response body";
+				logger.warn("Timeout reading response body", {
+					usedProvider,
+					usedModel,
+					initialRequestedModel,
+				});
+
+				// Check if we should retry before logging so we can mark the log as retried
+				const willRetrySuccessBodyTimeoutNonStreaming = shouldRetryRequest({
+					requestedProvider,
+					noFallback,
+					statusCode: res.status,
+					retryCount: retryAttempt,
+					remainingProviders:
+						(routingMetadata?.providerScores.length ?? 0) -
+						failedProviderIds.size -
+						1,
+					usedProvider,
+				});
+
+				const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
+				const baseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModelFormatted,
+					usedModelMapping,
+					usedProvider,
+					initialRequestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					reasoning_effort,
+					reasoning_max_tokens,
+					effort,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					debugMode,
+					userAgent,
+					image_config,
+					routingMetadata,
+					rawBody,
+					null,
+					requestBody,
+					null,
+					bodyTimeoutPluginIds,
+					undefined,
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					duration: Date.now() - perAttemptStartTime,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize: 0,
+					content: null,
+					reasoningContent: null,
+					finishReason: "upstream_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: false,
+					canceled: false,
+					errorDetails: {
+						statusCode: res.status,
+						statusText: "TimeoutError",
+						responseText: errorMessage,
+					},
+					cachedInputCost: null,
+					requestCost: null,
+					webSearchCost: null,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					estimatedCost: false,
+					discount: null,
+					dataStorageCost: "0",
+					cached: false,
+					toolResults: null,
+					retried: willRetrySuccessBodyTimeoutNonStreaming,
+					retriedByLogId: willRetrySuccessBodyTimeoutNonStreaming
+						? finalLogId
+						: null,
+				});
+
+				// Report key health for environment-based tokens
+				if (envVarName !== undefined) {
+					reportKeyError(envVarName, configIndex, res.status);
+				}
+
+				if (willRetrySuccessBodyTimeoutNonStreaming) {
+					routingAttempts.push({
+						provider: usedProvider,
+						model: usedModel,
+						status_code: res.status,
+						error_type: getErrorType(res.status),
+						succeeded: false,
+					});
+					failedProviderIds.add(usedProvider);
+					continue;
+				}
+
+				return c.json(
+					{
+						error: {
+							message: `Upstream provider timeout: ${errorMessage}`,
+							type: "upstream_timeout",
+							param: null,
+							code: "timeout",
+						},
+					},
+					504,
+				);
+			}
+			throw bodyError;
+		}
+
+		break; // Fetch and body parse succeeded, exit retry loop
 	} // End of retry for loop
 
 	// Add the final attempt (successful or last failed) to routing
@@ -5635,108 +5813,7 @@ chat.openapi(completions, async (c) => {
 		throw new Error("No provider context after retry loop");
 	}
 
-	let json: any;
-	try {
-		json = await res.json();
-	} catch (bodyError) {
-		if (isTimeoutError(bodyError)) {
-			const errorMessage =
-				bodyError instanceof Error
-					? bodyError.message
-					: "Timeout reading response body";
-			logger.warn("Timeout reading response body", {
-				usedProvider,
-				usedModel,
-				initialRequestedModel,
-			});
-
-			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
-			const baseLogEntry = createLogEntry(
-				requestId,
-				project,
-				apiKey,
-				providerKey?.id,
-				usedModelFormatted!,
-				usedModelMapping,
-				usedProvider,
-				initialRequestedModel,
-				requestedProvider,
-				messages,
-				temperature,
-				max_tokens,
-				top_p,
-				frequency_penalty,
-				presence_penalty,
-				reasoning_effort,
-				reasoning_max_tokens,
-				effort,
-				response_format,
-				tools,
-				tool_choice,
-				source,
-				customHeaders,
-				debugMode,
-				userAgent,
-				image_config,
-				routingMetadata,
-				rawBody,
-				null,
-				requestBody,
-				null,
-				bodyTimeoutPluginIds,
-				undefined,
-			);
-
-			await insertLog({
-				...baseLogEntry,
-				duration: Date.now() - startTime,
-				timeToFirstToken: null,
-				timeToFirstReasoningToken: null,
-				responseSize: 0,
-				content: null,
-				reasoningContent: null,
-				finishReason: "upstream_error",
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: true,
-				streamed: false,
-				canceled: false,
-				errorDetails: {
-					statusCode: res.status,
-					statusText: "TimeoutError",
-					responseText: errorMessage,
-				},
-				cachedInputCost: null,
-				requestCost: null,
-				webSearchCost: null,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				estimatedCost: false,
-				discount: null,
-				dataStorageCost: "0",
-				cached: false,
-				toolResults: null,
-			});
-
-			return c.json(
-				{
-					error: {
-						message: `Upstream provider timeout: ${errorMessage}`,
-						type: "upstream_timeout",
-						param: null,
-						code: "timeout",
-					},
-				},
-				504,
-			);
-		}
-		throw bodyError;
-	}
+	// json variable is already set from inside the retry loop
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
 	}
