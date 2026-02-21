@@ -8,7 +8,6 @@ import {
 	MessageSquare,
 	ImagePlus,
 	Braces,
-	AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -17,12 +16,11 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ModelStatusBadge } from "@/components/models/model-status-badge";
 import { ProviderTabs } from "@/components/models/provider-tabs";
-import { Alert, AlertDescription, AlertTitle } from "@/lib/components/alert";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
-import { formatDeprecationDate } from "@/lib/utils";
 
 import {
 	models as modelDefinitions,
@@ -181,59 +179,6 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							Back to {modelDef.name}
 						</Link>
 					</div>
-					{(() => {
-						const now = new Date();
-
-						if (providerMapping.deactivatedAt) {
-							const isPast = new Date(providerMapping.deactivatedAt) <= now;
-							return (
-								<Alert variant="destructive" className="mb-6">
-									<AlertCircle className="h-4 w-4" />
-									<AlertTitle>
-										{isPast
-											? "Provider Deactivated"
-											: "Provider Scheduled for Deactivation"}
-									</AlertTitle>
-									<AlertDescription>
-										{formatDeprecationDate(
-											providerMapping.deactivatedAt,
-											"deactivated",
-										)}
-										.{" "}
-										{isPast
-											? "Requests to this provider will return errors."
-											: "Plan to migrate to an alternative provider."}
-									</AlertDescription>
-								</Alert>
-							);
-						}
-
-						if (providerMapping.deprecatedAt) {
-							const isPast = new Date(providerMapping.deprecatedAt) <= now;
-							return (
-								<Alert className="mb-6 border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400">
-									<AlertTriangle className="h-4 w-4" />
-									<AlertTitle>
-										{isPast
-											? "Provider Deprecated"
-											: "Provider Scheduled for Deprecation"}
-									</AlertTitle>
-									<AlertDescription className="text-amber-600/90 dark:text-amber-400/90">
-										{formatDeprecationDate(
-											providerMapping.deprecatedAt,
-											"deprecated",
-										)}
-										.{" "}
-										{isPast
-											? "This provider still works but may be removed in the future."
-											: "Consider migrating to an alternative provider."}
-									</AlertDescription>
-								</Alert>
-							);
-						}
-
-						return null;
-					})()}
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2 flex-wrap">
 							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
@@ -269,6 +214,36 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										STABLE
 									</Badge>
 								);
+							})()}
+							{(() => {
+								const now = new Date();
+								const allProviders = modelDef.providers;
+								const allDeactivated =
+									allProviders.length > 0 &&
+									allProviders.every((p) => p.deactivatedAt);
+								const allDeprecated =
+									allProviders.length > 0 &&
+									allProviders.every((p) => p.deprecatedAt);
+
+								if (allDeactivated) {
+									const allPast = allProviders.every(
+										(p) => new Date(p.deactivatedAt!) <= now,
+									);
+									return (
+										<ModelStatusBadge status="deactivated" isPast={allPast} />
+									);
+								}
+
+								if (allDeprecated) {
+									const allPast = allProviders.every(
+										(p) => new Date(p.deprecatedAt!) <= now,
+									);
+									return (
+										<ModelStatusBadge status="deprecated" isPast={allPast} />
+									);
+								}
+
+								return null;
 							})()}
 
 							<a

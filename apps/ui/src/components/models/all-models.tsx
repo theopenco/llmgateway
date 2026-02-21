@@ -1,6 +1,8 @@
 "use client";
 
 import {
+	AlertCircle,
+	AlertTriangle,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -58,8 +60,13 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { Toggle } from "@/lib/components/toggle";
-import { TooltipProvider } from "@/lib/components/tooltip";
-import { cn } from "@/lib/utils";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
+import { cn, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -246,6 +253,40 @@ const ModelTableRow = React.memo(
 							<span className="text-sm">
 								{row.providerInfo?.name || row.provider.providerId}
 							</span>
+							{row.provider.deactivatedAt && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span className="shrink-0 cursor-help">
+											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+										</span>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p className="text-xs">
+											{formatDeprecationDate(
+												row.provider.deactivatedAt,
+												"deactivated",
+											)}
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{!row.provider.deactivatedAt && row.provider.deprecatedAt && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span className="shrink-0 cursor-help">
+											<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+										</span>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p className="text-xs">
+											{formatDeprecationDate(
+												row.provider.deprecatedAt,
+												"deprecated",
+											)}
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							<ExternalLink className="h-3 w-3 text-muted-foreground" />
 						</div>
 					</TableCell>
@@ -1033,6 +1074,9 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 							${discountedPrice}
 						</span>
 					</div>
+					<span className="text-[10px] text-green-600">
+						-{Math.round(discountNum * 100)}% off
+					</span>
 				</div>
 			);
 		}
