@@ -42,9 +42,21 @@ import { syncProvidersAndModels } from "./services/sync-models.js";
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
 	Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_123", {
-	apiVersion: "2025-04-30.basil",
-});
+let _stripe: Stripe | null = null;
+
+function getStripe(): Stripe {
+	if (!_stripe) {
+		if (!process.env.STRIPE_SECRET_KEY) {
+			throw new Error(
+				"STRIPE_SECRET_KEY environment variable is required for Stripe operations",
+			);
+		}
+		_stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+			apiVersion: "2025-04-30.basil",
+		});
+	}
+	return _stripe;
+}
 
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
@@ -273,7 +285,7 @@ async function processAutoTopUp(): Promise<void> {
 				);
 
 				try {
-					const paymentIntent = await stripe.paymentIntents.create({
+					const paymentIntent = await getStripe().paymentIntents.create({
 						amount: Math.round(feeBreakdown.totalAmount * 100),
 						currency: "usd",
 						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,

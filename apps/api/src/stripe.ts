@@ -7,7 +7,7 @@ import { logger } from "@llmgateway/logger";
 import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
-import { stripe } from "./routes/payments.js";
+import { getStripe } from "./routes/payments.js";
 import { notifyCreditsPurchased } from "./utils/discord.js";
 import {
 	generatePaymentFailureEmailHtml,
@@ -34,7 +34,7 @@ export async function ensureStripeCustomer(
 
 	let stripeCustomerId = organization.stripeCustomerId;
 	if (!stripeCustomerId) {
-		const customer = await stripe.customers.create({
+		const customer = await getStripe().customers.create({
 			email: organization.billingEmail,
 			metadata: {
 				organizationId,
@@ -50,7 +50,7 @@ export async function ensureStripeCustomer(
 			.where(eq(tables.organization.id, organizationId));
 	} else {
 		// Update existing customer email if billingEmail has changed
-		await stripe.customers.update(stripeCustomerId, {
+		await getStripe().customers.update(stripeCustomerId, {
 			email: organization.billingEmail,
 		});
 	}
@@ -95,7 +95,7 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 	// 3. Try to get from subscription metadata if subscription ID is available
 	if (!organizationId && eventData.subscription) {
 		try {
-			const stripeSubscription = await stripe.subscriptions.retrieve(
+			const stripeSubscription = await getStripe().subscriptions.retrieve(
 				eventData.subscription,
 			);
 			if (stripeSubscription.metadata?.organizationId) {
@@ -188,7 +188,7 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 		const body = await c.req.raw.text();
 		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
-		const event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+		const event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
 
 		logger.info(JSON.stringify({ kind: "stripe-event", payload: event }));
 
@@ -904,7 +904,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	}
 
 	// Fetch refunds for this charge since they're not expanded in webhook events
-	const refundsResponse = await stripe.refunds.list({
+	const refundsResponse = await getStripe().refunds.list({
 		charge: charge.id,
 		limit: 1,
 	});
@@ -1030,11 +1030,12 @@ async function handleSetupIntentSucceeded(
 	const paymentMethodId =
 		typeof payment_method === "string" ? payment_method : payment_method.id;
 
-	await stripe.paymentMethods.attach(paymentMethodId, {
+	await getStripe().paymentMethods.attach(paymentMethodId, {
 		customer: stripeCustomerId,
 	});
 
-	const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+	const paymentMethod =
+		await getStripe().paymentMethods.retrieve(paymentMethodId);
 
 	const existingPaymentMethods = await db.query.paymentMethod.findMany({
 		where: {
