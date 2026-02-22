@@ -146,6 +146,7 @@ export const minimaxModels = [
 				modelName: "minimax/minimax-m2.1",
 				test: "skip",
 				inputPrice: 0.27 / 1e6,
+				cachedInputPrice: 0.07 / 1e6,
 				outputPrice: 1.08 / 1e6,
 				discount: 0.25,
 				requestPrice: 0,

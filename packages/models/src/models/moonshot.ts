@@ -133,6 +133,7 @@ export const moonshotModels = [
 				test: "skip",
 				modelName: "moonshotai/kimi-k2-thinking",
 				inputPrice: 0.48 / 1e6,
+				cachedInputPrice: 0.12 / 1e6,
 				outputPrice: 2.0 / 1e6,
 				discount: 0.75,
 				requestPrice: 0,
