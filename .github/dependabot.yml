@@ -21,42 +21,7 @@ updates:
     cooldown:
       default-days: 5
     groups:
-      abinnovision:
+      all-dependencies:
+        group-by: dependency-name
         patterns:
-          - "@abinnovision/*"
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "@types/react"
-          - "@types/react-dom"
-      fortawesome:
-        patterns:
-          - "@fortawesome/*"
-      next:
-        patterns:
-          - "@next/*"
-          - "next"
-      heroui:
-        patterns:
-          - "@heroui/*"
-      drizzle:
-        patterns:
-          - "drizzle-kit"
-          - "drizzle-orm"
-      prisma:
-        patterns:
-          - "@prisma/client"
-          - "prisma"
-      storybook:
-        patterns:
-          - "@storybook/*"
-          - "storybook"
-      radix:
-        patterns:
-          - "@radix-ui/*"
-      better-auth:
-        patterns:
-          - "better-auth"
-          - "@better-auth/*"
-          - "@better-fetch/*"
+          - "*"
