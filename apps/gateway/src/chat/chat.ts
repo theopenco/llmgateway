@@ -5701,7 +5701,7 @@ chat.openapi(completions, async (c) => {
 					streamed: false,
 					canceled: false,
 					errorDetails: {
-						statusCode: res.status,
+						statusCode: 0,
 						statusText: "TimeoutError",
 						responseText: errorMessage,
 					},
@@ -5723,17 +5723,12 @@ chat.openapi(completions, async (c) => {
 						: null,
 				});
 
-				// Report key health for environment-based tokens
-				if (envVarName !== undefined) {
-					reportKeyError(envVarName, configIndex, res.status);
-				}
-
 				if (willRetrySuccessBodyTimeoutNonStreaming) {
 					routingAttempts.push({
 						provider: usedProvider,
 						model: usedModel,
-						status_code: res.status,
-						error_type: getErrorType(res.status),
+						status_code: 0,
+						error_type: getErrorType(0),
 						succeeded: false,
 					});
 					failedProviderIds.add(usedProvider);
