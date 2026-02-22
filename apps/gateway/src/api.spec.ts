@@ -5,6 +5,7 @@ import {
 	describe,
 	expect,
 	test,
+	vi,
 } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
@@ -692,69 +693,94 @@ describe("test", () => {
 	});
 
 	test("Deactivated provider falls back to active provider", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
+		// Use fake timers to set the date between the two deactivation dates:
+		// google-ai-studio deactivatedAt: 2026-01-17
+		// google-vertex deactivatedAt: 2026-01-27
+		// At 2026-01-20, google-ai-studio is deactivated but google-vertex is still active
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
 
-		// Create provider key for google-ai-studio with mock server URL as baseUrl
-		// google-vertex is deactivated for gemini-2.5-flash-preview-09-2025 as of 2026-01-27
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-google",
-			token: "google-test-key",
-			provider: "google-ai-studio",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
 
-		// Request explicitly with google-vertex (which is deactivated)
-		// Should fall back to google-ai-studio
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
-			},
-			body: JSON.stringify({
-				model: "google-vertex/gemini-2.5-flash-preview-09-2025",
-				messages: [
-					{
-						role: "user",
-						content: "Hello with deactivated provider!",
-					},
-				],
-			}),
-		});
+			// Create provider key for google-vertex (active at 2026-01-20) with mock server URL
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-google",
+				token: "google-test-key",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		expect(json).toHaveProperty("choices.[0].message.content");
-		// Verify it routed to google-ai-studio, not google-vertex
-		expect(json.metadata.used_provider).toBe("google-ai-studio");
-		// The requested provider should be cleared since it was deactivated
-		expect(json.metadata.requested_provider).toBeNull();
+			// Request with google-ai-studio (deactivated at 2026-01-17)
+			// Should fall back to google-vertex (still active until 2026-01-27)
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "google-ai-studio/gemini-2.5-flash-preview-09-2025",
+					messages: [
+						{
+							role: "user",
+							content: "Hello with deactivated provider!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json).toHaveProperty("choices.[0].message.content");
+			// Verify it routed to google-vertex, not google-ai-studio
+			expect(json.metadata.used_provider).toBe("google-vertex");
+			// The requested provider should be cleared since it was deactivated
+			expect(json.metadata.requested_provider).toBeNull();
+		} finally {
+			vi.useRealTimers();
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
 	});
 
 	// Timeout tests - use a short timeout via env var to test timeout handling
 	describe("Timeout handling", () => {
 		let originalTimeout: string | undefined;
+		let originalStreamingTimeout: string | undefined;
 
 		beforeAll(() => {
-			// Save original env value
-			originalTimeout = process.env.AI_REQUEST_TIMEOUT_MS;
+			// Save original env values
+			originalTimeout = process.env.AI_TIMEOUT_MS;
+			originalStreamingTimeout = process.env.AI_STREAMING_TIMEOUT_MS;
 			// Set a short timeout for testing (2 seconds)
-			process.env.AI_REQUEST_TIMEOUT_MS = "2000";
+			process.env.AI_TIMEOUT_MS = "2000";
+			process.env.AI_STREAMING_TIMEOUT_MS = "2000";
 		});
 
 		afterAll(() => {
-			// Restore original env value
+			// Restore original env values
 			if (originalTimeout !== undefined) {
-				process.env.AI_REQUEST_TIMEOUT_MS = originalTimeout;
+				process.env.AI_TIMEOUT_MS = originalTimeout;
 			} else {
-				delete process.env.AI_REQUEST_TIMEOUT_MS;
+				delete process.env.AI_TIMEOUT_MS;
+			}
+			if (originalStreamingTimeout !== undefined) {
+				process.env.AI_STREAMING_TIMEOUT_MS = originalStreamingTimeout;
+			} else {
+				delete process.env.AI_STREAMING_TIMEOUT_MS;
 			}
 		});
 

@@ -28,7 +28,7 @@ export function MetricCard({
 				{icon ? (
 					<div
 						className={cn(
-							"inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs",
+							"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
 							accent === "green" &&
 								"border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 							accent === "blue" &&

@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { calculateCosts } from "./costs.js";
 
 describe("calculateCosts", () => {
-	it("should calculate costs with provided token counts", () => {
-		const result = calculateCosts("gpt-4", "openai", 100, 50, null);
+	it("should calculate costs with provided token counts", async () => {
+		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0.0015); // 50 * 0.00003
@@ -15,8 +15,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with null token counts but provided text", () => {
-		const result = calculateCosts("gpt-4", "openai", null, null, null, {
+	it("should calculate costs with null token counts but provided text", async () => {
+		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
 			prompt: "Hello, how are you?",
 			completion: "I'm doing well, thank you for asking!",
 		});
@@ -30,8 +30,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(true); // Should be estimated
 	});
 
-	it("should calculate costs with null token counts but provided chat messages", () => {
-		const result = calculateCosts("gpt-4", "openai", null, null, null, {
+	it("should calculate costs with null token counts but provided chat messages", async () => {
+		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
 			messages: [
 				{ role: "user", content: "Hello, how are you?" },
 				{ role: "assistant", content: "I'm doing well, thank you for asking!" },
@@ -48,9 +48,9 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(true); // Should be estimated
 	});
 
-	it("should return null costs when model info is not found", () => {
+	it("should return null costs when model info is not found", async () => {
 		// Using a valid model with an invalid provider to test the not-found path
-		const result = calculateCosts(
+		const result = await calculateCosts(
 			"gpt-4",
 			"non-existent-provider",
 			100,
@@ -67,8 +67,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should return null costs when token counts are null and no text is provided", () => {
-		const result = calculateCosts("gpt-4", "openai", null, null, null);
+	it("should return null costs when token counts are null and no text is provided", async () => {
+		const result = await calculateCosts("gpt-4", "openai", null, null, null);
 
 		expect(result.inputCost).toBeNull();
 		expect(result.outputCost).toBeNull();
@@ -79,8 +79,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with cached tokens for OpenAI (prompt_tokens includes cached)", () => {
-		const result = calculateCosts("gpt-4o", "openai", 100, 50, 20);
+	it("should calculate costs with cached tokens for OpenAI (prompt_tokens includes cached)", async () => {
+		const result = await calculateCosts("gpt-4o", "openai", 100, 50, 20);
 
 		expect(result.inputCost).toBeCloseTo(0.0002); // (100 - 20) * 0.0000025 = 80 * 0.0000025
 		expect(result.outputCost).toBeCloseTo(0.0005); // 50 * 0.00001
@@ -92,9 +92,9 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", () => {
+	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
 		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
-		const result = calculateCosts(
+		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
 			1663,
@@ -112,9 +112,9 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", () => {
+	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
 		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
-		const result = calculateCosts(
+		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
 			1663,
@@ -132,12 +132,12 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
-	it("should apply discount when model has discount field", () => {
+	it("should apply discount when model has discount field", async () => {
 		// For this test, let's create a mock model calculation that simulates discount behavior
 		// Since the environment variable approach doesn't work well in tests due to module loading order
 
 		// Test with gpt-4 openai which should have no discount
-		const resultWithoutDiscount = calculateCosts(
+		const resultWithoutDiscount = await calculateCosts(
 			"gpt-4",
 			"openai",
 			100,
@@ -145,10 +145,6 @@ describe("calculateCosts", () => {
 			null,
 		);
 		expect(resultWithoutDiscount.discount).toBeUndefined(); // No discount field when discount is 1
-
-		// The actual test for routeway discount would require the models to be re-imported
-		// after setting the env var, which is complex in a test environment.
-		// Instead, let's verify the logic works by testing the cost calculation directly.
 
 		// Test that the discount field appears when a discount is applied (using the actual logic from costs.ts)
 		const testDiscount = 0.8; // 80% off
@@ -160,21 +156,20 @@ describe("calculateCosts", () => {
 		const expectedOutputCost = 50 * outputPrice * discountMultiplier;
 		const expectedTotalCost = expectedInputCost + expectedOutputCost;
 
-		// Since we can't easily test the routeway model due to env var timing,
-		// let's verify our calculation logic is sound
+		// Verify our calculation logic is sound
 		expect(expectedInputCost).toBeCloseTo(0.000016); // 100 * 0.8e-6 * 0.2
 		expect(expectedOutputCost).toBeCloseTo(0.00004); // 50 * 4.0e-6 * 0.2
 		expect(expectedTotalCost).toBeCloseTo(0.000056);
 	});
 
-	it("should not include discount field when no discount applied", () => {
-		const result = calculateCosts("gpt-4", "openai", 100, 50, null);
+	it("should not include discount field when no discount applied", async () => {
+		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 
 		expect(result.discount).toBeUndefined(); // Should not include discount field when discount is 1
 	});
 
-	it("should calculate input costs even when output tokens are zero", () => {
-		const result = calculateCosts("gpt-4", "openai", 100, 0, null);
+	it("should calculate input costs even when output tokens are zero", async () => {
+		const result = await calculateCosts("gpt-4", "openai", 100, 0, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003
@@ -184,8 +179,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
-	it("should calculate input costs when completion tokens are null but prompt tokens exist", () => {
-		const result = calculateCosts("gpt-4", "openai", 100, null, null);
+	it("should calculate input costs when completion tokens are null but prompt tokens exist", async () => {
+		const result = await calculateCosts("gpt-4", "openai", 100, null, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003 (completion tokens set to 0)
@@ -195,8 +190,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
-	it("should include tool results in completion token estimation", () => {
-		const result = calculateCosts("gpt-4", "openai", null, null, null, {
+	it("should include tool results in completion token estimation", async () => {
+		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
 			prompt: "What's the weather like?",
 			completion: "", // Empty completion
 			toolResults: [
@@ -228,8 +223,8 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(true);
 	});
 
-	it("should handle tool results with missing function data gracefully", () => {
-		const result = calculateCosts("gpt-4", "openai", null, null, null, {
+	it("should handle tool results with missing function data gracefully", async () => {
+		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
 			prompt: "What's the weather like?",
 			completion: "Here's the weather:",
 			toolResults: [
@@ -252,32 +247,34 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(true);
 	});
 
-	it("should include reasoning tokens in output cost calculation", () => {
+	it("should include reasoning tokens in output cost calculation", async () => {
 		// Test with Google model that has reasoning tokens
-		const result = calculateCosts(
+		// For Google providers, completionTokens already includes reasoning
+		// (merged during token extraction), so we pass 700 = 500 output + 200 reasoning
+		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
 			1000,
-			500,
+			700, // completionTokens includes reasoning for Google
 			null,
 			undefined,
-			200, // 200 reasoning tokens
+			200, // 200 reasoning tokens (for display, not added again)
 		);
 
 		// For Google: gemini-2.5-pro
 		// inputPrice: 1.25 / 1e6
 		// outputPrice: 10.0 / 1e6
-		// Total output tokens should be 500 + 200 = 700
+		// Total output tokens = 700 (completionTokens already includes reasoning)
 		expect(result.inputCost).toBeCloseTo(0.00125); // 1000 * 1.25e-6
 		expect(result.outputCost).toBeCloseTo(0.007); // 700 * 10.0e-6
 		expect(result.totalCost).toBeCloseTo(0.00825); // 0.00125 + 0.007
 		expect(result.promptTokens).toBe(1000);
-		expect(result.completionTokens).toBe(500);
+		expect(result.completionTokens).toBe(700);
 		expect(result.estimatedCost).toBe(false);
 	});
 
-	it("should handle null reasoning tokens gracefully", () => {
-		const result = calculateCosts(
+	it("should handle null reasoning tokens gracefully", async () => {
+		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
 			1000,
@@ -291,5 +288,100 @@ describe("calculateCosts", () => {
 		expect(result.inputCost).toBeCloseTo(0.00125); // 1000 * 1.25e-6
 		expect(result.outputCost).toBeCloseTo(0.005); // 500 * 10.0e-6
 		expect(result.totalCost).toBeCloseTo(0.00625); // 0.00125 + 0.005
+	});
+
+	it("should track image input tokens and costs separately", async () => {
+		// Test with gemini-3-pro-image-preview which has imageInputPrice
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000, // text prompt tokens
+			500, // completion tokens
+			null, // no cached tokens
+			undefined,
+			null, // no reasoning tokens
+			0, // no output images
+			undefined, // no image size
+			2, // 2 input images
+		);
+
+		// Each input image is 560 tokens at $2/1M = $0.00112 per image
+		expect(result.imageInputTokens).toBe(1120); // 2 * 560
+		expect(result.imageInputCost).toBeCloseTo(0.00224); // 1120 * 2e-6
+		// promptTokens should include image input tokens
+		expect(result.promptTokens).toBe(2120); // 1000 text + 1120 image
+		// inputCost includes both text and image input costs
+		expect(result.inputCost).toBeCloseTo(1000 * (2 / 1e6) + 0.00224);
+		// totalCost = inputCost + outputCost (image costs are folded into input/output costs)
+		expect(result.totalCost).toBeCloseTo(
+			(result.inputCost ?? 0) + (result.outputCost ?? 0),
+		);
+	});
+
+	it("should track image output tokens and costs separately", async () => {
+		// Test with gemini-3-pro-image-preview for image output
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000, // text prompt tokens
+			2500, // completion tokens (includes 1120 * 2 = 2240 image tokens for 2 images)
+			null, // no cached tokens
+			undefined,
+			null, // no reasoning tokens
+			2, // 2 output images
+			"1K", // 1K image size = 1120 tokens per image
+			0, // no input images
+		);
+
+		// Each 1K output image is 1120 tokens at $120/1M
+		expect(result.imageOutputTokens).toBe(2240); // 2 * 1120
+		expect(result.imageOutputCost).toBeCloseTo(0.2688); // 2240 * 120e-6
+		// outputCost includes both text and image output costs
+		// text: (2500 - 2240) * 12e-6 = 260 * 12e-6 = 0.00312
+		// image: 2240 * 120e-6 = 0.2688
+		expect(result.outputCost).toBeCloseTo(0.00312 + 0.2688);
+		// totalCost = inputCost + outputCost (image costs are folded into input/output costs)
+		expect(result.totalCost).toBeCloseTo(
+			(result.inputCost ?? 0) + (result.outputCost ?? 0),
+		);
+	});
+
+	it("should return null for all image fields when no images", async () => {
+		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
+
+		expect(result.imageInputTokens).toBeNull();
+		expect(result.imageOutputTokens).toBeNull();
+		expect(result.imageInputCost).toBeNull();
+		expect(result.imageOutputCost).toBeNull();
+	});
+
+	it("should include image costs in totalCost sum", async () => {
+		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
+		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000, // text prompt tokens
+			2500, // completion tokens
+			null, // no cached tokens
+			undefined,
+			null, // no reasoning tokens
+			2, // 2 output images
+			"1K", // 1K image size
+			1, // 1 input image
+		);
+
+		// Calculate expected total (image costs are folded into input/output costs)
+		const expectedTotal =
+			(result.inputCost ?? 0) +
+			(result.outputCost ?? 0) +
+			(result.cachedInputCost ?? 0) +
+			(result.requestCost ?? 0) +
+			(result.webSearchCost ?? 0);
+
+		expect(result.totalCost).toBeCloseTo(expectedTotal);
+		// Verify image costs are still tracked as breakdown fields
+		expect(result.imageInputCost).toBeGreaterThan(0);
+		expect(result.imageOutputCost).toBeGreaterThan(0);
 	});
 });

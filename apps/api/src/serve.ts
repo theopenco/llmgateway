@@ -161,15 +161,12 @@ startServer()
 			process.exit(1);
 		});
 
-		process.on("unhandledRejection", (reason, promise) => {
-			logger.error("Unhandled rejection", { promise, reason });
+		process.on("unhandledRejection", (reason) => {
+			logger.error("Unhandled rejection", reason);
 			process.exit(1);
 		});
 	})
 	.catch((error) => {
-		logger.error(
-			"Failed to start server",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Failed to start server", error);
 		process.exit(1);
 	});

@@ -181,6 +181,7 @@ export const Navbar = ({
 		{ name: "Docs", href: config.docsUrl ?? "", external: true },
 		{ name: "Model Timeline", href: "/timeline" },
 		{ name: "Compare", href: "/models/compare" },
+		{ name: "MCP Server", href: "/mcp" },
 		{
 			name: "Contact Us",
 			href: "mailto:contact@llmgateway.io",
@@ -234,6 +235,11 @@ export const Navbar = ({
 			title: "Model Timeline",
 			href: "/timeline",
 			description: "Track the release history of all models.",
+		},
+		{
+			title: "MCP Server",
+			href: "/mcp",
+			description: "Connect AI assistants to 200+ LLMs via MCP protocol.",
 		},
 	];
 

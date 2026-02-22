@@ -12,7 +12,6 @@ import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
-import { routewayModels } from "./models/routeway.js";
 import { xaiModels } from "./models/xai.js";
 import { zaiModels } from "./models/zai.js";
 
@@ -121,6 +120,12 @@ export interface ProviderModelMapping {
 	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that don't return reasoning content)
 	 */
 	reasoningOutput?: "omit";
+	/**
+	 * Whether this model supports explicit reasoning.max_tokens parameter.
+	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
+	 * Supported by Anthropic and Google thinking models.
+	 */
+	reasoningMaxTokens?: boolean;
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
@@ -252,6 +257,5 @@ export const models = [
 	...alibabaModels,
 	...bytedanceModels,
 	...nousresearchModels,
-	...routewayModels,
 	...zaiModels,
 ] as const satisfies ModelDefinition[];

@@ -1,7 +1,6 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { useMemo } from "react";
 
@@ -41,9 +40,9 @@ export function Providers({ children, config }: ProvidersProps) {
 			>
 				<QueryClientProvider client={queryClient}>
 					{children}
-					{process.env.NODE_ENV === "development" && (
+					{/* {process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="bottom-right" />
-					)}
+					)} */}
 				</QueryClientProvider>
 				<Toaster />
 			</ThemeProvider>

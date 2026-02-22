@@ -10,6 +10,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 LLMGateway provides flexible and intelligent routing options to help you get the best performance and cost efficiency from your AI applications. Whether you want to use specific models, providers, or let our system automatically optimize your requests, we've got you covered.
 
+LLMGateway also includes **automatic retry and fallback** — if a provider fails, your request is seamlessly retried on the next best provider, all within the same API call.
+
 ## Model Selection
 
 ### Any Model Name
@@ -147,6 +149,96 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 </Callout>
 
 When the `X-No-Fallback` header is used, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
+
+## Automatic Retry & Fallback
+
+When using model ID routing (without a provider prefix), LLMGateway automatically retries failed requests on alternate providers. This happens transparently within the same API call — your application receives the successful response as if nothing went wrong.
+
+### How Retry Works
+
+1. Your request is routed to the best available provider using the smart routing algorithm
+2. If that provider returns a server error (5xx), times out, or has a connection failure, the gateway marks the provider as failed
+3. The next best available provider is selected and the request is retried
+4. Up to **2 retries** are attempted before returning an error to the client
+
+```
+Request → Provider A (500 error) → Provider B (200 OK) → Response
+```
+
+Both streaming and non-streaming requests support automatic retry.
+
+### What Triggers a Retry
+
+Retries are triggered by **server-side failures** only:
+
+- **5xx errors** (500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, etc.)
+- **Timeouts** (upstream provider took too long to respond)
+- **Connection failures** (network errors, DNS failures, etc.)
+
+Retries are **not** triggered by:
+
+- **4xx client errors** (400 Bad Request, 401 Unauthorized, 403 Forbidden, 422 Unprocessable Entity)
+- **Content filter responses** (Azure ResponsibleAI, etc.)
+
+### When Retry Is Disabled
+
+Automatic retry is disabled when:
+
+- The `X-No-Fallback: true` header is set
+- A specific provider is requested (e.g., `openai/gpt-4o`)
+- No alternative providers are available for the requested model
+- The maximum retry count (2) has been exhausted
+
+### Routing Transparency
+
+Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata and activity logs:
+
+```json
+{
+	"metadata": {
+		"routing": [
+			{
+				"provider": "openai",
+				"model": "gpt-4o",
+				"status_code": 500,
+				"error_type": "server_error",
+				"succeeded": false
+			},
+			{
+				"provider": "azure",
+				"model": "gpt-4o",
+				"status_code": 200,
+				"error_type": "none",
+				"succeeded": true
+			}
+		]
+	}
+}
+```
+
+### Retried Log Tracking
+
+Each provider attempt creates its own log entry. Failed attempts that were retried are marked with:
+
+- **`retried: true`** — indicates this failed request was retried on another provider
+- **`retriedByLogId`** — the ID of the final successful log entry
+
+This allows you to distinguish between unrecovered failures and failures that were transparently recovered via retry. In the dashboard, retried logs display a "Retried" badge with a link to the successful log.
+
+### Impact on Provider Health
+
+Failed attempts still count against the provider's uptime score, even when the request was successfully retried on another provider. This means:
+
+- A provider that keeps failing will see its uptime score drop
+- The exponential uptime penalty kicks in below 95% (see [Smart Routing Algorithm](#smart-routing-algorithm))
+- Future requests are automatically routed away from unreliable providers
+- Your application stays reliable without any code changes on your side
+
+<Callout type="success">
+	Automatic retry and fallback works together with smart routing to provide
+	self-healing behavior. Failing providers are automatically avoided, and your
+	requests are transparently recovered on reliable alternatives.
+</Callout>
 
 ## Optimized Auto Routing
 

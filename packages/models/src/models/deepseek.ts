@@ -12,6 +12,7 @@ export const deepseekModels = [
 			{
 				providerId: "cloudrift",
 				modelName: "deepseek-ai/DeepSeek-V3",
+				deactivatedAt: new Date("2026-02-01"),
 				inputPrice: 0.15 / 1e6,
 				outputPrice: 0.4 / 1e6,
 				requestPrice: 0,
@@ -114,7 +115,6 @@ export const deepseekModels = [
 				deactivatedAt: new Date("2025-12-15"),
 				inputPrice: 0.27 / 1e6,
 				outputPrice: 1.0 / 1e6,
-				discount: 0.9,
 				requestPrice: 0,
 				contextSize: 128000,
 				maxOutput: undefined,
@@ -167,7 +167,8 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				modelName: "deepseek/deepseek-chat-v3.2",
-				test: "skip",
+				deactivatedAt: new Date("2026-02-10"),
+				stability: "unstable",
 				inputPrice: 0.28 / 1e6,
 				outputPrice: 0.42 / 1e6,
 				discount: 0.3,

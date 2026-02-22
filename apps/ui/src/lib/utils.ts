@@ -22,3 +22,32 @@ export function formatContextSize(contextSize?: number): string {
 	}
 	return contextSize.toString();
 }
+
+/**
+ * Formats a deprecation or deactivation date with past/future tense awareness.
+ * @param date - The date as a Date object or ISO string
+ * @param type - "deprecated" or "deactivated"
+ * @returns Formatted string like "Deprecated since Jan 21, 2026" or "Deprecating on Mar 15, 2026"
+ */
+export function formatDeprecationDate(
+	date: Date | string,
+	type: "deprecated" | "deactivated",
+): string {
+	const d = typeof date === "string" ? new Date(date) : date;
+	const now = new Date();
+	const isPast = d <= now;
+	const formatted = d.toLocaleDateString("en-US", {
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+	});
+
+	if (type === "deprecated") {
+		return isPast
+			? `Deprecated since ${formatted}`
+			: `Deprecating on ${formatted}`;
+	}
+	return isPast
+		? `Deactivated since ${formatted}`
+		: `Deactivating on ${formatted}`;
+}

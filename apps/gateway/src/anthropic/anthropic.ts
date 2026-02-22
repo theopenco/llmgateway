@@ -461,12 +461,17 @@ anthropic.openapi(messages, async (c) => {
 	});
 
 	if (!response.ok) {
-		// Don't log 402/429 as errors - they're expected business logic responses (insufficient credits, rate limiting)
+		// Don't log 402/429 - they're expected business logic responses (insufficient credits, rate limiting)
 		if (response.status !== 402 && response.status !== 429) {
-			logger.error("Anthropic -> OpenAI request failed", {
+			const logPayload = {
 				status: response.status,
 				statusText: response.statusText,
-			});
+			};
+			if (response.status >= 500) {
+				logger.error("Anthropic -> OpenAI request failed", logPayload);
+			} else {
+				logger.warn("Anthropic -> OpenAI request failed", logPayload);
+			}
 		}
 		const errorData = await response.text();
 		throw new HTTPException(
@@ -479,60 +484,67 @@ anthropic.openapi(messages, async (c) => {
 
 	// Handle streaming response
 	if (anthropicRequest.stream) {
-		return streamSSE(c, async (stream) => {
-			if (!response.body) {
-				throw new HTTPException(500, { message: "No response body" });
-			}
+		return streamSSE(
+			c,
+			async (stream) => {
+				if (!response.body) {
+					throw new HTTPException(500, { message: "No response body" });
+				}
 
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder();
+				const reader = response.body.getReader();
+				const decoder = new TextDecoder();
 
-			let buffer = "";
-			let messageId = "";
-			let model = "";
-			let contentBlocks: Array<{
-				type: string;
-				text?: string;
-				id?: string;
-				name?: string;
-				input?: string;
-			}> = [];
-			let usage = { input_tokens: 0, output_tokens: 0 };
-			let currentTextBlockIndex: number | null = null;
-			const toolCallBlockIndex = new Map<number, number>();
+				let buffer = "";
+				let messageId = "";
+				let model = "";
+				let contentBlocks: Array<{
+					type: string;
+					text?: string;
+					id?: string;
+					name?: string;
+					input?: string;
+				}> = [];
+				let usage = { input_tokens: 0, output_tokens: 0 };
+				let currentTextBlockIndex: number | null = null;
+				const toolCallBlockIndex = new Map<number, number>();
 
-			try {
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) {
-						break;
-					}
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							break;
+						}
 
-					buffer += decoder.decode(value, { stream: true });
-					const lines = buffer.split("\n");
-					buffer = lines.pop() || "";
+						buffer += decoder.decode(value, { stream: true });
+						const lines = buffer.split("\n");
+						buffer = lines.pop() || "";
 
-					for (const line of lines) {
-						if (line.startsWith("data: ")) {
-							const data = line.slice(6).trim();
-							if (data === "[DONE]") {
-								// Send final Anthropic streaming event
-								await stream.writeSSE({
-									data: JSON.stringify({
-										type: "message_stop",
-									}),
-									event: "message_stop",
-								});
-								return;
-							}
+						for (const line of lines) {
+							if (line.startsWith("data: ")) {
+								const data = line.slice(6).trim();
+								if (data === "[DONE]") {
+									// Send final Anthropic streaming event
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "message_stop",
+										}),
+										event: "message_stop",
+									});
+									return;
+								}
 
-							// Skip empty data lines
-							if (!data) {
-								continue;
-							}
+								// Skip empty data lines
+								if (!data) {
+									continue;
+								}
 
-							try {
-								const chunk = JSON.parse(data);
+								let chunk: any;
+								try {
+									chunk = JSON.parse(data);
+								} catch {
+									// Ignore parsing errors for individual chunks
+									continue;
+								}
 
 								if (!messageId && chunk.id) {
 									messageId = chunk.id;
@@ -707,20 +719,28 @@ anthropic.openapi(messages, async (c) => {
 										event: "message_delta",
 									});
 								}
-							} catch {
-								// Ignore parsing errors for individual chunks
 							}
 						}
 					}
+				} catch (error) {
+					throw new HTTPException(500, {
+						message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+					});
+				} finally {
+					reader.releaseLock();
 				}
-			} catch (error) {
-				throw new HTTPException(500, {
-					message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
-				});
-			} finally {
-				reader.releaseLock();
-			}
-		});
+			},
+			async (error) => {
+				if (error.name === "AbortError") {
+					logger.info("Anthropic streaming request aborted by client", {
+						message: error.message,
+						path: c.req.path,
+					});
+				} else {
+					logger.error("Anthropic streaming error (escaped handler)", error);
+				}
+			},
+		);
 	}
 
 	// Handle non-streaming response

@@ -16,6 +16,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -214,6 +215,18 @@ export default async function ModelProviderPage({ params }: PageProps) {
 									</Badge>
 								);
 							})()}
+							<ModelStatusBadgeAuto
+								providers={[
+									{
+										deprecatedAt: providerMapping.deprecatedAt
+											? providerMapping.deprecatedAt.toISOString()
+											: null,
+										deactivatedAt: providerMapping.deactivatedAt
+											? providerMapping.deactivatedAt.toISOString()
+											: null,
+									},
+								]}
+							/>
 
 							<a
 								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${decodedProvider}/${modelDef.id}`)}`}

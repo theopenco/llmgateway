@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
@@ -118,6 +119,7 @@ export default function ChatPageClient({
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [showTopUp, setShowTopUp] = useState(false);
 
 	// MCP servers management
 	const {
@@ -136,6 +138,7 @@ export default function ChatPageClient({
 	);
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
+	const errorOccurredRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
 	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
 	const shouldClearMessagesRef = useRef(false);
@@ -143,6 +146,7 @@ export default function ChatPageClient({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
 				setError(msg);
 				toast.error(msg);
@@ -167,6 +171,12 @@ export default function ChatPageClient({
 			},
 			onFinish: async ({ message }) => {
 				isNewChatRef.current = false;
+
+				// If an error already occurred during streaming, skip saving the response
+				if (errorOccurredRef.current) {
+					errorOccurredRef.current = false;
+					return;
+				}
 
 				// Wait for chatId to be available (handleUserMessage might still be running)
 				let chatId = chatIdRef.current;
@@ -388,10 +398,12 @@ export default function ChatPageClient({
 						: undefined
 				: undefined;
 
-			// Hidden feature: check localStorage for no-fallback setting
-			const noFallback =
+			// Automatically disable provider fallback for provider-specific model selections
+			const isProviderSpecific = selectedModel.includes("/");
+			const localStorageOverride =
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
+			const noFallback = isProviderSpecific || localStorageOverride;
 
 			// Get enabled MCP servers
 			const enabledMcpServers = getEnabledMcpServers();
@@ -616,8 +628,14 @@ export default function ChatPageClient({
 			image_url: { url: string };
 		}>,
 	) => {
+		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+			setShowTopUp(true);
+			return;
+		}
+
 		setError(null);
 		setIsLoading(true);
+		errorOccurredRef.current = false;
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {
@@ -1059,6 +1077,7 @@ export default function ChatPageClient({
 					</div>
 				</div>
 			</div>
+			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
 	);
@@ -1204,9 +1223,11 @@ function ExtraChatPanel({
 						: undefined
 				: undefined;
 
-			const noFallback =
+			const isProviderSpecific = selectedModel.includes("/");
+			const localStorageOverride =
 				typeof window !== "undefined" &&
 				localStorage.getItem("llmgateway_no_fallback") === "true";
+			const noFallback = isProviderSpecific || localStorageOverride;
 
 			const mergedOptions = {
 				...options,

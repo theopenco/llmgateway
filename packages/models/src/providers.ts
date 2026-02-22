@@ -118,6 +118,22 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "obsidian",
+		name: "Obsidian",
+		description: "Obsidian - Google-compatible LLM provider.",
+		env: {
+			required: {
+				apiKey: "LLM_OBSIDIAN_API_KEY",
+				baseUrl: "LLM_OBSIDIAN_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a1a",
+		website: null,
+		announcement: null,
+	},
+	{
 		id: "groq",
 		name: "Groq",
 		description: "Groq's ultra-fast LPU inference with various models",
@@ -245,6 +261,7 @@ export const providers = [
 			optional: {
 				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
 				apiVersion: "LLM_AZURE_API_VERSION",
+				useResponsesApi: "LLM_AZURE_USE_RESPONSES_API",
 			},
 		},
 		streaming: true,
@@ -380,21 +397,6 @@ export const providers = [
 		cancellation: true,
 		color: "#ff6b35",
 		website: "https://together.ai",
-		announcement: null,
-	},
-	{
-		id: "routeway",
-		name: "RouteWay",
-		description: "RouteWay's OpenAI-compatible large language models",
-		env: {
-			required: {
-				apiKey: "LLM_ROUTEWAY_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4f46e5",
-		website: "https://routeway.ai",
 		announcement: null,
 	},
 	{

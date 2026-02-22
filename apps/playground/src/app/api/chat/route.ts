@@ -1,6 +1,12 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { streamText, tool, type UIMessage, convertToModelMessages } from "ai";
+import {
+	streamText,
+	tool,
+	type UIMessage,
+	convertToModelMessages,
+	JsonToSseTransformStream,
+} from "ai";
 import { cookies } from "next/headers";
 import { z } from "zod";
 
@@ -634,9 +640,66 @@ export async function POST(req: Request) {
 			},
 		});
 
-		return result.toUIMessageStreamResponse({
+		// Build the UI message stream and pipe through SSE formatting
+		const uiStream = result.toUIMessageStream({
 			sendReasoning: true,
 			sendSources: true,
+		});
+		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+
+		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
+		// timeouts on long-running requests (e.g. tool calls, reasoning).
+		// Uses a push-based ReadableStream with setInterval so that pings are
+		// flushed to the response independently of consumer backpressure.
+		const KEEPALIVE_INTERVAL_MS = 15_000;
+		const encoder = new TextEncoder();
+		const reader = sseStream.getReader();
+
+		const streamWithKeepalive = new ReadableStream<Uint8Array>({
+			start(controller) {
+				let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+
+				// Send a keepalive ping every KEEPALIVE_INTERVAL_MS.
+				keepaliveTimer = setInterval(() => {
+					try {
+						controller.enqueue(encoder.encode(": ping\n\n"));
+					} catch {
+						// Stream already closed, clean up.
+						clearInterval(keepaliveTimer);
+					}
+				}, KEEPALIVE_INTERVAL_MS);
+
+				// Read upstream chunks in a loop and forward them.
+				(async () => {
+					try {
+						while (true) {
+							const { done, value } = await reader.read();
+							if (done) {
+								clearInterval(keepaliveTimer);
+								controller.close();
+								return;
+							}
+							controller.enqueue(encoder.encode(value));
+						}
+					} catch (err) {
+						clearInterval(keepaliveTimer);
+						controller.error(err);
+					}
+				})();
+			},
+			cancel() {
+				reader.cancel();
+			},
+		});
+
+		return new Response(streamWithKeepalive, {
+			headers: {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive",
+				"x-vercel-ai-ui-message-stream": "v1",
+				"x-accel-buffering": "no",
+			},
 		});
 	} catch (error: unknown) {
 		// Clean up MCP clients on error

@@ -76,6 +76,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					vision: map.vision ?? null,
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,
+					reasoningMaxTokens: map.reasoningMaxTokens ?? null,
 					tools: map.tools ?? null,
 					jsonOutput: map.jsonOutput ?? null,
 					jsonOutputSchema: map.jsonOutputSchema ?? null,

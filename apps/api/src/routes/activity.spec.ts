@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
-import { createTestUser, deleteAll } from "@/testing.js";
+import {
+	createTestUser,
+	deleteAll,
+	aggregateLogsForTesting,
+} from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -173,6 +177,9 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		// Aggregate logs into the hourly stats tables for the activity endpoint
+		await aggregateLogsForTesting();
 	});
 
 	afterEach(async () => {
@@ -233,7 +240,7 @@ describe("activity endpoint", () => {
 		expect(data.activity.length).toBe(1);
 	});
 
-	test("GET /activity should require days parameter", async () => {
+	test("GET /activity should default to 7 days when no date params provided", async () => {
 		const res = await app.request("/activity", {
 			headers: {
 				Authorization: "Bearer test-token",
@@ -241,7 +248,9 @@ describe("activity endpoint", () => {
 			},
 		});
 
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(Array.isArray(data.activity)).toBe(true);
 	});
 
 	test("GET /activity should require authentication", async () => {
@@ -334,6 +343,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -513,6 +524,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -628,6 +641,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -726,6 +741,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -830,6 +847,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -855,6 +874,7 @@ describe("activity endpoint", () => {
 
 	test("GET /activity should return zero error rate and cache rate when no requests", async () => {
 		await db.delete(tables.log);
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -943,6 +963,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -1037,6 +1059,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1129,6 +1153,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1202,6 +1228,8 @@ describe("activity endpoint", () => {
 			},
 		]);
 
+		await aggregateLogsForTesting();
+
 		const res = await app.request("/activity?days=7", {
 			headers: {
 				Cookie: token,
@@ -1274,6 +1302,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {
@@ -1452,6 +1482,8 @@ describe("activity endpoint", () => {
 				usedMode: "api-keys",
 			},
 		]);
+
+		await aggregateLogsForTesting();
 
 		const res = await app.request("/activity?days=7", {
 			headers: {

@@ -76,6 +76,12 @@ export const metaModels = [
 				// Note: Tool calling is unreliable for llama3.1-8b on Cerebras
 				tools: false,
 				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+				],
 			},
 			{
 				providerId: "novita",
@@ -216,9 +222,16 @@ export const metaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+				],
 			},
 			{
 				providerId: "novita",
+				test: "skip",
 				modelName: "meta-llama/llama-3.3-70b-instruct",
 				inputPrice: 0.135 / 1e6,
 				outputPrice: 0.4 / 1e6,

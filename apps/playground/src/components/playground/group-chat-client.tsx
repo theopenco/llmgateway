@@ -284,8 +284,17 @@ export default function GroupChatClient({
 			],
 		};
 
+		const isProviderSpecific = currentModel.includes("/");
+		const localStorageOverride =
+			typeof window !== "undefined" &&
+			localStorage.getItem("llmgateway_no_fallback") === "true";
+		const noFallback = isProviderSpecific || localStorageOverride;
+
 		try {
 			await sendMessage(userUiMessage as any, {
+				headers: {
+					...(noFallback ? { "x-no-fallback": "true" } : {}),
+				},
 				body: {
 					model: currentModel,
 				},

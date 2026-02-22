@@ -9,6 +9,7 @@ const plans = [
 		name: "Self-Hosted",
 		description: "Deploy on your infrastructure with complete control",
 		features: [
+			"Full admin dashboard included",
 			"Enterprise SSO integration",
 			"Provider configuration UI",
 			"Terraform modules for AWS, GCP, bare metal",

@@ -7,7 +7,6 @@
     </scripts>
     <node-interpreter value="project" />
     <envs>
-      <env name="ROUTEWAY_PAID_DISCOUNT" value="0.5" />
       <env name="AUTH_SECRET" value="asdf" />
     </envs>
     <method v="2">

@@ -28,14 +28,17 @@ You can find all reasoning-enabled models on our [models page with reasoning fil
 
 ## Using the Reasoning Parameter
 
-To enable reasoning output, add the `reasoning_effort` parameter to your request. This parameter accepts the following values:
+There are two ways to control reasoning effort:
+
+### Option 1: Top-level `reasoning_effort`
+
+Add the `reasoning_effort` parameter directly to your request:
 
 - `minimal` - Fastest reasoning with minimal thought process (only for GPT-5 models)
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
-
-### Example Request
+- `xhigh` - Maximum reasoning depth for the most complex problems
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -52,6 +55,42 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
     "reasoning_effort": "medium"
   }'
 ```
+
+### Option 2: Using the `reasoning` object
+
+Use the unified `reasoning` configuration object with an `effort` field:
+
+- `none` - Disable reasoning
+- `minimal` - Fastest reasoning with minimal thought process
+- `low` - Light reasoning for simpler tasks
+- `medium` - Balanced reasoning for most tasks
+- `high` - Deep reasoning for complex problems
+- `xhigh` - Maximum reasoning depth for the most complex problems
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 2/3 + 1/4 + 5/6?"
+      }
+    ],
+    "reasoning": {
+      "effort": "medium"
+    }
+  }'
+```
+
+<Callout type="warning">
+	You cannot use both `reasoning_effort` and `reasoning.effort` in the same
+	request. Choose one approach. However, you can combine `reasoning_effort` or
+	`reasoning.effort` with `reasoning.max_tokens` — when `max_tokens` is
+	specified, it takes priority over the effort level.
+</Callout>
 
 ### Example Response
 
@@ -79,6 +118,64 @@ The response will include a `reasoning` field in the message object containing t
 		"completion_tokens": 45,
 		"reasoning_tokens": 35,
 		"total_tokens": 65
+	}
+}
+```
+
+## Specifying Reasoning Token Budget
+
+For models that support it, you can specify an exact token budget for reasoning using the `reasoning` object with `max_tokens`. This gives you precise control over how many tokens the model allocates to its thinking process.
+
+<Callout type="info">
+	When `reasoning.max_tokens` is specified, it overrides `reasoning.effort` and
+	`reasoning_effort`. Supported by Anthropic Claude and Google Gemini thinking
+	models.
+</Callout>
+
+### Example Request
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "anthropic/claude-sonnet-4-20250514",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain the P vs NP problem and why it matters."
+      }
+    ],
+    "reasoning": {
+      "max_tokens": 8000
+    }
+  }'
+```
+
+### Supported Models
+
+The `reasoning.max_tokens` parameter is supported by:
+
+- **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5
+- **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3 Pro Preview
+
+When using auto-routing or root models with `reasoning.max_tokens`, only providers that support this feature will be considered.
+
+### Provider-Specific Constraints
+
+- **Anthropic**: Reasoning budget must be between 1,024 and 128,000 tokens. Values outside this range are automatically clamped.
+- **Google**: No specific constraints on the reasoning budget.
+
+### Error Handling
+
+If you specify `reasoning.max_tokens` for a model that doesn't support it, you'll receive an error:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning.max_tokens. Remove the reasoning parameter or use a model that supports explicit reasoning token budgets.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
 	}
 }
 ```

@@ -111,6 +111,8 @@ export const TweetHeader = ({ tweet }: { tweet: EnrichedTweet }) => (
 					height={48}
 					width={48}
 					src={tweet.user.profile_image_url_https}
+					loading="lazy"
+					decoding="async"
 					className="overflow-hidden rounded-full border border-transparent"
 				/>
 			</a>
@@ -207,6 +209,8 @@ export const TweetMedia = ({ tweet }: { tweet: EnrichedTweet }) => {
 							src={photo.url}
 							title={"Photo by " + tweet.user.name}
 							alt={tweet.text}
+							loading="lazy"
+							decoding="async"
 							className="h-64 w-5/6 shrink-0 snap-center snap-always rounded-xl border object-cover shadow-sm"
 						/>
 					))}

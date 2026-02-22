@@ -10,6 +10,7 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import {
+	AWSBedrockIconStatic,
 	getProviderIcon,
 	MinimaxIconStatic,
 } from "@llmgateway/shared/components";
@@ -100,7 +101,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const ProviderIcon = selectedMapping
 			? selectedMapping.providerId === "minimax"
 				? MinimaxIconStatic
-				: getProviderIcon(selectedMapping.providerId)
+				: selectedMapping.providerId === "aws-bedrock"
+					? AWSBedrockIconStatic
+					: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
 		const requestPrice = selectedMapping?.requestPrice;
@@ -114,7 +117,12 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		);
 		const supportingProviders = uniqueProviderIds
 			.map((providerId) => {
-				const icon = getProviderIcon(providerId);
+				const icon =
+					providerId === "aws-bedrock"
+						? AWSBedrockIconStatic
+						: providerId === "minimax"
+							? MinimaxIconStatic
+							: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
@@ -319,7 +327,8 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							gap: 28,
 						}}
 					>
-						{(hasTokenPricing || requestPrice) && (
+						{(hasTokenPricing ||
+							(requestPrice !== undefined && requestPrice !== 0)) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -329,7 +338,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									letterSpacing: "0.1em",
 								}}
 							>
-								{requestPrice ? "Pricing" : "Pricing per 1M tokens"}
+								{requestPrice !== undefined && requestPrice !== 0
+									? "Pricing"
+									: "Pricing per 1M tokens"}
 							</span>
 						)}
 						<div
@@ -368,7 +379,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							</div>
 
 							{/* Request Price */}
-							{requestPrice && (
+							{requestPrice !== undefined && requestPrice !== 0 && (
 								<div
 									style={{
 										display: "flex",

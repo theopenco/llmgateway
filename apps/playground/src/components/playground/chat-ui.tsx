@@ -1,5 +1,5 @@
 "use client";
-import { AlertCircle, RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
+import { RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -55,7 +55,6 @@ import {
 	ToolInput,
 	ToolOutput,
 } from "@/components/ai-elements/tool";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -258,7 +257,11 @@ const AssistantMessage = memo(
 					</Tool>
 				))}
 
-				{textContent ? <Response>{textContent}</Response> : null}
+				{textContent ? (
+					<Response isStreaming={status === "streaming" && isLastMessage}>
+						{textContent}
+					</Response>
+				) : null}
 
 				{imageParts.length > 0 ? (
 					<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -602,12 +605,6 @@ export const ChatUI = ({
 						: undefined
 				}
 			>
-				{error && (
-					<Alert variant="destructive" className="mb-4">
-						<AlertCircle className="h-4 w-4" />
-						<AlertDescription>{error}</AlertDescription>
-					</Alert>
-				)}
 				<PromptInput
 					accept={supportsImages ? "image/*" : undefined}
 					multiple
