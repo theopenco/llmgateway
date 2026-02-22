@@ -13,7 +13,9 @@ import { GroupChatUI } from "@/components/playground/group-chat-ui";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
+import { useAppConfig } from "@/lib/config";
 import { mapModels } from "@/lib/mapmodels";
+import { isSafari } from "@/lib/safari";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -46,9 +48,11 @@ export default function GroupChatClient({
 	selectedProject,
 }: GroupChatClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const config = useAppConfig();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
+	const playgroundKeyRef = useRef<string | null>(null);
 
 	const mapped = useMemo(
 		() => mapModels(models, providers),
@@ -88,6 +92,7 @@ export default function GroupChatClient({
 	useEffect(() => {
 		if (!isAuthenticated || !selectedProject) {
 			ensuredProjectRef.current = null;
+			playgroundKeyRef.current = null;
 			return;
 		}
 
@@ -99,18 +104,36 @@ export default function GroupChatClient({
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
-				});
+				if (isSafari()) {
+					const res = await fetch(`${config.apiUrl}/playground/ensure-key`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						credentials: "include",
+						body: JSON.stringify({ projectId: selectedProject.id }),
+					});
+					if (res.ok) {
+						const data = (await res.json()) as {
+							ok: boolean;
+							token?: string;
+						};
+						if (data.token) {
+							playgroundKeyRef.current = data.token;
+						}
+					}
+				} else {
+					await fetch("/api/ensure-playground-key", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ projectId: selectedProject.id }),
+					});
+				}
 				ensuredProjectRef.current = selectedProject.id;
 			} catch {
 				// ignore for now
 			}
 		};
 		ensureKey();
-	}, [isAuthenticated, selectedOrganization, selectedProject]);
+	}, [isAuthenticated, selectedOrganization, selectedProject, config.apiUrl]);
 
 	const addModel = (modelId: string) => {
 		if (selectedModels.length < 5 && !selectedModels.includes(modelId)) {
@@ -294,6 +317,9 @@ export default function GroupChatClient({
 			await sendMessage(userUiMessage as any, {
 				headers: {
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
+					...(playgroundKeyRef.current
+						? { "x-llmgateway-key": playgroundKeyRef.current }
+						: {}),
 				},
 				body: {
 					model: currentModel,

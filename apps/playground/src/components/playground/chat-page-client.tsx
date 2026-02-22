@@ -24,8 +24,10 @@ import {
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
+import { useAppConfig } from "@/lib/config";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
+import { isSafari } from "@/lib/safari";
 import { getErrorMessage } from "@/lib/utils";
 
 import type {
@@ -78,9 +80,11 @@ export default function ChatPageClient({
 	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const config = useAppConfig();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
+	const playgroundKeyRef = useRef<string | null>(null);
 
 	const mapped = useMemo(
 		() => mapModels(models, providers),
@@ -413,6 +417,9 @@ export default function ChatPageClient({
 				headers: {
 					...(options?.headers || {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
+					...(playgroundKeyRef.current
+						? { "x-llmgateway-key": playgroundKeyRef.current }
+						: {}),
 				},
 				body: {
 					...(options?.body || {}),
@@ -562,6 +569,7 @@ export default function ChatPageClient({
 		// Reset ref when user logs out or project is unset
 		if (!isAuthenticated || !selectedProject) {
 			ensuredProjectRef.current = null;
+			playgroundKeyRef.current = null;
 			return;
 		}
 
@@ -574,18 +582,36 @@ export default function ChatPageClient({
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
-				});
+				if (isSafari()) {
+					const res = await fetch(`${config.apiUrl}/playground/ensure-key`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						credentials: "include",
+						body: JSON.stringify({ projectId: selectedProject.id }),
+					});
+					if (res.ok) {
+						const data = (await res.json()) as {
+							ok: boolean;
+							token?: string;
+						};
+						if (data.token) {
+							playgroundKeyRef.current = data.token;
+						}
+					}
+				} else {
+					await fetch("/api/ensure-playground-key", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ projectId: selectedProject.id }),
+					});
+				}
 				ensuredProjectRef.current = selectedProject.id;
 			} catch {
 				// ignore for now
 			}
 		};
 		ensureKey();
-	}, [isAuthenticated, selectedOrganization, selectedProject]);
+	}, [isAuthenticated, selectedOrganization, selectedProject, config.apiUrl]);
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
@@ -1069,6 +1095,7 @@ export default function ChatPageClient({
 													extraSubmitRefs.current[panelId] = fn;
 												}}
 												resetToken={comparisonResetToken}
+												safariApiKey={playgroundKeyRef.current ?? undefined}
 											/>
 										</div>
 									))
@@ -1096,6 +1123,7 @@ interface ExtraChatPanelProps {
 		submit: (content: string) => Promise<void> | void,
 	) => void;
 	resetToken: number;
+	safariApiKey?: string;
 }
 
 function ExtraChatPanel({
@@ -1109,6 +1137,7 @@ function ExtraChatPanel({
 	setSyncedText,
 	onRegisterExternalSubmit,
 	resetToken,
+	safariApiKey,
 }: ExtraChatPanelProps) {
 	const [selectedModel, setSelectedModel] = useState(initialModel);
 	const [reasoningEffort, setReasoningEffort] = useState<
@@ -1234,6 +1263,7 @@ function ExtraChatPanel({
 				headers: {
 					...(options?.headers || {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
+					...(safariApiKey ? { "x-llmgateway-key": safariApiKey } : {}),
 				},
 				body: {
 					...(options?.body || {}),
@@ -1257,6 +1287,7 @@ function ExtraChatPanel({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
+			safariApiKey,
 		],
 	);
 

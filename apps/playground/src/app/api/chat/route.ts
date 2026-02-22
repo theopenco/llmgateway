@@ -288,12 +288,15 @@ interface McpClientWrapper {
 }
 
 export async function POST(req: Request) {
-	const user = await getUser();
+	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 
-	if (!user) {
-		return new Response(JSON.stringify({ error: "Unauthorized" }), {
-			status: 401,
-		});
+	if (!headerApiKey) {
+		const user = await getUser();
+		if (!user) {
+			return new Response(JSON.stringify({ error: "Unauthorized" }), {
+				status: 401,
+			});
+		}
 	}
 
 	const body = await req.json();
@@ -313,8 +316,6 @@ export async function POST(req: Request) {
 			status: 400,
 		});
 	}
-
-	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
 	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
 	const noFallbackHeader = req.headers.get("x-no-fallback") || undefined;
 
