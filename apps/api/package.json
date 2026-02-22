@@ -40,7 +40,7 @@
 		"hono": "^4.11.10",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
-		"jspdf": "4.1.0",
+		"jspdf": "4.2.0",
 		"openai": "^5.19.1",
 		"posthog-node": "5.10.4",
 		"resend": "6.8.0",
