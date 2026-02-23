@@ -19,6 +19,8 @@ import { logger } from "@llmgateway/logger";
 const BACKFILL_DURATION_SECONDS =
 	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
 
+const ONE_MINUTE_MS = 60 * 1000;
+
 /**
  * Helper function to round any date to the start of its minute (00 seconds, 00 milliseconds)
  */
@@ -47,8 +49,7 @@ function getCurrentMinuteStart(): Date {
  */
 function getPreviousMinuteStart(): Date {
 	const currentMinute = getCurrentMinuteStart();
-
-	return new Date(currentMinute.getTime() - 60 * 1000);
+	return new Date(currentMinute.getTime() - ONE_MINUTE_MS);
 }
 
 /**
@@ -58,7 +59,7 @@ function getPreviousMinuteStart(): Date {
 async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 
-	const minuteEnd = new Date(roundedTargetMinute.getTime() + 60 * 1000);
+	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
 
 	// Get logs from the specified minute, aggregated by model
@@ -230,7 +231,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 async function calculateHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 
-	const minuteEnd = new Date(roundedTargetMinute.getTime() + 60 * 1000);
+	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
 
 	// Get logs from the specified minute
@@ -444,9 +445,8 @@ export async function backfillHistoryIfNeeded() {
 
 		if (!lastMinute) {
 			// No history exists, start from configured backfill duration ago
-			const backfillStart = new Date(
-				Date.now() - BACKFILL_DURATION_SECONDS * 1000,
-			);
+			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
+			const backfillStart = new Date(Date.now() - backfillMs);
 			const backfillStartRounded = roundToMinuteStart(backfillStart);
 
 			logger.info(
@@ -469,7 +469,7 @@ export async function backfillHistoryIfNeeded() {
 				);
 
 				const nextMinute = roundToMinuteStart(
-					new Date(minute.getTime() + 60 * 1000),
+					new Date(minute.getTime() + ONE_MINUTE_MS),
 				);
 
 				// Safety check to prevent infinite loops
@@ -502,7 +502,7 @@ export async function backfillHistoryIfNeeded() {
 				`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`,
 			);
 
-			let minute = new Date(lastMinute.getTime() + 60 * 1000); // Start from the minute after the last recorded
+			let minute = new Date(lastMinute.getTime() + ONE_MINUTE_MS); // Start from the minute after the last recorded
 			let iterationCount = 0;
 			const maxIterations = 1440; // Safety limit for 24 hours of backfill
 
@@ -514,7 +514,7 @@ export async function backfillHistoryIfNeeded() {
 				);
 
 				const nextMinute = roundToMinuteStart(
-					new Date(minute.getTime() + 60 * 1000),
+					new Date(minute.getTime() + ONE_MINUTE_MS),
 				);
 
 				// Safety check to prevent infinite loops
