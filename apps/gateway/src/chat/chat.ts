@@ -2788,6 +2788,9 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								organizationId: project.organizationId,
+								projectId: apiKey.projectId,
+								apiKeyId: apiKey.id,
 							});
 						}
 
@@ -5383,6 +5386,9 @@ chat.openapi(completions, async (c) => {
 					requestedProvider,
 					usedModel,
 					initialRequestedModel,
+					organizationId: project.organizationId,
+					projectId: apiKey.projectId,
+					apiKeyId: apiKey.id,
 				});
 			}
 
