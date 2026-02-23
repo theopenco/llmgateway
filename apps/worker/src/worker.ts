@@ -24,7 +24,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
+import { calculateFees } from "@llmgateway/shared";
 
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -538,7 +538,6 @@ export async function batchProcessLogs(): Promise<void> {
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
 			const apiKeyCosts = new Map<string, Decimal>();
-			const logServiceFees = new Map<string, number>();
 			const logIds: string[] = [];
 
 			for (const raw of unprocessedLogs.rows) {
@@ -600,31 +599,17 @@ export async function batchProcessLogs(): Promise<void> {
 							currentOrgCost.plus(new Decimal(row.cost)),
 						);
 					} else if (row.used_mode === "api-keys") {
-						// In API keys mode, charge BYOK fee (% of tracked cost) + storage cost
-						let totalToDeduct = new Decimal(0);
-
-						// Add BYOK fee (e.g., 1% of the tracked cost)
-						if (row.cost) {
-							const byokFee = new Decimal(row.cost).times(BYOK_FEE_PERCENTAGE);
-							totalToDeduct = totalToDeduct.plus(byokFee);
-							// Store the service fee for this log
-							logServiceFees.set(row.id, byokFee.toNumber());
-						}
-
-						// Add storage cost if applicable
+						// In API keys mode, only deduct storage cost (data retention billing)
 						if (row.data_storage_cost) {
-							totalToDeduct = totalToDeduct.plus(
-								new Decimal(row.data_storage_cost),
-							);
-						}
-
-						if (totalToDeduct.greaterThan(0)) {
-							const currentOrgCost =
-								orgCosts.get(row.organization_id) ?? new Decimal(0);
-							orgCosts.set(
-								row.organization_id,
-								currentOrgCost.plus(totalToDeduct),
-							);
+							const storageCost = new Decimal(row.data_storage_cost);
+							if (storageCost.greaterThan(0)) {
+								const currentOrgCost =
+									orgCosts.get(row.organization_id) ?? new Decimal(0);
+								orgCosts.set(
+									row.organization_id,
+									currentOrgCost.plus(storageCost),
+								);
+							}
 						}
 					}
 				}
@@ -746,16 +731,6 @@ export async function batchProcessLogs(): Promise<void> {
 
 					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
 				}
-			}
-
-			// Update service fees for logs that have them (api-keys mode)
-			for (const [logId, serviceFee] of logServiceFees.entries()) {
-				await tx
-					.update(log)
-					.set({
-						serviceFee,
-					})
-					.where(eq(log.id, logId));
 			}
 
 			// Mark all logs as processed within the same transaction

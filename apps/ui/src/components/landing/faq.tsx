@@ -13,7 +13,7 @@ const faqData = [
 	{
 		question: "What makes LLM Gateway different from OpenRouter?",
 		answer:
-			"Unlike OpenRouter, LLM Gateway offers: Full self-hosting under an AGPLv3 license – run the gateway entirely on your infra. Deeper, real-time cost & latency analytics for every request. Bring Your Own Keys with just 1% tracking fee. Flexible enterprise add-ons (dedicated shard, custom SLAs).",
+			"Unlike OpenRouter, LLM Gateway offers: Full self-hosting under an AGPLv3 license – run the gateway entirely on your infra. Deeper, real-time cost & latency analytics for every request. Bring Your Own Keys for free. Flexible enterprise add-ons (dedicated shard, custom SLAs).",
 	},
 	{
 		question: "What models do you support?",
@@ -28,7 +28,7 @@ const faqData = [
 	{
 		question: "How much does it cost?",
 		answer:
-			"Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys with just 1% tracking fee. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.",
+			"Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys for free. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.",
 	},
 ];
 
@@ -105,7 +105,7 @@ export function Faq() {
 									</li>
 									<li>
 										<strong>Bring Your Own Keys</strong> – use your own provider
-										API keys with just 1% tracking fee
+										API keys for free
 									</li>
 									<li>
 										Flexible <strong>enterprise add‑ons</strong> (dedicated
@@ -177,10 +177,10 @@ export function Faq() {
 										use any model with a flat 5% platform fee on purchases.
 									</li>
 									<li>
-										<strong>Bring Your Own Keys – 1% fee:</strong> Use your own
+										<strong>Bring Your Own Keys – free:</strong> Use your own
 										LLM provider API keys (OpenAI, Anthropic, Google, etc.) and
-										pay providers directly. We charge just 1% to track usage and
-										provide analytics.
+										pay providers directly. Usage tracking and analytics
+										included at no extra cost.
 									</li>
 									<li>
 										<strong>Enterprise:</strong> Custom SLA, dedicated
