@@ -11,7 +11,6 @@ import {
 	gte,
 	lt,
 	and,
-	avg,
 	sum,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -600,29 +599,38 @@ export async function calculateCurrentMinuteHistory() {
 /**
  * Calculate 5-minute aggregated statistics from historical data
  */
+// Routing metric time-tier weights
+const ROUTING_WINDOW_MINUTES = 60;
+const TIER_1_MINUTES = 1; // "hot" tier boundary
+const TIER_2_MINUTES = 5; // "warm" tier boundary
+const TIER_1_WEIGHT = 10; // weight for 0-1 min ago
+const TIER_2_WEIGHT = 3; // weight for 1-5 min ago
+const TIER_3_WEIGHT = 1; // weight for 5-60 min ago
+
+function getTierWeight(minuteTimestamp: Date, now: Date): number {
+	const ageMinutes = (now.getTime() - minuteTimestamp.getTime()) / (60 * 1000);
+	if (ageMinutes <= TIER_1_MINUTES) {
+		return TIER_1_WEIGHT;
+	}
+	if (ageMinutes <= TIER_2_MINUTES) {
+		return TIER_2_WEIGHT;
+	}
+	return TIER_3_WEIGHT;
+}
+
 export async function calculateAggregatedStatistics() {
-	logger.debug("Starting 5-minute aggregated statistics calculation...");
+	logger.debug("Starting aggregated statistics calculation...");
 
 	try {
 		const database = db;
-		// eslint-disable-next-line no-mixed-operators
-		const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+		const oneHourAgo = new Date(
+			Date.now() - ROUTING_WINDOW_MINUTES * 60 * 1000,
+		);
 
 		// Update provider statistics (aggregated from model-provider mappings)
 		const providerAggregates = await database
 			.select({
 				providerId: modelProviderMappingHistory.providerId,
-				avgLogsCount: avg(modelProviderMappingHistory.logsCount),
-				avgErrorsCount: avg(modelProviderMappingHistory.errorsCount),
-				avgClientErrorsCount: avg(
-					modelProviderMappingHistory.clientErrorsCount,
-				),
-				avgGatewayErrorsCount: avg(
-					modelProviderMappingHistory.gatewayErrorsCount,
-				),
-				avgUpstreamErrorsCount: avg(
-					modelProviderMappingHistory.upstreamErrorsCount,
-				),
 				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
 				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
 				totalClientErrorsCount: sum(
@@ -637,7 +645,7 @@ export async function calculateAggregatedStatistics() {
 				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
 			})
 			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
+			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
 			.groupBy(modelProviderMappingHistory.providerId);
 
 		for (const aggregate of providerAggregates) {
@@ -668,17 +676,6 @@ export async function calculateAggregatedStatistics() {
 		const modelAggregates = await database
 			.select({
 				modelId: modelProviderMappingHistory.modelId,
-				avgLogsCount: avg(modelProviderMappingHistory.logsCount),
-				avgErrorsCount: avg(modelProviderMappingHistory.errorsCount),
-				avgClientErrorsCount: avg(
-					modelProviderMappingHistory.clientErrorsCount,
-				),
-				avgGatewayErrorsCount: avg(
-					modelProviderMappingHistory.gatewayErrorsCount,
-				),
-				avgUpstreamErrorsCount: avg(
-					modelProviderMappingHistory.upstreamErrorsCount,
-				),
 				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
 				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
 				totalClientErrorsCount: sum(
@@ -693,7 +690,7 @@ export async function calculateAggregatedStatistics() {
 				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
 			})
 			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
+			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
 			.groupBy(modelProviderMappingHistory.modelId);
 
 		for (const aggregate of modelAggregates) {
@@ -718,84 +715,166 @@ export async function calculateAggregatedStatistics() {
 
 		logger.debug(`Updated statistics for ${modelAggregates.length} models`);
 
-		// Update model-provider mapping statistics (aggregated from history)
-		const mappingAggregates = await database
+		// Update model-provider mapping statistics with weighted routing metrics
+		// Fetch per-minute rows from the last hour for weighted aggregation
+		const now = new Date();
+		const mappingRows = await database
 			.select({
 				modelId: modelProviderMappingHistory.modelId,
 				providerId: modelProviderMappingHistory.providerId,
-				avgLogsCount: avg(modelProviderMappingHistory.logsCount),
-				avgErrorsCount: avg(modelProviderMappingHistory.errorsCount),
-				avgClientErrorsCount: avg(
-					modelProviderMappingHistory.clientErrorsCount,
-				),
-				avgGatewayErrorsCount: avg(
-					modelProviderMappingHistory.gatewayErrorsCount,
-				),
-				avgUpstreamErrorsCount: avg(
-					modelProviderMappingHistory.upstreamErrorsCount,
-				),
-				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
-				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
-				totalClientErrorsCount: sum(
-					modelProviderMappingHistory.clientErrorsCount,
-				),
-				totalGatewayErrorsCount: sum(
-					modelProviderMappingHistory.gatewayErrorsCount,
-				),
-				totalUpstreamErrorsCount: sum(
-					modelProviderMappingHistory.upstreamErrorsCount,
-				),
-				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				logsCount: modelProviderMappingHistory.logsCount,
+				errorsCount: modelProviderMappingHistory.errorsCount,
+				clientErrorsCount: modelProviderMappingHistory.clientErrorsCount,
+				gatewayErrorsCount: modelProviderMappingHistory.gatewayErrorsCount,
+				upstreamErrorsCount: modelProviderMappingHistory.upstreamErrorsCount,
+				cachedCount: modelProviderMappingHistory.cachedCount,
+				totalOutputTokens: modelProviderMappingHistory.totalOutputTokens,
+				totalDuration: modelProviderMappingHistory.totalDuration,
+				totalTimeToFirstToken:
+					modelProviderMappingHistory.totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken:
+					modelProviderMappingHistory.totalTimeToFirstReasoningToken,
 			})
 			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, fiveMinutesAgo))
-			.groupBy(
-				modelProviderMappingHistory.modelId,
-				modelProviderMappingHistory.providerId,
-			);
+			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo));
 
-		for (const aggregate of mappingAggregates) {
-			if (!aggregate.modelId || !aggregate.providerId) {
+		// Aggregate per (modelId, providerId) with tier weights for routing,
+		// and plain sums for dashboard stats
+		interface MappingAgg {
+			// Unweighted sums (for dashboard/display stats)
+			totalLogs: number;
+			totalErrors: number;
+			totalClientErrors: number;
+			totalGatewayErrors: number;
+			totalUpstreamErrors: number;
+			totalCached: number;
+			// Weighted sums (for routing metrics)
+			weightedLogs: number;
+			weightedErrors: number;
+			weightedDuration: number;
+			weightedOutputTokens: number;
+			weightedTTFT: number;
+			weightedTTFRT: number;
+		}
+
+		const aggMap = new Map<string, MappingAgg>();
+
+		for (const row of mappingRows) {
+			if (!row.modelId || !row.providerId) {
+				continue;
+			}
+
+			const key = `${row.modelId}:${row.providerId}`;
+			let agg = aggMap.get(key);
+			if (!agg) {
+				agg = {
+					totalLogs: 0,
+					totalErrors: 0,
+					totalClientErrors: 0,
+					totalGatewayErrors: 0,
+					totalUpstreamErrors: 0,
+					totalCached: 0,
+					weightedLogs: 0,
+					weightedErrors: 0,
+					weightedDuration: 0,
+					weightedOutputTokens: 0,
+					weightedTTFT: 0,
+					weightedTTFRT: 0,
+				};
+				aggMap.set(key, agg);
+			}
+
+			const weight = getTierWeight(row.minuteTimestamp, now);
+
+			// Unweighted sums
+			agg.totalLogs += row.logsCount;
+			agg.totalErrors += row.errorsCount;
+			agg.totalClientErrors += row.clientErrorsCount;
+			agg.totalGatewayErrors += row.gatewayErrorsCount;
+			agg.totalUpstreamErrors += row.upstreamErrorsCount;
+			agg.totalCached += row.cachedCount;
+
+			// Weighted sums
+			agg.weightedLogs += row.logsCount * weight;
+			agg.weightedErrors += row.errorsCount * weight;
+			agg.weightedDuration += row.totalDuration * weight;
+			agg.weightedOutputTokens += row.totalOutputTokens * weight;
+			agg.weightedTTFT += row.totalTimeToFirstToken * weight;
+			agg.weightedTTFRT += row.totalTimeToFirstReasoningToken * weight;
+		}
+
+		let mappingUpdateCount = 0;
+
+		for (const [key, agg] of aggMap) {
+			const [modelId, providerId] = key.split(":");
+			if (!modelId || !providerId) {
 				continue;
 			}
 
 			const mappings = await database
-				.select()
+				.select({ id: modelProviderMapping.id })
 				.from(modelProviderMapping)
 				.where(
 					and(
-						eq(modelProviderMapping.modelId, aggregate.modelId),
-						eq(modelProviderMapping.providerId, aggregate.providerId),
+						eq(modelProviderMapping.modelId, modelId),
+						eq(modelProviderMapping.providerId, providerId),
 					),
 				)
 				.limit(1);
 			const existingMapping = mappings[0];
 
-			if (existingMapping) {
-				await database
-					.update(modelProviderMapping)
-					.set({
-						logsCount: Number(aggregate.totalLogsCount ?? 0),
-						errorsCount: Number(aggregate.totalErrorsCount ?? 0),
-						clientErrorsCount: Number(aggregate.totalClientErrorsCount ?? 0),
-						gatewayErrorsCount: Number(aggregate.totalGatewayErrorsCount ?? 0),
-						upstreamErrorsCount: Number(
-							aggregate.totalUpstreamErrorsCount ?? 0,
-						),
-						cachedCount: Number(aggregate.totalCachedCount ?? 0),
-						statsUpdatedAt: new Date(),
-						updatedAt: new Date(),
-					})
-					.where(eq(modelProviderMapping.id, existingMapping.id));
+			if (!existingMapping) {
+				continue;
 			}
+
+			// Compute routing metrics from weighted sums
+			let routingUptime: number | null = null;
+			let routingLatency: number | null = null;
+			let routingThroughput: number | null = null;
+			let routingTotalRequests: number | null = null;
+
+			if (agg.weightedLogs > 0) {
+				const successfulRequests = agg.weightedLogs - agg.weightedErrors;
+				routingUptime = (successfulRequests / agg.weightedLogs) * 100;
+
+				const effectiveTTFT =
+					agg.weightedTTFRT > 0 ? agg.weightedTTFRT : agg.weightedTTFT;
+				routingLatency = effectiveTTFT / agg.weightedLogs;
+
+				routingThroughput =
+					agg.weightedDuration > 0
+						? (agg.weightedOutputTokens / agg.weightedDuration) * 1000
+						: 0;
+
+				routingTotalRequests = agg.weightedLogs;
+			}
+
+			await database
+				.update(modelProviderMapping)
+				.set({
+					logsCount: agg.totalLogs,
+					errorsCount: agg.totalErrors,
+					clientErrorsCount: agg.totalClientErrors,
+					gatewayErrorsCount: agg.totalGatewayErrors,
+					upstreamErrorsCount: agg.totalUpstreamErrors,
+					cachedCount: agg.totalCached,
+					routingUptime,
+					routingLatency,
+					routingThroughput,
+					routingTotalRequests,
+					statsUpdatedAt: new Date(),
+					updatedAt: new Date(),
+				})
+				.where(eq(modelProviderMapping.id, existingMapping.id));
+
+			mappingUpdateCount++;
 		}
 
 		logger.debug(
-			`Updated statistics for ${mappingAggregates.length} model-provider mappings`,
+			`Updated statistics for ${mappingUpdateCount} model-provider mappings`,
 		);
-		logger.debug(
-			"5-minute aggregated statistics calculation completed successfully",
-		);
+		logger.debug("Aggregated statistics calculation completed successfully");
 	} catch (error) {
 		logger.error("Error calculating aggregated statistics:", error as Error);
 		throw error;

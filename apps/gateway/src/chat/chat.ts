@@ -849,10 +849,8 @@ chat.openapi(completions, async (c) => {
 				modelId: selectedModel.id,
 				providerId: p.providerId,
 			}));
-			const metricsMap = await getProviderMetricsForCombinations(
-				metricsCombinations,
-				5,
-			);
+			const metricsMap =
+				await getProviderMetricsForCombinations(metricsCombinations);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
 				selectedProviders,
@@ -915,10 +913,9 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations(
-			[{ modelId: baseModelId, providerId: usedProvider }],
-			5,
-		);
+		const metricsMap = await getProviderMetricsForCombinations([
+			{ modelId: baseModelId, providerId: usedProvider },
+		]);
 
 		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
 
@@ -1004,10 +1001,8 @@ chat.openapi(completions, async (c) => {
 							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 						}));
-						const allMetricsMap = await getProviderMetricsForCombinations(
-							metricsCombinations,
-							5,
-						);
+						const allMetricsMap =
+							await getProviderMetricsForCombinations(metricsCombinations);
 
 						// Filter to only providers with better uptime than the original
 						// to avoid falling back to worse providers
@@ -1157,10 +1152,8 @@ chat.openapi(completions, async (c) => {
 					modelId: modelWithPricing.id,
 					providerId: p.providerId,
 				}));
-				const metricsMap = await getProviderMetricsForCombinations(
-					metricsCombinations,
-					5,
-				);
+				const metricsMap =
+					await getProviderMetricsForCombinations(metricsCombinations);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
 					availableModelProviders,
@@ -1217,10 +1210,7 @@ chat.openapi(completions, async (c) => {
 				modelId: baseModelId,
 				providerId: p.providerId,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(
-				metricsCombinations,
-				5,
-			);
+			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
 
 		// Build provider scores for all providers (including deactivated) with default values for missing metrics

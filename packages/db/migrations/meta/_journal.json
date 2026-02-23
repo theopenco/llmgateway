@@ -652,6 +652,13 @@
       "when": 1771569014202,
       "tag": "1771569014_small_polaris",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "8",
+      "when": 1771829431538,
+      "tag": "1771829431_natural_mulholland_black",
+      "breakpoints": true
     }
   ]
 }
