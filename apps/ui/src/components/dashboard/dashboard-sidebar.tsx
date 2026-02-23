@@ -23,6 +23,7 @@ import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect } from "react";
 
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import {
 	AnimatedActivity,
 	AnimatedBarChart3,
@@ -37,7 +38,6 @@ import {
 	AnimatedShield,
 	AnimatedShieldAlert,
 } from "@/components/dashboard/animated-nav-icons";
-import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";

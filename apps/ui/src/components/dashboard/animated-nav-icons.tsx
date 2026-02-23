@@ -33,9 +33,7 @@ export function AnimatedLayoutDashboard({ isHovered }: AnimatedIconProps) {
 					{...rect}
 					initial={false}
 					animate={
-						isHovered
-							? { translateY: [0, -1.5, 0], opacity: [1, 0.6, 1] }
-							: {}
+						isHovered ? { translateY: [0, -1.5, 0], opacity: [1, 0.6, 1] } : {}
 					}
 					transition={{ duration: 0.3, delay: i * 0.06, ease: "easeInOut" }}
 				/>
@@ -199,9 +197,7 @@ export function AnimatedShieldAlert({ isHovered }: AnimatedIconProps) {
 				d="M12 8v4"
 				initial={false}
 				animate={
-					isHovered
-						? { translateX: [0, -1, 1, -1, 1, 0] }
-						: { translateX: 0 }
+					isHovered ? { translateX: [0, -1, 1, -1, 1, 0] } : { translateX: 0 }
 				}
 				transition={{ duration: 0.4, ease: "easeInOut" }}
 			/>
@@ -237,9 +233,7 @@ export function AnimatedBotMessageSquare({ isHovered }: AnimatedIconProps) {
 			<motion.path
 				d="M12 6V2H8"
 				initial={false}
-				animate={
-					isHovered ? { rotate: [0, -10, 10, -5, 0] } : { rotate: 0 }
-				}
+				animate={isHovered ? { rotate: [0, -10, 10, -5, 0] } : { rotate: 0 }}
 				transition={{ duration: 0.5, ease: "easeInOut" }}
 				style={{ transformOrigin: "12px 6px" }}
 			/>
@@ -253,17 +247,13 @@ export function AnimatedBotMessageSquare({ isHovered }: AnimatedIconProps) {
 			<motion.path
 				d="M2 12h2"
 				initial={false}
-				animate={
-					isHovered ? { translateX: [0, -1.5, 0] } : { translateX: 0 }
-				}
+				animate={isHovered ? { translateX: [0, -1.5, 0] } : { translateX: 0 }}
 				transition={{ duration: 0.3, ease: "easeInOut" }}
 			/>
 			<motion.path
 				d="M20 12h2"
 				initial={false}
-				animate={
-					isHovered ? { translateX: [0, 1.5, 0] } : { translateX: 0 }
-				}
+				animate={isHovered ? { translateX: [0, 1.5, 0] } : { translateX: 0 }}
 				transition={{ duration: 0.3, ease: "easeInOut" }}
 			/>
 			<path d="M20 16a2 2 0 0 1-2 2H8.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 4 20.286V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" />

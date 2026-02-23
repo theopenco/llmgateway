@@ -1,9 +1,9 @@
 "use client";
 
-import { Separator } from "@/lib/components/separator";
 import { usePathname } from "next/navigation";
 
 import { ModelSearch } from "@/components/shared/model-search";
+import { Separator } from "@/lib/components/separator";
 import { SidebarTrigger } from "@/lib/components/sidebar";
 
 import { ProjectSwitcher } from "./project-switcher";
