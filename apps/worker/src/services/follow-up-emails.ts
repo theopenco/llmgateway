@@ -54,7 +54,7 @@ We noticed you added credits to your LLM Gateway account a few days ago but have
 If you're having trouble getting started, here are some resources:
 
 - Documentation: https://docs.llmgateway.io
-- Playground: https://playground.llmgateway.io (test models without writing code)
+- Chat Playground: https://chat.llmgateway.io (test models without writing code)
 - Quick start: just point any OpenAI SDK at https://api.llmgateway.io/v1
 
 If something isn't working as expected or you need help with your setup, reply to this email and we'll get you sorted out.
