@@ -29,7 +29,6 @@
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"decimal.js": "10.5.0",
-		"resend": "6.8.0",
 		"stripe": "18.1.1",
 		"zod": "3.25.75"
 	},

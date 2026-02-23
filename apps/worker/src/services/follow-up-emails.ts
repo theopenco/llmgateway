@@ -10,10 +10,50 @@ import {
 	transaction,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-
-import { sendFollowUpEmail } from "./email.js";
+import {
+	fromEmail,
+	getResendClient,
+	replyToEmail,
+} from "@llmgateway/shared/email";
 
 type FollowUpEmailType = "no_purchase" | "low_usage" | "no_repurchase";
+
+// ─── Email Sending ──────────────────────────────────────────────────────────
+
+async function sendFollowUpEmail(opts: {
+	to: string;
+	subject: string;
+	text: string;
+}): Promise<void> {
+	const client = getResendClient();
+	if (!client) {
+		logger.error(
+			"RESEND_API_KEY is not configured. Follow-up email will not be sent.",
+			new Error(
+				`Resend not configured for email to ${opts.to} with subject: ${opts.subject}`,
+			),
+		);
+		return;
+	}
+
+	const { data, error } = await client.emails.send({
+		from: fromEmail,
+		to: [opts.to],
+		replyTo: replyToEmail,
+		subject: opts.subject,
+		text: opts.text,
+	});
+
+	if (error) {
+		throw new Error(`Resend API error: ${error.message}`);
+	}
+
+	logger.info("Follow-up email sent successfully", {
+		to: opts.to,
+		subject: opts.subject,
+		messageId: data?.id,
+	});
+}
 
 // ─── Email Content ───────────────────────────────────────────────────────────
 
@@ -53,9 +93,9 @@ We noticed you added credits to your LLM Gateway account a few days ago but have
 
 If you're having trouble getting started, here are some resources:
 
+- Getting started in 5 minutes: https://llmgateway.io/blog/getting-started-in-5-minutes
 - Documentation: https://docs.llmgateway.io
 - Chat Playground: https://chat.llmgateway.io (test models without writing code)
-- Quick start: just point any OpenAI SDK at https://api.llmgateway.io/v1
 
 If something isn't working as expected or you need help with your setup, reply to this email and we'll get you sorted out.
 
@@ -74,7 +114,6 @@ To keep your API access running smoothly, you can:
 
 1. Top up credits: https://llmgateway.io/dashboard/settings/org/billing
 2. Enable auto top-up so you never run out
-3. Bring your own API keys (BYOK) for any provider
 
 If there's anything we can improve, we'd love to hear your feedback. Just reply to this email.
 
@@ -328,8 +367,58 @@ async function processNoRepurchaseEmails(): Promise<void> {
 
 // ─── Main orchestrator ───────────────────────────────────────────────────────
 
-export async function processFollowUpEmails(): Promise<void> {
+async function processFollowUpEmails(): Promise<void> {
 	await processNoPurchaseEmails();
 	await processLowUsageEmails();
 	await processNoRepurchaseEmails();
+}
+
+// ─── Worker Loop ─────────────────────────────────────────────────────────────
+
+const FOLLOW_UP_EMAILS_LOCK_KEY = "follow_up_emails";
+
+export async function runFollowUpEmailsLoop(deps: {
+	shouldStop: () => boolean;
+	acquireLock: (key: string) => Promise<boolean>;
+	releaseLock: (key: string) => Promise<void>;
+	interruptibleSleep: (ms: number) => Promise<void>;
+	registerLoop: () => void;
+	unregisterLoop: () => void;
+}): Promise<void> {
+	deps.registerLoop();
+
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 60) * 1000;
+	logger.info(
+		`Starting follow-up emails loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!deps.shouldStop()) {
+			try {
+				const lockAcquired = await deps.acquireLock(FOLLOW_UP_EMAILS_LOCK_KEY);
+				if (lockAcquired) {
+					try {
+						await processFollowUpEmails();
+					} finally {
+						await deps.releaseLock(FOLLOW_UP_EMAILS_LOCK_KEY);
+					}
+				}
+
+				if (!deps.shouldStop()) {
+					await deps.interruptibleSleep(interval);
+				}
+			} catch (error) {
+				logger.error(
+					"Error in follow-up emails loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!deps.shouldStop()) {
+					await deps.interruptibleSleep(30000);
+				}
+			}
+		}
+	} finally {
+		deps.unregisterLoop();
+		logger.info("Follow-up emails loop stopped");
+	}
 }

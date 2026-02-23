@@ -1165,9 +1165,6 @@ importers:
       decimal.js:
         specifier: 10.5.0
         version: 10.5.0
-      resend:
-        specifier: 6.8.0
-        version: 6.8.0(@react-email/render@1.0.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       stripe:
         specifier: 18.1.1
         version: 18.1.1(@types/node@25.3.0)
@@ -1428,6 +1425,9 @@ importers:
       react-medium-image-zoom:
         specifier: 5.4.0
         version: 5.4.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      resend:
+        specifier: 6.8.0
+        version: 6.8.0(@react-email/render@1.0.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
