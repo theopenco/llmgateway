@@ -131,6 +131,7 @@ export const moonshotModels = [
 			{
 				providerId: "canopywave",
 				test: "skip",
+				deactivatedAt: new Date("2026-02-06"),
 				modelName: "moonshotai/kimi-k2-thinking",
 				inputPrice: 0.48 / 1e6,
 				cachedInputPrice: 0.12 / 1e6,
