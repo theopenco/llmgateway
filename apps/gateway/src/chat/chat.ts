@@ -3120,6 +3120,7 @@ chat.openapi(completions, async (c) => {
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				let webSearchCount = 0; // Track web search calls for cost calculation
+				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let doneSent = false; // Track if [DONE] has been sent
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -3624,6 +3625,7 @@ chat.openapi(completions, async (c) => {
 									usedModel,
 									data,
 									messages,
+									serverToolUseIndices,
 								);
 
 								// Skip null events (some providers have non-data events)
