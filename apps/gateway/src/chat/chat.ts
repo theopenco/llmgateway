@@ -920,7 +920,8 @@ chat.openapi(completions, async (c) => {
 		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime < 90) {
+		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
 				.filter((p) => p.providerId !== usedProvider) // Exclude the low-uptime provider
@@ -1014,7 +1015,8 @@ chat.openapi(completions, async (c) => {
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
 								return (
-									!providerMetrics || providerMetrics.uptime > metrics.uptime
+									!providerMetrics ||
+									(providerMetrics.uptime ?? 100) > currentUptime
 								);
 							},
 						);
@@ -1042,7 +1044,7 @@ chat.openapi(completions, async (c) => {
 								providerId: requestedProvider,
 								score: -1, // Negative score indicates this provider was skipped due to low uptime
 								price: originalProviderPrice,
-								uptime: metrics.uptime,
+								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
 							};
@@ -1054,7 +1056,7 @@ chat.openapi(completions, async (c) => {
 									...cheapestResult.metadata,
 									selectionReason: "low-uptime-fallback",
 									originalProvider: requestedProvider,
-									originalProviderUptime: metrics.uptime,
+									originalProviderUptime: currentUptime,
 									// Add the original provider's score to the scores array
 									providerScores: [
 										originalProviderScore,
@@ -1202,7 +1204,7 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		let metricsMap: Map<
 			string,
-			{ uptime: number; averageLatency?: number; throughput?: number }
+			{ uptime?: number; averageLatency?: number; throughput?: number }
 		> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {

@@ -6,7 +6,7 @@ import { modelProviderMapping } from "./schema.js";
 export interface ProviderMetrics {
 	providerId: string;
 	modelId: string;
-	uptime: number; // Percentage (0-100)
+	uptime?: number; // Percentage (0-100, undefined = no data)
 	averageLatency?: number; // Milliseconds (undefined = no data)
 	throughput?: number; // Tokens per second (undefined = no data)
 	totalRequests: number;
@@ -38,8 +38,6 @@ export async function getProviderMetrics(): Promise<
 
 	for (const row of results) {
 		if (
-			row.routingUptime === null ||
-			row.routingUptime === undefined ||
 			row.routingTotalRequests === null ||
 			row.routingTotalRequests === undefined ||
 			row.routingTotalRequests <= 0
@@ -51,7 +49,7 @@ export async function getProviderMetrics(): Promise<
 		metricsMap.set(key, {
 			providerId: row.providerId,
 			modelId: row.modelId,
-			uptime: row.routingUptime,
+			uptime: row.routingUptime ?? undefined,
 			averageLatency: row.routingLatency ?? undefined,
 			throughput: row.routingThroughput ?? undefined,
 			totalRequests: row.routingTotalRequests,
@@ -107,8 +105,6 @@ export async function getProviderMetricsForCombinations(
 
 	for (const row of results) {
 		if (
-			row.routingUptime === null ||
-			row.routingUptime === undefined ||
 			row.routingTotalRequests === null ||
 			row.routingTotalRequests === undefined ||
 			row.routingTotalRequests <= 0
@@ -120,7 +116,7 @@ export async function getProviderMetricsForCombinations(
 		metricsMap.set(key, {
 			providerId: row.providerId,
 			modelId: row.modelId,
-			uptime: row.routingUptime,
+			uptime: row.routingUptime ?? undefined,
 			averageLatency: row.routingLatency ?? undefined,
 			throughput: row.routingThroughput ?? undefined,
 			totalRequests: row.routingTotalRequests,

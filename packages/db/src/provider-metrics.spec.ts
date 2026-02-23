@@ -221,6 +221,26 @@ describe("provider-metrics", () => {
 			expect(metric?.throughput).toBeUndefined();
 			expect(metric?.totalRequests).toBe(100);
 		});
+
+		it("should return undefined for null uptime", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: null,
+					routingLatency: 500,
+					routingThroughput: 50,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
+
+			const metrics = await getProviderMetrics();
+			const metric = metrics.get("gpt-4:openai");
+			expect(metric).toBeDefined();
+			expect(metric?.uptime).toBeUndefined();
+			expect(metric?.averageLatency).toBe(500);
+			expect(metric?.throughput).toBe(50);
+			expect(metric?.totalRequests).toBe(100);
+		});
 	});
 
 	describe("getProviderMetricsForCombinations", () => {
