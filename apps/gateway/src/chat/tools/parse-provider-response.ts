@@ -401,6 +401,8 @@ export function parseProviderResponse(
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (finishReason === "end_turn") {
 				finishReason = "stop";
+			} else if (finishReason === "abort") {
+				finishReason = "canceled";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
 			}
