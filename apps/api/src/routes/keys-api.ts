@@ -538,6 +538,14 @@ keysApi.openapi(deleteKey, async (c) => {
 		});
 	}
 
+	// Prevent deletion of the auto-generated playground key
+	if (apiKey.description === "Auto-generated playground key") {
+		throw new HTTPException(403, {
+			message:
+				"Cannot delete the playground API key. This key is required for the playground to function.",
+		});
+	}
+
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
@@ -688,6 +696,17 @@ keysApi.openapi(updateStatus, async (c) => {
 	if (!apiKey.project) {
 		throw new HTTPException(404, {
 			message: "Project not found for API key",
+		});
+	}
+
+	// Prevent deactivation of the auto-generated playground key
+	if (
+		apiKey.description === "Auto-generated playground key" &&
+		status === "inactive"
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Cannot deactivate the playground API key. This key is required for the playground to function.",
 		});
 	}
 
