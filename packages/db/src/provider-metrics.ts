@@ -96,7 +96,12 @@ export async function getProviderMetricsForCombinations(
 			routingTotalRequests: modelProviderMapping.routingTotalRequests,
 		})
 		.from(modelProviderMapping)
-		.where(sql`(${sql.join(conditions, sql` OR `)})`);
+		.where(
+			and(
+				eq(modelProviderMapping.status, "active"),
+				sql`(${sql.join(conditions, sql` OR `)})`,
+			),
+		);
 
 	const metricsMap = new Map<string, ProviderMetrics>();
 

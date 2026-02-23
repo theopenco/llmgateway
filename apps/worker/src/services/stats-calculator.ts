@@ -597,22 +597,26 @@ export async function calculateCurrentMinuteHistory() {
 }
 
 /**
- * Calculate 5-minute aggregated statistics from historical data
+ * Calculate 60-minute weighted aggregated statistics with time-tier weighting
+ * (last 1 min = 10x, last 5 min = 3x, rest of hour = 1x).
  */
 // Routing metric time-tier weights
 const ROUTING_WINDOW_MINUTES = 60;
 const TIER_1_MINUTES = 1; // "hot" tier boundary
 const TIER_2_MINUTES = 5; // "warm" tier boundary
-const TIER_1_WEIGHT = 10; // weight for 0-1 min ago
-const TIER_2_WEIGHT = 3; // weight for 1-5 min ago
+const TIER_1_WEIGHT = 10; // weight for 0-<1 min ago
+const TIER_2_WEIGHT = 3; // weight for 1-<5 min ago
 const TIER_3_WEIGHT = 1; // weight for 5-60 min ago
 
 function getTierWeight(minuteTimestamp: Date, now: Date): number {
 	const ageMinutes = (now.getTime() - minuteTimestamp.getTime()) / (60 * 1000);
-	if (ageMinutes <= TIER_1_MINUTES) {
+	if (ageMinutes < 0) {
 		return TIER_1_WEIGHT;
 	}
-	if (ageMinutes <= TIER_2_MINUTES) {
+	if (ageMinutes < TIER_1_MINUTES) {
+		return TIER_1_WEIGHT;
+	}
+	if (ageMinutes < TIER_2_MINUTES) {
 		return TIER_2_WEIGHT;
 	}
 	return TIER_3_WEIGHT;
@@ -720,8 +724,8 @@ export async function calculateAggregatedStatistics() {
 		const now = new Date();
 		const mappingRows = await database
 			.select({
-				modelId: modelProviderMappingHistory.modelId,
-				providerId: modelProviderMappingHistory.providerId,
+				modelProviderMappingId:
+					modelProviderMappingHistory.modelProviderMappingId,
 				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
 				logsCount: modelProviderMappingHistory.logsCount,
 				errorsCount: modelProviderMappingHistory.errorsCount,
@@ -739,7 +743,7 @@ export async function calculateAggregatedStatistics() {
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo));
 
-		// Aggregate per (modelId, providerId) with tier weights for routing,
+		// Aggregate per modelProviderMappingId with tier weights for routing,
 		// and plain sums for dashboard stats
 		interface MappingAgg {
 			// Unweighted sums (for dashboard/display stats)
@@ -761,11 +765,11 @@ export async function calculateAggregatedStatistics() {
 		const aggMap = new Map<string, MappingAgg>();
 
 		for (const row of mappingRows) {
-			if (!row.modelId || !row.providerId) {
+			if (!row.modelProviderMappingId) {
 				continue;
 			}
 
-			const key = `${row.modelId}:${row.providerId}`;
+			const key = row.modelProviderMappingId;
 			let agg = aggMap.get(key);
 			if (!agg) {
 				agg = {
@@ -805,26 +809,10 @@ export async function calculateAggregatedStatistics() {
 		}
 
 		let mappingUpdateCount = 0;
+		const updatedMappingIds: string[] = [];
 
-		for (const [key, agg] of aggMap) {
-			const [modelId, providerId] = key.split(":");
-			if (!modelId || !providerId) {
-				continue;
-			}
-
-			const mappings = await database
-				.select({ id: modelProviderMapping.id })
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, modelId),
-						eq(modelProviderMapping.providerId, providerId),
-					),
-				)
-				.limit(1);
-			const existingMapping = mappings[0];
-
-			if (!existingMapping) {
+		for (const [mappingId, agg] of aggMap) {
+			if (!mappingId) {
 				continue;
 			}
 
@@ -840,14 +828,15 @@ export async function calculateAggregatedStatistics() {
 
 				const effectiveTTFT =
 					agg.weightedTTFRT > 0 ? agg.weightedTTFRT : agg.weightedTTFT;
-				routingLatency = effectiveTTFT / agg.weightedLogs;
+				routingLatency =
+					effectiveTTFT > 0 ? effectiveTTFT / agg.weightedLogs : null;
 
 				routingThroughput =
 					agg.weightedDuration > 0
 						? (agg.weightedOutputTokens / agg.weightedDuration) * 1000
 						: 0;
 
-				routingTotalRequests = agg.weightedLogs;
+				routingTotalRequests = agg.totalLogs;
 			}
 
 			await database
@@ -866,9 +855,46 @@ export async function calculateAggregatedStatistics() {
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
 				})
-				.where(eq(modelProviderMapping.id, existingMapping.id));
+				.where(eq(modelProviderMapping.id, mappingId));
 
+			updatedMappingIds.push(mappingId);
 			mappingUpdateCount++;
+		}
+
+		// Clear stale routing metrics for mappings with no traffic in the last hour
+		if (updatedMappingIds.length > 0) {
+			await database
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: null,
+					routingLatency: null,
+					routingThroughput: null,
+					routingTotalRequests: null,
+					statsUpdatedAt: new Date(),
+					updatedAt: new Date(),
+				})
+				.where(
+					and(
+						eq(modelProviderMapping.status, "active"),
+						sql`${modelProviderMapping.id} NOT IN (${sql.join(
+							updatedMappingIds.map((id) => sql`${id}`),
+							sql`, `,
+						)})`,
+					),
+				);
+		} else {
+			// No traffic at all in the last hour, clear all routing metrics
+			await database
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: null,
+					routingLatency: null,
+					routingThroughput: null,
+					routingTotalRequests: null,
+					statsUpdatedAt: new Date(),
+					updatedAt: new Date(),
+				})
+				.where(eq(modelProviderMapping.status, "active"));
 		}
 
 		logger.debug(

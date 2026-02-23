@@ -810,7 +810,7 @@ export const modelProviderMapping = pgTable(
 		routingUptime: real(),
 		routingLatency: real(),
 		routingThroughput: real(),
-		routingTotalRequests: real(),
+		routingTotalRequests: integer(),
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [

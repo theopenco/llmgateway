@@ -5285,7 +5285,7 @@
       "table": "model_provider_mapping"
     },
     {
-      "type": "real",
+      "type": "integer",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
