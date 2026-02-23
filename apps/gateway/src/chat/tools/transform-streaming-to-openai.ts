@@ -14,6 +14,7 @@ export function transformStreamingToOpenai(
 	usedModel: string,
 	data: any,
 	messages: any[],
+	serverToolUseIndices?: Set<number>,
 ): any {
 	let transformedData = data;
 
@@ -61,6 +62,32 @@ export function transformStreamingToOpenai(
 				};
 			} else if (
 				data.type === "content_block_start" &&
+				data.content_block?.type === "server_tool_use"
+			) {
+				// Track server_tool_use blocks (e.g. web search) so their
+				// partial_json deltas are suppressed — these are internal to
+				// Anthropic and should not be forwarded as tool_calls.
+				if (serverToolUseIndices && data.index !== undefined) {
+					serverToolUseIndices.add(data.index);
+				}
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: data.usage ?? null,
+				};
+			} else if (
+				data.type === "content_block_start" &&
 				data.content_block?.type === "tool_use"
 			) {
 				transformedData = {
@@ -94,30 +121,54 @@ export function transformStreamingToOpenai(
 				data.type === "content_block_delta" &&
 				data.delta?.partial_json
 			) {
-				transformedData = {
-					id: data.id ?? `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								tool_calls: [
-									{
-										index: data.index ?? 0,
-										function: {
-											arguments: data.delta.partial_json,
-										},
-									},
-								],
-								role: "assistant",
+				// Skip partial_json deltas for server_tool_use blocks (e.g. web search)
+				if (
+					serverToolUseIndices &&
+					data.index !== undefined &&
+					serverToolUseIndices.has(data.index)
+				) {
+					transformedData = {
+						id: data.id ?? `chatcmpl-${Date.now()}`,
+						object: "chat.completion.chunk",
+						created: data.created ?? Math.floor(Date.now() / 1000),
+						model: data.model ?? usedModel,
+						choices: [
+							{
+								index: 0,
+								delta: {
+									role: "assistant",
+								},
+								finish_reason: null,
 							},
-							finish_reason: null,
-						},
-					],
-					usage: data.usage ?? null,
-				};
+						],
+						usage: data.usage ?? null,
+					};
+				} else {
+					transformedData = {
+						id: data.id ?? `chatcmpl-${Date.now()}`,
+						object: "chat.completion.chunk",
+						created: data.created ?? Math.floor(Date.now() / 1000),
+						model: data.model ?? usedModel,
+						choices: [
+							{
+								index: 0,
+								delta: {
+									tool_calls: [
+										{
+											index: data.index ?? 0,
+											function: {
+												arguments: data.delta.partial_json,
+											},
+										},
+									],
+									role: "assistant",
+								},
+								finish_reason: null,
+							},
+						],
+						usage: data.usage ?? null,
+					};
+				}
 			} else if (
 				data.type === "content_block_start" &&
 				data.content_block?.type === "web_search_tool_result"

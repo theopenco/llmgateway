@@ -135,7 +135,7 @@ describe("Models API", () => {
 	});
 
 	test("GET /v1/models should include proper output modalities for gemini-2.5-flash-image-preview", async () => {
-		const res = await app.request("/v1/models");
+		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
 		const json = await res.json();

@@ -52,6 +52,8 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deprecatedAt: new Date("2026-01-30"),
+				deactivatedAt: new Date("2026-02-28"),
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],

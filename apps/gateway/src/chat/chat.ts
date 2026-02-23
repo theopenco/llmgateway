@@ -849,10 +849,8 @@ chat.openapi(completions, async (c) => {
 				modelId: selectedModel.id,
 				providerId: p.providerId,
 			}));
-			const metricsMap = await getProviderMetricsForCombinations(
-				metricsCombinations,
-				5,
-			);
+			const metricsMap =
+				await getProviderMetricsForCombinations(metricsCombinations);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
 				selectedProviders,
@@ -915,15 +913,15 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations(
-			[{ modelId: baseModelId, providerId: usedProvider }],
-			5,
-		);
+		const metricsMap = await getProviderMetricsForCombinations([
+			{ modelId: baseModelId, providerId: usedProvider },
+		]);
 
 		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime < 90) {
+		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
 				.filter((p) => p.providerId !== usedProvider) // Exclude the low-uptime provider
@@ -1004,10 +1002,8 @@ chat.openapi(completions, async (c) => {
 							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 						}));
-						const allMetricsMap = await getProviderMetricsForCombinations(
-							metricsCombinations,
-							5,
-						);
+						const allMetricsMap =
+							await getProviderMetricsForCombinations(metricsCombinations);
 
 						// Filter to only providers with better uptime than the original
 						// to avoid falling back to worse providers
@@ -1019,7 +1015,8 @@ chat.openapi(completions, async (c) => {
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
 								return (
-									!providerMetrics || providerMetrics.uptime > metrics.uptime
+									!providerMetrics ||
+									(providerMetrics.uptime ?? 100) > currentUptime
 								);
 							},
 						);
@@ -1047,7 +1044,7 @@ chat.openapi(completions, async (c) => {
 								providerId: requestedProvider,
 								score: -1, // Negative score indicates this provider was skipped due to low uptime
 								price: originalProviderPrice,
-								uptime: metrics.uptime,
+								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
 							};
@@ -1059,7 +1056,7 @@ chat.openapi(completions, async (c) => {
 									...cheapestResult.metadata,
 									selectionReason: "low-uptime-fallback",
 									originalProvider: requestedProvider,
-									originalProviderUptime: metrics.uptime,
+									originalProviderUptime: currentUptime,
 									// Add the original provider's score to the scores array
 									providerScores: [
 										originalProviderScore,
@@ -1157,10 +1154,8 @@ chat.openapi(completions, async (c) => {
 					modelId: modelWithPricing.id,
 					providerId: p.providerId,
 				}));
-				const metricsMap = await getProviderMetricsForCombinations(
-					metricsCombinations,
-					5,
-				);
+				const metricsMap =
+					await getProviderMetricsForCombinations(metricsCombinations);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
 					availableModelProviders,
@@ -1209,7 +1204,7 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		let metricsMap: Map<
 			string,
-			{ uptime: number; averageLatency: number; throughput: number }
+			{ uptime?: number; averageLatency?: number; throughput?: number }
 		> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
@@ -1217,10 +1212,7 @@ chat.openapi(completions, async (c) => {
 				modelId: baseModelId,
 				providerId: p.providerId,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(
-				metricsCombinations,
-				5,
-			);
+			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
 
 		// Build provider scores for all providers (including deactivated) with default values for missing metrics
@@ -2788,6 +2780,9 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								organizationId: project.organizationId,
+								projectId: apiKey.projectId,
+								apiKeyId: apiKey.id,
 							});
 						}
 
@@ -3120,6 +3115,7 @@ chat.openapi(completions, async (c) => {
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				let webSearchCount = 0; // Track web search calls for cost calculation
+				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let doneSent = false; // Track if [DONE] has been sent
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -3624,6 +3620,7 @@ chat.openapi(completions, async (c) => {
 									usedModel,
 									data,
 									messages,
+									serverToolUseIndices,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -5383,6 +5380,9 @@ chat.openapi(completions, async (c) => {
 					requestedProvider,
 					usedModel,
 					initialRequestedModel,
+					organizationId: project.organizationId,
+					projectId: apiKey.projectId,
+					apiKeyId: apiKey.id,
 				});
 			}
 

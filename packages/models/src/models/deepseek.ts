@@ -167,8 +167,6 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				modelName: "deepseek/deepseek-chat-v3.2",
-				deactivatedAt: new Date("2026-02-10"),
-				stability: "unstable",
 				inputPrice: 0.28 / 1e6,
 				outputPrice: 0.42 / 1e6,
 				discount: 0.3,

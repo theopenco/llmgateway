@@ -1014,6 +1014,8 @@ export async function prepareRequestBody(
 					type: "enabled",
 					budget_tokens: thinkingBudget,
 				};
+				// Anthropic requires temperature to be exactly 1 when thinking is enabled
+				temperature = 1;
 			}
 
 			// Add optional parameters if they are provided
@@ -1290,6 +1292,8 @@ export async function prepareRequestBody(
 					type: "enabled",
 					budget_tokens: thinkingBudget,
 				};
+				// Anthropic requires temperature to be exactly 1 when thinking is enabled
+				inferenceConfig.temperature = 1;
 				// Ensure max_tokens is sufficient for thinking + response
 				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 				if (

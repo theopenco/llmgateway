@@ -1,24 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import { describe, it, expect, beforeEach } from "vitest";
 
 import { db } from "./db.js";
 import {
 	getProviderMetrics,
 	getProviderMetricsForCombinations,
 } from "./provider-metrics.js";
-import {
-	modelProviderMappingHistory,
-	provider,
-	model,
-	modelProviderMapping,
-} from "./schema.js";
-
-const mockDate = new Date("2024-01-01T12:30:00.000Z");
+import { provider, model, modelProviderMapping } from "./schema.js";
 
 describe("provider-metrics", () => {
 	beforeEach(async () => {
-		vi.setSystemTime(mockDate);
-
-		await db.delete(modelProviderMappingHistory);
 		await db.delete(modelProviderMapping);
 		await db.delete(model);
 		await db.delete(provider);
@@ -79,30 +70,22 @@ describe("provider-metrics", () => {
 		]);
 	});
 
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
 	describe("getProviderMetrics", () => {
-		it("should return empty map when no history data exists", async () => {
+		it("should return empty map when no routing metrics are set", async () => {
 			const metrics = await getProviderMetrics();
 			expect(metrics.size).toBe(0);
 		});
 
-		it("should calculate uptime and latency correctly for single provider-model", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 10,
-				upstreamErrorsCount: 10,
-				totalDuration: 50000,
-				totalTimeToFirstToken: 50000, // 500ms average latency
-			});
+		it("should return pre-computed routing metrics for a single provider-model", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 90,
+					routingLatency: 500,
+					routingThroughput: 50,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
 
@@ -111,68 +94,32 @@ describe("provider-metrics", () => {
 			expect(metric).toBeDefined();
 			expect(metric?.modelId).toBe("gpt-4");
 			expect(metric?.providerId).toBe("openai");
+			expect(metric?.uptime).toBe(90);
+			expect(metric?.averageLatency).toBe(500);
+			expect(metric?.throughput).toBe(50);
 			expect(metric?.totalRequests).toBe(100);
-			expect(metric?.uptime).toBe(90);
-			expect(metric?.averageLatency).toBe(500);
-		});
-
-		it("should aggregate metrics from multiple time periods", async () => {
-			const timestamps = [
-				new Date("2024-01-01T12:26:00.000Z"),
-				new Date("2024-01-01T12:27:00.000Z"),
-				new Date("2024-01-01T12:28:00.000Z"),
-			];
-
-			await db.insert(modelProviderMappingHistory).values(
-				timestamps.map((ts) => ({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: ts,
-					logsCount: 50,
-					errorsCount: 5,
-					upstreamErrorsCount: 5,
-					totalDuration: 25000,
-					totalTimeToFirstToken: 25000, // 500ms average latency (75000 / 150)
-				})),
-			);
-
-			const metrics = await getProviderMetrics();
-
-			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
-			expect(metric?.totalRequests).toBe(150);
-			expect(metric?.uptime).toBe(90);
-			expect(metric?.averageLatency).toBe(500);
 		});
 
 		it("should handle multiple model-provider combinations", async () => {
-			const threeMinutesAgo = new Date("2024-01-01T12:27:00.000Z");
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 80,
+					routingLatency: 1000,
+					routingThroughput: 30,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: threeMinutesAgo,
-					logsCount: 100,
-					errorsCount: 20,
-					upstreamErrorsCount: 20,
-					totalDuration: 100000,
-					totalTimeToFirstToken: 100000, // 1000ms average latency
-				},
-				{
-					modelId: "claude-3-5-sonnet",
-					providerId: "anthropic",
-					modelProviderMappingId: "mapping-2",
-					minuteTimestamp: threeMinutesAgo,
-					logsCount: 200,
-					errorsCount: 10,
-					upstreamErrorsCount: 10,
-					totalDuration: 400000,
-					totalTimeToFirstToken: 400000, // 2000ms average latency
-				},
-			]);
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 95,
+					routingLatency: 2000,
+					routingThroughput: 60,
+					routingTotalRequests: 200,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-2"));
 
 			const metrics = await getProviderMetrics();
 
@@ -189,139 +136,110 @@ describe("provider-metrics", () => {
 			expect(claudeMetric?.totalRequests).toBe(200);
 		});
 
-		it("should only include data from the last N minutes", async () => {
-			const twoMinutesAgo = new Date("2024-01-01T12:28:00.000Z");
-			const tenMinutesAgo = new Date("2024-01-01T12:20:00.000Z");
+		it("should skip mappings with null routing metrics", async () => {
+			// mapping-1 has no routing metrics set (null)
+			// mapping-2 has routing metrics
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 99,
+					routingLatency: 300,
+					routingThroughput: 80,
+					routingTotalRequests: 500,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-2"));
 
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: twoMinutesAgo,
-					logsCount: 100,
-					errorsCount: 10,
-					upstreamErrorsCount: 10,
-					totalDuration: 50000,
-				},
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: tenMinutesAgo,
-					logsCount: 1000,
-					errorsCount: 100,
-					upstreamErrorsCount: 100,
-					totalDuration: 500000,
-				},
-			]);
-
-			const metrics = await getProviderMetrics(5);
-
+			const metrics = await getProviderMetrics();
 			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
-			expect(metric?.totalRequests).toBe(100);
+			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(true);
+			expect(metrics.has("gpt-4:openai")).toBe(false);
 		});
 
-		it("should handle custom time windows", async () => {
-			const timestamps = [
-				new Date("2024-01-01T12:25:00.000Z"),
-				new Date("2024-01-01T12:20:00.000Z"),
-			];
-
-			await db.insert(modelProviderMappingHistory).values(
-				timestamps.map((ts) => ({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: ts,
-					logsCount: 50,
-					errorsCount: 5,
-					upstreamErrorsCount: 5,
-					totalDuration: 25000,
-				})),
-			);
-
-			const metricsDefault = await getProviderMetrics(5);
-			expect(metricsDefault.get("gpt-4:openai")?.totalRequests).toBe(50);
-
-			const metricsLargeWindow = await getProviderMetrics(15);
-			expect(metricsLargeWindow.get("gpt-4:openai")?.totalRequests).toBe(100);
-		});
-
-		it("should skip entries with zero logs", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 0,
-				errorsCount: 0,
-				upstreamErrorsCount: 0,
-				totalDuration: 0,
-			});
+		it("should skip mappings with zero total requests", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 100,
+					routingLatency: 0,
+					routingThroughput: 0,
+					routingTotalRequests: 0,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
 			expect(metrics.size).toBe(0);
 		});
 
-		it("should calculate 100% uptime when no errors", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 0,
-				upstreamErrorsCount: 0,
-				totalDuration: 50000,
-			});
+		it("should return 100% uptime when set", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 100,
+					routingLatency: 200,
+					routingThroughput: 40,
+					routingTotalRequests: 50,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
 			const metric = metrics.get("gpt-4:openai");
 			expect(metric?.uptime).toBe(100);
 		});
 
-		it("should calculate 0% uptime when all requests fail", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 100,
-				upstreamErrorsCount: 100,
-				totalDuration: 50000,
-			});
+		it("should return 0% uptime when set", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 0,
+					routingLatency: 0,
+					routingThroughput: 0,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
 			const metric = metrics.get("gpt-4:openai");
 			expect(metric?.uptime).toBe(0);
 		});
 
-		it("should handle null or zero totalDuration gracefully", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 10,
-				upstreamErrorsCount: 10,
-				totalDuration: 0,
-			});
+		it("should return undefined for null latency and throughput", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 95,
+					routingLatency: null,
+					routingThroughput: null,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
 			const metric = metrics.get("gpt-4:openai");
-			expect(metric?.averageLatency).toBe(0);
+			expect(metric).toBeDefined();
+			expect(metric?.uptime).toBe(95);
+			expect(metric?.averageLatency).toBeUndefined();
+			expect(metric?.throughput).toBeUndefined();
+			expect(metric?.totalRequests).toBe(100);
+		});
+
+		it("should return undefined for null uptime", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: null,
+					routingLatency: 500,
+					routingThroughput: 50,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
+
+			const metrics = await getProviderMetrics();
+			const metric = metrics.get("gpt-4:openai");
+			expect(metric).toBeDefined();
+			expect(metric?.uptime).toBeUndefined();
+			expect(metric?.averageLatency).toBe(500);
+			expect(metric?.throughput).toBe(50);
+			expect(metric?.totalRequests).toBe(100);
 		});
 	});
 
@@ -332,30 +250,25 @@ describe("provider-metrics", () => {
 		});
 
 		it("should return metrics for specific combinations only", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 90,
+					routingLatency: 500,
+					routingThroughput: 50,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: fourMinutesAgo,
-					logsCount: 100,
-					errorsCount: 10,
-					upstreamErrorsCount: 10,
-					totalDuration: 50000,
-				},
-				{
-					modelId: "claude-3-5-sonnet",
-					providerId: "anthropic",
-					modelProviderMappingId: "mapping-2",
-					minuteTimestamp: fourMinutesAgo,
-					logsCount: 200,
-					errorsCount: 20,
-					upstreamErrorsCount: 20,
-					totalDuration: 100000,
-				},
-			]);
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 95,
+					routingLatency: 800,
+					routingThroughput: 60,
+					routingTotalRequests: 200,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-2"));
 
 			const metrics = await getProviderMetricsForCombinations([
 				{ modelId: "gpt-4", providerId: "openai" },
@@ -367,30 +280,25 @@ describe("provider-metrics", () => {
 		});
 
 		it("should return metrics for multiple combinations", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 90,
+					routingLatency: 500,
+					routingThroughput: 50,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: fourMinutesAgo,
-					logsCount: 100,
-					errorsCount: 10,
-					upstreamErrorsCount: 10,
-					totalDuration: 50000,
-				},
-				{
-					modelId: "claude-3-5-sonnet",
-					providerId: "anthropic",
-					modelProviderMappingId: "mapping-2",
-					minuteTimestamp: fourMinutesAgo,
-					logsCount: 200,
-					errorsCount: 20,
-					upstreamErrorsCount: 20,
-					totalDuration: 100000,
-				},
-			]);
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 95,
+					routingLatency: 800,
+					routingThroughput: 60,
+					routingTotalRequests: 200,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-2"));
 
 			const metrics = await getProviderMetricsForCombinations([
 				{ modelId: "gpt-4", providerId: "openai" },
@@ -404,83 +312,17 @@ describe("provider-metrics", () => {
 			);
 		});
 
-		it("should aggregate metrics from multiple time periods for combinations", async () => {
-			const timestamps = [
-				new Date("2024-01-01T12:26:00.000Z"),
-				new Date("2024-01-01T12:27:00.000Z"),
-				new Date("2024-01-01T12:28:00.000Z"),
-			];
-
-			await db.insert(modelProviderMappingHistory).values(
-				timestamps.map((ts) => ({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: ts,
-					logsCount: 50,
-					errorsCount: 5,
-					upstreamErrorsCount: 5,
-					totalDuration: 25000,
-					totalTimeToFirstToken: 25000, // 500ms average latency
-				})),
-			);
-
-			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
-			]);
-
-			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
-			expect(metric?.totalRequests).toBe(150);
-			expect(metric?.uptime).toBe(90);
-			expect(metric?.averageLatency).toBe(500);
-		});
-
-		it("should respect custom time windows", async () => {
-			const timestamps = [
-				new Date("2024-01-01T12:25:00.000Z"),
-				new Date("2024-01-01T12:20:00.000Z"),
-			];
-
-			await db.insert(modelProviderMappingHistory).values(
-				timestamps.map((ts) => ({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: ts,
-					logsCount: 50,
-					errorsCount: 5,
-					upstreamErrorsCount: 5,
-					totalDuration: 25000,
-				})),
-			);
-
-			const metricsDefault = await getProviderMetricsForCombinations(
-				[{ modelId: "gpt-4", providerId: "openai" }],
-				5,
-			);
-			expect(metricsDefault.get("gpt-4:openai")?.totalRequests).toBe(50);
-
-			const metricsLargeWindow = await getProviderMetricsForCombinations(
-				[{ modelId: "gpt-4", providerId: "openai" }],
-				15,
-			);
-			expect(metricsLargeWindow.get("gpt-4:openai")?.totalRequests).toBe(100);
-		});
-
-		it("should only return combinations that have data", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 10,
-				upstreamErrorsCount: 10,
-				totalDuration: 50000,
-			});
+		it("should only return combinations that have routing data", async () => {
+			// Only set routing metrics on mapping-1
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 90,
+					routingLatency: 500,
+					routingThroughput: 50,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetricsForCombinations([
 				{ modelId: "gpt-4", providerId: "openai" },
@@ -492,19 +334,16 @@ describe("provider-metrics", () => {
 			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(false);
 		});
 
-		it("should skip combinations with zero logs", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 0,
-				errorsCount: 0,
-				upstreamErrorsCount: 0,
-				totalDuration: 0,
-			});
+		it("should skip combinations with zero total requests", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 100,
+					routingLatency: 0,
+					routingThroughput: 0,
+					routingTotalRequests: 0,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetricsForCombinations([
 				{ modelId: "gpt-4", providerId: "openai" },
@@ -513,44 +352,16 @@ describe("provider-metrics", () => {
 			expect(metrics.size).toBe(0);
 		});
 
-		it("should calculate correct metrics for partial failures", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 25,
-				upstreamErrorsCount: 25,
-				totalDuration: 150000,
-				totalTimeToFirstToken: 150000, // 1500ms average latency
-			});
-
-			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
-			]);
-
-			const metric = metrics.get("gpt-4:openai");
-			expect(metric?.uptime).toBe(75);
-			expect(metric?.averageLatency).toBe(1500);
-			expect(metric?.totalRequests).toBe(100);
-		});
-
-		it("should handle single combination efficiently", async () => {
-			const fourMinutesAgo = new Date("2024-01-01T12:26:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values({
-				modelId: "gpt-4",
-				providerId: "openai",
-				modelProviderMappingId: "mapping-1",
-				minuteTimestamp: fourMinutesAgo,
-				logsCount: 100,
-				errorsCount: 10,
-				upstreamErrorsCount: 10,
-				totalDuration: 50000,
-			});
+		it("should return correct metrics for single combination", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 75,
+					routingLatency: 1500,
+					routingThroughput: 25,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetricsForCombinations([
 				{ modelId: "gpt-4", providerId: "openai" },
@@ -560,7 +371,10 @@ describe("provider-metrics", () => {
 			const metric = metrics.get("gpt-4:openai");
 			expect(metric?.modelId).toBe("gpt-4");
 			expect(metric?.providerId).toBe("openai");
-			expect(metric?.uptime).toBe(90);
+			expect(metric?.uptime).toBe(75);
+			expect(metric?.averageLatency).toBe(1500);
+			expect(metric?.throughput).toBe(25);
+			expect(metric?.totalRequests).toBe(100);
 		});
 	});
 });
