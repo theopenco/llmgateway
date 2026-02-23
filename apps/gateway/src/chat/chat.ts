@@ -1202,7 +1202,7 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		let metricsMap: Map<
 			string,
-			{ uptime: number; averageLatency: number; throughput: number }
+			{ uptime: number; averageLatency?: number; throughput?: number }
 		> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
