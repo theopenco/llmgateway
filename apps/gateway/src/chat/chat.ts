@@ -2773,7 +2773,14 @@ chat.openapi(completions, async (c) => {
 							finishReason !== "client_error" &&
 							finishReason !== "content_filter"
 						) {
-							logger.warn("Provider error", {
+							const usedMode = providerKey?.id ? "api-keys" : "credits";
+							const isUserResponsible =
+								usedMode === "api-keys" &&
+								(res.status === 401 ||
+									res.status === 403 ||
+									res.status === 429);
+							const log = isUserResponsible ? logger.info : logger.warn;
+							log.call(logger, "Provider error", {
 								status: res.status,
 								errorText: errorResponseText,
 								usedProvider,
@@ -2783,6 +2790,7 @@ chat.openapi(completions, async (c) => {
 								organizationId: project.organizationId,
 								projectId: apiKey.projectId,
 								apiKeyId: apiKey.id,
+								usedMode,
 							});
 						}
 
@@ -5373,7 +5381,12 @@ chat.openapi(completions, async (c) => {
 				finishReason !== "client_error" &&
 				finishReason !== "content_filter"
 			) {
-				logger.warn("Provider error", {
+				const usedMode = providerKey?.id ? "api-keys" : "credits";
+				const isUserResponsible =
+					usedMode === "api-keys" &&
+					(res.status === 401 || res.status === 403 || res.status === 429);
+				const log = isUserResponsible ? logger.info : logger.warn;
+				log.call(logger, "Provider error", {
 					status: res.status,
 					errorText: errorResponseText,
 					usedProvider,
@@ -5383,6 +5396,7 @@ chat.openapi(completions, async (c) => {
 					organizationId: project.organizationId,
 					projectId: apiKey.projectId,
 					apiKeyId: apiKey.id,
+					usedMode,
 				});
 			}
 
