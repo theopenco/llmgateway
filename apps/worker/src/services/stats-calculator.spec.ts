@@ -676,6 +676,18 @@ describe("stats-calculator", () => {
 	});
 
 	describe("calculateAggregatedStatistics", () => {
+		/** Helper to compute a Date N minutes before `now` without triggering no-mixed-operators. */
+		function minutesAgo(now: Date, minutes: number): Date {
+			const offsetMs = minutes * 60 * 1000;
+			return new Date(now.getTime() - offsetMs);
+		}
+
+		/** Helper to compute a Date N seconds before `now` without triggering no-mixed-operators. */
+		function secondsAgo(now: Date, seconds: number): Date {
+			const offsetMs = seconds * 1000;
+			return new Date(now.getTime() - offsetMs);
+		}
+
 		it("should calculate and update provider statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
 
@@ -684,7 +696,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 4 * 60 * 1000), // 4 minutes ago
+					minuteTimestamp: minutesAgo(now, 4), // 4 minutes ago
 					logsCount: 10,
 					errorsCount: 1,
 					cachedCount: 0,
@@ -693,7 +705,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 3 * 60 * 1000), // 3 minutes ago
+					minuteTimestamp: minutesAgo(now, 3), // 3 minutes ago
 					logsCount: 15,
 					errorsCount: 2,
 					cachedCount: 0,
@@ -727,7 +739,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 4 * 60 * 1000),
+					minuteTimestamp: minutesAgo(now, 4),
 					logsCount: 20,
 					errorsCount: 2,
 					cachedCount: 0,
@@ -758,7 +770,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 4 * 60 * 1000),
+					minuteTimestamp: minutesAgo(now, 4),
 					logsCount: 30,
 					errorsCount: 3,
 					cachedCount: 0,
@@ -807,7 +819,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 30 * 1000), // 30 sec ago (tier 1, weight 10)
+					minuteTimestamp: secondsAgo(now, 30), // 30 sec ago (tier 1, weight 10)
 					logsCount: 10,
 					errorsCount: 0,
 					cachedCount: 0,
@@ -820,7 +832,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 30 * 60 * 1000), // 30 min ago (tier 3, weight 1)
+					minuteTimestamp: minutesAgo(now, 30), // 30 min ago (tier 3, weight 1)
 					logsCount: 10,
 					errorsCount: 10,
 					cachedCount: 0,
@@ -862,7 +874,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 2 * 60 * 1000),
+					minuteTimestamp: minutesAgo(now, 2),
 					logsCount: 5,
 					errorsCount: 0,
 					cachedCount: 0,
@@ -912,7 +924,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 2 * 60 * 1000),
+					minuteTimestamp: minutesAgo(now, 2),
 					logsCount: 10,
 					errorsCount: 0,
 					cachedCount: 0,
@@ -964,7 +976,7 @@ describe("stats-calculator", () => {
 					modelId: "gpt-4",
 					providerId: "openai",
 					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: new Date(now.getTime() - 90 * 60 * 1000), // 90 min ago
+					minuteTimestamp: minutesAgo(now, 90), // 90 min ago
 					logsCount: 100,
 					errorsCount: 10,
 					cachedCount: 0,
