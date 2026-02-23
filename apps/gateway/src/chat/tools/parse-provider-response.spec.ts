@@ -99,6 +99,48 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("novita finish reason mapping", () => {
+		it("maps 'abort' finish reason to 'canceled'", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "abort",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("novita", "glm-4", json);
+
+			expect(result.finishReason).toBe("canceled");
+		});
+
+		it("maps 'end_turn' finish reason to 'stop'", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "end_turn",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("novita", "glm-4", json);
+
+			expect(result.finishReason).toBe("stop");
+		});
+	});
+
 	describe("anthropic cachedTokens", () => {
 		it("returns cachedTokens as 0 when cache_read_input_tokens is 0", () => {
 			const json = {

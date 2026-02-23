@@ -1160,6 +1160,8 @@ export function transformStreamingToOpenai(
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
 				transformedData.choices[0].finish_reason = "stop";
+			} else if (transformedData?.choices?.[0]?.finish_reason === "abort") {
+				transformedData.choices[0].finish_reason = "canceled";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";
 			}

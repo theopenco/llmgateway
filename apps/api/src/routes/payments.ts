@@ -11,12 +11,21 @@ import { calculateFees } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const stripe = new Stripe(
-	process.env.STRIPE_SECRET_KEY ?? "sk_test_123",
-	{
-		apiVersion: "2025-04-30.basil",
-	},
-);
+let _stripe: Stripe | null = null;
+
+export function getStripe(): Stripe {
+	if (!_stripe) {
+		if (!process.env.STRIPE_SECRET_KEY) {
+			throw new Error(
+				"STRIPE_SECRET_KEY environment variable is required for Stripe operations",
+			);
+		}
+		_stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+			apiVersion: "2025-04-30.basil",
+		});
+	}
+	return _stripe;
+}
 
 export const payments = new OpenAPIHono<ServerTypes>();
 
@@ -90,7 +99,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 		amount,
 	});
 
-	const paymentIntent = await stripe.paymentIntents.create({
+	const paymentIntent = await getStripe().paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
 		currency: "usd",
 		description: `Credit purchase for ${amount} USD (including fees)`,
@@ -161,7 +170,7 @@ payments.openapi(createSetupIntent, async (c) => {
 
 	const organizationId = userOrganization.organization.id;
 
-	const setupIntent = await stripe.setupIntents.create({
+	const setupIntent = await getStripe().setupIntents.create({
 		usage: "off_session",
 		metadata: {
 			organizationId,
@@ -236,7 +245,7 @@ payments.openapi(getPaymentMethods, async (c) => {
 
 	const enhancedPaymentMethods = await Promise.all(
 		paymentMethods.map(async (pm) => {
-			const stripePaymentMethod = await stripe.paymentMethods.retrieve(
+			const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
 				pm.stripePaymentMethodId,
 			);
 
@@ -424,13 +433,13 @@ payments.openapi(deletePaymentMethod, async (c) => {
 	// Get card details before deleting for audit log
 	let cardLast4: string | undefined;
 	try {
-		const stripePaymentMethod = await stripe.paymentMethods.retrieve(
+		const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
 			paymentMethod.stripePaymentMethodId,
 		);
 		cardLast4 = stripePaymentMethod.card?.last4;
 	} catch {}
 
-	await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
+	await getStripe().paymentMethods.detach(paymentMethod.stripePaymentMethodId);
 
 	await db.delete(tables.paymentMethod).where(eq(tables.paymentMethod.id, id));
 
@@ -544,7 +553,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		amount,
 	});
 
-	const paymentIntent = await stripe.paymentIntents.create({
+	const paymentIntent = await getStripe().paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
 		currency: "usd",
 		description: `Credit purchase for ${amount} USD (including fees)`,

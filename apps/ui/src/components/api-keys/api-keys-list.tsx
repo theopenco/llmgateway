@@ -618,44 +618,50 @@ export function ApiKeysList({
 													Manage IAM Rules
 												</Link>
 											</DropdownMenuItem>
-											<DropdownMenuSeparator />
-											<DropdownMenuItem
-												onClick={() => toggleStatus(key.id, key.status)}
-											>
-												{key.status === "active" ? "Deactivate" : "Activate"}{" "}
-												Key
-											</DropdownMenuItem>
-											<DropdownMenuSeparator />
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
+											{key.description !== "Auto-generated playground key" && (
+												<>
+													<DropdownMenuSeparator />
 													<DropdownMenuItem
-														onSelect={(e) => e.preventDefault()}
-														className="text-destructive focus:text-destructive"
+														onClick={() => toggleStatus(key.id, key.status)}
 													>
-														Delete
+														{key.status === "active"
+															? "Deactivate"
+															: "Activate"}{" "}
+														Key
 													</DropdownMenuItem>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>
-															Are you absolutely sure?
-														</AlertDialogTitle>
-														<AlertDialogDescription>
-															This action cannot be undone. This will
-															permanently delete the API key and it will no
-															longer be able to access your account.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<AlertDialogAction
-															onClick={() => deleteKey(key.id)}
-														>
-															Delete
-														</AlertDialogAction>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
+													<DropdownMenuSeparator />
+													<AlertDialog>
+														<AlertDialogTrigger asChild>
+															<DropdownMenuItem
+																onSelect={(e) => e.preventDefault()}
+																className="text-destructive focus:text-destructive"
+															>
+																Delete
+															</DropdownMenuItem>
+														</AlertDialogTrigger>
+														<AlertDialogContent>
+															<AlertDialogHeader>
+																<AlertDialogTitle>
+																	Are you absolutely sure?
+																</AlertDialogTitle>
+																<AlertDialogDescription>
+																	This action cannot be undone. This will
+																	permanently delete the API key and it will no
+																	longer be able to access your account.
+																</AlertDialogDescription>
+															</AlertDialogHeader>
+															<AlertDialogFooter>
+																<AlertDialogCancel>Cancel</AlertDialogCancel>
+																<AlertDialogAction
+																	onClick={() => deleteKey(key.id)}
+																>
+																	Delete
+																</AlertDialogAction>
+															</AlertDialogFooter>
+														</AlertDialogContent>
+													</AlertDialog>
+												</>
+											)}
 										</DropdownMenuContent>
 									</DropdownMenu>
 								</TableCell>
@@ -708,41 +714,48 @@ export function ApiKeysList({
 											Manage IAM Rules
 										</Link>
 									</DropdownMenuItem>
-									<DropdownMenuSeparator />
-									<DropdownMenuItem
-										onClick={() => toggleStatus(key.id, key.status)}
-									>
-										{key.status === "active" ? "Deactivate" : "Activate"} Key
-									</DropdownMenuItem>
-									<DropdownMenuSeparator />
-									<AlertDialog>
-										<AlertDialogTrigger asChild>
+									{key.description !== "Auto-generated playground key" && (
+										<>
+											<DropdownMenuSeparator />
 											<DropdownMenuItem
-												onSelect={(e) => e.preventDefault()}
-												className="text-destructive focus:text-destructive"
+												onClick={() => toggleStatus(key.id, key.status)}
 											>
-												Delete
+												{key.status === "active" ? "Deactivate" : "Activate"}{" "}
+												Key
 											</DropdownMenuItem>
-										</AlertDialogTrigger>
-										<AlertDialogContent>
-											<AlertDialogHeader>
-												<AlertDialogTitle>
-													Are you absolutely sure?
-												</AlertDialogTitle>
-												<AlertDialogDescription>
-													This action cannot be undone. This will permanently
-													delete the API key and it will no longer be able to
-													access your account.
-												</AlertDialogDescription>
-											</AlertDialogHeader>
-											<AlertDialogFooter>
-												<AlertDialogCancel>Cancel</AlertDialogCancel>
-												<AlertDialogAction onClick={() => deleteKey(key.id)}>
-													Delete
-												</AlertDialogAction>
-											</AlertDialogFooter>
-										</AlertDialogContent>
-									</AlertDialog>
+											<DropdownMenuSeparator />
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<DropdownMenuItem
+														onSelect={(e) => e.preventDefault()}
+														className="text-destructive focus:text-destructive"
+													>
+														Delete
+													</DropdownMenuItem>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>
+															Are you absolutely sure?
+														</AlertDialogTitle>
+														<AlertDialogDescription>
+															This action cannot be undone. This will
+															permanently delete the API key and it will no
+															longer be able to access your account.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<AlertDialogAction
+															onClick={() => deleteKey(key.id)}
+														>
+															Delete
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										</>
+									)}
 								</DropdownMenuContent>
 							</DropdownMenu>
 						</div>
