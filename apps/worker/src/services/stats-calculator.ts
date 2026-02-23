@@ -47,7 +47,7 @@ function getCurrentMinuteStart(): Date {
  */
 function getPreviousMinuteStart(): Date {
 	const currentMinute = getCurrentMinuteStart();
-	// eslint-disable-next-line no-mixed-operators
+
 	return new Date(currentMinute.getTime() - 60 * 1000);
 }
 
@@ -57,7 +57,7 @@ function getPreviousMinuteStart(): Date {
  */
 async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
-	// eslint-disable-next-line no-mixed-operators
+
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + 60 * 1000);
 	const database = db;
 
@@ -229,7 +229,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  */
 async function calculateHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
-	// eslint-disable-next-line no-mixed-operators
+
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + 60 * 1000);
 	const database = db;
 
@@ -445,7 +445,6 @@ export async function backfillHistoryIfNeeded() {
 		if (!lastMinute) {
 			// No history exists, start from configured backfill duration ago
 			const backfillStart = new Date(
-				// eslint-disable-next-line no-mixed-operators
 				Date.now() - BACKFILL_DURATION_SECONDS * 1000,
 			);
 			const backfillStartRounded = roundToMinuteStart(backfillStart);
@@ -470,7 +469,6 @@ export async function backfillHistoryIfNeeded() {
 				);
 
 				const nextMinute = roundToMinuteStart(
-					// eslint-disable-next-line no-mixed-operators
 					new Date(minute.getTime() + 60 * 1000),
 				);
 
@@ -504,7 +502,6 @@ export async function backfillHistoryIfNeeded() {
 				`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`,
 			);
 
-			// eslint-disable-next-line no-mixed-operators
 			let minute = new Date(lastMinute.getTime() + 60 * 1000); // Start from the minute after the last recorded
 			let iterationCount = 0;
 			const maxIterations = 1440; // Safety limit for 24 hours of backfill
@@ -517,7 +514,6 @@ export async function backfillHistoryIfNeeded() {
 				);
 
 				const nextMinute = roundToMinuteStart(
-					// eslint-disable-next-line no-mixed-operators
 					new Date(minute.getTime() + 60 * 1000),
 				);
 
@@ -627,9 +623,8 @@ export async function calculateAggregatedStatistics() {
 
 	try {
 		const database = db;
-		const oneHourAgo = new Date(
-			Date.now() - ROUTING_WINDOW_MINUTES * 60 * 1000,
-		);
+		const windowMs = ROUTING_WINDOW_MINUTES * 60 * 1000;
+		const oneHourAgo = new Date(Date.now() - windowMs);
 
 		// Update provider statistics (aggregated from model-provider mappings)
 		const providerAggregates = await database
