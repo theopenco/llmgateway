@@ -7,8 +7,8 @@ export interface ProviderMetrics {
 	providerId: string;
 	modelId: string;
 	uptime: number; // Percentage (0-100)
-	averageLatency: number; // Milliseconds
-	throughput: number; // Tokens per second (output tokens / duration * 1000)
+	averageLatency?: number; // Milliseconds (undefined = no data)
+	throughput?: number; // Tokens per second (undefined = no data)
 	totalRequests: number;
 }
 
@@ -52,8 +52,8 @@ export async function getProviderMetrics(): Promise<
 			providerId: row.providerId,
 			modelId: row.modelId,
 			uptime: row.routingUptime,
-			averageLatency: row.routingLatency ?? 0,
-			throughput: row.routingThroughput ?? 0,
+			averageLatency: row.routingLatency ?? undefined,
+			throughput: row.routingThroughput ?? undefined,
 			totalRequests: row.routingTotalRequests,
 		});
 	}
@@ -121,8 +121,8 @@ export async function getProviderMetricsForCombinations(
 			providerId: row.providerId,
 			modelId: row.modelId,
 			uptime: row.routingUptime,
-			averageLatency: row.routingLatency ?? 0,
-			throughput: row.routingThroughput ?? 0,
+			averageLatency: row.routingLatency ?? undefined,
+			throughput: row.routingThroughput ?? undefined,
 			totalRequests: row.routingTotalRequests,
 		});
 	}

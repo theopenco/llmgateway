@@ -201,6 +201,26 @@ describe("provider-metrics", () => {
 			const metric = metrics.get("gpt-4:openai");
 			expect(metric?.uptime).toBe(0);
 		});
+
+		it("should return undefined for null latency and throughput", async () => {
+			await db
+				.update(modelProviderMapping)
+				.set({
+					routingUptime: 95,
+					routingLatency: null,
+					routingThroughput: null,
+					routingTotalRequests: 100,
+				})
+				.where(eq(modelProviderMapping.id, "mapping-1"));
+
+			const metrics = await getProviderMetrics();
+			const metric = metrics.get("gpt-4:openai");
+			expect(metric).toBeDefined();
+			expect(metric?.uptime).toBe(95);
+			expect(metric?.averageLatency).toBeUndefined();
+			expect(metric?.throughput).toBeUndefined();
+			expect(metric?.totalRequests).toBe(100);
+		});
 	});
 
 	describe("getProviderMetricsForCombinations", () => {

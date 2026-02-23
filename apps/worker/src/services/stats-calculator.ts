@@ -834,7 +834,7 @@ export async function calculateAggregatedStatistics() {
 				routingThroughput =
 					agg.weightedDuration > 0
 						? (agg.weightedOutputTokens / agg.weightedDuration) * 1000
-						: 0;
+						: null;
 
 				routingTotalRequests = agg.totalLogs;
 			}
