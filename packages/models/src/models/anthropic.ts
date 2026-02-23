@@ -199,6 +199,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -246,6 +248,8 @@ export const anthropicModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -294,6 +298,8 @@ export const anthropicModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -341,6 +347,8 @@ export const anthropicModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -403,6 +411,8 @@ export const anthropicModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 		],
 	},
@@ -428,6 +438,8 @@ export const anthropicModels = [
 				vision: false,
 				tools: true,
 				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 		],
 	},
@@ -455,6 +467,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -501,6 +515,8 @@ export const anthropicModels = [
 				reasoningMaxTokens: true,
 				tools: true,
 				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -691,6 +707,8 @@ export const anthropicModels = [
 				tools: true,
 				jsonOutputSchema: true,
 				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 			{
 				test: "skip",
@@ -771,6 +789,8 @@ export const anthropicModels = [
 				tools: true,
 				jsonOutputSchema: true,
 				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
+				webSearch: true,
+				webSearchPrice: 0.01, // $10 per 1000 searches
 			},
 		],
 	},
