@@ -1,12 +1,20 @@
 import { PostHog } from "posthog-node";
 
-const posthogDisabled = !process.env.POSTHOG_KEY || !process.env.POSTHOG_HOST;
+// PostHog requires a non-empty API key even when disabled.
+// Docker Compose sets env vars to empty strings (not undefined) when unset,
+// so we normalize empty strings to undefined before using nullish coalescing.
+function nonEmpty(value: string | undefined): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+	return value;
+}
 
-// PostHog requires a non-empty API key even when disabled, so we use a placeholder
-export const posthog = new PostHog(
-	process.env.POSTHOG_KEY ?? "phc_placeholder",
-	{
-		host: process.env.POSTHOG_HOST ?? "https://localhost",
-		disabled: posthogDisabled,
-	},
-);
+const posthogKey = nonEmpty(process.env.POSTHOG_KEY);
+const posthogHost = nonEmpty(process.env.POSTHOG_HOST);
+const posthogDisabled = !posthogKey || !posthogHost;
+
+export const posthog = new PostHog(posthogKey ?? "phc_placeholder", {
+	host: posthogHost ?? "https://localhost",
+	disabled: posthogDisabled,
+});
