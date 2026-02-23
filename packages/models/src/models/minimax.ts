@@ -30,6 +30,7 @@ export const minimaxModels = [
 				modelName: "minimax/minimax-m2.5",
 				inputPrice: 0.27 / 1e6,
 				outputPrice: 1.08 / 1e6,
+				discount: 0.3,
 				requestPrice: 0,
 				contextSize: 204800,
 				maxOutput: 131100,
