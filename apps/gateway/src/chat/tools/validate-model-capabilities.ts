@@ -103,7 +103,7 @@ export function validateModelCapabilities(
 		);
 
 		if (!supportsReasoning) {
-			logger.error(
+			logger.warn(
 				`Reasoning effort specified for non-reasoning model: ${requestedModel}`,
 				{
 					requestedModel,
