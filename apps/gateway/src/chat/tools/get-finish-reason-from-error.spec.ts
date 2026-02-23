@@ -64,15 +64,32 @@ describe("getFinishReasonFromError", () => {
 		).toBe("client_error");
 	});
 
+	it("returns upstream_error for 401/403 auth errors", () => {
+		expect(getFinishReasonFromError(401)).toBe("upstream_error");
+		expect(getFinishReasonFromError(403)).toBe("upstream_error");
+	});
+
+	it("returns upstream_error for provider billing errors at 400", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}',
+			),
+		).toBe("upstream_error");
+
+		expect(getFinishReasonFromError(400, "insufficient_quota")).toBe(
+			"upstream_error",
+		);
+
+		expect(
+			getFinishReasonFromError(400, "Please check your billing settings"),
+		).toBe("upstream_error");
+	});
+
 	it("returns gateway_error for other 400 errors", () => {
 		expect(getFinishReasonFromError(400, "some other error")).toBe(
 			"gateway_error",
 		);
-	});
-
-	it("returns gateway_error for 401/403 auth errors", () => {
-		expect(getFinishReasonFromError(401)).toBe("gateway_error");
-		expect(getFinishReasonFromError(403)).toBe("gateway_error");
 	});
 
 	it("returns gateway_error when no error text provided", () => {

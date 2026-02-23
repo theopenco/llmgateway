@@ -24,10 +24,13 @@ describe("isRetryableError", () => {
 		expect(isRetryableError(0)).toBe(true);
 	});
 
+	it("retries on 401/403 auth errors", () => {
+		expect(isRetryableError(401)).toBe(true);
+		expect(isRetryableError(403)).toBe(true);
+	});
+
 	it("does not retry on client errors", () => {
 		expect(isRetryableError(400)).toBe(false);
-		expect(isRetryableError(401)).toBe(false);
-		expect(isRetryableError(403)).toBe(false);
 		expect(isRetryableError(404)).toBe(false);
 		expect(isRetryableError(422)).toBe(false);
 	});
@@ -62,6 +65,11 @@ describe("shouldRetryRequest", () => {
 		expect(shouldRetryRequest({ ...defaultOpts, noFallback: true })).toBe(
 			false,
 		);
+	});
+
+	it("retries on auth error status codes", () => {
+		expect(shouldRetryRequest({ ...defaultOpts, statusCode: 401 })).toBe(true);
+		expect(shouldRetryRequest({ ...defaultOpts, statusCode: 403 })).toBe(true);
 	});
 
 	it("does not retry on non-retryable status codes", () => {

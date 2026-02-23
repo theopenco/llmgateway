@@ -3,7 +3,9 @@
  * 5xx status codes indicate upstream provider errors
  * 429 status codes indicate upstream rate limiting (treated as upstream error)
  * 404 status codes indicate model/endpoint not found at provider (treated as upstream error)
- * 401/403 status codes indicate authentication/authorization issues (gateway configuration errors)
+ * 401/403 status codes indicate authentication/authorization issues at the provider
+ *   (e.g. expired key, insufficient credits) — treated as upstream errors so requests
+ *   can be retried on other providers
  * Other 4xx status codes indicate client/gateway errors
  * Special client errors (like JSON format validation) are classified as client_error
  *
@@ -29,6 +31,13 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// 401/403 from upstream provider indicates auth/billing issues with the provider key
+	// (e.g. expired key, insufficient credits, revoked access)
+	// These are provider-specific and should be retried on other providers
+	if (statusCode === 401 || statusCode === 403) {
+		return "upstream_error";
+	}
+
 	// Azure OpenAI content filter (ResponsibleAIPolicyViolation)
 	if (errorText?.includes("ResponsibleAIPolicyViolation")) {
 		return "content_filter";
@@ -51,6 +60,16 @@ export function getFinishReasonFromError(
 			errorText.includes("the word 'json'")
 		) {
 			return "client_error";
+		}
+
+		// Provider billing/credit errors returned as 400 (e.g. Anthropic "credit balance is too low")
+		// These are provider-specific issues, not client errors
+		if (
+			errorText.includes("credit balance") ||
+			errorText.includes("insufficient_quota") ||
+			errorText.includes("billing")
+		) {
+			return "upstream_error";
 		}
 	}
 
