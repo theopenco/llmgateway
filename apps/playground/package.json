@@ -85,7 +85,7 @@
 		"@tailwindcss/postcss": "^4.1.16",
 		"@tanstack/react-query-devtools": "5.90.2",
 		"@types/node": "^24.9.1",
-		"@types/react": "^19.2.10",
+		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"@types/react-syntax-highlighter": "15.5.13",
 		"eslint": "^9.38.0",
