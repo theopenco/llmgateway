@@ -26,6 +26,7 @@ import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { BYOK_FEE_PERCENTAGE, calculateFees } from "@llmgateway/shared";
 
+import { processFollowUpEmails } from "./services/follow-up-emails.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
@@ -61,6 +62,7 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
+const FOLLOW_UP_EMAILS_LOCK_KEY = "follow_up_emails";
 const LOCK_DURATION_MINUTES = 5;
 
 // Configuration for batch processing
@@ -1212,6 +1214,44 @@ async function runDataRetentionLoop() {
 	}
 }
 
+async function runFollowUpEmailsLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 60) * 1000; // 1 hour in prod, 60 seconds in dev
+	logger.info(
+		`Starting follow-up emails loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!shouldStop) {
+			try {
+				const lockAcquired = await acquireLock(FOLLOW_UP_EMAILS_LOCK_KEY);
+				if (lockAcquired) {
+					try {
+						await processFollowUpEmails();
+					} finally {
+						await releaseLock(FOLLOW_UP_EMAILS_LOCK_KEY);
+					}
+				}
+
+				if (!shouldStop) {
+					await interruptibleSleep(interval);
+				}
+			} catch (error) {
+				logger.error(
+					"Error in follow-up emails loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await interruptibleSleep(30000);
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Follow-up emails loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -1270,6 +1310,9 @@ export async function startWorker() {
 	logger.info(
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
 	);
+	logger.info(
+		"- Follow-up emails: runs every hour to check for lifecycle emails",
+	);
 
 	void runMinutelyHistoryLoop();
 	void runCurrentMinuteHistoryLoop();
@@ -1279,6 +1322,7 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
+	void runFollowUpEmailsLoop();
 }
 
 export async function stopWorker(): Promise<boolean> {

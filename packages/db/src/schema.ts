@@ -235,6 +235,25 @@ export const transaction = pgTable(
 	],
 );
 
+export const followUpEmail = pgTable(
+	"follow_up_email",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		emailType: text({
+			enum: ["no_purchase", "low_usage", "no_repurchase"],
+		}).notNull(),
+		sentTo: text().notNull(),
+	},
+	(table) => [
+		unique().on(table.organizationId, table.emailType),
+		index("follow_up_email_organization_id_idx").on(table.organizationId),
+	],
+);
+
 export const userOrganization = pgTable(
 	"user_organization",
 	{
