@@ -274,7 +274,7 @@ export const zaiModels = [
 				modelName: "zai/glm-4.7",
 				inputPrice: 0.43 / 1e6,
 				outputPrice: 1.75 / 1e6,
-				discount: 0.25,
+				discount: 0.3,
 				requestPrice: 0,
 				contextSize: 200000,
 				maxOutput: 128000,

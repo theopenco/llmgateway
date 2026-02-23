@@ -149,7 +149,7 @@ export const minimaxModels = [
 				inputPrice: 0.27 / 1e6,
 				cachedInputPrice: 0.07 / 1e6,
 				outputPrice: 1.08 / 1e6,
-				discount: 0.25,
+				discount: 0.3,
 				requestPrice: 0,
 				contextSize: 204800,
 				maxOutput: 131072,
