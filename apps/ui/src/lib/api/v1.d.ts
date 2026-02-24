@@ -692,6 +692,7 @@ export interface paths {
                                     statusCode: number;
                                     statusText: string;
                                     responseText: string;
+                                    cause?: string;
                                 } | null;
                                 cost: number | null;
                                 inputCost: number | null;
@@ -871,6 +872,7 @@ export interface paths {
                                     statusCode: number;
                                     statusText: string;
                                     responseText: string;
+                                    cause?: string;
                                 } | null;
                                 cost: number | null;
                                 inputCost: number | null;
