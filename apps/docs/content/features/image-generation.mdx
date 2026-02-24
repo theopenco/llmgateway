@@ -73,20 +73,19 @@ for (const image of response.data) {
 
 ### Vercel AI SDK
 
-Use the `@ai-sdk/openai` provider with `experimental_generateImage`.
+Use the `@llmgateway/ai-sdk-provider` with `experimental_generateImage`.
 
 ```ts
-import { createOpenAI } from "@ai-sdk/openai";
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { experimental_generateImage as generateImage } from "ai";
 import { writeFileSync } from "fs";
 
-const openai = createOpenAI({
-	baseURL: "https://api.llmgateway.io/v1",
+const llmgateway = createLLMGateway({
 	apiKey: process.env.LLM_GATEWAY_API_KEY,
 });
 
 const result = await generateImage({
-	model: openai.image("gemini-2.5-flash-image"),
+	model: llmgateway.image("gemini-2.5-flash-image"),
 	prompt:
 		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
 	size: "1024x1024",
