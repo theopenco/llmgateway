@@ -288,23 +288,46 @@ images.openapi(generations, async (c) => {
 		}
 	}
 
-	// If no images were extracted from the images field, check if content has a data URL
+	// If no images were extracted from the images field, check if content has data URLs
 	if (imageObjects.length === 0) {
 		const content = chatResponse.choices?.[0]?.message?.content;
 		if (content && typeof content === "string") {
-			// Check if the content itself contains data URLs
-			const dataUrlMatch = content.match(
-				/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g,
-			);
-			if (dataUrlMatch) {
-				for (const dataUrl of dataUrlMatch) {
-					const base64Match = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
-					if (base64Match && base64Match[1]) {
-						imageObjects.push({
-							b64_json: base64Match[1],
-							revised_prompt: request.prompt,
-						});
+			// Split on the data URL prefix and extract base64 data without regex on large strings
+			const parts = content.split("data:image/");
+			for (let i = 1; i < parts.length; i++) {
+				const part = parts[i];
+				const base64Marker = ";base64,";
+				const markerIndex = part.indexOf(base64Marker);
+				if (markerIndex === -1) {
+					continue;
+				}
+
+				const base64Start = markerIndex + base64Marker.length;
+				// Find the end of base64 data: first character not in the base64 alphabet
+				let end = base64Start;
+				while (end < part.length) {
+					const ch = part.charCodeAt(end);
+					// A-Z, a-z, 0-9, +, /, =
+					if (
+						(ch >= 65 && ch <= 90) ||
+						(ch >= 97 && ch <= 122) ||
+						(ch >= 48 && ch <= 57) ||
+						ch === 43 ||
+						ch === 47 ||
+						ch === 61
+					) {
+						end++;
+					} else {
+						break;
 					}
+				}
+
+				const b64 = part.slice(base64Start, end);
+				if (b64.length > 0) {
+					imageObjects.push({
+						b64_json: b64,
+						revised_prompt: request.prompt,
+					});
 				}
 			}
 		}
