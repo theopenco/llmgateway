@@ -1,6 +1,6 @@
 ---
 title: Image Generation
-description: Generate images using AI models through the chat completions API
+description: Generate images using AI models through the OpenAI-compatible images API or chat completions API
 icon: Image
 ---
 
@@ -8,15 +8,108 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Image Generation
 
-LLMGateway supports image generation models through the standard chat completions API. These models can create images based on text prompts and return them as base64-encoded data URLs.
+LLMGateway supports image generation through two APIs:
 
-## Available Models
+1. **`/v1/images/generations`** — OpenAI-compatible images endpoint (recommended for simple image generation)
+2. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
+
+## OpenAI Images API
+
+The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI's image generation API. It works with any OpenAI-compatible client library.
+
+### Parameters
+
+| Parameter         | Type    | Default       | Description                                                                     |
+| ----------------- | ------- | ------------- | ------------------------------------------------------------------------------- |
+| `prompt`          | string  | required      | A text description of the desired image(s)                                      |
+| `model`           | string  | `"auto"`      | The model to use (e.g., `gemini-2.5-flash-image`, `gemini-3-pro-image-preview`) |
+| `n`               | integer | `1`           | Number of images to generate (1-10)                                             |
+| `size`            | string  | `"1024x1024"` | Image dimensions (e.g., `1024x1024`, `1792x1024`, `1024x1792`)                  |
+| `quality`         | string  | `"standard"`  | Image quality: `standard`, `hd`, `low`, `medium`, `high`                        |
+| `response_format` | string  | `"b64_json"`  | Response format: `b64_json` or `url`                                            |
+| `style`           | string  | —             | Image style: `vivid` or `natural`                                               |
+
+### curl
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/generations" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash-image",
+    "prompt": "A cute cat wearing a tiny top hat",
+    "n": 1,
+    "size": "1024x1024"
+  }'
+```
+
+### OpenAI SDK
+
+Works with the standard OpenAI client library — just point the base URL to LLMGateway.
+
+```ts
+import OpenAI from "openai";
+import { writeFileSync } from "fs";
+
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const response = await client.images.generate({
+	model: "gemini-2.5-flash-image",
+	prompt: "A futuristic city skyline at sunset with flying cars",
+	n: 1,
+	size: "1024x1024",
+});
+
+for (const image of response.data) {
+	if (image.b64_json) {
+		const buf = Buffer.from(image.b64_json, "base64");
+		writeFileSync("generated-image.png", buf);
+	}
+}
+```
+
+### Vercel AI SDK
+
+Use the `@ai-sdk/openai` provider with `experimental_generateImage`.
+
+```ts
+import { createOpenAI } from "@ai-sdk/openai";
+import { experimental_generateImage as generateImage } from "ai";
+import { writeFileSync } from "fs";
+
+const openai = createOpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const result = await generateImage({
+	model: openai.image("gemini-2.5-flash-image"),
+	prompt:
+		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
+	size: "1024x1024",
+	n: 1,
+});
+
+for (const image of result.images) {
+	const buf = Buffer.from(image.base64, "base64");
+	writeFileSync("generated-image.png", buf);
+}
+```
+
+## Chat Completions API
+
+Image generation also works through the `/v1/chat/completions` endpoint, which is useful for conversational image generation, image editing with vision, and multi-turn interactions.
+
+### Available Models
 
 You can find all available image generation models on our [models page](https://llmgateway.io/models?filters=1&imageGeneration=true).
 
-## Making Requests
+### Making Requests
 
-Image generation works through the same `/v1/chat/completions` endpoint as text models. Simply use an image generation model and provide a text prompt describing the image you want to create.
+Simply use an image generation model and provide a text prompt describing the image you want to create.
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -33,11 +126,11 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-## Image Configuration
+### Image Configuration
 
 You can customize the generated image using the optional `image_config` parameter. The supported parameters vary by provider.
 
-### Google Models
+#### Google Models
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -63,7 +156,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 | `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                     |
 | `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096) |
 
-### Alibaba Models
+#### Alibaba Models
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -105,7 +198,7 @@ Available Alibaba models:
 	`"1536x1024"`.
 </Callout>
 
-### Z.AI Models
+#### Z.AI Models
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -142,7 +235,7 @@ Available Z.AI models:
 	images with embedded text.
 </Callout>
 
-### ByteDance Models
+#### ByteDance Models
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -179,7 +272,7 @@ Available ByteDance models:
 	to 4096×4096 (4K).
 </Callout>
 
-## Response Format
+### Response Format
 
 Image generation models return responses in the standard chat completions format, with generated images included in the `images` array within the assistant message:
 
@@ -215,28 +308,28 @@ Image generation models return responses in the standard chat completions format
 }
 ```
 
-## Vision support
+### Vision support
 
 You can edit or modify images by combining image generation with [vision models](/features/vision) by including the image in the `messages` array.
 
-## Response Structure
+### Response Structure
 
-### Images Array
+#### Images Array
 
 The `images` array contains one or more generated images with the following structure:
 
 - `type`: Always `"image_url"` for generated images
 - `image_url.url`: A data URL containing the base64-encoded image data (format: `data:image/png;base64,<data>`)
 
-### Content Field
+#### Content Field
 
 The `content` field may contain descriptive text about the generated image, depending on the model's behavior.
 
-## AI SDK
+### AI SDK (Chat Completions)
 
-You can use the AI SDK to generate images with your existing generateText or streamText calls.
+You can use the AI SDK to generate images with your existing generateText or streamText calls using the LLMGateway provider.
 
-### Example
+#### Example
 
 ```ts title="/api/chat/route.ts"
 import { streamText, type UIMessage, convertToModelMessages } from "ai";
