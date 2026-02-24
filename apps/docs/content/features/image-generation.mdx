@@ -19,15 +19,15 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 
 ### Parameters
 
-| Parameter         | Type    | Default       | Description                                                                         |
-| ----------------- | ------- | ------------- | ----------------------------------------------------------------------------------- |
-| `prompt`          | string  | required      | A text description of the desired image(s)                                          |
-| `model`           | string  | `"auto"`      | The model to use (e.g., `gemini-3-pro-image-preview`, `gemini-3-pro-image-preview`) |
-| `n`               | integer | `1`           | Number of images to generate (1-10)                                                 |
-| `size`            | string  | `"1024x1024"` | Image dimensions (e.g., `1024x1024`, `1792x1024`, `1024x1792`)                      |
-| `quality`         | string  | `"standard"`  | Image quality: `standard`, `hd`, `low`, `medium`, `high`                            |
-| `response_format` | string  | `"b64_json"`  | Response format: `b64_json` or `url`                                                |
-| `style`           | string  | —             | Image style: `vivid` or `natural`                                                   |
+| Parameter         | Type    | Default       | Description                                                                     |
+| ----------------- | ------- | ------------- | ------------------------------------------------------------------------------- |
+| `prompt`          | string  | required      | A text description of the desired image(s)                                      |
+| `model`           | string  | `"auto"`      | The model to use (e.g., `gemini-3-pro-image-preview`, `gemini-2.5-flash-image`) |
+| `n`               | integer | `1`           | Number of images to generate (1-10)                                             |
+| `size`            | string  | `"1024x1024"` | Image dimensions (e.g., `1024x1024`, `1792x1024`, `1024x1792`)                  |
+| `quality`         | string  | `"standard"`  | Image quality: `standard`, `hd`, `low`, `medium`, `high`                        |
+| `response_format` | string  | `"b64_json"`  | Response format: `b64_json` or `url`                                            |
+| `style`           | string  | —             | Image style: `vivid` or `natural`                                               |
 
 ### curl
 
