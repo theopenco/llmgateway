@@ -1200,7 +1200,6 @@ export function transformStreamingToOpenai(
 		case "inference.net":
 		case "together.ai":
 		case "custom":
-		case "cloudrift":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":

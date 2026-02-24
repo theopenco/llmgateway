@@ -58,14 +58,14 @@ export function Graph() {
 	const AnthropicIcon = ProviderIcons.anthropic;
 
 	const XAIIcon = ProviderIcons.xai;
-	const CloudriftIcon = ProviderIcons.cloudrift;
+	const DeepseekIcon = ProviderIcons.deepseek;
 
 	const logos = [
 		<OpenAIIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<AnthropicIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<XAIIcon key={useId()} className="w-6 h-6 object-contain" />,
 		<DotsHorizontalIcon key={useId()} />,
-		<CloudriftIcon key={useId()} className="w-6 h-6 object-contain" />,
+		<DeepseekIcon key={useId()} className="w-6 h-6 object-contain" />,
 	];
 
 	return (

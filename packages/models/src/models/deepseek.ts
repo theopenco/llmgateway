@@ -10,20 +10,6 @@ export const deepseekModels = [
 		releasedAt: new Date("2024-12-26"),
 		providers: [
 			{
-				providerId: "cloudrift",
-				modelName: "deepseek-ai/DeepSeek-V3",
-				deactivatedAt: new Date("2026-02-01"),
-				inputPrice: 0.15 / 1e6,
-				outputPrice: 0.4 / 1e6,
-				requestPrice: 0,
-				contextSize: 163840,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-				tools: false,
-				jsonOutput: false,
-			},
-			{
 				providerId: "nebius",
 				stability: "unstable" as const,
 				modelName: "deepseek-ai/DeepSeek-V3",
@@ -47,20 +33,6 @@ export const deepseekModels = [
 		family: "deepseek",
 		releasedAt: new Date("2025-05-28"),
 		providers: [
-			{
-				providerId: "cloudrift",
-				modelName: "deepseek-ai/DeepSeek-R1-0528",
-				inputPrice: 0.25 / 1e6,
-				outputPrice: 1 / 1e6,
-				requestPrice: 0,
-				contextSize: 32770,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-				tools: false,
-				stability: "unstable" as const,
-				jsonOutput: false,
-			},
 			{
 				providerId: "nebius",
 				modelName: "deepseek-ai/DeepSeek-R1-0528",

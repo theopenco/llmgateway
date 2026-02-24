@@ -42,7 +42,6 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "OpenAI", providerId: "openai" },
 	{ name: "Anthropic", providerId: "anthropic" },
 	{ name: "Together AI", providerId: "together.ai" },
-	{ name: "Cloudrift", providerId: "cloudrift" },
 	{ name: "Groq", providerId: "groq" },
 	{ name: "xAI", providerId: "xai" },
 	{ name: "DeepSeek", providerId: "deepseek" },
