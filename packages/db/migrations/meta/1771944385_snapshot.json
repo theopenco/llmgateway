@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8a7ca97c-604b-43b6-bf4f-2ddcf227dc2a",
+  "id": "39327096-ba01-4bf5-97d7-95404b74cb8c",
   "prevId": "cb1df317-b95e-476b-83b5-3f2df1f257f6",
   "ddl": [
     {
@@ -49,12 +49,6 @@
     {
       "isRlsEnabled": false,
       "name": "discount",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "follow_up_email",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2258,74 +2252,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "discount"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "follow_up_email"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "follow_up_email"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "follow_up_email"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "email_type",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "follow_up_email"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "sent_to",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "follow_up_email"
     },
     {
       "type": "text",
@@ -9411,27 +9337,6 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "follow_up_email_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "follow_up_email"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
       "name": "guardrail_config_organization_id_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -10299,23 +10204,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "follow_up_email_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "follow_up_email"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "guardrail_config_organization_id_organization_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -10678,16 +10566,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "follow_up_email_pkey",
-      "schema": "public",
-      "table": "follow_up_email",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "guardrail_config_pkey",
       "schema": "public",
       "table": "guardrail_config",
@@ -10981,18 +10859,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "discount"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id",
-        "email_type"
-      ],
-      "nullsNotDistinct": false,
-      "name": "follow_up_email_organization_id_email_type_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "follow_up_email"
     },
     {
       "nameExplicit": false,
