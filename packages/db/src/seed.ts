@@ -577,7 +577,6 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 			const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
 			const cost = inputCost + outputCost;
 			const discount = Math.random() < 0.1 ? randomFloat(0.05, 0.3) : 0;
-			const serviceFee = cost * 0.2;
 			const usedMode =
 				proj.mode === "hybrid"
 					? randomChoice(["api-keys", "credits"] as const)
@@ -625,7 +624,6 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 				streamed: isStreamed,
 				cached: isCached,
 				discount,
-				serviceFee: Number(serviceFee.toFixed(6)),
 			});
 		}
 	}
@@ -871,7 +869,7 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				outputCost: Number((totalCost * 0.5).toFixed(4)),
 				requestCost: Number((totalCost * 0.1).toFixed(4)),
 				dataStorageCost: 0,
-				serviceFee: Number((totalCost * 0.2).toFixed(4)),
+				serviceFee: 0,
 				discountSavings: Number((totalCost * randomFloat(0, 0.05)).toFixed(4)),
 				imageInputCost: 0,
 				imageOutputCost: 0,
@@ -880,8 +878,8 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				apiKeysRequestCount: apiKeysReqCount,
 				creditsCost: Number((totalCost * 0.6).toFixed(4)),
 				apiKeysCost: Number((totalCost * 0.4).toFixed(4)),
-				creditsServiceFee: Number((totalCost * 0.12).toFixed(4)),
-				apiKeysServiceFee: Number((totalCost * 0.08).toFixed(4)),
+				creditsServiceFee: 0,
+				apiKeysServiceFee: 0,
 				creditsDataStorageCost: 0,
 				apiKeysDataStorageCost: 0,
 			});
@@ -956,7 +954,7 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					),
 					requestCost: 0,
 					dataStorageCost: 0,
-					serviceFee: Number((costVal * 0.2).toFixed(6)),
+					serviceFee: 0,
 					discountSavings: 0,
 					imageInputCost: 0,
 					imageOutputCost: 0,
