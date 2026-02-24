@@ -622,10 +622,9 @@ chat.openapi(completions, async (c) => {
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
 
-	// Pre-compute IAM-filtered model providers once for use in initial routing
-	// and retry fallback paths. Both modelInfo.providers and iamAllowedProviders
-	// are stable for the lifetime of this request.
-	const iamFilteredModelProviders = iamAllowedProviders
+	// IAM-filtered model providers for routing and retry fallback paths.
+	// Recomputed after auto-routing because that block replaces modelInfo.
+	let iamFilteredModelProviders = iamAllowedProviders
 		? modelInfo.providers.filter((p) =>
 				iamAllowedProviders.includes(p.providerId),
 			)
@@ -920,6 +919,14 @@ chat.openapi(completions, async (c) => {
 		}
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
 		requestedProvider = undefined;
+
+		// Recompute IAM-filtered providers against the resolved model so retry
+		// fallback and the single-provider shortcut use the correct provider list.
+		iamFilteredModelProviders = iamAllowedProviders
+			? modelInfo.providers.filter((p) =>
+					iamAllowedProviders.includes(p.providerId),
+				)
+			: modelInfo.providers;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
