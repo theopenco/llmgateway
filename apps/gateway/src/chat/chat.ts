@@ -920,13 +920,10 @@ chat.openapi(completions, async (c) => {
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
 		requestedProvider = undefined;
 
-		// Recompute IAM-filtered providers against the resolved model so retry
-		// fallback and the single-provider shortcut use the correct provider list.
-		iamFilteredModelProviders = iamAllowedProviders
-			? modelInfo.providers.filter((p) =>
-					iamAllowedProviders.includes(p.providerId),
-				)
-			: modelInfo.providers;
+		// iamAllowedProviders was computed for the "auto" model (which only has
+		// the "llmgateway" provider), so it is not meaningful for the resolved
+		// model's providers.  Use the full provider list for retries.
+		iamFilteredModelProviders = modelInfo.providers;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
