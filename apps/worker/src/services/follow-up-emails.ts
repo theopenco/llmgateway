@@ -191,6 +191,7 @@ async function processNoPurchaseEmails(): Promise<void> {
 			and(
 				sql`${organization.createdAt} < ${twentyFourHoursAgo}`,
 				eq(organization.devPlan, "none"),
+				eq(organization.status, "active"),
 				sql`${organization.id} NOT IN (
 					SELECT ${transaction.organizationId}
 					FROM ${transaction}
@@ -258,7 +259,9 @@ async function processLowUsageEmails(): Promise<void> {
 			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
 			GROUP BY ${project.organizationId}
 		) s ON s.organization_id = t.organization_id
-		WHERE COALESCE(s.total_spent, 0) < (t.total_purchased * 0.02)
+		JOIN ${organization} o ON o.id = t.organization_id
+		WHERE o.status = 'active'
+		AND COALESCE(s.total_spent, 0) < (t.total_purchased * 0.02)
 		AND t.organization_id NOT IN (
 			SELECT ${followUpEmail.organizationId}
 			FROM ${followUpEmail}
@@ -328,7 +331,8 @@ async function processNoRepurchaseEmails(): Promise<void> {
 			GROUP BY ${project.organizationId}
 		) s ON s.organization_id = t.organization_id
 		LEFT JOIN ${organization} o ON o.id = t.organization_id
-		WHERE COALESCE(s.total_spent, 0) >= (t.total_purchased * 0.50)
+		WHERE o.status = 'active'
+		AND COALESCE(s.total_spent, 0) >= (t.total_purchased * 0.50)
 		AND (o.auto_top_up_enabled = false OR o.auto_top_up_enabled IS NULL)
 		AND t.organization_id NOT IN (
 			SELECT ${followUpEmail.organizationId}
