@@ -18,6 +18,13 @@ import {
 
 type FollowUpEmailType = "no_purchase" | "low_usage" | "no_repurchase";
 
+const FOLLOW_UP_MAX_AGE_DAYS = Number(
+	process.env.FOLLOW_UP_MAX_AGE_DAYS ?? "30",
+);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const maxAgeMs = FOLLOW_UP_MAX_AGE_DAYS * MS_PER_DAY;
+const maxAgeAgo = new Date(Date.now() - maxAgeMs);
+
 // ─── Email Sending ──────────────────────────────────────────────────────────
 
 async function sendFollowUpEmail(opts: {
@@ -74,8 +81,10 @@ With credits you can access 300+ AI models from OpenAI, Anthropic, Google, and m
 
 1. Log in at https://llmgateway.io/dashboard
 2. Add credits under Settings > Billing
-3. Create a project and API key
+3. Create an API key
 4. Start making requests using the OpenAI-compatible API
+
+Read our quickstart here: https://docs.llmgateway.io/quick-start
 
 If you have any questions, just reply to this email and we'll be happy to help.
 
@@ -112,8 +121,8 @@ You've been making great use of LLM Gateway! We noticed your credits are getting
 
 To keep your API access running smoothly, you can:
 
-1. Top up credits: https://llmgateway.io/dashboard/settings/org/billing
-2. Enable auto top-up so you never run out
+1. Top up credits: https://llmgateway.io/dashboard
+2. Enable auto top-up under Settings > Billing so you never run out
 
 If there's anything we can improve, we'd love to hear your feedback. Just reply to this email.
 
@@ -179,8 +188,7 @@ async function sendAndRecord(
 // ─── Email A: Signed up but never bought credits (>24h) ─────────────────────
 
 async function processNoPurchaseEmails(): Promise<void> {
-	// eslint-disable-next-line no-mixed-operators
-	const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+	const twentyFourHoursAgo = new Date(Date.now() - MS_PER_DAY);
 
 	const eligibleOrgs = await db
 		.select({
@@ -190,6 +198,7 @@ async function processNoPurchaseEmails(): Promise<void> {
 		.where(
 			and(
 				sql`${organization.createdAt} < ${twentyFourHoursAgo}`,
+				sql`${organization.createdAt} > ${maxAgeAgo}`,
 				eq(organization.devPlan, "none"),
 				eq(organization.status, "active"),
 				sql`${organization.id} NOT IN (
@@ -228,8 +237,8 @@ async function processNoPurchaseEmails(): Promise<void> {
 // ─── Email B: Bought credits, used <2% after 3 days ─────────────────────────
 
 async function processLowUsageEmails(): Promise<void> {
-	// eslint-disable-next-line no-mixed-operators
-	const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+	const threeDaysMs = 3 * MS_PER_DAY;
+	const threeDaysAgo = new Date(Date.now() - threeDaysMs);
 
 	const rows = await db.execute<{
 		organization_id: string;
@@ -250,6 +259,7 @@ async function processLowUsageEmails(): Promise<void> {
 			AND ${transaction.status} = 'completed'
 			GROUP BY ${transaction.organizationId}
 			HAVING MIN(${transaction.createdAt}) < ${threeDaysAgo}
+			AND MIN(${transaction.createdAt}) > ${maxAgeAgo}
 		) t
 		LEFT JOIN (
 			SELECT
@@ -299,8 +309,8 @@ async function processLowUsageEmails(): Promise<void> {
 // ─── Email C: Consumed >=50%, last topup >2 weeks ago, no repurchase ─────────
 
 async function processNoRepurchaseEmails(): Promise<void> {
-	// eslint-disable-next-line no-mixed-operators
-	const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+	const twoWeeksMs = 14 * MS_PER_DAY;
+	const twoWeeksAgo = new Date(Date.now() - twoWeeksMs);
 
 	const rows = await db.execute<{
 		organization_id: string;
@@ -321,6 +331,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 			AND ${transaction.status} = 'completed'
 			GROUP BY ${transaction.organizationId}
 			HAVING MAX(${transaction.createdAt}) < ${twoWeeksAgo}
+			AND MAX(${transaction.createdAt}) > ${maxAgeAgo}
 		) t
 		LEFT JOIN (
 			SELECT
