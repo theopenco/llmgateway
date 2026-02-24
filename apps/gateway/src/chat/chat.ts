@@ -750,16 +750,26 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Validate IAM rules for this candidate model and filter providers.
+			// We must re-evaluate per model because iamAllowedProviders was computed
+			// for the "auto" model which only has the "llmgateway" provider.
+			const candidateIam = await validateModelAccess(
+				apiKey.id,
+				modelDef.id,
+				undefined,
+				modelDef,
+			);
+			if (!candidateIam.allowed) {
+				continue;
+			}
+			const candidateAllowedProviders = candidateIam.allowedProviders;
+
 			// Check if any of the model's providers are available
-			// Note: We don't filter by iamAllowedProviders here because it was computed
-			// for the "auto" model, not the actual models being considered for selection
 			const availableModelProviders = modelDef.providers.filter(
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
-					// Filter by IAM allowed providers only for non-auto models
-					(requestedModel === "auto" ||
-						!iamAllowedProviders ||
-						iamAllowedProviders.includes(provider.providerId)),
+					(!candidateAllowedProviders ||
+						candidateAllowedProviders.includes(provider.providerId)),
 			);
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
@@ -920,10 +930,25 @@ chat.openapi(completions, async (c) => {
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
 		requestedProvider = undefined;
 
-		// iamAllowedProviders was computed for the "auto" model (which only has
-		// the "llmgateway" provider), so it is not meaningful for the resolved
-		// model's providers.  Use the full provider list for retries.
-		iamFilteredModelProviders = modelInfo.providers;
+		// Re-validate IAM against the resolved model so deny_providers /
+		// allow_providers rules are enforced for retries and the single-provider
+		// shortcut.  The original iamAllowedProviders was computed for the "auto"
+		// model (which only has the "llmgateway" provider) and is not meaningful
+		// for the resolved model.
+		const resolvedIamValidation = await validateModelAccess(
+			apiKey.id,
+			modelInfo.id,
+			undefined,
+			modelInfo,
+		);
+		if (!resolvedIamValidation.allowed) {
+			throwIamException(resolvedIamValidation.reason!);
+		}
+		iamFilteredModelProviders = resolvedIamValidation.allowedProviders
+			? modelInfo.providers.filter((p) =>
+					resolvedIamValidation.allowedProviders!.includes(p.providerId),
+				)
+			: modelInfo.providers;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
