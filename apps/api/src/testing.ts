@@ -136,9 +136,6 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as real)), 0)`.as(
 				"dataStorageCost",
 			),
-		serviceFee: sql<number>`coalesce(sum(${tables.log.serviceFee}), 0)`.as(
-			"serviceFee",
-		),
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
@@ -177,14 +174,6 @@ function getCommonAggregationFields() {
 		apiKeysCost:
 			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then ${tables.log.cost} else 0 end), 0)`.as(
 				"apiKeysCost",
-			),
-		creditsServiceFee:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then ${tables.log.serviceFee} else 0 end), 0)`.as(
-				"creditsServiceFee",
-			),
-		apiKeysServiceFee:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then ${tables.log.serviceFee} else 0 end), 0)`.as(
-				"apiKeysServiceFee",
 			),
 		creditsDataStorageCost:
 			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(

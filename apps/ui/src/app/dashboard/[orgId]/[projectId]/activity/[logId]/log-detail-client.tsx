@@ -587,18 +587,6 @@ export function LogDetailClient({
 												: "$0"
 										}
 									/>
-									{log.usedMode === "api-keys" && (
-										<Field
-											label="API Key Fee (1%)"
-											value={
-												log.serviceFee
-													? `$${Number(log.serviceFee).toFixed(8)}`
-													: log.cost
-														? `$${(Number(log.cost) * 0.01).toFixed(8)}`
-														: "$0"
-											}
-										/>
-									)}
 								</div>
 							</div>
 						</Section>
@@ -793,7 +781,7 @@ export function LogDetailClient({
 									<p className="text-xs text-muted-foreground mb-2">
 										Available Tools
 									</p>
-									<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+									<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 										{JSON.stringify(log.tools, null, 2)}
 									</pre>
 								</div>
@@ -803,7 +791,7 @@ export function LogDetailClient({
 									<p className="text-xs text-muted-foreground mb-2">
 										Tool Choice
 									</p>
-									<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+									<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 										{JSON.stringify(log.toolChoice, null, 2)}
 									</pre>
 								</div>
@@ -834,7 +822,7 @@ export function LogDetailClient({
 															</span>
 														</div>
 														{toolCall.function?.arguments && (
-															<pre className="text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-background rounded border p-2 max-h-32">
+															<pre className="text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-background rounded border p-2 max-h-32">
 																{typeof toolCall.function.arguments === "string"
 																	? toolCall.function.arguments
 																	: JSON.stringify(
@@ -847,7 +835,7 @@ export function LogDetailClient({
 													</div>
 												))
 										) : (
-											<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+											<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 												{JSON.stringify(log.toolResults, null, 2)}
 											</pre>
 										)}
@@ -891,7 +879,7 @@ export function LogDetailClient({
 							</div>
 							<div>
 								<p className="text-xs text-red-400 mb-1">Error Message</p>
-								<pre className="text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-background rounded border p-3">
+								<pre className="text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-background rounded border p-3">
 									{log.errorDetails.responseText}
 								</pre>
 							</div>
@@ -916,7 +904,7 @@ export function LogDetailClient({
 				<Section title="Messages">
 					<div className="rounded-lg border bg-card p-4">
 						{log.messages ? (
-							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 								{JSON.stringify(log.messages, null, 2)}
 							</pre>
 						) : !retentionEnabled ? (
@@ -934,7 +922,7 @@ export function LogDetailClient({
 								<p className="text-xs text-muted-foreground mb-2">
 									Response Format
 								</p>
-								<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+								<pre className="max-h-40 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 									{JSON.stringify(log.responseFormat, null, 2)}
 								</pre>
 							</div>
@@ -945,7 +933,7 @@ export function LogDetailClient({
 				{log.reasoningContent && (
 					<Section title="Reasoning Content">
 						<div className="rounded-lg border bg-card p-4">
-							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 								{log.reasoningContent}
 							</pre>
 						</div>
@@ -955,7 +943,7 @@ export function LogDetailClient({
 				<Section title="Response">
 					<div className="rounded-lg border bg-card p-4">
 						{log.content ? (
-							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 								{log.content}
 							</pre>
 						) : !retentionEnabled ? (
@@ -974,7 +962,7 @@ export function LogDetailClient({
 				{log.params && Object.keys(log.params).length > 0 && (
 					<Section title="Additional Parameters">
 						<div className="rounded-lg border bg-card p-4">
-							<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-words font-mono bg-muted/30 rounded-md p-3">
+							<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
 								{JSON.stringify(log.params, null, 2)}
 							</pre>
 						</div>

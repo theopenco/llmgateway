@@ -7,6 +7,7 @@ export const errorDetails = z.object({
 	statusCode: z.number(),
 	statusText: z.string(),
 	responseText: z.string(),
+	cause: z.string().optional(),
 });
 
 export const toolFunction = z.object({

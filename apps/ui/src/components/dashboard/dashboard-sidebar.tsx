@@ -2,22 +2,12 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
-	Activity,
-	BarChart3,
-	BotMessageSquare,
-	ChartColumnBig,
 	ChevronUp,
 	ComputerIcon,
 	CreditCard,
 	ExternalLink,
-	Key,
-	KeyRound,
-	LayoutDashboard,
-	MessageSquare,
 	MoonIcon,
-	Settings,
 	Shield,
-	ShieldAlert,
 	SunIcon,
 	User as UserIcon,
 	X,
@@ -34,6 +24,20 @@ import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
+import {
+	AnimatedActivity,
+	AnimatedBarChart3,
+	AnimatedBotMessageSquare,
+	AnimatedChartColumnBig,
+	AnimatedExternalLink,
+	AnimatedKey,
+	AnimatedKeyRound,
+	AnimatedLayoutDashboard,
+	AnimatedMessageSquare,
+	AnimatedSettings,
+	AnimatedShield,
+	AnimatedShieldAlert,
+} from "@/components/dashboard/animated-nav-icons";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";
@@ -68,46 +72,52 @@ import {
 	SidebarMenuSub,
 	SidebarMenuSubButton,
 	SidebarMenuSubItem,
+	SidebarRail,
 	useSidebar,
 } from "@/lib/components/sidebar";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
-import { cn } from "@/lib/utils";
 
 import { OrganizationSwitcher } from "./organization-switcher";
 
+import type { AnimatedIconProps } from "@/components/dashboard/animated-nav-icons";
 import type { Organization, User } from "@/lib/types";
-import type { LucideIcon } from "lucide-react";
 import type { Route } from "next";
 
+type AnimatedIconComponent = React.ComponentType<AnimatedIconProps>;
+
 // Configuration
-const PROJECT_NAVIGATION = [
+const PROJECT_NAVIGATION: readonly {
+	href: string;
+	label: string;
+	icon: AnimatedIconComponent;
+}[] = [
 	{
 		href: "",
 		label: "Dashboard",
-		icon: LayoutDashboard,
+		icon: AnimatedLayoutDashboard,
 	},
 	{
 		href: "activity",
 		label: "Activity",
-		icon: Activity,
+		icon: AnimatedActivity,
 	},
 	{
 		href: "model-usage",
 		label: "Model Usage",
-		icon: ChartColumnBig,
+		icon: AnimatedChartColumnBig,
 	},
 	{
 		href: "usage",
 		label: "Usage & Metrics",
-		icon: BarChart3,
+		icon: AnimatedBarChart3,
 	},
 	{
 		href: "api-keys",
 		label: "API Keys",
-		icon: Key,
+		icon: AnimatedKey,
 	},
-] as const;
+];
 
 const PROJECT_SETTINGS = [
 	{
@@ -192,22 +202,28 @@ function DashboardSidebarHeader({
 
 	return (
 		<SidebarHeader>
-			<div className="flex h-14 items-center px-4">
-				<Link
-					href={buildUrl()}
-					className="inline-flex items-center space-x-2"
-					prefetch={true}
-				>
-					<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
-					<span className="text-xl font-bold tracking-tight">LLM Gateway</span>
-				</Link>
+			<SidebarMenu>
+				<SidebarMenuItem>
+					<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
+						<Link href={buildUrl()} prefetch={true}>
+							<div className="flex aspect-square size-8 items-center justify-center">
+								<Logo className="size-6 text-black dark:text-white" />
+							</div>
+							<span className="text-lg font-bold tracking-tight">
+								LLM Gateway
+							</span>
+						</Link>
+					</SidebarMenuButton>
+				</SidebarMenuItem>
+			</SidebarMenu>
+			<div className="group-data-[collapsible=icon]:hidden">
+				<OrganizationSwitcher
+					organizations={organizations}
+					selectedOrganization={selectedOrganization}
+					onSelectOrganization={onSelectOrganization}
+					onOrganizationCreated={onOrganizationCreated}
+				/>
 			</div>
-			<OrganizationSwitcher
-				organizations={organizations}
-				selectedOrganization={selectedOrganization}
-				onSelectOrganization={onSelectOrganization}
-				onOrganizationCreated={onOrganizationCreated}
-			/>
 		</SidebarHeader>
 	);
 }
@@ -223,23 +239,23 @@ function NavigationItem({
 }) {
 	const { buildUrl } = useDashboardNavigation();
 	const href = buildUrl(item.href);
+	const [isHovered, setIsHovered] = useState(false);
 
 	return (
-		<SidebarMenuItem>
-			<Link
-				href={href}
-				className={cn(
-					"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-					isActive(item.href)
-						? "bg-primary/10 text-primary"
-						: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-				)}
-				onClick={onClick}
-				prefetch={true}
+		<SidebarMenuItem
+			onMouseEnter={() => setIsHovered(true)}
+			onMouseLeave={() => setIsHovered(false)}
+		>
+			<SidebarMenuButton
+				asChild
+				isActive={isActive(item.href)}
+				tooltip={item.label}
 			>
-				<item.icon className="h-4 w-4" />
-				<span>{item.label}</span>
-			</Link>
+				<Link href={href} onClick={onClick} prefetch={true}>
+					<item.icon isHovered={isHovered} />
+					<span>{item.label}</span>
+				</Link>
+			</SidebarMenuButton>
 		</SidebarMenuItem>
 	);
 }
@@ -254,20 +270,31 @@ function ProjectSettingsSection({
 	toggleSidebar: () => void;
 }) {
 	const { buildUrl } = useDashboardNavigation();
+	const [isHovered, setIsHovered] = useState(false);
 
 	return (
-		<SidebarMenuItem>
-			<div
-				className={cn(
-					"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-					isActive("settings/preferences")
-						? "bg-primary/10 text-primary"
-						: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-				)}
+		<SidebarMenuItem
+			onMouseEnter={() => setIsHovered(true)}
+			onMouseLeave={() => setIsHovered(false)}
+		>
+			<SidebarMenuButton
+				asChild
+				isActive={isActive("settings/preferences")}
+				tooltip="Settings"
 			>
-				<Settings className="h-4 w-4" />
-				<span>Settings</span>
-			</div>
+				<Link
+					href={buildUrl("settings/preferences")}
+					onClick={() => {
+						if (isMobile) {
+							toggleSidebar();
+						}
+					}}
+					prefetch={true}
+				>
+					<AnimatedSettings isHovered={isHovered} />
+					<span>Settings</span>
+				</Link>
+			</SidebarMenuButton>
 			<SidebarMenuSub className="ml-7">
 				{PROJECT_SETTINGS.map((item) => (
 					<SidebarMenuSubItem key={item.href}>
@@ -291,6 +318,46 @@ function ProjectSettingsSection({
 	);
 }
 
+function OrgNavItem({
+	href,
+	label,
+	icon: Icon,
+	isActive,
+	isMobile,
+	toggleSidebar,
+}: {
+	href: string;
+	label: string;
+	icon: AnimatedIconComponent;
+	isActive: boolean;
+	isMobile: boolean;
+	toggleSidebar: () => void;
+}) {
+	const [isHovered, setIsHovered] = useState(false);
+
+	return (
+		<SidebarMenuItem
+			onMouseEnter={() => setIsHovered(true)}
+			onMouseLeave={() => setIsHovered(false)}
+		>
+			<SidebarMenuButton asChild isActive={isActive} tooltip={label}>
+				<Link
+					href={href as Route}
+					onClick={() => {
+						if (isMobile) {
+							toggleSidebar();
+						}
+					}}
+					prefetch={true}
+				>
+					<Icon isHovered={isHovered} />
+					<span>{label}</span>
+				</Link>
+			</SidebarMenuButton>
+		</SidebarMenuItem>
+	);
+}
+
 function OrganizationSection({
 	isActive,
 	isMobile,
@@ -303,6 +370,7 @@ function OrganizationSection({
 	searchParams: ReadonlyURLSearchParams;
 }) {
 	const { buildOrgUrl } = useDashboardNavigation();
+	const [settingsHovered, setSettingsHovered] = useState(false);
 
 	return (
 		<SidebarGroup>
@@ -311,81 +379,60 @@ function OrganizationSection({
 			</SidebarGroupLabel>
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
-					<SidebarMenuItem>
-						<Link
-							href={buildOrgUrl("org/provider-keys")}
-							className={cn(
-								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-								isActive("org/provider-keys")
-									? "bg-primary/10 text-primary"
-									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-							)}
-							onClick={() => {
-								if (isMobile) {
-									toggleSidebar();
-								}
-							}}
-							prefetch={true}
+					<OrgNavItem
+						href={buildOrgUrl("org/provider-keys")}
+						label="Provider Keys"
+						icon={AnimatedKeyRound}
+						isActive={isActive("org/provider-keys")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/guardrails")}
+						label="Guardrails"
+						icon={AnimatedShield}
+						isActive={isActive("org/guardrails")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/security-events")}
+						label="Security Events"
+						icon={AnimatedShieldAlert}
+						isActive={isActive("org/security-events")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<SidebarMenuItem
+						onMouseEnter={() => setSettingsHovered(true)}
+						onMouseLeave={() => setSettingsHovered(false)}
+					>
+						<SidebarMenuButton
+							asChild
+							isActive={
+								isActive("org/billing") ||
+								isActive("org/transactions") ||
+								isActive("org/referrals") ||
+								isActive("org/policies") ||
+								isActive("org/preferences") ||
+								isActive("org/team") ||
+								isActive("org/audit-logs")
+							}
+							tooltip="Settings"
 						>
-							<KeyRound className="h-4 w-4" />
-							<span>Provider Keys</span>
-						</Link>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<Link
-							href={buildOrgUrl("org/guardrails")}
-							className={cn(
-								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-								isActive("org/guardrails")
-									? "bg-primary/10 text-primary"
-									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-							)}
-							onClick={() => {
-								if (isMobile) {
-									toggleSidebar();
-								}
-							}}
-							prefetch={true}
-						>
-							<Shield className="h-4 w-4" />
-							<span>Guardrails</span>
-						</Link>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<Link
-							href={buildOrgUrl("org/security-events")}
-							className={cn(
-								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-								isActive("org/security-events")
-									? "bg-primary/10 text-primary"
-									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-							)}
-							onClick={() => {
-								if (isMobile) {
-									toggleSidebar();
-								}
-							}}
-							prefetch={true}
-						>
-							<ShieldAlert className="h-4 w-4" />
-							<span>Security Events</span>
-						</Link>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<div
-							className={cn(
-								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-								isActive("settings/billing") ||
-									isActive("settings/transactions") ||
-									isActive("settings/policies") ||
-									isActive("settings/team")
-									? "bg-primary/10 text-primary"
-									: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-							)}
-						>
-							<Settings className="h-4 w-4" />
-							<span>Settings</span>
-						</div>
+							<Link
+								href={buildOrgUrl("org/billing")}
+								onClick={() => {
+									if (isMobile) {
+										toggleSidebar();
+									}
+								}}
+								prefetch={true}
+							>
+								<AnimatedSettings isHovered={settingsHovered} />
+								<span>Settings</span>
+							</Link>
+						</SidebarMenuButton>
 						<SidebarMenuSub className="ml-7">
 							{ORGANIZATION_SETTINGS.map((item) => (
 								<SidebarMenuSubItem key={item.href}>
@@ -420,6 +467,70 @@ function OrganizationSection({
 	);
 }
 
+function ToolsResourceItem({
+	item,
+	isActive,
+	isMobile,
+	toggleSidebar,
+}: {
+	item: {
+		href: string;
+		label: string;
+		icon: AnimatedIconComponent;
+		internal: boolean;
+	};
+	isActive: (path: string) => boolean;
+	isMobile: boolean;
+	toggleSidebar: () => void;
+}) {
+	const [isHovered, setIsHovered] = useState(false);
+
+	return (
+		<SidebarMenuItem
+			onMouseEnter={() => setIsHovered(true)}
+			onMouseLeave={() => setIsHovered(false)}
+		>
+			{item.internal ? (
+				<SidebarMenuButton
+					asChild
+					isActive={isActive(item.href)}
+					tooltip={item.label}
+				>
+					<Link
+						href={item.href as Route}
+						onClick={() => {
+							if (isMobile) {
+								toggleSidebar();
+							}
+						}}
+						prefetch={true}
+					>
+						<item.icon isHovered={isHovered} />
+						<span>{item.label}</span>
+					</Link>
+				</SidebarMenuButton>
+			) : (
+				<SidebarMenuButton asChild tooltip={item.label}>
+					<a
+						href={item.href}
+						target="_blank"
+						rel="noopener noreferrer"
+						onClick={() => {
+							if (isMobile) {
+								toggleSidebar();
+							}
+						}}
+					>
+						<item.icon isHovered={isHovered} />
+						<span>{item.label}</span>
+						<ExternalLink className="ml-auto h-3 w-3 group-data-[collapsible=icon]:hidden" />
+					</a>
+				</SidebarMenuButton>
+			)}
+		</SidebarMenuItem>
+	);
+}
+
 function ToolsResourcesSection({
 	toolsResources,
 	isActive,
@@ -429,7 +540,7 @@ function ToolsResourcesSection({
 	toolsResources: readonly {
 		href: string;
 		label: string;
-		icon: LucideIcon;
+		icon: AnimatedIconComponent;
 		internal: boolean;
 	}[];
 	isActive: (path: string) => boolean;
@@ -444,47 +555,13 @@ function ToolsResourcesSection({
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
 					{toolsResources.map((item) => (
-						<SidebarMenuItem key={item.href}>
-							{item.internal ? (
-								<Link
-									href={item.href as Route}
-									className={cn(
-										"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-										isActive(item.href)
-											? "bg-primary/10 text-primary"
-											: "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-									)}
-									onClick={() => {
-										if (isMobile) {
-											toggleSidebar();
-										}
-									}}
-									prefetch={true}
-								>
-									<item.icon className="h-4 w-4" />
-									<span>{item.label}</span>
-								</Link>
-							) : (
-								<a
-									href={item.href}
-									target="_blank"
-									rel="noopener noreferrer"
-									className={cn(
-										"flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-										"text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-									)}
-									onClick={() => {
-										if (isMobile) {
-											toggleSidebar();
-										}
-									}}
-								>
-									<item.icon className="h-4 w-4" />
-									<span>{item.label}</span>
-									<ExternalLink className="ml-auto h-3 w-3" />
-								</a>
-							)}
-						</SidebarMenuItem>
+						<ToolsResourceItem
+							key={item.href}
+							item={item}
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+						/>
 					))}
 				</SidebarMenu>
 			</SidebarGroupContent>
@@ -502,7 +579,7 @@ function CreditsDisplay({
 		: "0.00";
 
 	return (
-		<div className="px-2 py-1.5">
+		<div className="px-2 py-1.5 group-data-[collapsible=icon]:hidden">
 			<TopUpCreditsDialog>
 				<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
 					<div className="flex items-center gap-2">
@@ -589,13 +666,13 @@ function UserDropdownMenu({
 					<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
 						<span className="text-xs font-semibold">{getUserInitials()}</span>
 					</div>
-					<div className="grid flex-1 text-left text-sm leading-tight">
+					<div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
 						<span className="truncate font-semibold">{user?.name}</span>
 						<span className="truncate text-xs text-muted-foreground">
 							{user?.email}
 						</span>
 					</div>
-					<ChevronUp className="ml-auto size-4" />
+					<ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
 				</SidebarMenuButton>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
@@ -701,7 +778,7 @@ function UpgradeCTA({
 	}
 
 	return (
-		<div className="px-4 py-2">
+		<div className="px-4 py-2 group-data-[collapsible=icon]:hidden">
 			<div className="rounded-lg bg-linear-to-r from-blue-500 to-purple-600 p-4 text-white">
 				<div className="flex items-start justify-between">
 					<div className="flex-1">
@@ -793,7 +870,7 @@ export function DashboardSidebar({
 			{
 				href: "/models",
 				label: "Supported Models",
-				icon: MessageSquare,
+				icon: AnimatedMessageSquare,
 				internal: true,
 			},
 			{
@@ -802,13 +879,13 @@ export function DashboardSidebar({
 						? "http://localhost:3003"
 						: "https://chat.llmgateway.io",
 				label: "Chat",
-				icon: BotMessageSquare,
+				icon: AnimatedBotMessageSquare,
 				internal: false,
 			},
 			{
 				href: "https://docs.llmgateway.io",
 				label: "Documentation",
-				icon: ExternalLink,
+				icon: AnimatedExternalLink,
 				internal: false,
 			},
 		],
@@ -923,6 +1000,7 @@ export function DashboardSidebar({
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
+			<SidebarRail />
 		</Sidebar>
 	);
 }

@@ -692,6 +692,7 @@ export interface paths {
                                     statusCode: number;
                                     statusText: string;
                                     responseText: string;
+                                    cause?: string;
                                 } | null;
                                 cost: number | null;
                                 inputCost: number | null;
@@ -871,6 +872,7 @@ export interface paths {
                                     statusCode: number;
                                     statusText: string;
                                     responseText: string;
+                                    cause?: string;
                                 } | null;
                                 cost: number | null;
                                 inputCost: number | null;
@@ -1030,8 +1032,6 @@ export interface paths {
                                 apiKeysRequestCount: number;
                                 creditsCost: number;
                                 apiKeysCost: number;
-                                creditsServiceFee: number;
-                                apiKeysServiceFee: number;
                                 creditsDataStorageCost: number;
                                 apiKeysDataStorageCost: number;
                                 modelBreakdown: {

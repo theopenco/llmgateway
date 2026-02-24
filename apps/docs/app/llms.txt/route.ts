@@ -1,12 +1,22 @@
 import { source } from "@/lib/source";
 
-import { getLLMText } from "./get-llm-text";
-
+// cached forever
 export const revalidate = false;
 
 export async function GET() {
-	const scan = source.getPages().map(getLLMText);
-	const scanned = await Promise.all(scan);
+	const pages = source.getPages();
 
-	return new Response(scanned.join("\n\n"));
+	const lines = pages.map((page) => {
+		return `- [${page.data.title}](${page.url})${page.data.description ? `: ${page.data.description}` : ""}`;
+	});
+
+	const content = `# LLM Gateway Documentation
+
+> Documentation for LLM Gateway - a full-stack LLM API gateway
+
+## Docs
+
+${lines.join("\n")}`;
+
+	return new Response(content);
 }

@@ -557,6 +557,23 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
+	// Revenue earned before the range (for cumulative chart)
+	const [preRangeRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
+
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
 		.select({
@@ -627,7 +644,7 @@ admin.openapi(getTimeseries, async (c) => {
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
-	let totalRevenue = 0;
+	let totalRevenue = preRangeRevenue;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -647,7 +664,7 @@ admin.openapi(getTimeseries, async (c) => {
 			date: dateStr,
 			signups: totalSignups,
 			paidCustomers: cumulativePaid,
-			revenue: dailyRevenue,
+			revenue: totalRevenue,
 		});
 	}
 
