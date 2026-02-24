@@ -1089,6 +1089,20 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "together.ai",
+				modelName: "Qwen/Qwen3.5-397B-A17B",
+				inputPrice: 0.6 / 1e6,
+				outputPrice: 3.6 / 1e6,
+				requestPrice: 0,
+				contextSize: 262144,
+				maxOutput: 65536,
+				reasoning: true,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
+			},
 		],
 	},
 	{
