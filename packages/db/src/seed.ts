@@ -869,7 +869,6 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				outputCost: Number((totalCost * 0.5).toFixed(4)),
 				requestCost: Number((totalCost * 0.1).toFixed(4)),
 				dataStorageCost: 0,
-				serviceFee: 0,
 				discountSavings: Number((totalCost * randomFloat(0, 0.05)).toFixed(4)),
 				imageInputCost: 0,
 				imageOutputCost: 0,
@@ -878,8 +877,6 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				apiKeysRequestCount: apiKeysReqCount,
 				creditsCost: Number((totalCost * 0.6).toFixed(4)),
 				apiKeysCost: Number((totalCost * 0.4).toFixed(4)),
-				creditsServiceFee: 0,
-				apiKeysServiceFee: 0,
 				creditsDataStorageCost: 0,
 				apiKeysDataStorageCost: 0,
 			});
@@ -954,7 +951,6 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					),
 					requestCost: 0,
 					dataStorageCost: 0,
-					serviceFee: 0,
 					discountSavings: 0,
 					imageInputCost: 0,
 					imageOutputCost: 0,
@@ -963,8 +959,6 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					apiKeysRequestCount: Math.floor(reqCount * 0.4),
 					creditsCost: Number((costVal * 0.6).toFixed(6)),
 					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
-					creditsServiceFee: 0,
-					apiKeysServiceFee: 0,
 					creditsDataStorageCost: 0,
 					apiKeysDataStorageCost: 0,
 				});

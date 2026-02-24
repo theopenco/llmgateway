@@ -1030,8 +1030,6 @@ export interface paths {
                                 apiKeysRequestCount: number;
                                 creditsCost: number;
                                 apiKeysCost: number;
-                                creditsServiceFee: number;
-                                apiKeysServiceFee: number;
                                 creditsDataStorageCost: number;
                                 apiKeysDataStorageCost: number;
                                 modelBreakdown: {
