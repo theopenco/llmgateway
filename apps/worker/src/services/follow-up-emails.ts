@@ -156,6 +156,12 @@ async function sendAndRecord(
 ): Promise<void> {
 	const { subject, text } = getEmailContent(emailType);
 
+	await db.insert(followUpEmail).values({
+		organizationId,
+		emailType,
+		sentTo: recipientEmail,
+	});
+
 	if (process.env.EMAIL_FOLLOW_UPS === "true") {
 		await sendFollowUpEmail({ to: recipientEmail, subject, text });
 	} else {
@@ -168,12 +174,6 @@ async function sendAndRecord(
 			text,
 		});
 	}
-
-	await db.insert(followUpEmail).values({
-		organizationId,
-		emailType,
-		sentTo: recipientEmail,
-	});
 }
 
 // ─── Email A: Signed up but never bought credits (>24h) ─────────────────────
