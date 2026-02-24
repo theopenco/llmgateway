@@ -440,7 +440,7 @@ chat.openapi(completions, async (c) => {
 		requestedModel,
 		parseResult.requestedProvider,
 	);
-	const modelInfo = modelInfoResult.modelInfo;
+	let modelInfo = modelInfoResult.modelInfo;
 	const allModelProviders = modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
 
@@ -888,6 +888,21 @@ chat.openapi(completions, async (c) => {
 			// Default fallback if no suitable model is found - use cheapest allowed model
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
+		}
+		// Update modelInfo to the selected model so retry/fallback logic can find
+		// alternative providers. Without this, modelInfo still points to the "auto"
+		// model definition which only has "llmgateway" as a provider, preventing retries.
+		if (selectedModel) {
+			modelInfo = {
+				...selectedModel,
+				providers: selectedProviders,
+			};
+		} else {
+			// Fallback case: look up the default model definition
+			const fallbackModelDef = models.find((m) => m.id === "gpt-5-nano");
+			if (fallbackModelDef) {
+				modelInfo = fallbackModelDef;
+			}
 		}
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
 		requestedProvider = undefined;

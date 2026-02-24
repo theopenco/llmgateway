@@ -215,7 +215,7 @@ export default async function ModelPage({ params }: PageProps) {
 							/>
 
 							<a
-								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${modelDef.providers[0]?.providerId}/${modelDef.id}`)}`}
+								href={`${config.playgroundUrl}?model=${encodeURIComponent(modelDef.id)}`}
 								target="_blank"
 								rel="noopener noreferrer"
 							>

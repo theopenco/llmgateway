@@ -122,7 +122,10 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
 - Always sync schema with `pnpm run setup` after table/column changes
 - Never write migrations manually, only edit generated migration files if specifically asked
-- When resolving migration conflicts, never resolve them manually. Instead, run `git restore --source=origin/main packages/db/migrations/` to reset them and then run `pnpm migrations` to regenerate migrations automatically
+- **NEVER resolve merge conflicts in migration files, journal files, or snapshot files manually.** When merging with main and migration conflicts occur, ALWAYS follow this exact procedure:
+  1. **Before merging**, reset migrations: `git restore --source=origin/main packages/db/migrations/`
+  2. **After merging**, regenerate migrations: `pnpm migrations`
+  3. Do NOT attempt to manually edit or resolve conflicts in any file under `packages/db/migrations/`
 
 ### Creating New Packages
 

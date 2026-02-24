@@ -136,7 +136,7 @@ export const moonshotModels = [
 				inputPrice: 0.48 / 1e6,
 				cachedInputPrice: 0.12 / 1e6,
 				outputPrice: 2.0 / 1e6,
-				discount: 0.75,
+				discount: 0.3,
 				requestPrice: 0,
 				contextSize: 262144,
 				streaming: true,

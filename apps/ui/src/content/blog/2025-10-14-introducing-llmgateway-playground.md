@@ -30,7 +30,7 @@ The result: a fast, responsive interface whether you're chatting with GPT-5 or g
 
 ### Image Generation
 
-Select an image model (like `gemini-2.5-flash-image-preview`), describe what you want, and see results inline. Great for prototyping visual content before integrating image generation into your app.
+Select an image model (like `gemini-3-pro-image-preview`), describe what you want, and see results inline. Great for prototyping visual content before integrating image generation into your app.
 
 ### Smart Model Selection
 
