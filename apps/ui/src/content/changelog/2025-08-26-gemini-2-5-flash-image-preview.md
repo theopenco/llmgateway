@@ -2,22 +2,22 @@
 id: "16"
 slug: "gemini-2-5-flash-image-preview"
 date: "2025-08-26"
-title: "Introducing Our First Image Generation Model: Gemini 2.5 Flash Image Preview"
-summary: "Generate stunning images with Google's Gemini 2.5 Flash Image Preview - our first image generation model with 32.8k context window and competitive pricing."
+title: "Introducing Our First Image Generation Model: Gemini 3 Pro Image Preview"
+summary: "Generate stunning images with Google's Gemini 3 Pro Image Preview - our first image generation model with 32.8k context window and competitive pricing."
 image:
   src: "/changelog/gemini-2-5-flash-image-preview.png"
-  alt: "Gemini 2.5 Flash Image Preview - First image generation model on LLM Gateway"
+  alt: "Gemini 3 Pro Image Preview - First image generation model on LLM Gateway"
   width: 1768
   height: 677
 ---
 
-We're thrilled to announce the addition of **Gemini 2.5 Flash Image Preview** - our **first image generation model** on LLM Gateway! This marks a significant milestone as we expand beyond text generation to visual AI capabilities.
+We're thrilled to announce the addition of **Gemini 3 Pro Image Preview** - our **first image generation model** on LLM Gateway! This marks a significant milestone as we expand beyond text generation to visual AI capabilities.
 
-**[Try it now in the Chat Playground](https://chat.llmgateway.io/?model=google-ai-studio/gemini-2.5-flash-image-preview)** 🎨
+**[Try it now in the Chat Playground](https://chat.llmgateway.io/?model=google-ai-studio/gemini-3-pro-image-preview)** 🎨
 
 ## 🎨 Introducing Image Generation
 
-**First of its Kind**: Gemini 2.5 Flash Image Preview is our inaugural image generation model, opening up exciting new possibilities for visual content creation through AI.
+**First of its Kind**: Gemini 3 Pro Image Preview is our inaugural image generation model, opening up exciting new possibilities for visual content creation through AI.
 
 **Google's Advanced Technology**: Powered by Google's cutting-edge multimodal AI, this model delivers high-quality image generation with excellent prompt understanding and visual coherence.
 
@@ -25,10 +25,10 @@ We're thrilled to announce the addition of **Gemini 2.5 Flash Image Preview** - 
 
 ## 📊 Model Specifications
 
-**Gemini 2.5 Flash Image Preview**
+**Gemini 3 Pro Image Preview**
 
 ```bash
-gemini-2.5-flash-image-preview
+gemini-3-pro-image-preview
 ```
 
 - **Provider**: Google AI Studio
@@ -40,9 +40,9 @@ gemini-2.5-flash-image-preview
 
 ## 🚀 See It In Action
 
-Check out this demo showcasing the incredible capabilities of Gemini 2.5 Flash Image Preview:
+Check out this demo showcasing the incredible capabilities of Gemini 3 Pro Image Preview:
 
-[![Gemini 2.5 Flash Image Preview Demo](https://img.youtube.com/vi/aB72OnzUqDY/maxresdefault.jpg)](https://www.youtube.com/watch?v=aB72OnzUqDY)
+[![Gemini 3 Pro Image Preview Demo](https://img.youtube.com/vi/aB72OnzUqDY/maxresdefault.jpg)](https://www.youtube.com/watch?v=aB72OnzUqDY)
 
 ## 🎯 Perfect For
 
@@ -58,7 +58,7 @@ Check out this demo showcasing the incredible capabilities of Gemini 2.5 Flash I
 
 **Immediate Access**: The model is available right now through our unified API and playground interface.
 
-**Easy Integration**: Use the model ID `google-ai-studio/gemini-2.5-flash-image-preview` in your API calls to start generating images.
+**Easy Integration**: Use the model ID `google-ai-studio/gemini-3-pro-image-preview` in your API calls to start generating images.
 
 **Playground Ready**: Test the model instantly in our interactive playground environment.
 
@@ -68,4 +68,4 @@ This is just the beginning of our visual AI journey. We're excited to bring you 
 
 ---
 
-**[Try it now in the Chat playground](https://chat.llmgateway.io/?model=google-ai-studio/gemini-2.5-flash-image-preview)** 🎨
+**[Try it now in the Chat playground](https://chat.llmgateway.io/?model=google-ai-studio/gemini-3-pro-image-preview)** 🎨

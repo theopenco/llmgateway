@@ -23,7 +23,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-2.5-flash-image-preview",
+    "model": "gemini-3-pro-image-preview",
     "messages": [
       {
         "role": "user",
@@ -188,7 +188,7 @@ Image generation models return responses in the standard chat completions format
 	"id": "chatcmpl-1756234109285",
 	"object": "chat.completion",
 	"created": 1756234109,
-	"model": "gemini-2.5-flash-image-preview",
+	"model": "gemini-3-pro-image-preview",
 	"choices": [
 		{
 			"index": 0,
@@ -258,7 +258,7 @@ export async function POST(req: Request) {
 
 	try {
 		const result = streamText({
-			model: llmgateway.chat("gemini-2.5-flash-image-preview"),
+			model: llmgateway.chat("gemini-3-pro-image-preview"),
 			messages: convertToModelMessages(messages),
 		});
 
