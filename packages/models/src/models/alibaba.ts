@@ -449,6 +449,7 @@ export const alibabaModels = [
 					"tools",
 					"tool_choice",
 				],
+				deactivatedAt: new Date("2026-02-16"),
 			},
 		],
 	},
