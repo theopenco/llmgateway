@@ -8,7 +8,7 @@ import { logger } from "@llmgateway/logger";
 import type { ServerTypes } from "@/vars.js";
 
 const imageGenerationsRequestSchema = z.object({
-	prompt: z.string().openapi({
+	prompt: z.string().min(1).openapi({
 		description: "A text description of the desired image(s).",
 		example: "A white siamese cat",
 	}),
