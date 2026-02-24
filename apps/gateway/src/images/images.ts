@@ -21,26 +21,26 @@ const imageGenerationsRequestSchema = z.object({
 		description: "The number of images to generate. Must be between 1 and 10.",
 		example: 1,
 	}),
-	size: z.string().optional().default("1024x1024").openapi({
+	size: z.string().optional().openapi({
 		description:
-			"The size of the generated images. For example 1024x1024, 1792x1024, or 1024x1792.",
+			"The size of the generated images. Supported sizes depend on the model and provider.",
 		example: "1024x1024",
 	}),
 	quality: z
 		.enum(["standard", "hd", "low", "medium", "high"])
 		.optional()
-		.default("standard")
 		.openapi({
-			description: "The quality of the image that will be generated.",
+			description:
+				"The quality of the image that will be generated. Supported values depend on the model and provider.",
 			example: "standard",
 		}),
 	response_format: z
-		.enum(["url", "b64_json"])
+		.literal("b64_json")
 		.optional()
 		.default("b64_json")
 		.openapi({
 			description:
-				"The format in which the generated images are returned. This gateway always returns b64_json since images are generated via chat completions models.",
+				"The format in which the generated images are returned. Only b64_json is supported since images are generated via chat completions models.",
 			example: "b64_json",
 		}),
 	style: z.enum(["vivid", "natural"]).optional().openapi({
@@ -55,8 +55,7 @@ const imageGenerationsResponseSchema = z.object({
 	created: z.number(),
 	data: z.array(
 		z.object({
-			b64_json: z.string().optional(),
-			url: z.string().optional(),
+			b64_json: z.string(),
 			revised_prompt: z.string().optional(),
 		}),
 	),
@@ -172,12 +171,18 @@ images.openapi(generations, async (c) => {
 
 	const request = validationResult.data;
 
+	// Resolve "auto" model to a default image generation model
+	const model =
+		request.model === "auto" ? "gemini-3-pro-image-preview" : request.model;
+
 	// Build the chat completions request
 	const chatPrompt = buildImagePrompt(request);
-	const aspectRatio = sizeToAspectRatio(request.size);
+	const aspectRatio = request.size
+		? sizeToAspectRatio(request.size)
+		: undefined;
 
 	const chatRequest: Record<string, unknown> = {
-		model: request.model,
+		model,
 		messages: [
 			{
 				role: "user",
@@ -189,7 +194,7 @@ images.openapi(generations, async (c) => {
 	};
 
 	// Pass image configuration if we have a size/aspect ratio
-	if (aspectRatio) {
+	if (aspectRatio && request.size) {
 		chatRequest.image_config = {
 			aspect_ratio: aspectRatio,
 			image_size: request.size,
@@ -258,8 +263,7 @@ images.openapi(generations, async (c) => {
 	// 1. choices[0].message.images[] - as ImageObject with image_url.url containing data:mime;base64,data
 	// 2. choices[0].message.content - may contain base64 image data in some cases
 	const imageObjects: Array<{
-		b64_json?: string;
-		url?: string;
+		b64_json: string;
 		revised_prompt?: string;
 	}> = [];
 
@@ -277,12 +281,6 @@ images.openapi(generations, async (c) => {
 				if (base64Match && base64Match[1]) {
 					imageObjects.push({
 						b64_json: base64Match[1],
-						revised_prompt: request.prompt,
-					});
-				} else {
-					// If it's a regular URL, return as URL
-					imageObjects.push({
-						url: dataUrl,
 						revised_prompt: request.prompt,
 					});
 				}
