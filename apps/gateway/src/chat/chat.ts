@@ -74,6 +74,7 @@ import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
+import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
@@ -2349,8 +2350,10 @@ chat.openapi(completions, async (c) => {
 							// Handle timeout error
 							const errorMessage =
 								error instanceof Error ? error.message : "Request timeout";
+							const timeoutCause = extractErrorCause(error);
 							logger.warn("Upstream request timeout", {
 								error: errorMessage,
+								cause: timeoutCause,
 								usedProvider,
 								requestedProvider,
 								usedModel,
@@ -2430,6 +2433,7 @@ chat.openapi(completions, async (c) => {
 									statusCode: 0,
 									statusText: "TimeoutError",
 									responseText: errorMessage,
+									cause: timeoutCause,
 								},
 								cachedInputCost: null,
 								requestCost: null,
@@ -2621,8 +2625,10 @@ chat.openapi(completions, async (c) => {
 						} else if (error instanceof Error) {
 							// Handle fetch errors (timeout, connection failures, etc.)
 							const errorMessage = error.message;
+							const fetchCause = extractErrorCause(error);
 							logger.warn("Fetch error", {
 								error: errorMessage,
+								cause: fetchCause,
 								usedProvider,
 								requestedProvider,
 								usedModel,
@@ -2703,6 +2709,7 @@ chat.openapi(completions, async (c) => {
 									statusCode: 0,
 									statusText: error.name,
 									responseText: errorMessage,
+									cause: fetchCause,
 								},
 								cachedInputCost: null,
 								requestCost: null,
@@ -4980,8 +4987,10 @@ chat.openapi(completions, async (c) => {
 		// Handle fetch errors (timeout, connection failures, etc.)
 		if (fetchError) {
 			const errorMessage = fetchError.message;
+			const nonStreamingFetchCause = extractErrorCause(fetchError);
 			logger.warn("Fetch error", {
 				error: errorMessage,
+				cause: nonStreamingFetchCause,
 				usedProvider,
 				requestedProvider,
 				usedModel,
@@ -5062,6 +5071,7 @@ chat.openapi(completions, async (c) => {
 					statusCode: 0,
 					statusText: fetchError.name,
 					responseText: errorMessage,
+					cause: nonStreamingFetchCause,
 				},
 				cachedInputCost: null,
 				requestCost: null,
@@ -5269,10 +5279,12 @@ chat.openapi(completions, async (c) => {
 						bodyError instanceof Error
 							? bodyError.message
 							: "Timeout reading error response body";
+					const bodyErrorCause = extractErrorCause(bodyError);
 					logger.warn("Timeout reading error response body", {
 						usedProvider,
 						usedModel,
 						status: res.status,
+						cause: bodyErrorCause,
 					});
 
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -5333,6 +5345,7 @@ chat.openapi(completions, async (c) => {
 							statusCode: res.status,
 							statusText: "TimeoutError",
 							responseText: errorMessage,
+							cause: bodyErrorCause,
 						},
 						cachedInputCost: null,
 						requestCost: null,
@@ -5644,10 +5657,12 @@ chat.openapi(completions, async (c) => {
 				bodyError instanceof Error
 					? bodyError.message
 					: "Timeout reading response body";
+			const bodyReadCause = extractErrorCause(bodyError);
 			logger.warn("Timeout reading response body", {
 				usedProvider,
 				usedModel,
 				initialRequestedModel,
+				cause: bodyReadCause,
 			});
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -5708,6 +5723,7 @@ chat.openapi(completions, async (c) => {
 					statusCode: res.status,
 					statusText: "TimeoutError",
 					responseText: errorMessage,
+					cause: bodyReadCause,
 				},
 				cachedInputCost: null,
 				requestCost: null,

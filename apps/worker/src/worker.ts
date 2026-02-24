@@ -101,6 +101,7 @@ const schema = z.object({
 			statusCode: z.number(),
 			statusText: z.string(),
 			responseText: z.string(),
+			cause: z.string().optional(),
 		})
 		.nullable(),
 	trace_id: z.string().nullable(),
