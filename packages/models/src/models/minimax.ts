@@ -88,7 +88,7 @@ export const minimaxModels = [
 				deactivatedAt: new Date("2026-01-01"),
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 1.0 / 1e6,
-				discount: 0.25,
+				discount: 0.3,
 				requestPrice: 0,
 				contextSize: 196608,
 				maxOutput: undefined,
