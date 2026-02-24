@@ -606,10 +606,15 @@ chat.openapi(completions, async (c) => {
 	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
 
 	// Validate IAM rules for model access
+	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
+	// only considers active providers. This prevents a deny rule from being bypassed
+	// when the only remaining active provider is a denied one but deactivated providers
+	// are still "allowed" by the IAM rules.
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
+		modelInfo,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
@@ -1089,9 +1094,22 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (!usedProvider) {
-		if (modelInfo.providers.length === 1) {
-			usedProvider = modelInfo.providers[0].providerId;
-			usedModel = modelInfo.providers[0].modelName;
+		// Filter providers by IAM allowed providers before selecting
+		const iamFilteredProviders = iamAllowedProviders
+			? modelInfo.providers.filter((p) =>
+					iamAllowedProviders.includes(p.providerId),
+				)
+			: modelInfo.providers;
+
+		if (iamFilteredProviders.length === 0) {
+			throw new HTTPException(403, {
+				message: `Access denied: No providers are allowed for model ${modelInfo.id} after applying IAM rules. All active providers for this model are denied by your API key's IAM configuration.`,
+			});
+		}
+
+		if (iamFilteredProviders.length === 1) {
+			usedProvider = iamFilteredProviders[0].providerId;
+			usedModel = iamFilteredProviders[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
@@ -2246,10 +2264,15 @@ chat.openapi(completions, async (c) => {
 						// Re-add abort listener (catch block removes it on error)
 						c.req.raw.signal.addEventListener("abort", onAbort);
 
+						const iamFilteredModelProviders = iamAllowedProviders
+							? modelInfo.providers.filter((p) =>
+									iamAllowedProviders.includes(p.providerId),
+								)
+							: modelInfo.providers;
 						const nextProvider = selectNextProvider(
 							routingMetadata?.providerScores ?? [],
 							failedProviderIds,
-							modelInfo.providers,
+							iamFilteredModelProviders,
 						);
 						if (!nextProvider) {
 							break;
@@ -4859,10 +4882,15 @@ chat.openapi(completions, async (c) => {
 			// Re-add abort listener (finally block removes it)
 			c.req.raw.signal.addEventListener("abort", onAbort);
 
+			const iamFilteredModelProviders = iamAllowedProviders
+				? modelInfo.providers.filter((p) =>
+						iamAllowedProviders.includes(p.providerId),
+					)
+				: modelInfo.providers;
 			const nextProvider = selectNextProvider(
 				routingMetadata?.providerScores ?? [],
 				failedProviderIds,
-				modelInfo.providers,
+				iamFilteredModelProviders,
 			);
 			if (!nextProvider) {
 				break;
