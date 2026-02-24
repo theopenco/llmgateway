@@ -21,6 +21,7 @@ type FollowUpEmailType = "no_purchase" | "low_usage" | "no_repurchase";
 const FOLLOW_UP_MAX_AGE_DAYS = Number(
 	process.env.FOLLOW_UP_MAX_AGE_DAYS ?? "30",
 );
+const HIGH_SPEND_THRESHOLD = 1000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const maxAgeMs = FOLLOW_UP_MAX_AGE_DAYS * MS_PER_DAY;
 const maxAgeAgo = new Date(Date.now() - maxAgeMs);
@@ -153,7 +154,11 @@ async function getOrgRecipientEmail(
 		with: { user: true },
 	});
 
-	return ownerMembership?.user?.email ?? null;
+	if (!ownerMembership?.user?.emailVerified) {
+		return null;
+	}
+
+	return ownerMembership.user.email ?? null;
 }
 
 // ─── Send & Record ───────────────────────────────────────────────────────────
@@ -272,6 +277,7 @@ async function processLowUsageEmails(): Promise<void> {
 		JOIN ${organization} o ON o.id = t.organization_id
 		WHERE o.status = 'active'
 		AND COALESCE(s.total_spent, 0) < (t.total_purchased * 0.02)
+		AND COALESCE(s.total_spent, 0) < ${HIGH_SPEND_THRESHOLD}
 		AND t.organization_id NOT IN (
 			SELECT ${followUpEmail.organizationId}
 			FROM ${followUpEmail}
@@ -344,6 +350,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 		LEFT JOIN ${organization} o ON o.id = t.organization_id
 		WHERE o.status = 'active'
 		AND COALESCE(s.total_spent, 0) >= (t.total_purchased * 0.50)
+		AND COALESCE(s.total_spent, 0) < ${HIGH_SPEND_THRESHOLD}
 		AND (o.auto_top_up_enabled = false OR o.auto_top_up_enabled IS NULL)
 		AND t.organization_id NOT IN (
 			SELECT ${followUpEmail.organizationId}
