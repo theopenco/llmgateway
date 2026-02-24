@@ -67,12 +67,12 @@ const response = await client.images.generate({
 	size: "1024x1024",
 });
 
-for (const image of response.data) {
+response.data.forEach((image, i) => {
 	if (image.b64_json) {
 		const buf = Buffer.from(image.b64_json, "base64");
-		writeFileSync("generated-image.png", buf);
+		writeFileSync(`image-${i}.png`, buf);
 	}
-}
+});
 ```
 
 ### Vercel AI SDK
@@ -96,10 +96,10 @@ const result = await generateImage({
 	n: 1,
 });
 
-for (const image of result.images) {
+result.images.forEach((image, i) => {
 	const buf = Buffer.from(image.base64, "base64");
-	writeFileSync("generated-image.png", buf);
-}
+	writeFileSync(`image-${i}.png`, buf);
+});
 ```
 
 ## Chat Completions API
