@@ -3649,7 +3649,7 @@ export interface paths {
                                 updatedAt: string;
                                 organizationId: string;
                                 /** @enum {string} */
-                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "credit_gift" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
                                 amount: string | null;
                                 creditAmount: string | null;
                                 currency: string;
@@ -3660,6 +3660,7 @@ export interface paths {
                                 description: string | null;
                                 relatedTransactionId: string | null;
                                 refundReason: string | null;
+                                giftComment: string | null;
                             }[];
                         };
                     };
@@ -3707,6 +3708,135 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{id}/gift-credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        creditAmount: number;
+                        giftComment?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Credits gifted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            transaction: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                organizationId: string;
+                                /** @enum {string} */
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "credit_gift" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
+                                amount: string | null;
+                                creditAmount: string | null;
+                                currency: string;
+                                /** @enum {string} */
+                                status: "pending" | "completed" | "failed";
+                                stripePaymentIntentId: string | null;
+                                stripeInvoiceId: string | null;
+                                description: string | null;
+                                relatedTransactionId: string | null;
+                                refundReason: string | null;
+                                giftComment: string | null;
+                            };
+                            organization: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                name: string;
+                                billingEmail: string;
+                                billingCompany: string | null;
+                                billingAddress: string | null;
+                                billingTaxId: string | null;
+                                billingNotes: string | null;
+                                credits: string;
+                                /** @enum {string} */
+                                plan: "free" | "pro" | "enterprise";
+                                planExpiresAt: string | null;
+                                /** @enum {string} */
+                                retentionLevel: "retain" | "none";
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                autoTopUpEnabled: boolean;
+                                autoTopUpThreshold: string | null;
+                                autoTopUpAmount: string | null;
+                                referralEarnings: string;
+                                isPersonal: boolean;
+                                /** @enum {string} */
+                                devPlan: "none" | "lite" | "pro" | "max";
+                                devPlanCreditsUsed: string;
+                                devPlanCreditsLimit: string;
+                                devPlanBillingCycleStart: string | null;
+                                devPlanExpiresAt: string | null;
+                                devPlanAllowAllModels: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Forbidden - admin access required. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -5086,7 +5216,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
