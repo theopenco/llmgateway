@@ -230,7 +230,6 @@ export const transaction = pgTable(
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
-		giftComment: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),

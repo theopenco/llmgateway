@@ -98,7 +98,6 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
-	giftComment: z.string().nullable(),
 });
 
 const getOrganizations = createRoute({
@@ -742,7 +741,7 @@ organization.openapi(getReferralStats, async (c) => {
 
 const giftCreditsSchema = z.object({
 	creditAmount: z.number().min(0.01, "Credit amount must be positive"),
-	giftComment: z.string().optional(),
+	comment: z.string().optional(),
 });
 
 const giftCredits = createRoute({
@@ -824,7 +823,7 @@ organization.openapi(giftCredits, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { creditAmount, giftComment } = c.req.valid("json");
+	const { creditAmount, comment } = c.req.valid("json");
 
 	// Fetch the organization
 	const org = await db.query.organization.findFirst({
@@ -841,6 +840,10 @@ organization.openapi(giftCredits, async (c) => {
 		});
 	}
 
+	const description = comment
+		? `Credits gifted by Administrator: ${comment}`
+		: "Credits gifted by Administrator";
+
 	// Create transaction record
 	const [transaction] = await db
 		.insert(tables.transaction)
@@ -851,8 +854,7 @@ organization.openapi(giftCredits, async (c) => {
 			amount: null, // No monetary amount for gifts
 			currency: "USD",
 			status: "completed",
-			description: `Credits gifted by admin${giftComment ? `: ${giftComment}` : ""}`,
-			giftComment: giftComment ?? null,
+			description,
 		})
 		.returning();
 
@@ -875,7 +877,7 @@ organization.openapi(giftCredits, async (c) => {
 		resourceId: id,
 		metadata: {
 			creditAmount,
-			giftComment,
+			comment,
 			transactionId: transaction.id,
 		},
 	});

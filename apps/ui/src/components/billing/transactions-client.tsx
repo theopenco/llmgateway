@@ -26,7 +26,6 @@ interface Transaction {
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
 	description: string | null;
-	giftComment?: string | null;
 }
 
 interface TransactionsData {

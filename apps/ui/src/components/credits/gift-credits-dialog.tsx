@@ -41,7 +41,7 @@ interface GiftCreditsDialogProps {
 export function GiftCreditsDialog({ children }: GiftCreditsDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [creditAmount, setCreditAmount] = useState<number>(10);
-	const [giftComment, setGiftComment] = useState<string>("");
+	const [comment, setComment] = useState<string>("");
 	const { toast } = useToast();
 	const api = useApi();
 	const { selectedOrganization } = useDashboardState();
@@ -77,7 +77,7 @@ export function GiftCreditsDialog({ children }: GiftCreditsDialogProps) {
 				},
 				body: {
 					creditAmount,
-					giftComment: giftComment.trim() || undefined,
+					comment: comment.trim() || undefined,
 				},
 			});
 
@@ -89,7 +89,7 @@ export function GiftCreditsDialog({ children }: GiftCreditsDialogProps) {
 			// Close dialog and reset
 			setOpen(false);
 			setCreditAmount(10);
-			setGiftComment("");
+			setComment("");
 
 			// Refresh the page to update credits
 			window.location.reload();
@@ -106,7 +106,7 @@ export function GiftCreditsDialog({ children }: GiftCreditsDialogProps) {
 	const handleClose = () => {
 		setOpen(false);
 		setCreditAmount(10);
-		setGiftComment("");
+		setComment("");
 	};
 
 	return (
@@ -140,11 +140,11 @@ export function GiftCreditsDialog({ children }: GiftCreditsDialogProps) {
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="giftComment">Comment (Optional)</Label>
+						<Label htmlFor="comment">Comment (Optional)</Label>
 						<Textarea
-							id="giftComment"
-							value={giftComment}
-							onChange={(e) => setGiftComment(e.target.value)}
+							id="comment"
+							value={comment}
+							onChange={(e) => setComment(e.target.value)}
 							placeholder="E.g., Welcome bonus, Compensation for downtime, etc."
 							rows={3}
 						/>
