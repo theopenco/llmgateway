@@ -8,10 +8,11 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Image Generation
 
-LLMGateway supports image generation through two APIs:
+LLMGateway supports image generation through three APIs:
 
 1. **`/v1/images/generations`** — OpenAI-compatible images endpoint (recommended for simple image generation)
-2. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
+2. **`/v1/images/edits`** — OpenAI-compatible image editing endpoint (for editing existing images with AI)
+3. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
 
 ## Available Models
 
@@ -102,6 +103,112 @@ result.images.forEach((image, i) => {
 });
 ```
 
+## OpenAI Image Edits API
+
+The `/v1/images/edits` endpoint provides a drop-in replacement for OpenAI's image editing API. It allows you to edit existing images using AI by providing one or more input images and a text description of the desired changes.
+
+### Parameters
+
+| Parameter         | Type          | Default      | Description                                                                                                      |
+| ----------------- | ------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `prompt`          | string        | required     | A text description of the desired edit to apply to the image(s)                                                  |
+| `image`           | string        | —            | A single input image URL or data URL (base64) to edit                                                            |
+| `images`          | array[string] | —            | Multiple input image URLs or data URLs (base64) to edit. Maximum 16 images                                       |
+| `mask`            | string        | —            | An optional mask image URL or data URL indicating areas to edit. Transparent areas show where edits should apply |
+| `model`           | string        | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image-preview`                                                |
+| `n`               | integer       | `1`          | Number of edited images to generate (1-10)                                                                       |
+| `size`            | string        | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration) |
+| `quality`         | string        | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)   |
+| `response_format` | string        | `"b64_json"` | Only `b64_json` is supported                                                                                     |
+| `aspect_ratio`    | string        | —            | Aspect ratio of output images (e.g., `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`). Takes precedence over size            |
+
+<Callout type="info">
+	At least one of `image` or `images` must be provided. You can provide multiple
+	images to edit them together or create variations.
+</Callout>
+
+### curl
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3-pro-image-preview",
+    "image": "https://example.com/cat.png",
+    "prompt": "Make the cat wear a tiny wizard hat",
+    "n": 1,
+    "size": "1024x1024"
+  }'
+```
+
+### OpenAI SDK
+
+Works with the standard OpenAI client library — just point the base URL to LLMGateway.
+
+```ts
+import OpenAI from "openai";
+import { writeFileSync, readFileSync } from "fs";
+
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+// Read an image and convert to base64 data URL
+const imageBuffer = readFileSync("input-cat.png");
+const base64Image = imageBuffer.toString("base64");
+const dataUrl = `data:image/png;base64,${base64Image}`;
+
+const response = await client.images.edit({
+	model: "gemini-3-pro-image-preview",
+	image: dataUrl,
+	prompt: "Add a colorful sunset background",
+	n: 1,
+	size: "1024x1024",
+});
+
+response.data.forEach((image, i) => {
+	if (image.b64_json) {
+		const buf = Buffer.from(image.b64_json, "base64");
+		writeFileSync(`edited-image-${i}.png`, buf);
+	}
+});
+```
+
+### Multiple Images
+
+You can edit multiple images at once by providing the `images` array parameter:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3-pro-image-preview",
+    "images": [
+      "https://example.com/photo1.png",
+      "https://example.com/photo2.png"
+    ],
+    "prompt": "Combine these images into a single cohesive scene",
+    "n": 1
+  }'
+```
+
+### Using a Mask
+
+Provide a mask image to specify which areas of the input image should be edited. Transparent or white areas in the mask indicate where edits should be applied:
+
+```ts
+const response = await client.images.edit({
+	model: "gemini-3-pro-image-preview",
+	image: "data:image/png;base64,<base64_image_data>",
+	mask: "data:image/png;base64,<base64_mask_data>",
+	prompt: "Replace the background with a tropical beach scene",
+	n: 1,
+});
+```
+
 ## Chat Completions API
 
 Image generation also works through the `/v1/chat/completions` endpoint, which is useful for conversational image generation, image editing with vision, and multi-turn interactions.
@@ -163,7 +270,7 @@ Image generation models return responses in the standard chat completions format
 
 ### Vision support
 
-You can edit or modify images by combining image generation with [vision models](/features/vision) by including the image in the `messages` array.
+You can edit or modify images by combining image generation with [vision models](/features/vision) by including the image in the `messages` array. For a more streamlined experience, consider using the dedicated [`/v1/images/edits`](#openai-image-edits-api) endpoint instead.
 
 ### Response Structure
 
