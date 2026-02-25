@@ -3660,7 +3660,6 @@ export interface paths {
                                 description: string | null;
                                 relatedTransactionId: string | null;
                                 refundReason: string | null;
-                                giftComment: string | null;
                             }[];
                         };
                     };
@@ -3736,7 +3735,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         creditAmount: number;
-                        giftComment?: string;
+                        comment?: string;
                     };
                 };
             };
@@ -3766,7 +3765,6 @@ export interface paths {
                                 description: string | null;
                                 relatedTransactionId: string | null;
                                 refundReason: string | null;
-                                giftComment: string | null;
                             };
                             organization: {
                                 id: string;
