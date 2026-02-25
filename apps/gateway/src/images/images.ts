@@ -537,9 +537,11 @@ images.openapi(edits, async (c) => {
 		imageUrls.push(...request.images);
 	}
 
+	const isProd = process.env.NODE_ENV === "production";
+
 	// Fetch and convert all images to base64 in parallel
 	const imageResults = await Promise.all(
-		imageUrls.map((url) => processImageUrl(url)),
+		imageUrls.map((url) => processImageUrl(url, isProd)),
 	);
 
 	// Build message content parts: images first, then text
@@ -556,7 +558,7 @@ images.openapi(edits, async (c) => {
 
 	// If mask provided, fetch it and add as additional image
 	if (request.mask) {
-		const maskResult = await processImageUrl(request.mask);
+		const maskResult = await processImageUrl(request.mask, isProd);
 		contentParts.push({
 			type: "image_url",
 			image_url: {
