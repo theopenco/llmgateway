@@ -1478,6 +1478,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization members. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            members: {
+                                id: string;
+                                userId: string;
+                                role: string;
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                };
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/organizations/{orgId}/projects/{projectId}/metrics": {
         parameters: {
             query?: never;
