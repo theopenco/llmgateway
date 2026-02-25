@@ -164,6 +164,23 @@ const apiKeysListSchema = z.object({
 	offset: z.number(),
 });
 
+const memberSchema = z.object({
+	id: z.string(),
+	userId: z.string(),
+	role: z.string(),
+	createdAt: z.string(),
+	user: z.object({
+		id: z.string(),
+		email: z.string(),
+		name: z.string().nullable(),
+	}),
+});
+
+const membersListSchema = z.object({
+	members: z.array(memberSchema),
+	total: z.number(),
+});
+
 const getMetrics = createRoute({
 	method: "get",
 	path: "/metrics",
@@ -318,6 +335,29 @@ const getOrganizationApiKeys = createRoute({
 				},
 			},
 			description: "Organization API keys.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationMembers = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/members",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: membersListSchema.openapi({}),
+				},
+			},
+			description: "Organization members.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -1177,6 +1217,51 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		total,
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getOrganizationMembers, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const members = await db
+		.select({
+			id: tables.userOrganization.id,
+			userId: tables.userOrganization.userId,
+			role: tables.userOrganization.role,
+			createdAt: tables.userOrganization.createdAt,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.organizationId, orgId))
+		.orderBy(desc(tables.userOrganization.createdAt));
+
+	return c.json({
+		members: members.map((m) => ({
+			id: m.id,
+			userId: m.userId,
+			role: m.role,
+			createdAt: m.createdAt.toISOString(),
+			user: {
+				id: m.userId,
+				email: m.userEmail,
+				name: m.userName,
+			},
+		})),
+		total: members.length,
 	});
 });
 

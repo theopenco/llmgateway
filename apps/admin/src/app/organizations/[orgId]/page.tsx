@@ -6,6 +6,7 @@ import {
 	FolderOpen,
 	Key,
 	Receipt,
+	Users,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -23,6 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	getOrganizationApiKeys,
+	getOrganizationMembers,
 	getOrganizationProjects,
 	getOrganizationTransactions,
 	giftCreditsToOrganization,
@@ -137,11 +139,13 @@ export default async function OrganizationPage({
 	const akLimit = 25;
 	const akOffset = (akPage - 1) * akLimit;
 
-	const [transactionsData, projectsData, apiKeysData] = await Promise.all([
-		getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
-		getOrganizationProjects(orgId),
-		getOrganizationApiKeys(orgId, { limit: akLimit, offset: akOffset }),
-	]);
+	const [transactionsData, projectsData, apiKeysData, membersData] =
+		await Promise.all([
+			getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
+			getOrganizationProjects(orgId),
+			getOrganizationApiKeys(orgId, { limit: akLimit, offset: akOffset }),
+			getOrganizationMembers(orgId),
+		]);
 
 	if (transactionsData === null) {
 		return <SignInPrompt />;
@@ -160,6 +164,8 @@ export default async function OrganizationPage({
 	const apiKeys = apiKeysData?.apiKeys ?? [];
 	const akTotal = apiKeysData?.total ?? 0;
 	const akTotalPages = Math.ceil(akTotal / akLimit);
+	const members = membersData?.members ?? [];
+	const membersTotal = membersData?.total ?? 0;
 
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
@@ -277,6 +283,10 @@ export default async function OrganizationPage({
 					<TabsTrigger value="api-keys">
 						<Key className="mr-1.5 h-4 w-4" />
 						API Keys ({akTotal})
+					</TabsTrigger>
+					<TabsTrigger value="members">
+						<Users className="mr-1.5 h-4 w-4" />
+						Members ({membersTotal})
 					</TabsTrigger>
 				</TabsList>
 
@@ -525,6 +535,60 @@ export default async function OrganizationPage({
 								</div>
 							</div>
 						)}
+					</div>
+				</TabsContent>
+
+				<TabsContent value="members">
+					<div className="space-y-4">
+						<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Name</TableHead>
+										<TableHead>Email</TableHead>
+										<TableHead>Role</TableHead>
+										<TableHead>Joined</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{members.length === 0 ? (
+										<TableRow>
+											<TableCell
+												colSpan={4}
+												className="h-24 text-center text-muted-foreground"
+											>
+												No members found
+											</TableCell>
+										</TableRow>
+									) : (
+										members.map((member) => (
+											<TableRow key={member.id}>
+												<TableCell className="font-medium">
+													{member.user.name ?? "—"}
+												</TableCell>
+												<TableCell>{member.user.email}</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															member.role === "owner"
+																? "default"
+																: member.role === "admin"
+																	? "secondary"
+																	: "outline"
+														}
+													>
+														{member.role}
+													</Badge>
+												</TableCell>
+												<TableCell className="text-muted-foreground">
+													{formatDate(member.createdAt)}
+												</TableCell>
+											</TableRow>
+										))
+									)}
+								</TableBody>
+							</Table>
+						</div>
 					</div>
 				</TabsContent>
 			</Tabs>

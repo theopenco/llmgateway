@@ -107,6 +107,23 @@ export interface ApiKeysListResponse {
 	offset: number;
 }
 
+export interface Member {
+	id: string;
+	userId: string;
+	role: string;
+	createdAt: string;
+	user: {
+		id: string;
+		email: string;
+		name: string | null;
+	};
+}
+
+export interface MembersListResponse {
+	members: Member[];
+	total: number;
+}
+
 async function hasSession(): Promise<boolean> {
 	const cookieStore = await cookies();
 	const key = "better-auth.session_token";
@@ -261,6 +278,28 @@ export async function getOrganizationApiKeys(
 				query: {
 					limit: params?.limit ?? 25,
 					offset: params?.offset ?? 0,
+				},
+			},
+		},
+	);
+
+	return data;
+}
+
+export async function getOrganizationMembers(
+	orgId: string,
+): Promise<MembersListResponse | null> {
+	if (!(await hasSession())) {
+		return null;
+	}
+
+	const data = await fetchServerData<MembersListResponse>(
+		"GET",
+		"/admin/organizations/{orgId}/members" as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: {
+					orgId,
 				},
 			},
 		},
