@@ -81,6 +81,7 @@ const transactionSchema = z.object({
 		"subscription_end",
 		"credit_topup",
 		"credit_refund",
+		"credit_gift",
 		"dev_plan_start",
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",
@@ -97,6 +98,7 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
+	giftComment: z.string().nullable(),
 });
 
 const getOrganizations = createRoute({
@@ -735,6 +737,153 @@ organization.openapi(getReferralStats, async (c) => {
 
 	return c.json({
 		referredCount: referrals.length,
+	});
+});
+
+const giftCreditsSchema = z.object({
+	creditAmount: z.number().min(0.01, "Credit amount must be positive"),
+	giftComment: z.string().optional(),
+});
+
+const giftCredits = createRoute({
+	method: "post",
+	path: "/{id}/gift-credits",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: giftCreditsSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						transaction: transactionSchema.openapi({}),
+						organization: organizationSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Credits gifted successfully.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Forbidden - admin access required.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+organization.openapi(giftCredits, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	// Check if user is admin (you may want to implement proper admin check)
+	// For now, we'll add a simple check - you should replace this with your admin logic
+	const isAdmin = user.email?.endsWith("@llmgateway.io") || false;
+	if (!isAdmin) {
+		throw new HTTPException(403, {
+			message: "Admin access required to gift credits",
+		});
+	}
+
+	const { id } = c.req.param();
+	const { creditAmount, giftComment } = c.req.valid("json");
+
+	// Fetch the organization
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: {
+				eq: id,
+			},
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	// Create transaction record
+	const [transaction] = await db
+		.insert(tables.transaction)
+		.values({
+			organizationId: id,
+			type: "credit_gift",
+			creditAmount: creditAmount.toString(),
+			amount: null, // No monetary amount for gifts
+			currency: "USD",
+			status: "completed",
+			description: `Credits gifted by admin${giftComment ? `: ${giftComment}` : ""}`,
+			giftComment: giftComment ?? null,
+		})
+		.returning();
+
+	// Update organization credits
+	const newCredits = (parseFloat(org.credits) + creditAmount).toString();
+	const [updatedOrganization] = await db
+		.update(tables.organization)
+		.set({
+			credits: newCredits,
+		})
+		.where(eq(tables.organization.id, id))
+		.returning();
+
+	// Log audit event
+	await logAuditEvent({
+		organizationId: id,
+		userId: user.id,
+		action: "credits.gift",
+		resourceType: "organization",
+		resourceId: id,
+		metadata: {
+			creditAmount,
+			giftComment,
+			transactionId: transaction.id,
+		},
+	});
+
+	return c.json({
+		message: "Credits gifted successfully",
+		transaction,
+		organization: updatedOrganization,
 	});
 });
 

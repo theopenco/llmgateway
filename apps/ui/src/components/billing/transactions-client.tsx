@@ -18,6 +18,7 @@ interface Transaction {
 	type:
 		| "credit_refund"
 		| "credit_topup"
+		| "credit_gift"
 		| "subscription_start"
 		| "subscription_cancel"
 		| "subscription_end";
@@ -25,6 +26,7 @@ interface Transaction {
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
 	description: string | null;
+	giftComment?: string | null;
 }
 
 interface TransactionsData {
@@ -38,6 +40,8 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
 				return "Credit Top-up";
 			case "credit_refund":
 				return "Credit Refund";
+			case "credit_gift":
+				return "Credit Gift";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_cancel":
@@ -184,6 +188,7 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 														"Credit Top-up"}
 													{transaction.type === "credit_refund" &&
 														"Credit Refund"}
+													{transaction.type === "credit_gift" && "Credit Gift"}
 													{transaction.type === "subscription_start" &&
 														"Subscription Start"}
 													{transaction.type === "subscription_cancel" &&
