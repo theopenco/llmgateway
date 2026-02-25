@@ -54,7 +54,8 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
-				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "novita",
@@ -351,7 +352,8 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
-				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},

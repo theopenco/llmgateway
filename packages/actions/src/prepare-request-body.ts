@@ -1471,6 +1471,10 @@ export async function prepareRequestBody(
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
 			}
 
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;

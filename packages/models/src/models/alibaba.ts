@@ -1101,7 +1101,8 @@ export const alibabaModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},

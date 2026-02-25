@@ -70,7 +70,8 @@ export const minimaxModels = [
 				reasoningOutput: "omit",
 				vision: false,
 				tools: false,
-				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
