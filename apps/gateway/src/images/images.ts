@@ -351,8 +351,8 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
-	// Pass image configuration if we have an aspect ratio or size
-	if (aspectRatio || request.size) {
+	// Pass image configuration if we have an aspect ratio, size, or n > 1
+	if (aspectRatio || request.size || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
@@ -586,7 +586,7 @@ images.openapi(edits, async (c) => {
 		stream: false,
 	};
 
-	if (aspectRatio || request.size) {
+	if (aspectRatio || request.size || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
