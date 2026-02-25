@@ -2435,23 +2435,32 @@ admin.openapi(giftCreditsRoute, async (c) => {
 		? `Credits gifted by Administrator: ${comment}`
 		: "Credits gifted by Administrator";
 
-	const [transaction] = await db
-		.insert(tables.transaction)
-		.values({
-			organizationId: orgId,
-			type: "credit_gift",
-			creditAmount: creditAmount.toString(),
-			currency: "USD",
-			status: "completed",
-			description,
-		})
-		.returning();
+	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "credit_gift",
+				creditAmount: creditAmount.toString(),
+				currency: "USD",
+				status: "completed",
+				description,
+			})
+			.returning({ id: tables.transaction.id });
 
-	const newCredits = (parseFloat(org.credits) + creditAmount).toString();
-	await db
-		.update(tables.organization)
-		.set({ credits: newCredits })
-		.where(eq(tables.organization.id, orgId));
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${creditAmount}`,
+			})
+			.where(eq(tables.organization.id, orgId))
+			.returning({ credits: tables.organization.credits });
+
+		return {
+			transactionId: txn.id,
+			updatedCredits: String(updatedOrg.credits),
+		};
+	});
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -2462,13 +2471,13 @@ admin.openapi(giftCreditsRoute, async (c) => {
 		metadata: {
 			creditAmount,
 			comment,
-			transactionId: transaction.id,
+			transactionId,
 		},
 	});
 
 	return c.json({
 		message: "Credits gifted successfully",
-		credits: newCredits,
+		credits: updatedCredits,
 	});
 });
 
