@@ -47,6 +47,11 @@ const imageGenerationsRequestSchema = z.object({
 		description: "The style of the generated images.",
 		example: "vivid",
 	}),
+	aspect_ratio: z.string().optional().openapi({
+		description:
+			"The aspect ratio of the generated images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size if both are provided.",
+		example: "16:9",
+	}),
 });
 
 type ImageGenerationsRequest = z.infer<typeof imageGenerationsRequestSchema>;
@@ -177,9 +182,9 @@ images.openapi(generations, async (c) => {
 
 	// Build the chat completions request
 	const chatPrompt = buildImagePrompt(request);
-	const aspectRatio = request.size
-		? sizeToAspectRatio(request.size)
-		: undefined;
+	const aspectRatio =
+		request.aspect_ratio ??
+		(request.size ? sizeToAspectRatio(request.size) : undefined);
 
 	const chatRequest: Record<string, unknown> = {
 		model,
@@ -193,11 +198,11 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
-	// Pass image configuration if we have a size/aspect ratio
-	if (aspectRatio && request.size) {
+	// Pass image configuration if we have an aspect ratio or size
+	if (aspectRatio || request.size) {
 		chatRequest.image_config = {
-			aspect_ratio: aspectRatio,
-			image_size: request.size,
+			...(aspectRatio && { aspect_ratio: aspectRatio }),
+			...(request.size && { image_size: request.size }),
 			n: request.n,
 		};
 	}
