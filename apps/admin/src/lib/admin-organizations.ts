@@ -390,3 +390,32 @@ export async function loadProjectLogsAction(
 ): Promise<ProjectLogsResponse | null> {
 	return await getProjectLogs(orgId, projectId, { cursor });
 }
+
+export async function giftCreditsToOrganization(
+	orgId: string,
+	data: { creditAmount: number; comment?: string },
+): Promise<{ success: boolean; error?: string }> {
+	if (!(await hasSession())) {
+		return { success: false, error: "Not authenticated" };
+	}
+
+	const result = await fetchServerData<{ message: string; credits: string }>(
+		"POST",
+		`/admin/organizations/${orgId}/gift-credits` as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: { orgId },
+			},
+			body: {
+				creditAmount: data.creditAmount,
+				comment: data.comment,
+			},
+		},
+	);
+
+	if (!result) {
+		return { success: false, error: "Failed to gift credits" };
+	}
+
+	return { success: true };
+}

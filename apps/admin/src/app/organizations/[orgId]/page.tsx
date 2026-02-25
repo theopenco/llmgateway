@@ -25,8 +25,10 @@ import {
 	getOrganizationApiKeys,
 	getOrganizationProjects,
 	getOrganizationTransactions,
+	giftCreditsToOrganization,
 } from "@/lib/admin-organizations";
 
+import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { OrgMetricsSection } from "./org-metrics";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -97,7 +99,11 @@ function getTransactionTypeBadgeVariant(type: string) {
 	if (type.includes("cancel") || type.includes("refund")) {
 		return "destructive";
 	}
-	if (type.includes("start") || type.includes("topup")) {
+	if (
+		type.includes("start") ||
+		type.includes("topup") ||
+		type.includes("gift")
+	) {
 		return "default";
 	}
 	if (type.includes("upgrade")) {
@@ -199,11 +205,21 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
-				<Button variant="outline" size="sm" asChild>
-					<Link href={`/organizations/${orgId}/discounts`}>
-						Manage Discounts
-					</Link>
-				</Button>
+				<div className="flex items-center gap-2">
+					<GiftCreditsDialog
+						orgId={orgId}
+						orgName={org.name}
+						onGift={async (data) => {
+							"use server";
+							return await giftCreditsToOrganization(orgId, data);
+						}}
+					/>
+					<Button variant="outline" size="sm" asChild>
+						<Link href={`/organizations/${orgId}/discounts`}>
+							Manage Discounts
+						</Link>
+					</Button>
+				</div>
 			</header>
 
 			<OrgMetricsSection orgId={orgId} />

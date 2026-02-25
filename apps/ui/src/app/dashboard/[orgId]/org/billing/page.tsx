@@ -1,6 +1,5 @@
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
-import { GiftCreditsButton } from "@/components/credits/gift-credits-dialog";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import {
@@ -45,10 +44,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 									Your current credit balance and top-up options
 								</CardDescription>
 							</div>
-							<div className="flex gap-2">
-								<TopUpCreditsButton />
-								<GiftCreditsButton />
-							</div>
+							<TopUpCreditsButton />
 						</CardHeader>
 						<CardContent>
 							<CreditsBalance />
