@@ -190,7 +190,7 @@ importers:
         version: 1.0.0
       better-auth:
         specifier: 1.3.30
-        version: 1.3.30(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 1.3.30(next@16.1.6(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -269,7 +269,7 @@ importers:
         version: 9.38.0(jiti@2.6.1)
       eslint-config-next:
         specifier: 16.0.0
-        version: 16.0.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
+        version: 16.0.0(@typescript-eslint/parser@8.46.2(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
       openapi-typescript:
         specifier: 7.10.1
         version: 7.10.1(typescript@5.9.3)
@@ -290,16 +290,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.0
-        version: 1.19.9(hono@4.12.1)
+        version: 1.19.9(hono@4.12.2)
       '@hono/swagger-ui':
         specifier: ^0.5.2
-        version: 0.5.2(hono@4.12.1)
+        version: 0.5.2(hono@4.12.2)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.12.1)(zod@3.25.75)
+        version: 0.19.8(hono@4.12.2)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.2(hono@4.12.1)(zod@3.25.75)
+        version: 0.7.2(hono@4.12.2)(zod@3.25.75)
       '@kubiks/otel-better-auth':
         specifier: 2.0.2
         version: 2.0.2(@opentelemetry/api@1.9.0)(better-auth@1.3.30(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
@@ -352,11 +352,11 @@ importers:
         specifier: workspace:*
         version: link:../gateway
       hono:
-        specifier: ^4.11.10
-        version: 4.12.1
+        specifier: ^4.12.2
+        version: 4.12.2
       hono-openapi:
         specifier: ^1.1.1
-        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.1)(openapi-types@12.1.3)
+        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.2)(openapi-types@12.1.3)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -610,16 +610,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.0
-        version: 1.19.9(hono@4.12.1)
+        version: 1.19.9(hono@4.12.2)
       '@hono/swagger-ui':
         specifier: ^0.5.2
-        version: 0.5.2(hono@4.12.1)
+        version: 0.5.2(hono@4.12.2)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.12.1)(zod@3.25.75)
+        version: 0.19.8(hono@4.12.2)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.2(hono@4.12.1)(zod@3.25.75)
+        version: 0.7.2(hono@4.12.2)(zod@3.25.75)
       '@llmgateway/actions':
         specifier: workspace:*
         version: link:../../packages/actions
@@ -646,7 +646,7 @@ importers:
         version: link:../../packages/shared
       '@modelcontextprotocol/sdk':
         specifier: 1.25.3
-        version: 1.25.3(hono@4.12.1)(zod@3.25.75)
+        version: 1.25.3(hono@4.12.2)(zod@3.25.75)
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
@@ -663,11 +663,11 @@ importers:
         specifier: 3.0.1
         version: 3.0.1
       hono:
-        specifier: ^4.11.10
-        version: 4.12.1
+        specifier: ^4.12.2
+        version: 4.12.2
       hono-openapi:
         specifier: ^1.1.1
-        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.1)(openapi-types@12.1.3)
+        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.2)(openapi-types@12.1.3)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -709,7 +709,7 @@ importers:
         version: link:../../packages/shared
       '@modelcontextprotocol/sdk':
         specifier: 1.25.3
-        version: 1.25.3(hono@4.12.1)(zod@3.25.76)
+        version: 1.25.3(hono@4.12.2)(zod@3.25.76)
       '@radix-ui/react-avatar':
         specifier: 1.1.11
         version: 1.1.11(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -793,7 +793,7 @@ importers:
         version: 1.0.0
       better-auth:
         specifier: 1.3.30
-        version: 1.3.30(next@16.1.6(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 1.3.30(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -902,7 +902,7 @@ importers:
         version: 9.38.0(jiti@2.6.1)
       eslint-config-next:
         specifier: 16.0.0
-        version: 16.0.0(@typescript-eslint/parser@8.46.2(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
+        version: 16.0.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
       openapi-typescript:
         specifier: 7.10.1
         version: 7.10.1(typescript@5.9.3)
@@ -1288,8 +1288,8 @@ importers:
         specifier: 2.2.0
         version: 2.2.0(@opentelemetry/api@1.9.0)
       hono:
-        specifier: ^4.11.10
-        version: 4.12.1
+        specifier: ^4.12.2
+        version: 4.12.2
       prom-client:
         specifier: 15.1.3
         version: 15.1.3
@@ -1581,16 +1581,16 @@ packages:
     resolution: {integrity: sha512-fCqPIfOcLE+CGqGPd66c8bZpwAji98tZ4JI9i/mlTNTlsIWslCfpg48s/ypyLxZTump5sypjrKn2/kY7q8oAbA==}
     engines: {node: '>=20.0.0'}
 
-  '@azure/msal-browser@4.28.2':
-    resolution: {integrity: sha512-6vYUMvs6kJxJgxaCmHn/F8VxjLHNh7i9wzfwPGf8kyBJ8Gg2yvBXx175Uev8LdrD1F5C4o7qHa2CC4IrhGE1XQ==}
+  '@azure/msal-browser@4.29.0':
+    resolution: {integrity: sha512-/f3eHkSNUTl6DLQHm+bKecjBKcRQxbd/XLx8lvSYp8Nl/HRyPuIPOijt9Dt0sH50/SxOwQ62RnFCmFlGK+bR/w==}
     engines: {node: '>=0.8.0'}
 
-  '@azure/msal-common@15.14.2':
-    resolution: {integrity: sha512-n8RBJEUmd5QotoqbZfd+eGBkzuFI1KX6jw2b3WcpSyGjwmzoeI/Jb99opIBPHpb8y312NB+B6+FGi2ZVSR8yfA==}
+  '@azure/msal-common@15.15.0':
+    resolution: {integrity: sha512-/n+bN0AKlVa+AOcETkJSKj38+bvFs78BaP4rNtv3MJCmPH0YrHiskMRe74OhyZ5DZjGISlFyxqvf9/4QVEi2tw==}
     engines: {node: '>=0.8.0'}
 
-  '@azure/msal-node@3.8.7':
-    resolution: {integrity: sha512-a+Xnrae+uwLnlw68bplS1X4kuJ9F/7K6afuMFyRkNIskhjgDezl5Fhrx+1pmAlDmC0VaaAxjRQMp1OmcqVwkIg==}
+  '@azure/msal-node@3.8.8':
+    resolution: {integrity: sha512-+f1VrJH1iI517t4zgmuhqORja0bL6LDQXfBqkjuMmfTYXTQQnh1EvwwxO3UbKLT05N0obF72SRHFrC1RBDv5Gg==}
     engines: {node: '>=16'}
 
   '@babel/code-frame@7.27.1':
@@ -6977,8 +6977,8 @@ packages:
       hono:
         optional: true
 
-  hono@4.12.1:
-    resolution: {integrity: sha512-hi9afu8g0lfJVLolxElAZGANCTTl6bewIdsRNhaywfP9K8BPf++F2z6OLrYGIinUwpRKzbZHMhPwvc0ZEpAwGw==}
+  hono@4.12.2:
+    resolution: {integrity: sha512-gJnaDHXKDayjt8ue0n8Gs0A007yKXj4Xzb8+cNjZeYsSzzwKc0Lr+OZgYwVfB0pHfUs17EPoLvrOsEaJ9mj+Tg==}
     engines: {node: '>=16.9.0'}
 
   hook-std@4.0.0:
@@ -10727,8 +10727,8 @@ snapshots:
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
-      '@azure/msal-browser': 4.28.2
-      '@azure/msal-node': 3.8.7
+      '@azure/msal-browser': 4.29.0
+      '@azure/msal-node': 3.8.8
       open: 10.2.0
       tslib: 2.8.1
     transitivePeerDependencies:
@@ -10772,15 +10772,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@azure/msal-browser@4.28.2':
+  '@azure/msal-browser@4.29.0':
     dependencies:
-      '@azure/msal-common': 15.14.2
+      '@azure/msal-common': 15.15.0
 
-  '@azure/msal-common@15.14.2': {}
+  '@azure/msal-common@15.15.0': {}
 
-  '@azure/msal-node@3.8.7':
+  '@azure/msal-node@3.8.8':
     dependencies:
-      '@azure/msal-common': 15.14.2
+      '@azure/msal-common': 15.15.0
       jsonwebtoken: 9.0.3
       uuid: 8.3.2
 
@@ -11384,24 +11384,24 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@1.19.9(hono@4.12.1)':
+  '@hono/node-server@1.19.9(hono@4.12.2)':
     dependencies:
-      hono: 4.12.1
+      hono: 4.12.2
 
-  '@hono/swagger-ui@0.5.2(hono@4.12.1)':
+  '@hono/swagger-ui@0.5.2(hono@4.12.2)':
     dependencies:
-      hono: 4.12.1
+      hono: 4.12.2
 
-  '@hono/zod-openapi@0.19.8(hono@4.12.1)(zod@3.25.75)':
+  '@hono/zod-openapi@0.19.8(hono@4.12.2)(zod@3.25.75)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 7.3.0(zod@3.25.75)
-      '@hono/zod-validator': 0.7.2(hono@4.12.1)(zod@3.25.75)
-      hono: 4.12.1
+      '@hono/zod-validator': 0.7.2(hono@4.12.2)(zod@3.25.75)
+      hono: 4.12.2
       zod: 3.25.75
 
-  '@hono/zod-validator@0.7.2(hono@4.12.1)(zod@3.25.75)':
+  '@hono/zod-validator@0.7.2(hono@4.12.2)(zod@3.25.75)':
     dependencies:
-      hono: 4.12.1
+      hono: 4.12.2
       zod: 3.25.75
 
   '@hookform/resolvers@5.2.2(react-hook-form@7.65.0(react@19.2.4))':
@@ -11623,9 +11623,9 @@ snapshots:
     dependencies:
       langium: 3.3.1
 
-  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.1)(zod@3.25.75)':
+  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.2)(zod@3.25.75)':
     dependencies:
-      '@hono/node-server': 1.19.9(hono@4.12.1)
+      '@hono/node-server': 1.19.9(hono@4.12.2)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -11645,9 +11645,9 @@ snapshots:
       - hono
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.1)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.2)(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.9(hono@4.12.1)
+      '@hono/node-server': 1.19.9(hono@4.12.2)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -15752,7 +15752,7 @@ snapshots:
       '@next/eslint-plugin-next': 16.0.0
       eslint: 9.38.0(jiti@2.6.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.38.0(jiti@2.6.1))
       eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@9.38.0(jiti@2.6.1))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.38.0(jiti@2.6.1))
       eslint-plugin-react: 7.37.5(eslint@9.38.0(jiti@2.6.1))
@@ -15779,21 +15779,6 @@ snapshots:
       debug: 3.2.7
       is-core-module: 2.16.1
       resolve: 1.22.11
-    transitivePeerDependencies:
-      - supports-color
-
-  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1)):
-    dependencies:
-      '@nolyfill/is-core-module': 1.0.39
-      debug: 4.4.3(supports-color@5.5.0)
-      eslint: 9.38.0(jiti@2.6.1)
-      get-tsconfig: 4.13.0
-      is-bun-module: 2.0.0
-      stable-hash: 0.0.5
-      tinyglobby: 0.2.15
-      unrs-resolver: 1.11.1
-    optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -15838,14 +15823,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1)):
+  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1)(eslint@9.38.0(jiti@2.6.1)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2)
       eslint: 9.38.0(jiti@2.6.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.38.0(jiti@2.6.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -15913,7 +15898,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.38.0(jiti@2.6.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1)))(eslint@9.38.0(jiti@2.6.1))
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1)(eslint@9.38.0(jiti@2.6.1))
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3
@@ -17097,16 +17082,16 @@ snapshots:
 
   highlightjs-vue@1.0.0: {}
 
-  hono-openapi@1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.1)(openapi-types@12.1.3):
+  hono-openapi@1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.2)(openapi-types@12.1.3):
     dependencies:
       '@standard-community/standard-json': 0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75)
       '@standard-community/standard-openapi': 0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75)
       '@types/json-schema': 7.0.15
       openapi-types: 12.1.3
     optionalDependencies:
-      hono: 4.12.1
+      hono: 4.12.2
 
-  hono@4.12.1: {}
+  hono@4.12.2: {}
 
   hook-std@4.0.0: {}
 
