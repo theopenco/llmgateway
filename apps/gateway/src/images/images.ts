@@ -392,12 +392,7 @@ images.openapi(generations, async (c) => {
 // --- Image Edits Endpoint ---
 
 const imageEditImageInputSchema = z.object({
-	file_id: z.string().optional().openapi({
-		description:
-			"The File API ID of an uploaded image to use as input. Not supported by LLMGateway yet.",
-		example: "file-abc123",
-	}),
-	image_url: z.string().optional().openapi({
+	image_url: z.string().openapi({
 		description: "A fully qualified HTTPS URL or base64-encoded data URL.",
 		example: "https://example.com/source-image.png",
 	}),
@@ -424,10 +419,6 @@ const imageEditsRequestSchema = z.object({
 		description: "The model to use for image editing.",
 		example: "gemini-3-pro-image-preview",
 	}),
-	moderation: z.enum(["low", "auto"]).optional().openapi({
-		description: "Moderation level for image models.",
-		example: "auto",
-	}),
 	n: z.number().int().min(1).max(10).optional().openapi({
 		description: "The number of edited images to generate.",
 		example: 1,
@@ -440,11 +431,6 @@ const imageEditsRequestSchema = z.object({
 		description: "Output image format.",
 		example: "png",
 	}),
-	partial_images: z.number().int().min(0).max(3).optional().openapi({
-		description:
-			"The number of partial images to generate for streaming responses.",
-		example: 1,
-	}),
 	quality: z.enum(["low", "medium", "high", "auto"]).optional().openapi({
 		description: "Output quality for image models.",
 		example: "high",
@@ -456,15 +442,6 @@ const imageEditsRequestSchema = z.object({
 			description: "Requested output image size.",
 			example: "1024x1024",
 		}),
-	stream: z.boolean().optional().openapi({
-		description: "Stream partial image results as events.",
-		example: false,
-	}),
-	user: z.string().optional().openapi({
-		description:
-			"A unique identifier representing your end-user for abuse monitoring.",
-		example: "user-1234",
-	}),
 });
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
@@ -596,27 +573,9 @@ images.openapi(edits, async (c) => {
 
 	const request = validationResult.data;
 
-	if (request.stream) {
-		throw new HTTPException(400, {
-			message: "The 'stream' parameter is not supported for /v1/images/edits",
-		});
-	}
-
 	// Collect and validate all input image URLs
 	const imageUrls: string[] = [];
 	for (const [index, image] of request.images.entries()) {
-		if (image.file_id) {
-			throw new HTTPException(400, {
-				message: `images[${index}].file_id is not supported yet`,
-			});
-		}
-
-		if (!image.image_url) {
-			throw new HTTPException(400, {
-				message: `images[${index}] must include image_url`,
-			});
-		}
-
 		if (!isSupportedInputImageUrl(image.image_url)) {
 			throw new HTTPException(400, {
 				message: `images[${index}].image_url must be an https URL or a base64 data URL`,
