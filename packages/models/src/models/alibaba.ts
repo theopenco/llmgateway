@@ -1091,8 +1091,8 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "together.ai",
-				// stability: "unstable",
-				// test: "skip",
+				stability: "unstable",
+				test: "skip",
 				modelName: "Qwen/Qwen3.5-397B-A17B",
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 3.6 / 1e6,
