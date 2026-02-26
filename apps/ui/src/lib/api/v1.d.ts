@@ -1512,6 +1512,7 @@ export interface paths {
                                     id: string;
                                     email: string;
                                     name: string | null;
+                                    emailVerified: boolean;
                                 };
                             }[];
                             total: number;
