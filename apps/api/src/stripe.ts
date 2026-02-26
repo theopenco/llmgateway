@@ -641,6 +641,13 @@ async function recordCreditTopUp({
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	const { customer, metadata } = session;
 
+	if (session.payment_status !== "paid") {
+		logger.info(
+			`Credit top-up checkout session payment not yet settled (status: ${session.payment_status}), skipping`,
+		);
+		return;
+	}
+
 	const creditAmount = parseFloat(metadata?.baseAmount ?? "0");
 	if (!creditAmount) {
 		logger.error("Missing baseAmount in credit top-up checkout metadata");
@@ -917,7 +924,7 @@ async function handlePaymentIntentSucceeded(
 	}
 
 	logger.info(
-		`Added ${finalCreditAmount} credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
+		`Added credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
 	);
 }
 
