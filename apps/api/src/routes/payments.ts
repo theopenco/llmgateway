@@ -670,10 +670,21 @@ payments.openapi(createCheckoutSession, async (c) => {
 	let successUrl: string;
 	let cancelUrl: string;
 
-	if (
-		returnUrl &&
-		allowedOrigins.some((origin) => origin && returnUrl.startsWith(origin))
-	) {
+	const isAllowedReturn = (() => {
+		if (!returnUrl) {
+			return false;
+		}
+		try {
+			const parsed = new URL(returnUrl);
+			return allowedOrigins.some(
+				(origin) => origin && parsed.origin === new URL(origin).origin,
+			);
+		} catch {
+			return false;
+		}
+	})();
+
+	if (isAllowedReturn && returnUrl) {
 		const separator = returnUrl.includes("?") ? "&" : "?";
 		successUrl = `${returnUrl}${separator}success=true`;
 		cancelUrl = `${returnUrl}${separator}canceled=true`;
@@ -720,17 +731,6 @@ payments.openapi(createCheckoutSession, async (c) => {
 			message: "Failed to generate checkout URL",
 		});
 	}
-
-	await logAuditEvent({
-		organizationId,
-		userId: user.id,
-		action: "payment.credit_topup",
-		resourceType: "payment",
-		resourceId: session.id,
-		metadata: {
-			amount,
-		},
-	});
 
 	return c.json({
 		checkoutUrl: session.url,

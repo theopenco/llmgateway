@@ -243,7 +243,6 @@ async function handleCheckoutSessionCompleted(
 		`Processing checkout session completed for customer: ${customer}, subscription: ${subscription}`,
 	);
 
-	// Handle credit top-up checkout sessions
 	if (!subscription && metadata?.type === "credit_topup") {
 		await handleCreditTopUpCheckout(session);
 		return;
@@ -663,15 +662,22 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	const { organizationId, organization } = result;
 	const totalAmountInDollars = (session.amount_total ?? 0) / 100;
 
-	const stripePaymentIntentId = session.payment_intent as string | undefined;
+	const stripePaymentIntentId =
+		typeof session.payment_intent === "string"
+			? session.payment_intent
+			: (session.payment_intent?.id ?? null);
 
-	// Idempotency check: skip if this checkout session was already processed
+	if (!stripePaymentIntentId) {
+		logger.error(
+			"Credit top-up checkout session has no payment intent, skipping",
+		);
+		return;
+	}
+
 	const existingTransaction = await db.query.transaction.findFirst({
 		where: {
 			organizationId: { eq: organizationId },
-			stripePaymentIntentId: stripePaymentIntentId
-				? { eq: stripePaymentIntentId }
-				: undefined,
+			stripePaymentIntentId: { eq: stripePaymentIntentId },
 			type: { eq: "credit_topup" },
 			status: { eq: "completed" },
 		},
@@ -684,7 +690,6 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 
-	// Resolve user once for bonus eligibility and notifications
 	const userEmail = metadata?.userEmail;
 	const resolvedUser = userEmail
 		? await db.query.user.findFirst({
@@ -707,7 +712,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		creditAmount,
 		totalAmountInDollars,
 		currency: (session.currency ?? "USD").toUpperCase(),
-		stripePaymentIntentId: stripePaymentIntentId ?? null,
+		stripePaymentIntentId,
 		description:
 			bonusAmount > 0
 				? `Credit top-up via Stripe Checkout (+$${bonusAmount.toFixed(2)} first-time bonus)`
@@ -748,7 +753,6 @@ async function handlePaymentIntentSucceeded(
 	}
 	const { organizationId, organization } = result;
 
-	// Idempotency check: skip if this payment intent was already processed
 	const existingTransaction = await db.query.transaction.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: paymentIntent.id },
@@ -764,10 +768,8 @@ async function handlePaymentIntentSucceeded(
 		return;
 	}
 
-	// Convert amount from cents to dollars
 	const totalAmountInDollars = amount / 100;
 
-	// Resolve user once for bonus eligibility and notifications
 	const userEmail = metadata?.userEmail;
 	const resolvedUser = userEmail
 		? await db.query.user.findFirst({
@@ -792,7 +794,6 @@ async function handlePaymentIntentSucceeded(
 			: "Credit top-up via Stripe";
 
 	if (transactionId) {
-		// Auto top-up: update credits and handle pending transaction
 		await db
 			.update(tables.organization)
 			.set({
@@ -842,7 +843,6 @@ async function handlePaymentIntentSucceeded(
 			completedTransactionId = updatedTransaction.id;
 		}
 
-		// Generate and email invoice for credit purchase
 		const lineItems = [
 			{
 				description: `Credit Top-up ($${creditAmount})`,
@@ -898,7 +898,6 @@ async function handlePaymentIntentSucceeded(
 			},
 		});
 	} else {
-		// Manual top-up: use shared helper
 		await recordCreditTopUp({
 			organizationId,
 			finalCreditAmount,
