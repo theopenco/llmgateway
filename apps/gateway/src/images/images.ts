@@ -161,11 +161,11 @@ function buildImagePrompt(request: ImageGenerationsRequest): string {
  * 1. choices[0].message.images[] - as ImageObject with image_url.url containing data:mime;base64,data
  * 2. choices[0].message.content - may contain base64 image data in some cases
  */
-function extractImagesFromChatResponse(
+async function extractImagesFromChatResponse(
 	chatResponse: any,
 	prompt: string,
 	model: string,
-): Array<{ b64_json: string; revised_prompt?: string }> {
+): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
 	const imageObjects: Array<{
 		b64_json: string;
 		revised_prompt?: string;
@@ -178,14 +178,33 @@ function extractImagesFromChatResponse(
 		messageImages.length > 0
 	) {
 		for (const img of messageImages) {
-			const dataUrl = img.image_url?.url;
-			if (dataUrl && typeof dataUrl === "string") {
-				const base64Match = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+			const imageUrl = img.image_url?.url;
+			if (imageUrl && typeof imageUrl === "string") {
+				// Handle data URIs (e.g. Google/Gemini returns data:image/png;base64,...)
+				const base64Match = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
 				if (base64Match && base64Match[1]) {
 					imageObjects.push({
 						b64_json: base64Match[1],
 						revised_prompt: prompt,
 					});
+				} else if (
+					imageUrl.startsWith("https://") ||
+					imageUrl.startsWith("http://")
+				) {
+					// Handle URL-based images (e.g. Z.AI, Alibaba, ByteDance)
+					try {
+						const result = await processImageUrl(imageUrl);
+						imageObjects.push({
+							b64_json: result.data,
+							revised_prompt: prompt,
+						});
+					} catch (error) {
+						logger.warn("Images API - failed to fetch image from URL", {
+							model,
+							url: imageUrl.substring(0, 100),
+							err: error instanceof Error ? error : new Error(String(error)),
+						});
+					}
 				}
 			}
 		}
@@ -369,7 +388,7 @@ images.openapi(generations, async (c) => {
 
 	const chatResponse = await forwardToChatCompletions(c, chatRequest);
 
-	const imageObjects = extractImagesFromChatResponse(
+	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		request.model,
@@ -672,7 +691,7 @@ images.openapi(edits, async (c) => {
 
 	const chatResponse = await forwardToChatCompletions(c, chatRequest);
 
-	const imageObjects = extractImagesFromChatResponse(
+	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		model,
