@@ -375,9 +375,7 @@ export async function POST(req: Request) {
 				.find((m) => m.role === "user");
 			let prompt = "";
 			if (lastUserMessage) {
-				if (typeof lastUserMessage.content === "string") {
-					prompt = lastUserMessage.content;
-				} else if (Array.isArray(lastUserMessage.parts)) {
+				if (Array.isArray(lastUserMessage.parts)) {
 					prompt = lastUserMessage.parts
 						.filter(
 							(p): p is { type: "text"; text: string } => p.type === "text",
@@ -398,7 +396,9 @@ export async function POST(req: Request) {
 				model: llmgateway.image(selectedModel),
 				prompt,
 				n: image_config?.n ?? 1,
-				...(image_config?.image_size ? { size: image_config.image_size } : {}),
+				...(image_config?.image_size
+					? { size: image_config.image_size as `${number}x${number}` }
+					: {}),
 				...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 					? { aspectRatio: image_config.aspect_ratio }
 					: {}),
