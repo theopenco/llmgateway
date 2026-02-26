@@ -2,9 +2,12 @@ import { createMCPClient } from "@ai-sdk/mcp";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
 	streamText,
+	generateImage,
 	tool,
 	type UIMessage,
 	convertToModelMessages,
+	createUIMessageStream,
+	createUIMessageStreamResponse,
 	JsonToSseTransformStream,
 } from "ai";
 import { cookies } from "next/headers";
@@ -276,10 +279,12 @@ interface ChatRequestBody {
 			| "4:5"
 			| "21:9";
 		image_size?: "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
+		n?: number;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 	web_search?: boolean;
 	mcp_servers?: McpServerConfig[];
+	is_image_gen?: boolean;
 }
 
 interface McpClientWrapper {
@@ -306,6 +311,7 @@ export async function POST(req: Request) {
 		reasoning_effort,
 		web_search,
 		mcp_servers,
+		is_image_gen,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -357,6 +363,92 @@ export async function POST(req: Request) {
 		const alreadyPrefixed = String(selectedModel).includes("/");
 		if (!alreadyPrefixed) {
 			selectedModel = `${provider}/${selectedModel}`;
+		}
+	}
+
+	// Use generateImage for dedicated image generation models
+	if (is_image_gen) {
+		try {
+			// Extract prompt from the last user message
+			const lastUserMessage = [...messages]
+				.reverse()
+				.find((m) => m.role === "user");
+			let prompt = "";
+			if (lastUserMessage) {
+				if (Array.isArray(lastUserMessage.parts)) {
+					prompt = lastUserMessage.parts
+						.filter(
+							(p): p is { type: "text"; text: string } => p.type === "text",
+						)
+						.map((p) => p.text)
+						.join("\n");
+				}
+			}
+
+			if (!prompt.trim()) {
+				return new Response(
+					JSON.stringify({ error: "Missing prompt for image generation" }),
+					{ status: 400 },
+				);
+			}
+
+			const result = await generateImage({
+				model: llmgateway.image(selectedModel),
+				prompt,
+				n: image_config?.n ?? 1,
+				...(image_config?.image_size
+					? { size: image_config.image_size as `${number}x${number}` }
+					: {}),
+				...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
+					? { aspectRatio: image_config.aspect_ratio }
+					: {}),
+			});
+
+			const uiStream = createUIMessageStream({
+				execute: async ({ writer }) => {
+					const messageId = crypto.randomUUID();
+					writer.write({
+						type: "start",
+						messageId,
+					});
+					writer.write({ type: "start-step" });
+					for (const image of result.images) {
+						const mt = image.mediaType || "image/png";
+						writer.write({
+							type: "file",
+							url: `data:${mt};base64,${image.base64}`,
+							mediaType: mt,
+						});
+					}
+					writer.write({ type: "finish-step" });
+					writer.write({
+						type: "finish",
+						finishReason: "stop",
+					});
+				},
+			});
+
+			return createUIMessageStreamResponse({
+				stream: uiStream,
+				headers: {
+					"cache-control": "no-cache",
+					connection: "keep-alive",
+					"x-accel-buffering": "no",
+				},
+			});
+		} catch (error: unknown) {
+			const message =
+				error instanceof Error ? error.message : "Image generation failed";
+			const status =
+				typeof error === "object" &&
+				error !== null &&
+				"status" in error &&
+				typeof (error as { status: unknown }).status === "number"
+					? (error as { status: number }).status
+					: 500;
+			return new Response(JSON.stringify({ error: message }), {
+				status,
+			});
 		}
 	}
 

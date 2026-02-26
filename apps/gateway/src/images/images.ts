@@ -391,74 +391,90 @@ images.openapi(generations, async (c) => {
 
 // --- Image Edits Endpoint ---
 
-const imageEditsRequestSchema = z
-	.object({
-		prompt: z.string().min(1).openapi({
-			description:
-				"A text description of the desired edit to apply to the image(s).",
-			example: "Make the cat wear a hat",
-		}),
-		image: z.string().optional().openapi({
-			description: "A single input image URL or data URL (base64) to edit.",
-			example: "https://example.com/cat.png",
-		}),
-		images: z.array(z.string()).max(16).optional().openapi({
-			description:
-				"Multiple input image URLs or data URLs (base64) to edit. Maximum 16 images.",
-		}),
-		mask: z.string().optional().openapi({
-			description:
-				"An optional mask image URL or data URL indicating areas to edit. Transparent areas indicate where the image should be edited.",
-		}),
-		model: z.string().optional().default("auto").openapi({
-			description:
-				"The model to use for image editing. Defaults to auto which selects an appropriate image generation model.",
-			example: "gemini-3-pro-image-preview",
-		}),
-		n: z.number().int().min(1).max(10).optional().default(1).openapi({
-			description:
-				"The number of edited images to generate. Must be between 1 and 10.",
-			example: 1,
-		}),
-		size: z.string().optional().openapi({
-			description:
-				"The size of the generated images. Supported sizes depend on the model and provider.",
+const imageEditImageInputSchema = z.object({
+	image_url: z.string().openapi({
+		description: "A fully qualified HTTPS URL or base64-encoded data URL.",
+		example: "https://example.com/source-image.png",
+	}),
+});
+
+const imageEditsRequestSchema = z.object({
+	images: z.array(imageEditImageInputSchema).min(1).max(16).openapi({
+		description:
+			"Input image references to edit. Provide image_url as HTTPS URL or data URL.",
+	}),
+	prompt: z.string().min(1).openapi({
+		description: "A text description of the desired image edit.",
+		example: "Add a watercolor effect to this image",
+	}),
+	background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
+		description: "Background behavior for generated image output.",
+		example: "transparent",
+	}),
+	input_fidelity: z.enum(["high", "low"]).optional().openapi({
+		description: "Controls fidelity to the original input image(s).",
+		example: "high",
+	}),
+	model: z.string().optional().openapi({
+		description: "The model to use for image editing.",
+		example: "gemini-3-pro-image-preview",
+	}),
+	n: z.number().int().min(1).max(10).optional().openapi({
+		description: "The number of edited images to generate.",
+		example: 1,
+	}),
+	output_compression: z.number().int().min(0).max(100).optional().openapi({
+		description: "Compression level for jpeg or webp output.",
+		example: 100,
+	}),
+	output_format: z.enum(["png", "jpeg", "webp"]).optional().openapi({
+		description: "Output image format.",
+		example: "png",
+	}),
+	quality: z.enum(["low", "medium", "high", "auto"]).optional().openapi({
+		description: "Output quality for image models.",
+		example: "high",
+	}),
+	size: z
+		.enum(["auto", "1024x1024", "1536x1024", "1024x1536"])
+		.optional()
+		.openapi({
+			description: "Requested output image size.",
 			example: "1024x1024",
 		}),
-		quality: z
-			.enum(["standard", "hd", "low", "medium", "high"])
-			.optional()
-			.openapi({
-				description:
-					"The quality of the edited image. Supported values depend on the model and provider.",
-				example: "standard",
-			}),
-		response_format: z
-			.literal("b64_json")
-			.optional()
-			.default("b64_json")
-			.openapi({
-				description:
-					"The format in which the edited images are returned. Only b64_json is supported.",
-				example: "b64_json",
-			}),
-		aspect_ratio: z.string().optional().openapi({
-			description:
-				"The aspect ratio of the output images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size if both are provided.",
-			example: "1:1",
-		}),
-	})
-	.refine((data) => data.image ?? (data.images && data.images.length > 0), {
-		message: "At least one of 'image' or 'images' must be provided",
-	});
+});
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
+
+const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
+	background: z.enum(["transparent", "opaque"]).optional(),
+	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
+	quality: z.enum(["low", "medium", "high"]).optional(),
+	size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
+	usage: z
+		.object({
+			input_tokens: z.number(),
+			input_tokens_details: z.object({
+				image_tokens: z.number(),
+				text_tokens: z.number(),
+			}),
+			output_tokens: z.number(),
+			total_tokens: z.number(),
+			output_tokens_details: z
+				.object({
+					image_tokens: z.number(),
+					text_tokens: z.number(),
+				})
+				.optional(),
+		})
+		.optional(),
+});
 
 const edits = createRoute({
 	operationId: "v1_images_edits",
 	summary: "Edit image",
 	description:
-		"Edits an image given input image(s) and a prompt. Internally routes to a chat completions model with image generation capabilities.",
+		"Creates an edited image from one or more source images and a prompt.",
 	method: "post",
 	path: "/edits",
 	security: [
@@ -479,7 +495,7 @@ const edits = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: imageGenerationsResponseSchema,
+					schema: imageEditsResponseSchema,
 				},
 			},
 			description: "Image edit response.",
@@ -487,16 +503,48 @@ const edits = createRoute({
 	},
 });
 
+function isValidHttpsUrl(value: string): boolean {
+	try {
+		const parsed = new URL(value);
+		return parsed.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+function isValidBase64ImageDataUrl(value: string): boolean {
+	return /^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(value);
+}
+
+function isSupportedInputImageUrl(value: string): boolean {
+	return isValidHttpsUrl(value) || isValidBase64ImageDataUrl(value);
+}
+
 function buildEditPrompt(request: ImageEditsRequest): string {
 	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
 
-	if (request.mask) {
-		prompt +=
-			"\n\nA mask image is provided. Focus edits on the transparent/indicated areas of the mask.";
+	if (request.background === "transparent") {
+		prompt += "\n\nBackground: transparent.";
+	} else if (request.background === "opaque") {
+		prompt += "\n\nBackground: opaque.";
 	}
 
-	if (request.quality === "hd" || request.quality === "high") {
+	if (request.input_fidelity === "high") {
+		prompt += "\n\nFidelity: preserve details from the source image(s).";
+	}
+
+	if (request.quality === "high") {
 		prompt += "\n\nQuality: high quality, detailed.";
+	} else if (request.quality === "low") {
+		prompt += "\n\nQuality: prioritize speed over detail.";
+	}
+
+	if (request.output_format) {
+		prompt += `\n\nOutput format: ${request.output_format}.`;
+	}
+
+	if (request.output_compression !== undefined) {
+		prompt += `\n\nOutput compression: ${request.output_compression}.`;
 	}
 
 	if (request.n && request.n > 1) {
@@ -525,23 +573,35 @@ images.openapi(edits, async (c) => {
 
 	const request = validationResult.data;
 
-	const model =
-		request.model === "auto" ? "gemini-3-pro-image-preview" : request.model;
-
-	// Collect all image URLs
+	// Collect and validate all input image URLs
 	const imageUrls: string[] = [];
-	if (request.image) {
-		imageUrls.push(request.image);
-	}
-	if (request.images) {
-		imageUrls.push(...request.images);
+	for (const [index, image] of request.images.entries()) {
+		if (!isSupportedInputImageUrl(image.image_url)) {
+			throw new HTTPException(400, {
+				message: `images[${index}].image_url must be an https URL or a base64 data URL`,
+			});
+		}
+
+		imageUrls.push(image.image_url);
 	}
 
 	const isProd = process.env.NODE_ENV === "production";
 
 	// Fetch and convert all images to base64 in parallel
 	const imageResults = await Promise.all(
-		imageUrls.map((url) => processImageUrl(url, isProd)),
+		imageUrls.map(async (url, index) => {
+			try {
+				return await processImageUrl(url, isProd);
+			} catch (error) {
+				const errorMessage =
+					error instanceof Error
+						? error.message
+						: "Failed to process image input";
+				throw new HTTPException(400, {
+					message: `images[${index}].image_url is invalid: ${errorMessage}`,
+				});
+			}
+		}),
 	);
 
 	// Build message content parts: images first, then text
@@ -556,26 +616,21 @@ images.openapi(edits, async (c) => {
 		});
 	}
 
-	// If mask provided, fetch it and add as additional image
-	if (request.mask) {
-		const maskResult = await processImageUrl(request.mask, isProd);
-		contentParts.push({
-			type: "image_url",
-			image_url: {
-				url: `data:${maskResult.mimeType};base64,${maskResult.data}`,
-			},
-		});
-	}
-
 	const chatPrompt = buildEditPrompt(request);
 	contentParts.push({
 		type: "text",
 		text: chatPrompt,
 	});
 
-	const aspectRatio =
-		request.aspect_ratio ??
-		(request.size ? sizeToAspectRatio(request.size) : undefined);
+	const requestedSize = request.size === "auto" ? undefined : request.size;
+	const aspectRatio = requestedSize
+		? sizeToAspectRatio(requestedSize)
+		: undefined;
+
+	const model =
+		request.model === "auto" || !request.model
+			? "gemini-3-pro-image-preview"
+			: request.model;
 
 	const chatRequest: Record<string, unknown> = {
 		model,
@@ -588,20 +643,31 @@ images.openapi(edits, async (c) => {
 		stream: false,
 	};
 
-	if (aspectRatio || request.size || request.n > 1) {
+	if (
+		aspectRatio ||
+		requestedSize ||
+		(request.n !== undefined && request.n > 1) ||
+		request.output_format
+	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
-			...(request.size && { image_size: request.size }),
-			n: request.n,
+			...(requestedSize && { image_size: requestedSize }),
+			...(request.n !== undefined && { n: request.n }),
+			...(request.output_format && { output_format: request.output_format }),
+			...(request.output_compression !== undefined && {
+				output_compression: request.output_compression,
+			}),
 		};
 	}
 
 	logger.debug("Images Edit API - forwarding to chat completions", {
-		model: request.model,
+		model,
 		prompt: request.prompt.slice(0, 200),
 		imageCount: imageUrls.length,
-		hasMask: !!request.mask,
 		n: request.n,
+		size: request.size,
+		quality: request.quality,
+		outputFormat: request.output_format,
 	});
 
 	const chatResponse = await forwardToChatCompletions(c, chatRequest);
@@ -609,17 +675,30 @@ images.openapi(edits, async (c) => {
 	const imageObjects = extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
-		request.model,
+		model,
 	);
 
-	const imagesResponse = {
+	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
 		created: Math.floor(Date.now() / 1000),
 		data: imageObjects,
 	};
 
+	if (request.background && request.background !== "auto") {
+		imagesResponse.background = request.background;
+	}
+	if (request.output_format) {
+		imagesResponse.output_format = request.output_format;
+	}
+	if (request.quality && request.quality !== "auto") {
+		imagesResponse.quality = request.quality;
+	}
+	if (requestedSize) {
+		imagesResponse.size = requestedSize;
+	}
+
 	logger.debug("Images Edit API - returning response", {
 		imageCount: imageObjects.length,
-		model: request.model,
+		model,
 	});
 
 	return c.json(imagesResponse);

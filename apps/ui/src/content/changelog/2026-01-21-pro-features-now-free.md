@@ -4,7 +4,11 @@ slug: "pro-features-now-free"
 date: "2026-01-21"
 title: "Pro Features Now Free for Everyone"
 summary: "We're simplifying our pricing. All Pro plan features are now free for everyone — BYOK, team management, 30-day data retention, and more."
-image: "/changelog/pro-features-free.jpeg"
+image:
+  src: "/changelog/pro-features-free.jpeg"
+  alt: "Pro features now free for everyone"
+  width: 1768
+  height: 677
 ---
 
 ## Simpler Pricing, More Value

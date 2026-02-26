@@ -20,7 +20,7 @@
 		"@ai-sdk/openai": "3.0.25",
 		"@ai-sdk/react": "3.0.29",
 		"@hookform/resolvers": "5.2.2",
-		"@llmgateway/ai-sdk-provider": "3.1.1",
+		"@llmgateway/ai-sdk-provider": "3.4.0",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@modelcontextprotocol/sdk": "1.25.3",

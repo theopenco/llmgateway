@@ -11,7 +11,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLMGateway supports image generation through two APIs:
 
 1. **`/v1/images/generations`** — OpenAI-compatible images endpoint (recommended for simple image generation)
-2. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
+2. **`/v1/images/edits`** — OpenAI-compatible image editing endpoint
+3. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
 
 ## Available Models
 
@@ -100,6 +101,64 @@ result.images.forEach((image, i) => {
 	const buf = Buffer.from(image.base64, "base64");
 	writeFileSync(`image-${i}.png`, buf);
 });
+```
+
+## OpenAI Images Edit API
+
+The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters.
+
+### Parameters
+
+| Parameter            | Type                     | Required | Description                                                        |
+| -------------------- | ------------------------ | -------- | ------------------------------------------------------------------ |
+| `images`             | array of `{ image_url }` | yes      | Input images. `image_url` supports HTTPS URLs and base64 data URLs |
+| `prompt`             | string                   | yes      | A text description of the desired image edit                       |
+| `model`              | string                   | no       | Image editing model                                                |
+| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto`                                 |
+| `input_fidelity`     | enum                     | no       | `high` or `low`                                                    |
+| `n`                  | integer                  | no       | Number of edited images to generate                                |
+| `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                           |
+| `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                |
+| `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`                                 |
+| `size`               | enum                     | no       | `auto`, `1024x1024`, `1536x1024`, `1024x1536`                      |
+
+<Callout type="warning">
+	`mask` is not supported yet on `/v1/images/edits`.
+</Callout>
+
+### curl (HTTPS image URL)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "images": [
+      {
+        "image_url": "https://example.com/source-image.png"
+      }
+    ],
+    "prompt": "Add a watercolor effect to this image",
+    "model": "gemini-3-pro-image-preview",
+    "quality": "high",
+    "size": "1024x1024"
+  }'
+```
+
+### curl (base64 data URL)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "images": [
+      {
+        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+      }
+    ],
+    "prompt": "Turn this into a pixel-art style image"
+  }'
 ```
 
 ## Chat Completions API

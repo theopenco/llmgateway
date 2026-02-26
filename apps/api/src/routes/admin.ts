@@ -15,6 +15,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	ne,
 	or,
 	sql,
 	tables,
@@ -432,11 +433,11 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed transactions)
+	// Total revenue (completed transactions, excluding gifts, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
 		.select({
 			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
 		})
@@ -445,9 +446,13 @@ admin.openapi(getMetrics, async (c) => {
 			startDate
 				? and(
 						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
 						gte(tables.transaction.createdAt, startDate),
 					)
-				: eq(tables.transaction.status, "completed"),
+				: and(
+						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
+					),
 		);
 
 	const totalRevenue = Number(revenueRow?.value ?? 0);
@@ -579,12 +584,12 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (completed transactions)
+	// Revenue per day (completed transactions, excluding gifts, using creditAmount)
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
 			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -592,17 +597,18 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
 				gte(tables.transaction.createdAt, startDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Revenue earned before the range (for cumulative chart)
+	// Revenue earned before the range (for cumulative chart, excluding gifts, using creditAmount)
 	const [preRangeRevenueRow] = await db
 		.select({
 			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -610,6 +616,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);

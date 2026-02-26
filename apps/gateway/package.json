@@ -41,7 +41,7 @@
 		"decimal.js": "10.5.0",
 		"dotenv": "16.5.0",
 		"gpt-tokenizer": "3.0.1",
-		"hono": "^4.11.10",
+		"hono": "^4.12.2",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"redis": "5.9.0",

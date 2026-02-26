@@ -114,8 +114,9 @@ export default function ChatPageClient({
 		| "4:5"
 		| "21:9"
 	>("auto");
-	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [imageCount, setImageCount] = useState<1 | 2 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -380,20 +381,27 @@ export default function ChatPageClient({
 				selectedModel.toLowerCase().includes("cogview");
 
 			// Only send image_config if user has explicitly selected non-default values
+			const hasNonDefaultCount = imageCount > 1;
 			const imageConfig = supportsImageGen
 				? usesPixelDimensions
 					? // For Alibaba/ZAI, don't send image_config with default size
-						alibabaImageSize !== "1024x1024"
+						alibabaImageSize !== "1024x1024" || hasNonDefaultCount
 						? {
-								image_size: alibabaImageSize,
+								...(alibabaImageSize !== "1024x1024" && {
+									image_size: alibabaImageSize,
+								}),
+								...(hasNonDefaultCount && { n: imageCount }),
 							}
 						: undefined
-					: imageAspectRatio !== "auto" || imageSize !== "1K"
+					: imageAspectRatio !== "auto" ||
+						  imageSize !== "1K" ||
+						  hasNonDefaultCount
 						? {
 								...(imageAspectRatio !== "auto" && {
 									aspect_ratio: imageAspectRatio,
 								}),
 								...(imageSize !== "1K" && { image_size: imageSize }),
+								...(hasNonDefaultCount && { n: imageCount }),
 							}
 						: undefined
 				: undefined;
@@ -418,6 +426,7 @@ export default function ChatPageClient({
 					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(supportsImageGen ? { is_image_gen: true } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
@@ -436,6 +445,7 @@ export default function ChatPageClient({
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
@@ -809,6 +819,16 @@ export default function ChatPageClient({
 		}
 	}, [supportsReasoning, reasoningEffort]);
 
+	// Reset image size when switching to a seedream model (only supports 2K/4K)
+	useEffect(() => {
+		const isSeedream =
+			selectedModel.toLowerCase().includes("seedream") ||
+			selectedModel.toLowerCase().includes("bytedance/seedream");
+		if (isSeedream && imageSize === "1K") {
+			setImageSize("2K");
+		}
+	}, [selectedModel, imageSize]);
+
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
 		if (org?.id) {
@@ -1009,6 +1029,8 @@ export default function ChatPageClient({
 											setImageSize={setImageSize}
 											alibabaImageSize={alibabaImageSize}
 											setAlibabaImageSize={setAlibabaImageSize}
+											imageCount={imageCount}
+											setImageCount={setImageCount}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
@@ -1040,6 +1062,8 @@ export default function ChatPageClient({
 										setImageSize={setImageSize}
 										alibabaImageSize={alibabaImageSize}
 										setAlibabaImageSize={setAlibabaImageSize}
+										imageCount={imageCount}
+										setImageCount={setImageCount}
 										supportsWebSearch={supportsWebSearch}
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
@@ -1127,8 +1151,9 @@ function ExtraChatPanel({
 		| "4:5"
 		| "21:9"
 	>("auto");
-	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [imageCount, setImageCount] = useState<1 | 2 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
 
@@ -1205,20 +1230,27 @@ function ExtraChatPanel({
 				selectedModel.toLowerCase().includes("cogview");
 
 			// Only send image_config if user has explicitly selected non-default values
+			const hasNonDefaultCount = imageCount > 1;
 			const imageConfig = supportsImageGen
 				? usesPixelDimensions
 					? // For Alibaba/ZAI, don't send image_config with default size
-						alibabaImageSize !== "1024x1024"
+						alibabaImageSize !== "1024x1024" || hasNonDefaultCount
 						? {
-								image_size: alibabaImageSize,
+								...(alibabaImageSize !== "1024x1024" && {
+									image_size: alibabaImageSize,
+								}),
+								...(hasNonDefaultCount && { n: imageCount }),
 							}
 						: undefined
-					: imageAspectRatio !== "auto" || imageSize !== "1K"
+					: imageAspectRatio !== "auto" ||
+						  imageSize !== "1K" ||
+						  hasNonDefaultCount
 						? {
 								...(imageAspectRatio !== "auto" && {
 									aspect_ratio: imageAspectRatio,
 								}),
 								...(imageSize !== "1K" && { image_size: imageSize }),
+								...(hasNonDefaultCount && { n: imageCount }),
 							}
 						: undefined
 				: undefined;
@@ -1239,6 +1271,7 @@ function ExtraChatPanel({
 					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(supportsImageGen ? { is_image_gen: true } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
@@ -1254,6 +1287,7 @@ function ExtraChatPanel({
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
@@ -1347,6 +1381,8 @@ function ExtraChatPanel({
 					setImageSize={setImageSize}
 					alibabaImageSize={alibabaImageSize}
 					setAlibabaImageSize={setAlibabaImageSize}
+					imageCount={imageCount}
+					setImageCount={setImageCount}
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}
