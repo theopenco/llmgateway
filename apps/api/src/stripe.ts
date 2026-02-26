@@ -602,7 +602,7 @@ async function recordCreditTopUp({
 			invoiceNumber: completedTransaction.id,
 			invoiceDate: new Date(),
 			organizationName: organization.name,
-			billingEmail: organization.billingEmail || "",
+			billingEmail: organization.billingEmail ?? "",
 			billingCompany: organization.billingCompany,
 			billingAddress: organization.billingAddress,
 			billingTaxId: organization.billingTaxId,
@@ -642,7 +642,7 @@ async function recordCreditTopUp({
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	const { customer, metadata } = session;
 
-	const creditAmount = parseFloat(metadata?.baseAmount || "0");
+	const creditAmount = parseFloat(metadata?.baseAmount ?? "0");
 	if (!creditAmount) {
 		logger.error("Missing baseAmount in credit top-up checkout metadata");
 		return;
@@ -661,7 +661,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	}
 
 	const { organizationId, organization } = result;
-	const totalAmountInDollars = (session.amount_total || 0) / 100;
+	const totalAmountInDollars = (session.amount_total ?? 0) / 100;
 
 	const stripePaymentIntentId = session.payment_intent as string | undefined;
 
@@ -706,8 +706,8 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		bonusAmount,
 		creditAmount,
 		totalAmountInDollars,
-		currency: (session.currency || "USD").toUpperCase(),
-		stripePaymentIntentId: stripePaymentIntentId || null,
+		currency: (session.currency ?? "USD").toUpperCase(),
+		stripePaymentIntentId: stripePaymentIntentId ?? null,
 		description:
 			bonusAmount > 0
 				? `Credit top-up via Stripe Checkout (+$${bonusAmount.toFixed(2)} first-time bonus)`
@@ -862,7 +862,7 @@ async function handlePaymentIntentSucceeded(
 				invoiceNumber: completedTransactionId,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
-				billingEmail: organization.billingEmail || "",
+				billingEmail: organization.billingEmail ?? "",
 				billingCompany: organization.billingCompany,
 				billingAddress: organization.billingAddress,
 				billingTaxId: organization.billingTaxId,
