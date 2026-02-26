@@ -665,14 +665,14 @@ payments.openapi(createCheckoutSession, async (c) => {
 		process.env.CODE_URL,
 	].filter(Boolean);
 
-	const defaultBillingUrl = `${process.env.UI_URL || "http://localhost:3002"}/dashboard/${organizationId}/org/billing`;
+	const defaultBillingUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organizationId}/org/billing`;
 
 	let successUrl: string;
 	let cancelUrl: string;
 
 	if (
 		returnUrl &&
-		allowedOrigins.some((origin) => returnUrl.startsWith(origin!))
+		allowedOrigins.some((origin) => origin && returnUrl.startsWith(origin))
 	) {
 		const separator = returnUrl.includes("?") ? "&" : "?";
 		successUrl = `${returnUrl}${separator}success=true`;
@@ -687,7 +687,7 @@ payments.openapi(createCheckoutSession, async (c) => {
 	// from also processing this payment (it returns early when baseAmount is
 	// missing from the PaymentIntent metadata). Adding payment_intent_data.metadata
 	// here would cause double-crediting. See handleCreditTopUpCheckout in stripe.ts.
-	const session = await stripe.checkout.sessions.create({
+	const session = await getStripe().checkout.sessions.create({
 		customer: stripeCustomerId,
 		mode: "payment",
 		line_items: [
