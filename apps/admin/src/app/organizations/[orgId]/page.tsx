@@ -546,6 +546,7 @@ export default async function OrganizationPage({
 									<TableRow>
 										<TableHead>Name</TableHead>
 										<TableHead>Email</TableHead>
+										<TableHead>Verified</TableHead>
 										<TableHead>Role</TableHead>
 										<TableHead>Joined</TableHead>
 									</TableRow>
@@ -554,7 +555,7 @@ export default async function OrganizationPage({
 									{members.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={4}
+												colSpan={5}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No members found
@@ -567,6 +568,19 @@ export default async function OrganizationPage({
 													{member.user.name ?? "—"}
 												</TableCell>
 												<TableCell>{member.user.email}</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															member.user.emailVerified
+																? "secondary"
+																: "outline"
+														}
+													>
+														{member.user.emailVerified
+															? "verified"
+															: "unverified"}
+													</Badge>
+												</TableCell>
 												<TableCell>
 													<Badge
 														variant={
