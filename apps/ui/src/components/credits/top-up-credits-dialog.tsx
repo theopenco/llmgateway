@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/lib/components/button";
 import { Checkbox } from "@/lib/components/checkbox";
@@ -57,6 +57,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	>(null);
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const api = useApi();
+	const cancelledRef = useRef(false);
 
 	const { data: paymentMethodsData, isLoading: paymentMethodsLoading } =
 		api.useQuery(
@@ -82,6 +83,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	}, [defaultPaymentMethod]);
 
 	const handleClose = () => {
+		cancelledRef.current = true;
 		setOpen(false);
 		setTimeout(() => {
 			setStep("amount");
@@ -90,7 +92,21 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(isOpen) => {
+				if (isOpen) {
+					cancelledRef.current = false;
+					setOpen(true);
+				} else {
+					// Prevent closing while payment is processing
+					if (loading) {
+						return;
+					}
+					handleClose();
+				}
+			}}
+		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent className="sm:max-w-[500px]">
 				{step === "amount" ? (
@@ -129,6 +145,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						onCancel={handleClose}
 						setLoading={setLoading}
 						loading={loading}
+						cancelledRef={cancelledRef}
 					/>
 				) : step === "payment" ? (
 					stripeLoading ? (
@@ -142,6 +159,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 								onCancel={handleClose}
 								setLoading={setLoading}
 								loading={loading}
+								cancelledRef={cancelledRef}
 							/>
 						</Elements>
 					)
@@ -327,6 +345,7 @@ function PaymentStep({
 	onCancel,
 	loading,
 	setLoading,
+	cancelledRef,
 }: {
 	amount: number;
 	onBack: () => void;
@@ -334,6 +353,7 @@ function PaymentStep({
 	onCancel: () => void;
 	loading: boolean;
 	setLoading: (loading: boolean) => void;
+	cancelledRef: React.RefObject<boolean>;
 }) {
 	const stripe = useStripeElements();
 	const elements = useElements();
@@ -411,38 +431,54 @@ function PaymentStep({
 				});
 				setLoading(false);
 			} else {
-				// Credits and payment methods are updated via webhooks
-				// asynchronously, so poll until the data changes.
-				const orgsData = queryClient.getQueryData<{
-					organizations: { credits: string }[];
-				}>(orgsQueryKey);
-				const currentCredits = Number(
-					orgsData?.organizations?.[0]?.credits ?? 0,
-				);
-
-				for (let i = 0; i < 10; i++) {
-					await new Promise<void>((r) => {
-						setTimeout(r, 500);
-					});
-					await queryClient.refetchQueries({
-						queryKey: orgsQueryKey,
-					});
-					const updated = queryClient.getQueryData<{
+				// Payment succeeded — poll for webhook-driven data updates.
+				// Polling errors must not surface as "Payment Failed" since
+				// the charge already went through.
+				try {
+					const orgsData = queryClient.getQueryData<{
 						organizations: { credits: string }[];
 					}>(orgsQueryKey);
-					const newCredits = Number(updated?.organizations?.[0]?.credits ?? 0);
-					if (newCredits > currentCredits) {
-						break;
+					const currentCredits = Number(
+						orgsData?.organizations?.[0]?.credits ?? 0,
+					);
+
+					for (let i = 0; i < 10; i++) {
+						if (cancelledRef.current) {
+							break;
+						}
+						await new Promise<void>((r) => {
+							setTimeout(r, 500);
+						});
+						if (cancelledRef.current) {
+							break;
+						}
+						await queryClient.refetchQueries({
+							queryKey: orgsQueryKey,
+						});
+						const updated = queryClient.getQueryData<{
+							organizations: { credits: string }[];
+						}>(orgsQueryKey);
+						const newCredits = Number(
+							updated?.organizations?.[0]?.credits ?? 0,
+						);
+						if (newCredits > currentCredits) {
+							break;
+						}
 					}
+
+					if (!cancelledRef.current && saveCard) {
+						await queryClient.refetchQueries({
+							queryKey: paymentMethodsQueryKey,
+						});
+					}
+				} catch {
+					// Polling failure is non-fatal — credits will update on
+					// next page load via the regular query refresh.
 				}
 
-				if (saveCard) {
-					await queryClient.refetchQueries({
-						queryKey: paymentMethodsQueryKey,
-					});
+				if (!cancelledRef.current) {
+					onSuccess();
 				}
-
-				onSuccess();
 			}
 		} catch (error: any) {
 			toast({
@@ -648,6 +684,7 @@ function ConfirmPaymentStep({
 	onCancel,
 	loading,
 	setLoading,
+	cancelledRef,
 }: {
 	amount: number;
 	paymentMethodId: string;
@@ -656,6 +693,7 @@ function ConfirmPaymentStep({
 	onCancel: () => void;
 	loading: boolean;
 	setLoading: (loading: boolean) => void;
+	cancelledRef: React.RefObject<boolean>;
 }) {
 	const { toast } = useToast();
 	const api = useApi();
@@ -705,28 +743,44 @@ function ConfirmPaymentStep({
 				body: { amount, paymentMethodId },
 			});
 
-			// Credits are updated via webhook asynchronously, so poll
-			// until the balance changes in the API response.
-			const orgsData = queryClient.getQueryData<{
-				organizations: { credits: string }[];
-			}>(orgsQueryKey);
-			const currentCredits = Number(orgsData?.organizations?.[0]?.credits ?? 0);
-
-			for (let i = 0; i < 10; i++) {
-				await new Promise<void>((r) => {
-					setTimeout(r, 500);
-				});
-				await queryClient.refetchQueries({ queryKey: orgsQueryKey });
-				const updated = queryClient.getQueryData<{
+			// Payment succeeded — poll for webhook-driven credit updates.
+			// Polling errors must not surface as "Payment Failed" since
+			// the charge already went through.
+			try {
+				const orgsData = queryClient.getQueryData<{
 					organizations: { credits: string }[];
 				}>(orgsQueryKey);
-				const newCredits = Number(updated?.organizations?.[0]?.credits ?? 0);
-				if (newCredits > currentCredits) {
-					break;
+				const currentCredits = Number(
+					orgsData?.organizations?.[0]?.credits ?? 0,
+				);
+
+				for (let i = 0; i < 10; i++) {
+					if (cancelledRef.current) {
+						break;
+					}
+					await new Promise<void>((r) => {
+						setTimeout(r, 500);
+					});
+					if (cancelledRef.current) {
+						break;
+					}
+					await queryClient.refetchQueries({ queryKey: orgsQueryKey });
+					const updated = queryClient.getQueryData<{
+						organizations: { credits: string }[];
+					}>(orgsQueryKey);
+					const newCredits = Number(updated?.organizations?.[0]?.credits ?? 0);
+					if (newCredits > currentCredits) {
+						break;
+					}
 				}
+			} catch {
+				// Polling failure is non-fatal — credits will update on
+				// next page load via the regular query refresh.
 			}
 
-			onSuccess();
+			if (!cancelledRef.current) {
+				onSuccess();
+			}
 		} catch (error) {
 			toast({
 				title: "Payment Failed",
