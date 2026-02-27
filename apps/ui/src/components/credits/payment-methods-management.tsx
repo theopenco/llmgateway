@@ -245,9 +245,29 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 					variant: "destructive",
 				});
 			} else {
-				await queryClient.invalidateQueries({
-					queryKey: paymentMethodsQueryKey,
-				});
+				// The card is saved via webhook asynchronously, so poll
+				// until the new card appears in the API response.
+				const currentCount =
+					queryClient.getQueryData<{ paymentMethods: unknown[] }>(
+						paymentMethodsQueryKey,
+					)?.paymentMethods?.length ?? 0;
+
+				for (let i = 0; i < 10; i++) {
+					await new Promise<void>((r) => {
+						setTimeout(r, 500);
+					});
+					await queryClient.refetchQueries({
+						queryKey: paymentMethodsQueryKey,
+					});
+					const updated =
+						queryClient.getQueryData<{ paymentMethods: unknown[] }>(
+							paymentMethodsQueryKey,
+						)?.paymentMethods?.length ?? 0;
+					if (updated > currentCount) {
+						break;
+					}
+				}
+
 				toast({
 					title: "Success",
 					description: "Payment method added successfully",

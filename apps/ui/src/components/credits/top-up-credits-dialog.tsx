@@ -6,6 +6,7 @@ import {
 	useElements,
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
+import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -338,6 +339,7 @@ function PaymentStep({
 	const elements = useElements();
 	const { toast } = useToast();
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const { mutateAsync: topUpMutation } = api.useMutation(
 		"post",
 		"/payments/create-payment-intent",
@@ -346,6 +348,12 @@ function PaymentStep({
 		"post",
 		"/payments/create-setup-intent",
 	);
+
+	const orgsQueryKey = api.queryOptions("get", "/orgs").queryKey;
+	const paymentMethodsQueryKey = api.queryOptions(
+		"get",
+		"/payments/payment-methods",
+	).queryKey;
 
 	const [saveCard, setSaveCard] = useState(true);
 
@@ -403,6 +411,37 @@ function PaymentStep({
 				});
 				setLoading(false);
 			} else {
+				// Credits and payment methods are updated via webhooks
+				// asynchronously, so poll until the data changes.
+				const orgsData = queryClient.getQueryData<{
+					organizations: { credits: string }[];
+				}>(orgsQueryKey);
+				const currentCredits = Number(
+					orgsData?.organizations?.[0]?.credits ?? 0,
+				);
+
+				for (let i = 0; i < 10; i++) {
+					await new Promise<void>((r) => {
+						setTimeout(r, 500);
+					});
+					await queryClient.refetchQueries({
+						queryKey: orgsQueryKey,
+					});
+					const updated = queryClient.getQueryData<{
+						organizations: { credits: string }[];
+					}>(orgsQueryKey);
+					const newCredits = Number(updated?.organizations?.[0]?.credits ?? 0);
+					if (newCredits > currentCredits) {
+						break;
+					}
+				}
+
+				if (saveCard) {
+					await queryClient.refetchQueries({
+						queryKey: paymentMethodsQueryKey,
+					});
+				}
+
 				onSuccess();
 			}
 		} catch (error: any) {
@@ -620,10 +659,13 @@ function ConfirmPaymentStep({
 }) {
 	const { toast } = useToast();
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const { mutateAsync: topUpMutation } = api.useMutation(
 		"post",
 		"/payments/top-up-with-saved-method",
 	);
+
+	const orgsQueryKey = api.queryOptions("get", "/orgs").queryKey;
 
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
@@ -662,6 +704,28 @@ function ConfirmPaymentStep({
 			await topUpMutation({
 				body: { amount, paymentMethodId },
 			});
+
+			// Credits are updated via webhook asynchronously, so poll
+			// until the balance changes in the API response.
+			const orgsData = queryClient.getQueryData<{
+				organizations: { credits: string }[];
+			}>(orgsQueryKey);
+			const currentCredits = Number(orgsData?.organizations?.[0]?.credits ?? 0);
+
+			for (let i = 0; i < 10; i++) {
+				await new Promise<void>((r) => {
+					setTimeout(r, 500);
+				});
+				await queryClient.refetchQueries({ queryKey: orgsQueryKey });
+				const updated = queryClient.getQueryData<{
+					organizations: { credits: string }[];
+				}>(orgsQueryKey);
+				const newCredits = Number(updated?.organizations?.[0]?.credits ?? 0);
+				if (newCredits > currentCredits) {
+					break;
+				}
+			}
+
 			onSuccess();
 		} catch (error) {
 			toast({
