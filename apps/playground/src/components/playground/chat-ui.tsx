@@ -55,6 +55,7 @@ import {
 	ToolInput,
 	ToolOutput,
 } from "@/components/ai-elements/tool";
+import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -67,48 +68,6 @@ import {
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
-
-function AspectRatioIcon({
-	ratio,
-	className = "",
-}: {
-	ratio: string;
-	className?: string;
-}) {
-	const maxSize = 14;
-	let w: number;
-	let h: number;
-
-	if (ratio === "auto") {
-		w = maxSize;
-		h = maxSize;
-	} else {
-		const [rw, rh] = ratio.split(":").map(Number);
-		const scale = maxSize / Math.max(rw, rh);
-		w = Math.max(4, Math.round(rw * scale));
-		h = Math.max(4, Math.round(rh * scale));
-	}
-
-	return (
-		<svg
-			width={maxSize}
-			height={maxSize}
-			viewBox={`0 0 ${maxSize} ${maxSize}`}
-			className={`shrink-0 ${className}`}
-		>
-			<rect
-				x={(maxSize - w) / 2}
-				y={(maxSize - h) / 2}
-				width={w}
-				height={h}
-				rx={1}
-				fill="none"
-				stroke="currentColor"
-				strokeWidth={1.5}
-			/>
-		</svg>
-	);
-}
 
 interface ChatUIProps {
 	messages: UIMessage[];
@@ -167,8 +126,8 @@ interface ChatUIProps {
 	setImageSize: (value: string) => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
-	imageCount: 1 | 2 | 4;
-	setImageCount: (value: 1 | 2 | 4) => void;
+	imageCount: 1 | 2 | 3 | 4;
+	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	supportsWebSearch: boolean;
 	webSearchEnabled: boolean;
 	setWebSearchEnabled: (value: boolean) => void;
@@ -836,7 +795,7 @@ export const ChatUI = ({
 								<Select
 									value={String(imageCount)}
 									onValueChange={(val) =>
-										setImageCount(Number(val) as 1 | 2 | 4)
+										setImageCount(Number(val) as 1 | 2 | 3 | 4)
 									}
 								>
 									<SelectTrigger size="sm" className="min-w-[90px]">
@@ -845,6 +804,7 @@ export const ChatUI = ({
 									<SelectContent>
 										<SelectItem value="1">1 image</SelectItem>
 										<SelectItem value="2">2 images</SelectItem>
+										<SelectItem value="3">3 images</SelectItem>
 										<SelectItem value="4">4 images</SelectItem>
 									</SelectContent>
 								</Select>

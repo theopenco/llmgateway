@@ -1,5 +1,5 @@
 ---
-id: "38"
+id: "38b"
 slug: "reasoning-max-tokens"
 date: "2026-01-30"
 title: "Unified Reasoning Configuration"

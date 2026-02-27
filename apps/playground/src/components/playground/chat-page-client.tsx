@@ -120,7 +120,7 @@ export default function ChatPageClient({
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
-	const [imageCount, setImageCount] = useState<1 | 2 | 4>(1);
+	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -1169,7 +1169,7 @@ function ExtraChatPanel({
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
-	const [imageCount, setImageCount] = useState<1 | 2 | 4>(1);
+	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
 
