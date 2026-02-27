@@ -377,6 +377,15 @@ export default function ChatPageClient({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
+			// Check if the user message contains image attachments (vision request)
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+
+			// Only use image gen when the model supports it AND user didn't attach images for vision
+			const useImageGen =
+				supportsImageGen && !(supportsImages && hasImageAttachments);
+
 			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 			const usesPixelDimensions =
 				selectedModel.toLowerCase().includes("alibaba") ||
@@ -384,30 +393,22 @@ export default function ChatPageClient({
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
-			// Only send image_config if user has explicitly selected non-default values
-			const hasNonDefaultCount = imageCount > 1;
-			const imageConfig = supportsImageGen
+			// Always send n explicitly to prevent providers from defaulting to >1
+			const imageConfig = useImageGen
 				? usesPixelDimensions
-					? // For Alibaba/ZAI, don't send image_config with default size
-						alibabaImageSize !== "1024x1024" || hasNonDefaultCount
-						? {
-								...(alibabaImageSize !== "1024x1024" && {
-									image_size: alibabaImageSize,
-								}),
-								...(hasNonDefaultCount && { n: imageCount }),
-							}
-						: undefined
-					: imageAspectRatio !== "auto" ||
-						  imageSize !== "1K" ||
-						  hasNonDefaultCount
-						? {
-								...(imageAspectRatio !== "auto" && {
-									aspect_ratio: imageAspectRatio,
-								}),
-								...(imageSize !== "1K" && { image_size: imageSize }),
-								...(hasNonDefaultCount && { n: imageCount }),
-							}
-						: undefined
+					? {
+							...(alibabaImageSize !== "1024x1024" && {
+								image_size: alibabaImageSize,
+							}),
+							n: imageCount,
+						}
+					: {
+							...(imageAspectRatio !== "auto" && {
+								aspect_ratio: imageAspectRatio,
+							}),
+							...(imageSize !== "1K" && { image_size: imageSize }),
+							n: imageCount,
+						}
 				: undefined;
 
 			// Automatically disable provider fallback for provider-specific model selections
@@ -430,7 +431,7 @@ export default function ChatPageClient({
 					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
-					...(supportsImageGen ? { is_image_gen: true } : {}),
+					...(useImageGen ? { is_image_gen: true } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
@@ -446,6 +447,7 @@ export default function ChatPageClient({
 			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
+			supportsImages,
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
@@ -1236,6 +1238,15 @@ function ExtraChatPanel({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
+			// Check if the user message contains image attachments (vision request)
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+
+			// Only use image gen when the model supports it AND user didn't attach images for vision
+			const useImageGen =
+				supportsImageGen && !(supportsImages && hasImageAttachments);
+
 			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 			const usesPixelDimensions =
 				selectedModel.toLowerCase().includes("alibaba") ||
@@ -1243,30 +1254,22 @@ function ExtraChatPanel({
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
-			// Only send image_config if user has explicitly selected non-default values
-			const hasNonDefaultCount = imageCount > 1;
-			const imageConfig = supportsImageGen
+			// Always send n explicitly to prevent providers from defaulting to >1
+			const imageConfig = useImageGen
 				? usesPixelDimensions
-					? // For Alibaba/ZAI, don't send image_config with default size
-						alibabaImageSize !== "1024x1024" || hasNonDefaultCount
-						? {
-								...(alibabaImageSize !== "1024x1024" && {
-									image_size: alibabaImageSize,
-								}),
-								...(hasNonDefaultCount && { n: imageCount }),
-							}
-						: undefined
-					: imageAspectRatio !== "auto" ||
-						  imageSize !== "1K" ||
-						  hasNonDefaultCount
-						? {
-								...(imageAspectRatio !== "auto" && {
-									aspect_ratio: imageAspectRatio,
-								}),
-								...(imageSize !== "1K" && { image_size: imageSize }),
-								...(hasNonDefaultCount && { n: imageCount }),
-							}
-						: undefined
+					? {
+							...(alibabaImageSize !== "1024x1024" && {
+								image_size: alibabaImageSize,
+							}),
+							n: imageCount,
+						}
+					: {
+							...(imageAspectRatio !== "auto" && {
+								aspect_ratio: imageAspectRatio,
+							}),
+							...(imageSize !== "1K" && { image_size: imageSize }),
+							n: imageCount,
+						}
 				: undefined;
 
 			const isProviderSpecific = selectedModel.includes("/");
@@ -1285,7 +1288,7 @@ function ExtraChatPanel({
 					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
-					...(supportsImageGen ? { is_image_gen: true } : {}),
+					...(useImageGen ? { is_image_gen: true } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
@@ -1298,6 +1301,7 @@ function ExtraChatPanel({
 			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
+			supportsImages,
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,

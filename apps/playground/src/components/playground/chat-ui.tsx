@@ -68,6 +68,48 @@ import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
+function AspectRatioIcon({
+	ratio,
+	className = "",
+}: {
+	ratio: string;
+	className?: string;
+}) {
+	const maxSize = 14;
+	let w: number;
+	let h: number;
+
+	if (ratio === "auto") {
+		w = maxSize;
+		h = maxSize;
+	} else {
+		const [rw, rh] = ratio.split(":").map(Number);
+		const scale = maxSize / Math.max(rw, rh);
+		w = Math.max(4, Math.round(rw * scale));
+		h = Math.max(4, Math.round(rh * scale));
+	}
+
+	return (
+		<svg
+			width={maxSize}
+			height={maxSize}
+			viewBox={`0 0 ${maxSize} ${maxSize}`}
+			className={`shrink-0 ${className}`}
+		>
+			<rect
+				x={(maxSize - w) / 2}
+				y={(maxSize - h) / 2}
+				width={w}
+				height={h}
+				rx={1}
+				fill="none"
+				stroke="currentColor"
+				strokeWidth={1.5}
+			/>
+		</svg>
+	);
+}
+
 interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
@@ -731,21 +773,30 @@ export const ChatUI = ({
 											<SelectValue placeholder="Aspect ratio" />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="auto">Auto</SelectItem>
-											<SelectItem value="1:1">1:1</SelectItem>
-											<SelectItem value="9:16">9:16</SelectItem>
-											<SelectItem value="16:9">16:9</SelectItem>
-											<SelectItem value="3:4">3:4</SelectItem>
-											<SelectItem value="4:3">4:3</SelectItem>
-											<SelectItem value="3:2">3:2</SelectItem>
-											<SelectItem value="2:3">2:3</SelectItem>
-											<SelectItem value="5:4">5:4</SelectItem>
-											<SelectItem value="4:5">4:5</SelectItem>
-											<SelectItem value="21:9">21:9</SelectItem>
-											<SelectItem value="1:4">1:4</SelectItem>
-											<SelectItem value="4:1">4:1</SelectItem>
-											<SelectItem value="1:8">1:8</SelectItem>
-											<SelectItem value="8:1">8:1</SelectItem>
+											{[
+												"auto",
+												"1:1",
+												"9:16",
+												"16:9",
+												"3:4",
+												"4:3",
+												"3:2",
+												"2:3",
+												"5:4",
+												"4:5",
+												"21:9",
+												"1:4",
+												"4:1",
+												"1:8",
+												"8:1",
+											].map((r) => (
+												<SelectItem key={r} value={r}>
+													<span className="flex items-center gap-2">
+														<AspectRatioIcon ratio={r} />
+														{r === "auto" ? "Auto" : r}
+													</span>
+												</SelectItem>
+											))}
 										</SelectContent>
 									</Select>
 									<Select value={imageSize} onValueChange={setImageSize}>
