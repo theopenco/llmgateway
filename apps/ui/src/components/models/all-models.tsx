@@ -90,6 +90,17 @@ interface AllModelsProps {
 	children: React.ReactNode;
 	models: ApiModel[];
 	providers: ApiProvider[];
+	title?: string;
+	description?: string;
+	categoryFilter?:
+		| "text"
+		| "text-to-image"
+		| "image-to-image"
+		| "web-search"
+		| "vision"
+		| "reasoning"
+		| "tools"
+		| "discounted";
 }
 
 type SortField =
@@ -385,7 +396,46 @@ const ModelTableRow = React.memo(
 	},
 );
 
-export function AllModels({ children, models, providers }: AllModelsProps) {
+function applyCategoryFilter(
+	categoryFilter: AllModelsProps["categoryFilter"],
+	model: ApiModel,
+	providerDetails: ModelWithProviders["providerDetails"],
+): boolean {
+	switch (categoryFilter) {
+		case "text":
+			return !model.output?.includes("image");
+		case "text-to-image":
+			return model.output?.includes("image") === true;
+		case "image-to-image":
+			return (
+				model.output?.includes("image") === true &&
+				providerDetails.some((p) => p.provider.vision)
+			);
+		case "web-search":
+			return providerDetails.some((p) => p.provider.webSearch);
+		case "vision":
+			return providerDetails.some((p) => p.provider.vision);
+		case "reasoning":
+			return providerDetails.some((p) => p.provider.reasoning);
+		case "tools":
+			return providerDetails.some((p) => p.provider.tools);
+		case "discounted":
+			return providerDetails.some(
+				(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
+			);
+		default:
+			return true;
+	}
+}
+
+export function AllModels({
+	children,
+	models,
+	providers,
+	title,
+	description,
+	categoryFilter,
+}: AllModelsProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const isMobile = useIsMobile();
@@ -506,7 +556,14 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			// Filter out models with no non-deprecated provider mappings
 			.filter((model) => model.providerDetails.length > 0);
 
-		const filteredModels = baseModels.filter((model) => {
+		// Apply category pre-filter if provided
+		const preFilteredModels = categoryFilter
+			? baseModels.filter((model) =>
+					applyCategoryFilter(categoryFilter, model, model.providerDetails),
+				)
+			: baseModels;
+
+		const filteredModels = preFilteredModels.filter((model) => {
 			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
 			if (searchQuery) {
 				const normalize = (str: string) =>
@@ -873,7 +930,15 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 			}
 			return 0;
 		});
-	}, [searchQuery, filters, sortField, sortDirection, models, providers]);
+	}, [
+		searchQuery,
+		filters,
+		sortField,
+		sortDirection,
+		models,
+		providers,
+		categoryFilter,
+	]);
 
 	// Calculate unique filtered providers
 	const filteredProviderCount = useMemo(() => {
@@ -1645,10 +1710,10 @@ export function AllModels({ children, models, providers }: AllModelsProps) {
 						<div className="container mx-auto py-8 space-y-6">
 							<div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4">
 								<div>
-									<h1 className="text-3xl font-bold">Models</h1>
+									<h1 className="text-3xl font-bold">{title ?? "Models"}</h1>
 									<p className="text-muted-foreground mt-2">
-										Comprehensive list of all supported models and their
-										providers
+										{description ??
+											"Comprehensive list of all supported models and their providers"}
 									</p>
 								</div>
 
