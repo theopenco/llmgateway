@@ -322,9 +322,18 @@ export async function calculateCosts(
 	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
 	if (imageOutputPrice && outputImageCount > 0) {
 		// Token count per image depends on size:
-		// - 1K/2K images: 1120 tokens ($0.134 per image at $120/1M)
-		// - 4K images: 2000 tokens ($0.24 per image at $120/1M)
-		const TOKENS_PER_IMAGE = imageSize === "4K" ? 2000 : 1120;
+		// - 0.5K (512px): 747 tokens
+		// - 1K (1024px): 1120 tokens
+		// - 2K (2048px): 1680 tokens
+		// - 4K (4096px): 2520 tokens
+		const TOKENS_PER_IMAGE =
+			imageSize === "4K"
+				? 2520
+				: imageSize === "2K"
+					? 1680
+					: imageSize === "0.5K"
+						? 747
+						: 1120;
 		imageOutputTokens = outputImageCount * TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
