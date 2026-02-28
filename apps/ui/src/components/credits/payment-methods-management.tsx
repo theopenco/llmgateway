@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Trash2, Plus } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/lib/components/button";
 import {
@@ -180,20 +180,9 @@ export function PaymentMethodsManagement() {
 function AddPaymentMethodDialog() {
 	const [open, setOpen] = useState(false);
 	const { stripe, isLoading: stripeLoading } = useStripe();
-	const cancelledRef = useRef(false);
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={(isOpen) => {
-				if (isOpen) {
-					cancelledRef.current = false;
-				} else {
-					cancelledRef.current = true;
-				}
-				setOpen(isOpen);
-			}}
-		>
+		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
 				<Button>
 					<Plus className="mr-2 h-4 w-4" />
@@ -205,10 +194,7 @@ function AddPaymentMethodDialog() {
 					<div className="p-6 text-center">Loading payment form...</div>
 				) : (
 					<Elements stripe={stripe}>
-						<AddPaymentMethodForm
-							onSuccess={() => setOpen(false)}
-							cancelledRef={cancelledRef}
-						/>
+						<AddPaymentMethodForm onSuccess={() => setOpen(false)} />
 					</Elements>
 				)}
 			</DialogContent>
@@ -216,13 +202,7 @@ function AddPaymentMethodDialog() {
 	);
 }
 
-function AddPaymentMethodForm({
-	onSuccess,
-	cancelledRef,
-}: {
-	onSuccess: () => void;
-	cancelledRef: React.RefObject<boolean>;
-}) {
+function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 	const queryClient = useQueryClient();
 	const stripe = useStripeElements();
 	const elements = useElements();
@@ -265,48 +245,20 @@ function AddPaymentMethodForm({
 					variant: "destructive",
 				});
 			} else {
-				// Card setup succeeded — poll for webhook-driven data.
-				// Polling errors must not surface as a card-setup failure
-				// since the card was already saved at Stripe's end.
-				try {
-					const currentCount =
-						queryClient.getQueryData<{ paymentMethods: unknown[] }>(
-							paymentMethodsQueryKey,
-						)?.paymentMethods?.length ?? 0;
+				// Card setup succeeded — wait briefly for the webhook
+				// to persist the card, then refresh the list.
+				await new Promise<void>((r) => {
+					setTimeout(r, 2000);
+				});
+				await queryClient.refetchQueries({
+					queryKey: paymentMethodsQueryKey,
+				});
 
-					for (let i = 0; i < 10; i++) {
-						if (cancelledRef.current) {
-							break;
-						}
-						await new Promise<void>((r) => {
-							setTimeout(r, 500);
-						});
-						if (cancelledRef.current) {
-							break;
-						}
-						await queryClient.refetchQueries({
-							queryKey: paymentMethodsQueryKey,
-						});
-						const updated =
-							queryClient.getQueryData<{ paymentMethods: unknown[] }>(
-								paymentMethodsQueryKey,
-							)?.paymentMethods?.length ?? 0;
-						if (updated > currentCount) {
-							break;
-						}
-					}
-				} catch {
-					// Polling failure is non-fatal — the card will appear
-					// on next page load via the regular query refresh.
-				}
-
-				if (!cancelledRef.current) {
-					toast({
-						title: "Success",
-						description: "Payment method added successfully",
-					});
-					onSuccess();
-				}
+				toast({
+					title: "Success",
+					description: "Payment method added successfully",
+				});
+				onSuccess();
 			}
 		} catch (error) {
 			toast({

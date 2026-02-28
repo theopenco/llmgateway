@@ -1252,6 +1252,14 @@ async function handleSetupIntentSucceeded(
 	const paymentMethodId =
 		typeof payment_method === "string" ? payment_method : payment_method.id;
 
+	// Idempotent: skip if already saved (e.g. by confirm-setup endpoint)
+	const alreadySaved = await db.query.paymentMethod.findFirst({
+		where: { stripePaymentMethodId: paymentMethodId, organizationId },
+	});
+	if (alreadySaved) {
+		return;
+	}
+
 	await getStripe().paymentMethods.attach(paymentMethodId, {
 		customer: stripeCustomerId,
 	});
