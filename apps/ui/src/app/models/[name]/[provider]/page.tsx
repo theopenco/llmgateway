@@ -349,6 +349,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								}}
 								modelName={decodedName}
 								modelStability={modelDef.stability}
+								modelOutput={modelDef.output}
 							/>
 						</div>
 					</div>

@@ -60,7 +60,7 @@ export default function Footer() {
 						</div>
 					</div>
 
-					<div className="w-full md:w-auto grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 text-zinc-700 dark:text-zinc-400">
+					<div className="w-full md:w-auto grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 text-zinc-700 dark:text-zinc-400">
 						<div>
 							<h3 className="text-sm font-semibold mb-3 text-zinc-900 dark:text-white">
 								Product
@@ -305,6 +305,86 @@ export default function Footer() {
 										prefetch={true}
 									>
 										LiteLLM
+									</Link>
+								</li>
+							</ul>
+						</div>
+
+						<div>
+							<h3 className="text-sm font-semibold mb-3 text-zinc-900 dark:text-white">
+								Models
+							</h3>
+							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/models/text"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Text Generation
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/text-to-image"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Text to Image
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/image-to-image"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Image to Image
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/vision"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Vision
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/reasoning"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Reasoning
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/tools"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Tool Calling
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/web-search"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Web Search
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/discounted"
+										className="text-sm hover:text-black dark:hover:text-white"
+										prefetch={true}
+									>
+										Discounted
 									</Link>
 								</li>
 							</ul>

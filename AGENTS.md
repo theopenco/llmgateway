@@ -14,8 +14,8 @@ This file provides guidance to AI agents when working with code in this reposito
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006)
-- `pnpm build` - Build all applications for production
+- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006)
+- `pnpm build` - Build all applications for production. Always run this after finishing work on a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 
 ### Code Quality
@@ -24,8 +24,13 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 Always run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
 
-- `pnpm format` - Format code and fix linting issues
+- `pnpm format` - Format code and fix linting issues. Always run this before committing code.
 - `pnpm lint` - Check linting and formatting (without fixing)
+
+### Writing code
+
+This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
+This repository always uses tabs for indentation.
 
 ### Testing
 
@@ -58,11 +63,13 @@ E2E tests are organized for optimal performance:
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
+- `pnpm --filter db push` - Push database schema
+- `pnpm --filter db seed` - Seed database with initial data
 - `pnpm run setup` – Reset db, sync schema, seed data (use this for development)
 
 ## Architecture Overview
 
-**LLMGateway** is a monorepo containing a full-stack LLM API gateway with multiple services:
+**LLM Gateway** is a monorepo containing a full-stack LLM API gateway with multiple services:
 
 ### Core Services
 
@@ -70,6 +77,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
+- **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
 - **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
 
 ### Shared Packages
@@ -110,14 +118,33 @@ NOTE: these commands can only be run in the root directory of the repository, no
 ### Database Operations
 
 - Use Drizzle ORM with latest object syntax
+- The schema uses camelCase in TypeScript but the actual database columns are snake_case (configured via Drizzle's `casing: "snake_case"`). When writing raw SQL, always use snake_case column names (e.g. `user_id`, not `userId`).
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
 - For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
 - Always sync schema with `pnpm run setup` after table/column changes
+- Never write migrations manually, only edit generated migration files if specifically asked
+- **NEVER resolve merge conflicts in migration files, journal files, or snapshot files manually.** When merging with main and migration conflicts occur, ALWAYS follow this exact procedure:
+  1. **Before merging**, reset migrations: `git restore --source=origin/main packages/db/migrations/`
+  2. **After merging**, regenerate migrations: `pnpm migrations`
+  3. Do NOT attempt to manually edit or resolve conflicts in any file under `packages/db/migrations/`
+
+### Creating New Packages
+
+When creating a new package in `packages/`, include these config files. Copy them from an existing package (e.g., `packages/models`) to ensure consistency:
+
+- `package.json` - Package configuration with build scripts
+- `tsconfig.json` - TypeScript configuration extending root
+- `.prettierignore` - Copy from existing package (ignores `dist` build output)
+- `.lintstagedrc.json` - Copy from existing package (lint-staged configuration)
+- `eslint.config.mjs` - Copy from existing package (ESLint configuration)
 
 ### Code Standards
 
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
+- Do not --amend commits after pushing to remote
+- Never force push on main/default branch; force pushing is only acceptable on feature branches
+- When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
@@ -134,12 +161,26 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 - UI: http://localhost:3002
 - Playground: http://localhost:3003
-- Docs: http://localhost:3005
-- Admin: http://localhost:3006
+- Code: http://localhost:3004
 - API: http://localhost:4002
 - Gateway: http://localhost:4001
+- Docs: http://localhost:3005
+- Admin: http://localhost:3006
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
+
+## Folder Structure
+
+- `apps/ui`: Next.js frontend
+- `apps/playground`: Interactive LLM testing environment
+- `apps/code`: Dev plans + coding tools landing & dashboard
+- `apps/api`: Hono backend
+- `apps/gateway`: API gateway for routing LLM requests
+- `apps/docs`: Documentation site
+- `apps/admin`: Internal Admin Dashboard
+- `packages/db`: Drizzle ORM schema and migrations
+- `packages/models`: Model and provider definitions
+- `packages/shared`: Shared types and utilities
 
 ## Key Features
 
@@ -166,3 +207,21 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - API keys and provider configurations
 - Usage tracking and billing records
 - Analytics and performance metrics
+
+## License
+
+LLM Gateway is available under a dual license:
+
+- **Open Source**: Core functionality is licensed under AGPLv3 - see the [LICENSE](LICENSE) file for details.
+- **Enterprise**: Commercial features in the `ee/` directory require an Enterprise license - see [ee/LICENSE](ee/LICENSE) for details.
+
+### Enterprise features include:
+
+- Advanced billing and subscription management
+- Extended data retention (90 days vs 3 days)
+- Provider API key management (Pro plan)
+- Team and organization management
+- Priority support
+- And more to be defined
+
+For enterprise licensing, please contact us at contact@llmgateway.io

@@ -13,6 +13,7 @@ const BLACKLISTED_DOMAINS = [
 	"15p.me",
 	"vsheerid.me",
 	"addy.io",
+	"xigege.me",
 ];
 
 export function validateEmail(email: string): EmailValidationResult {

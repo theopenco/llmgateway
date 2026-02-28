@@ -321,10 +321,21 @@ export async function calculateCosts(
 	let imageOutputCost: Decimal | null = null;
 	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
 	if (imageOutputPrice && outputImageCount > 0) {
-		// Token count per image depends on size:
-		// - 1K/2K images: 1120 tokens ($0.134 per image at $120/1M)
-		// - 4K images: 2000 tokens ($0.24 per image at $120/1M)
-		const TOKENS_PER_IMAGE = imageSize === "4K" ? 2000 : 1120;
+		// Token count per image depends on model and size.
+		// Gemini 3.1 Flash Image: 0.5K=747, 1K=1120, 2K=1680, 4K=2520
+		// Gemini 3 Pro Image / others: 1K/2K=1120, 4K=2000
+		const isFlashImage = model.includes("gemini-3.1-flash-image");
+		const TOKENS_PER_IMAGE = isFlashImage
+			? imageSize === "4K"
+				? 2520
+				: imageSize === "2K"
+					? 1680
+					: imageSize === "0.5K"
+						? 747
+						: 1120
+			: imageSize === "4K"
+				? 2000
+				: 1120;
 		imageOutputTokens = outputImageCount * TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 

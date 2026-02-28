@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { DeleteUserButton } from "@/components/delete-user-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +20,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getOrganizations } from "@/lib/admin-organizations";
+import { deleteUser, getOrganizations } from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
 
 type SortBy =
@@ -177,6 +178,15 @@ export default async function OrganizationsPage({
 		redirect(`/organizations?page=1${searchParam}${sortParam}`);
 	}
 
+	async function handleDeleteUser(
+		userId: string,
+	): Promise<{ success: boolean }> {
+		"use server";
+
+		const success = await deleteUser(userId);
+		return { success };
+	}
+
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -293,13 +303,14 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
+							<TableHead>Actions</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={9}
+									colSpan={10}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -358,6 +369,15 @@ export default async function OrganizationsPage({
 										>
 											{org.status ?? "active"}
 										</Badge>
+									</TableCell>
+									<TableCell>
+										{org.ownerUserId && (
+											<DeleteUserButton
+												userId={org.ownerUserId}
+												userEmail={org.ownerEmail ?? org.billingEmail}
+												onDelete={handleDeleteUser}
+											/>
+										)}
 									</TableCell>
 								</TableRow>
 							))

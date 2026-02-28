@@ -277,8 +277,12 @@ interface ChatRequestBody {
 			| "2:3"
 			| "5:4"
 			| "4:5"
-			| "21:9";
-		image_size?: "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
+			| "21:9"
+			| "1:4"
+			| "4:1"
+			| "1:8"
+			| "8:1";
+		image_size?: "0.5K" | "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
 		n?: number;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";

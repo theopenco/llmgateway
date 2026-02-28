@@ -649,6 +649,69 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-3.1-flash-image-preview",
+		name: "Gemini 3.1 Flash Image (Preview)",
+		description:
+			"Preview of Gemini 3.1 Flash with native image generation capabilities.",
+		family: "google",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-02-26"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "google-ai-studio",
+				modelName: "gemini-3.1-flash-image-preview",
+				inputPrice: 0.25 / 1e6,
+				outputPrice: 1.5 / 1e6,
+				imageInputPrice: 0.25 / 1e6, // $0.25/1M tokens for image input (560 tokens/image)
+				imageOutputPrice: 60 / 1e6, // $60/1M tokens for image output
+				requestPrice: 0,
+				contextSize: 65536,
+				maxOutput: 65536,
+				streaming: true,
+				vision: true,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				test: "skip",
+				providerId: "google-vertex",
+				modelName: "gemini-3.1-flash-image-preview",
+				inputPrice: 0.25 / 1e6,
+				outputPrice: 1.5 / 1e6,
+				imageInputPrice: 0.25 / 1e6, // $0.25/1M tokens for image input (560 tokens/image)
+				imageOutputPrice: 60 / 1e6, // $60/1M tokens for image output
+				requestPrice: 0,
+				contextSize: 65536,
+				maxOutput: 65536,
+				streaming: true,
+				vision: true,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				test: "skip",
+				providerId: "obsidian",
+				modelName: "gemini-3.1-flash-image-preview",
+				inputPrice: 0.25 / 1e6,
+				outputPrice: 1.5 / 1e6,
+				imageInputPrice: 0.25 / 1e6, // $0.25/1M tokens for image input (560 tokens/image)
+				imageOutputPrice: 60 / 1e6, // $60/1M tokens for image output
+				discount: 0.2,
+				requestPrice: 0,
+				contextSize: 65536,
+				maxOutput: 65536,
+				streaming: true,
+				vision: true,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "gemini-3-flash-preview",
 		name: "Gemini 3 Flash (Preview)",
 		description:

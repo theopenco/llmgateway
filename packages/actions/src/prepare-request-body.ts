@@ -210,7 +210,7 @@ function stripUnsupportedSchemaProperties(
 
 	for (const [key, value] of Object.entries(schema)) {
 		// Skip unsupported properties
-		// Google doesn't support: additionalProperties, $schema, $defs, definitions, $ref, ref (non-standard), maxLength, minLength, minimum, maximum, pattern
+		// Google doesn't support many JSON Schema validation keywords
 		if (
 			key === "additionalProperties" ||
 			key === "$schema" ||
@@ -222,7 +222,30 @@ function stripUnsupportedSchemaProperties(
 			key === "minLength" ||
 			key === "minimum" ||
 			key === "maximum" ||
-			key === "pattern"
+			key === "exclusiveMinimum" ||
+			key === "exclusiveMaximum" ||
+			key === "pattern" ||
+			key === "propertyNames" ||
+			key === "const" ||
+			key === "not" ||
+			key === "if" ||
+			key === "then" ||
+			key === "else" ||
+			key === "multipleOf" ||
+			key === "minItems" ||
+			key === "maxItems" ||
+			key === "uniqueItems" ||
+			key === "minProperties" ||
+			key === "maxProperties" ||
+			key === "patternProperties" ||
+			key === "dependentRequired" ||
+			key === "dependentSchemas" ||
+			key === "unevaluatedProperties" ||
+			key === "unevaluatedItems" ||
+			key === "contentMediaType" ||
+			key === "contentEncoding" ||
+			key === "prefixItems" ||
+			key === "contains"
 		) {
 			continue;
 		}

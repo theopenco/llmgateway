@@ -428,6 +428,7 @@ export default async function ModelPage({ params }: PageProps) {
 									provider={provider}
 									modelName={decodedName}
 									modelStability={modelDef.stability}
+									modelOutput={modelDef.output}
 								/>
 							))}
 						</div>
