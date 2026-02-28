@@ -498,21 +498,38 @@ export async function prepareRequestBody(
 
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
-		// Extract prompt from last user message
+		// Extract prompt and images from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
+
+		// Build Alibaba DashScope content array: images first, then text
+		const alibabaContent: any[] = [];
+		for (const url of imageUrls) {
+			alibabaContent.push({ image: url });
+		}
+		alibabaContent.push({ text: prompt });
 
 		// Alibaba DashScope multimodal generation format
 		const alibabaImageRequest: any = {
@@ -521,7 +538,7 @@ export async function prepareRequestBody(
 				messages: [
 					{
 						role: "user",
-						content: [{ text: prompt }],
+						content: alibabaContent,
 					},
 				],
 			},
