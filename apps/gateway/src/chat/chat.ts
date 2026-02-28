@@ -1131,6 +1131,34 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// For models with multiple provider mappings for the same provider (e.g., routing models
+	// like grok-4-fast with reasoning and non-reasoning variants), select the correct variant
+	// based on request capabilities when a specific provider is already set
+	if (
+		usedProvider &&
+		usedProvider !== "llmgateway" &&
+		usedProvider !== "custom"
+	) {
+		const sameProviderMappings = modelInfo.providers.filter(
+			(p) => p.providerId === usedProvider,
+		);
+		if (sameProviderMappings.length > 1) {
+			let selectedMapping;
+			if (reasoning_effort !== undefined) {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning === true,
+				);
+			} else {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning !== true,
+				);
+			}
+			if (selectedMapping) {
+				usedModel = selectedMapping.modelName;
+			}
+		}
+	}
+
 	if (!usedProvider) {
 		if (iamFilteredModelProviders.length === 0) {
 			throw new HTTPException(403, {
