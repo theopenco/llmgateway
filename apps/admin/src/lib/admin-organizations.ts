@@ -15,6 +15,9 @@ export interface Organization {
 	totalSpent?: string;
 	createdAt: string;
 	status: string | null;
+	ownerUserId?: string | null;
+	ownerName?: string | null;
+	ownerEmail?: string | null;
 }
 
 export interface OrganizationsListResponse {
@@ -457,4 +460,17 @@ export async function giftCreditsToOrganization(
 	}
 
 	return { success: true };
+}
+
+export async function deleteUser(userId: string): Promise<boolean> {
+	if (!(await hasSession())) {
+		return false;
+	}
+
+	const data = await fetchServerData<{ success: boolean }>(
+		"DELETE",
+		`/admin/users/${userId}` as "/admin/organizations/{orgId}",
+	);
+
+	return data?.success ?? false;
 }

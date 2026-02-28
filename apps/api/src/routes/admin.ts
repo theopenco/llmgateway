@@ -83,6 +83,9 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	ownerUserId: z.string().nullable().optional(),
+	ownerName: z.string().nullable().optional(),
+	ownerEmail: z.string().nullable().optional(),
 });
 
 const organizationsListSchema = z.object({
@@ -791,6 +794,19 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
 
+	// Subquery for owner user per org
+	const ownerSub = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_sub");
+
 	const sortColumnMap = {
 		name: tables.organization.name,
 		billingEmail: tables.organization.billingEmail,
@@ -822,6 +838,9 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
 				"totalSpent",
 			),
+			ownerUserId: ownerSub.userId,
+			ownerName: ownerSub.userName,
+			ownerEmail: ownerSub.userEmail,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -832,6 +851,7 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpentSub,
 			eq(tables.organization.id, totalSpentSub.organizationId),
 		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(whereClause)
 		.orderBy(orderFn(sortColumn))
 		.limit(limit)
@@ -849,6 +869,9 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: String(org.totalSpent ?? "0"),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			ownerUserId: org.ownerUserId ?? null,
+			ownerName: org.ownerName ?? null,
+			ownerEmail: org.ownerEmail ?? null,
 		})),
 		total,
 		totalCredits,
@@ -2571,6 +2594,47 @@ admin.openapi(giftCreditsRoute, async (c) => {
 		message: "Credits gifted successfully",
 		credits: updatedCredits,
 	});
+});
+
+// --- Delete User ---
+
+const deleteUserRoute = createRoute({
+	method: "delete",
+	path: "/users/{userId}",
+	request: {
+		params: z.object({
+			userId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "User deleted.",
+		},
+		404: {
+			description: "User not found.",
+		},
+	},
+});
+
+admin.openapi(deleteUserRoute, async (c) => {
+	const { userId } = c.req.valid("param");
+
+	const existingUser = await db.query.user.findFirst({
+		where: { id: { eq: userId } },
+	});
+
+	if (!existingUser) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	await db.delete(tables.user).where(eq(tables.user.id, userId));
+
+	return c.json({ success: true });
 });
 
 export default admin;

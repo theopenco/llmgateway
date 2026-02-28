@@ -9,6 +9,19 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Testimonials } from "@/components/landing/testimonials";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "Enterprise LLM Gateway",
+	description:
+		"Dedicated infrastructure, custom SLAs, SSO, and volume discounts for teams that need production-grade LLM routing at scale.",
+	openGraph: {
+		title: "Enterprise LLM Gateway",
+		description:
+			"Dedicated infrastructure, custom SLAs, SSO, and volume discounts for teams that need production-grade LLM routing at scale.",
+	},
+};
+
 export default function EnterprisePage() {
 	return (
 		<div>

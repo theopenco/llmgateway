@@ -10,6 +10,7 @@ import {
 	LogOutIcon,
 	MoreVerticalIcon,
 	Loader2,
+	ImagePlus,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -392,6 +393,16 @@ export function ChatSidebar({
 							<Plus className="h-4 w-4" />
 						)}
 						New Chat
+					</Button>
+					<Button
+						variant="ghost"
+						className="w-full flex items-center gap-2"
+						asChild
+					>
+						<Link href="/image">
+							<ImagePlus className="h-4 w-4" />
+							Image Studio
+						</Link>
 					</Button>
 				</div>
 			</SidebarHeader>
