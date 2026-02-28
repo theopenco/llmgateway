@@ -1259,6 +1259,26 @@ async function handleSetupIntentSucceeded(
 	const paymentMethod =
 		await getStripe().paymentMethods.retrieve(paymentMethodId);
 
+	// Check for duplicate card by fingerprint
+	if (paymentMethod.type === "card" && paymentMethod.card?.fingerprint) {
+		const existingMethods = await db.query.paymentMethod.findMany({
+			where: { organizationId },
+		});
+
+		for (const existing of existingMethods) {
+			const stripeMethod = await getStripe().paymentMethods.retrieve(
+				existing.stripePaymentMethodId,
+			);
+			if (stripeMethod.card?.fingerprint === paymentMethod.card.fingerprint) {
+				logger.warn(
+					`Duplicate card detected for organization ${organizationId}, detaching`,
+				);
+				await getStripe().paymentMethods.detach(paymentMethodId);
+				return;
+			}
+		}
+	}
+
 	const existingPaymentMethods = await db.query.paymentMethod.findMany({
 		where: {
 			organizationId,

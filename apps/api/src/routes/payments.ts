@@ -430,6 +430,18 @@ payments.openapi(deletePaymentMethod, async (c) => {
 		});
 	}
 
+	if (paymentMethod.isDefault) {
+		const otherMethods = await db.query.paymentMethod.findMany({
+			where: { organizationId },
+		});
+		if (otherMethods.length > 1) {
+			throw new HTTPException(400, {
+				message:
+					"Cannot delete the default payment method. Please set another payment method as default first.",
+			});
+		}
+	}
+
 	// Get card details before deleting for audit log
 	let cardLast4: string | undefined;
 	try {
