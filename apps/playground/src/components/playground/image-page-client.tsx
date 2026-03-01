@@ -41,7 +41,7 @@ export default function ImagePageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to image-gen only
+	// Filter models to image-gen only (includes image-edit models)
 	const imageGenModels = useMemo(
 		() => models.filter((m) => m.output?.includes("image")),
 		[models],
@@ -79,6 +79,17 @@ export default function ImagePageClient({
 	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
+
+	// Input images for image-edit models
+	const [inputImages, setInputImages] = useState<
+		{ dataUrl: string; mediaType: string }[]
+	>([]);
+
+	// Detect if the primary selected model is an image-edit model
+	const isEditModel = useMemo(() => {
+		const primary = selectedModels[0] ?? "";
+		return primary.includes("image-edit");
+	}, [selectedModels]);
 
 	// Auth
 	const isAuthenticated = !isUserLoading && !!user;
@@ -137,12 +148,15 @@ export default function ImagePageClient({
 		router.replace(qs ? `?${qs}` : "");
 	}, [selectedModels, comparisonMode]);
 
-	// Reset imageSize when model changes
+	// Reset imageSize when model changes, clear input images when switching away from edit model
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
 		if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
+		}
+		if (!primaryModel.includes("image-edit")) {
+			setInputImages([]);
 		}
 	}, [selectedModels, imageSize]);
 
@@ -231,7 +245,14 @@ export default function ImagePageClient({
 								messages: [
 									{
 										role: "user",
-										parts: [{ type: "text", text: currentPrompt }],
+										parts: [
+											...inputImages.map((img) => ({
+												type: "file" as const,
+												url: img.dataUrl,
+												mediaType: img.mediaType,
+											})),
+											{ type: "text", text: currentPrompt },
+										],
 									},
 								],
 								model: modelId,
@@ -328,6 +349,7 @@ export default function ImagePageClient({
 			imageAspectRatio,
 			imageSize,
 			imageCount,
+			inputImages,
 		],
 	);
 
@@ -426,6 +448,9 @@ export default function ImagePageClient({
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}
 						onGenerate={generateImages}
+						isEditModel={isEditModel}
+						inputImages={inputImages}
+						setInputImages={setInputImages}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">

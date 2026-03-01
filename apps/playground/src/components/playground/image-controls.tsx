@@ -1,7 +1,7 @@
 "use client";
 
-import { Loader2, Sparkles } from "lucide-react";
-import { useRef } from "react";
+import { ImagePlus, Loader2, Sparkles, X } from "lucide-react";
+import { type Dispatch, type SetStateAction, useRef } from "react";
 
 import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,11 @@ import { getModelImageConfig } from "@/lib/image-gen";
 
 import type { AspectRatio } from "@/lib/image-gen";
 
+interface InputImage {
+	dataUrl: string;
+	mediaType: string;
+}
+
 interface ImageControlsProps {
 	prompt: string;
 	setPrompt: (prompt: string) => void;
@@ -31,6 +36,9 @@ interface ImageControlsProps {
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	isGenerating: boolean;
 	onGenerate: () => void;
+	isEditModel: boolean;
+	inputImages: InputImage[];
+	setInputImages: Dispatch<SetStateAction<InputImage[]>>;
 }
 
 const aspectRatios: AspectRatio[] = [
@@ -65,8 +73,12 @@ export function ImageControls({
 	setImageCount,
 	isGenerating,
 	onGenerate,
+	isEditModel,
+	inputImages,
+	setInputImages,
 }: ImageControlsProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	// Derive config from first selected model (settings apply globally)
 	const primaryModel = selectedModels[0] ?? "";
@@ -75,27 +87,111 @@ export function ImageControls({
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			if (prompt.trim() && !isGenerating) {
+			if (prompt.trim() && !isGenerating && canGenerate) {
 				onGenerate();
 			}
 		}
 	};
 
+	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(e.target.files ?? []);
+		for (const file of files) {
+			if (!file.type.startsWith("image/")) {
+				continue;
+			}
+			if (inputImages.length >= 1) {
+				break;
+			}
+			const reader = new FileReader();
+			reader.onload = () => {
+				setInputImages((prev) => {
+					if (prev.length >= 1) {
+						return prev;
+					}
+					return [
+						...prev,
+						{ dataUrl: reader.result as string, mediaType: file.type },
+					];
+				});
+			};
+			reader.readAsDataURL(file);
+		}
+		// Reset input so same file can be re-selected
+		e.target.value = "";
+	};
+
+	const removeImage = (index: number) => {
+		setInputImages((prev) => prev.filter((_, i) => i !== index));
+	};
+
+	const canGenerate =
+		prompt.trim().length > 0 &&
+		selectedModels.length > 0 &&
+		(!isEditModel || inputImages.length > 0);
+
 	return (
 		<div className="border-b bg-background p-4">
 			<div className="max-w-4xl mx-auto space-y-3">
-				<div className="flex gap-3">
+				<div className="rounded-md border-input border dark:bg-input/30 shadow-xs focus-within:ring-1 focus-within:ring-ring">
+					{isEditModel && inputImages.length > 0 && (
+						<div className="flex flex-wrap gap-2 px-3 pt-3">
+							{inputImages.map((img, i) => (
+								<div
+									key={i}
+									className="relative group h-14 w-14 rounded-md border"
+								>
+									<img
+										src={img.dataUrl}
+										alt={`Input ${i + 1}`}
+										className="size-full rounded-md object-cover"
+									/>
+									<button
+										type="button"
+										aria-label="Remove attachment"
+										onClick={() => removeImage(i)}
+										className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:text-foreground"
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							))}
+						</div>
+					)}
 					<Textarea
 						ref={textareaRef}
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						onKeyDown={handleKeyDown}
-						placeholder="Describe the image you want to generate..."
-						className="min-h-[80px] max-h-[200px] resize-none"
+						placeholder={
+							isEditModel
+								? "Describe how to edit the image..."
+								: "Describe the image you want to generate..."
+						}
+						className="min-h-[80px] max-h-[200px] resize-none border-0 bg-transparent dark:bg-transparent focus-visible:ring-0 shadow-none"
 						disabled={isGenerating}
 					/>
 				</div>
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept="image/*"
+					className="hidden"
+					onChange={handleFileSelect}
+				/>
 				<div className="flex flex-wrap items-center gap-2">
+					{isEditModel && (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => fileInputRef.current?.click()}
+							disabled={isGenerating || inputImages.length >= 1}
+						>
+							<ImagePlus className="h-4 w-4 mr-1.5" />
+							{inputImages.length === 0
+								? "Add image"
+								: `${inputImages.length}/1`}
+						</Button>
+					)}
 					{!config.usesPixelDimensions && (
 						<>
 							<Select
@@ -166,9 +262,7 @@ export function ImageControls({
 					<div className="flex-1" />
 					<Button
 						onClick={onGenerate}
-						disabled={
-							isGenerating || !prompt.trim() || selectedModels.length === 0
-						}
+						disabled={isGenerating || !canGenerate}
 						className="min-w-[120px]"
 					>
 						{isGenerating ? (

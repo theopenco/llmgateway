@@ -498,11 +498,12 @@ export async function prepareRequestBody(
 
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
-		// Extract prompt from last user message
+		// Extract prompt and image URLs from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
@@ -511,8 +512,23 @@ export async function prepareRequestBody(
 					.filter((p): p is { type: "text"; text: string } => p.type === "text")
 					.map((p) => p.text)
 					.join("\n");
+				// Extract image URLs for image-edit models
+				for (const part of lastUserMessage.content) {
+					if (
+						part.type === "image_url" &&
+						typeof part.image_url?.url === "string"
+					) {
+						imageUrls.push(part.image_url.url);
+					}
+				}
 			}
 		}
+
+		// Build DashScope content array with images (for edit models) and text
+		const dashScopeContent: Array<{ image: string } | { text: string }> = [
+			...imageUrls.map((url) => ({ image: url })),
+			{ text: prompt },
+		];
 
 		// Alibaba DashScope multimodal generation format
 		const alibabaImageRequest: any = {
@@ -521,7 +537,7 @@ export async function prepareRequestBody(
 				messages: [
 					{
 						role: "user",
-						content: [{ text: prompt }],
+						content: dashScopeContent,
 					},
 				],
 			},

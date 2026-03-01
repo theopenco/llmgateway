@@ -373,11 +373,12 @@ export async function POST(req: Request) {
 	// Use generateImage for dedicated image generation models
 	if (is_image_gen) {
 		try {
-			// Extract prompt from the last user message
+			// Extract prompt and file parts from the last user message
 			const lastUserMessage = [...messages]
 				.reverse()
 				.find((m) => m.role === "user");
 			let prompt = "";
+			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
 					prompt = lastUserMessage.parts
@@ -386,6 +387,20 @@ export async function POST(req: Request) {
 						)
 						.map((p) => p.text)
 						.join("\n");
+					for (const p of lastUserMessage.parts) {
+						if (
+							p.type === "file" &&
+							"url" in p &&
+							typeof p.url === "string" &&
+							"mediaType" in p &&
+							typeof p.mediaType === "string"
+						) {
+							fileParts.push({
+								url: p.url,
+								mediaType: p.mediaType,
+							});
+						}
+					}
 				}
 			}
 
@@ -394,6 +409,125 @@ export async function POST(req: Request) {
 					JSON.stringify({ error: "Missing prompt for image generation" }),
 					{ status: 400 },
 				);
+			}
+
+			// For image-edit models with input images, bypass generateImage() and
+			// send directly to the gateway's /v1/chat/completions with images in content
+			if (fileParts.length > 0) {
+				const content: Array<
+					| { type: "image_url"; image_url: { url: string } }
+					| { type: "text"; text: string }
+				> = [
+					...fileParts.map((fp) => ({
+						type: "image_url" as const,
+						image_url: { url: fp.url },
+					})),
+					{ type: "text", text: prompt },
+				];
+
+				const chatResponse = await fetch(`${gatewayUrl}/chat/completions`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${finalApiKey}`,
+						"x-source": "chat.llmgateway.io",
+						...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
+					},
+					body: JSON.stringify({
+						model: selectedModel,
+						messages: [{ role: "user", content }],
+						is_image_gen: true,
+						image_config,
+					}),
+				});
+
+				if (!chatResponse.ok) {
+					const errorData = await chatResponse.json().catch(() => null);
+					throw new Error(
+						errorData?.error?.message ??
+							errorData?.error ??
+							`HTTP ${chatResponse.status}: ${chatResponse.statusText}`,
+					);
+				}
+
+				const chatResult = await chatResponse.json();
+				const imageObjects: { base64: string; mediaType: string }[] = [];
+
+				// Extract images from choices[0].message.images
+				const messageImages = chatResult.choices?.[0]?.message?.images;
+				if (Array.isArray(messageImages)) {
+					for (const img of messageImages) {
+						const imageUrl = img.image_url?.url;
+						if (typeof imageUrl !== "string") {
+							continue;
+						}
+						try {
+							const base64Match = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+							if (base64Match) {
+								imageObjects.push({
+									base64: base64Match[2],
+									mediaType: base64Match[1],
+								});
+							} else if (
+								imageUrl.startsWith("http://") ||
+								imageUrl.startsWith("https://")
+							) {
+								const imgResponse = await fetch(imageUrl);
+								if (!imgResponse.ok) {
+									continue;
+								}
+								const arrayBuf = await imgResponse.arrayBuffer();
+								const uint8 = new Uint8Array(arrayBuf);
+								let binary = "";
+								for (let i = 0; i < uint8.length; i++) {
+									binary += String.fromCharCode(uint8[i]);
+								}
+								const b64 = btoa(binary);
+								const mt =
+									imgResponse.headers.get("content-type")?.split(";")[0] ??
+									"image/png";
+								imageObjects.push({
+									base64: b64,
+									mediaType: mt,
+								});
+							}
+						} catch {
+							// Skip individual image fetch failures
+						}
+					}
+				}
+
+				if (imageObjects.length === 0) {
+					throw new Error(
+						"The model did not generate any images from the edit request.",
+					);
+				}
+
+				const uiStream = createUIMessageStream({
+					execute: async ({ writer }) => {
+						const messageId = crypto.randomUUID();
+						writer.write({ type: "start", messageId });
+						writer.write({ type: "start-step" });
+						for (const image of imageObjects) {
+							writer.write({
+								type: "file",
+								url: `data:${image.mediaType};base64,${image.base64}`,
+								mediaType: image.mediaType,
+							});
+						}
+						writer.write({ type: "finish-step" });
+						writer.write({ type: "finish", finishReason: "stop" });
+					},
+				});
+
+				return createUIMessageStreamResponse({
+					stream: uiStream,
+					headers: {
+						"cache-control": "no-cache",
+						connection: "keep-alive",
+						"x-accel-buffering": "no",
+					},
+				});
 			}
 
 			const result = await generateImage({
