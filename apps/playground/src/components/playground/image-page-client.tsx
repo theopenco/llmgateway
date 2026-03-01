@@ -209,6 +209,7 @@ export default function ImagePageClient({
 
 			setGalleryItems((prev) => [placeholderItem, ...prev]);
 			setPrompt("");
+			setInputImages([]);
 
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
