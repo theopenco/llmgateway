@@ -498,7 +498,7 @@ export async function prepareRequestBody(
 
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
-		// Extract prompt and image URLs from last user message
+		// Extract prompt and images from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
@@ -508,27 +508,28 @@ export async function prepareRequestBody(
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
-				// Extract image URLs for image-edit models
 				for (const part of lastUserMessage.content) {
-					if (
-						part.type === "image_url" &&
-						typeof part.image_url?.url === "string"
-					) {
-						imageUrls.push(part.image_url.url);
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
 					}
 				}
 			}
 		}
 
-		// Build DashScope content array with images (for edit models) and text
-		const dashScopeContent: Array<{ image: string } | { text: string }> = [
-			...imageUrls.map((url) => ({ image: url })),
-			{ text: prompt },
-		];
+		// Build Alibaba DashScope content array: images first, then text
+		const alibabaContent: any[] = [];
+		for (const url of imageUrls) {
+			alibabaContent.push({ image: url });
+		}
+		alibabaContent.push({ text: prompt });
 
 		// Alibaba DashScope multimodal generation format
 		const alibabaImageRequest: any = {
@@ -537,7 +538,7 @@ export async function prepareRequestBody(
 				messages: [
 					{
 						role: "user",
-						content: dashScopeContent,
+						content: alibabaContent,
 					},
 				],
 			},

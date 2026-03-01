@@ -40,7 +40,7 @@
 		"@steebchen/eslint-config": "^1.11.1",
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
-		"@types/node": "24.3.3",
+		"@types/node": "25.3.0",
 		"commitlint": "19.8.1",
 		"concurrently": "^9.2.1",
 		"cross-env-shell": "7.0.3",
