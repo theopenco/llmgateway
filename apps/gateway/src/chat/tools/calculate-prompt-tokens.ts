@@ -1,5 +1,7 @@
 import { encodeChat } from "gpt-tokenizer";
 
+import { logger } from "@llmgateway/logger";
+
 import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types.js";
 
 /**
@@ -7,15 +9,32 @@ import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types.js";
  */
 // Helper function to calculate prompt tokens when missing or 0
 export function calculatePromptTokensFromMessages(messages: any[]): number {
+	let chatMessages: ChatMessage[] | undefined;
 	try {
-		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
+		chatMessages = messages.map((m: any) => ({
 			role: m.role,
 			content:
-				typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-			name: m.name,
+				m.content === null || m.content === undefined
+					? ""
+					: typeof m.content === "string"
+						? m.content
+						: (JSON.stringify(m.content) ?? ""),
+			...(m.name !== null && m.name !== undefined && { name: m.name }),
 		}));
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch {
+	} catch (error) {
+		logger.error(
+			"Failed to encode chat messages in calculatePromptTokensFromMessages",
+			{
+				error: error instanceof Error ? error.message : String(error),
+				messageCount: messages.length,
+				messageRoles: messages.map((m: any) => m.role),
+				messageContentTypes: messages.map((m: any) => typeof m.content),
+				chatMessages: chatMessages
+					? JSON.stringify(chatMessages).slice(0, 500)
+					: "not built yet",
+			},
+		);
 		return Math.max(
 			1,
 			Math.round(
