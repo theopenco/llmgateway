@@ -411,74 +411,12 @@ export async function POST(req: Request) {
 				);
 			}
 
-			if (fileParts.length > 0) {
-				const editsResponse = await fetch(`${gatewayUrl}/images/edits`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${finalApiKey}`,
-						"x-source": "chat.llmgateway.io",
-						...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
-					},
-					body: JSON.stringify({
-						images: fileParts.map((fp) => ({ image_url: fp.url })),
-						prompt,
-						model: selectedModel,
-						...(image_config?.n ? { n: image_config.n } : {}),
-						...(image_config?.image_size
-							? { size: image_config.image_size }
-							: {}),
-					}),
-				});
-
-				if (!editsResponse.ok) {
-					const errorData = await editsResponse.json().catch(() => null);
-					throw new Error(
-						errorData?.error?.message ??
-							errorData?.error ??
-							`HTTP ${editsResponse.status}: ${editsResponse.statusText}`,
-					);
-				}
-
-				const editsResult = await editsResponse.json();
-				const imageData: { b64_json: string }[] = editsResult.data ?? [];
-
-				if (imageData.length === 0) {
-					throw new Error(
-						"The model did not generate any images from the edit request.",
-					);
-				}
-
-				const uiStream = createUIMessageStream({
-					execute: async ({ writer }) => {
-						const messageId = crypto.randomUUID();
-						writer.write({ type: "start", messageId });
-						writer.write({ type: "start-step" });
-						for (const image of imageData) {
-							writer.write({
-								type: "file",
-								url: `data:image/png;base64,${image.b64_json}`,
-								mediaType: "image/png",
-							});
-						}
-						writer.write({ type: "finish-step" });
-						writer.write({ type: "finish", finishReason: "stop" });
-					},
-				});
-
-				return createUIMessageStreamResponse({
-					stream: uiStream,
-					headers: {
-						"cache-control": "no-cache",
-						connection: "keep-alive",
-						"x-accel-buffering": "no",
-					},
-				});
-			}
-
 			const result = await generateImage({
 				model: llmgateway.image(selectedModel),
-				prompt,
+				prompt:
+					fileParts.length > 0
+						? { images: fileParts.map((fp) => fp.url), text: prompt }
+						: prompt,
 				n: image_config?.n ?? 1,
 				...(image_config?.image_size
 					? { size: image_config.image_size as `${number}x${number}` }
