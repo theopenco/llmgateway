@@ -411,21 +411,8 @@ export async function POST(req: Request) {
 				);
 			}
 
-			// For image-edit models with input images, bypass generateImage() and
-			// send directly to the gateway's /v1/chat/completions with images in content
 			if (fileParts.length > 0) {
-				const content: Array<
-					| { type: "image_url"; image_url: { url: string } }
-					| { type: "text"; text: string }
-				> = [
-					...fileParts.map((fp) => ({
-						type: "image_url" as const,
-						image_url: { url: fp.url },
-					})),
-					{ type: "text", text: prompt },
-				];
-
-				const chatResponse = await fetch(`${gatewayUrl}/chat/completions`, {
+				const editsResponse = await fetch(`${gatewayUrl}/images/edits`, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -434,70 +421,29 @@ export async function POST(req: Request) {
 						...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 					},
 					body: JSON.stringify({
+						images: fileParts.map((fp) => ({ image_url: fp.url })),
+						prompt,
 						model: selectedModel,
-						messages: [{ role: "user", content }],
-						is_image_gen: true,
-						image_config,
+						...(image_config?.n ? { n: image_config.n } : {}),
+						...(image_config?.image_size
+							? { size: image_config.image_size }
+							: {}),
 					}),
 				});
 
-				if (!chatResponse.ok) {
-					const errorData = await chatResponse.json().catch(() => null);
+				if (!editsResponse.ok) {
+					const errorData = await editsResponse.json().catch(() => null);
 					throw new Error(
 						errorData?.error?.message ??
 							errorData?.error ??
-							`HTTP ${chatResponse.status}: ${chatResponse.statusText}`,
+							`HTTP ${editsResponse.status}: ${editsResponse.statusText}`,
 					);
 				}
 
-				const chatResult = await chatResponse.json();
-				const imageObjects: { base64: string; mediaType: string }[] = [];
+				const editsResult = await editsResponse.json();
+				const imageData: { b64_json: string }[] = editsResult.data ?? [];
 
-				// Extract images from choices[0].message.images
-				const messageImages = chatResult.choices?.[0]?.message?.images;
-				if (Array.isArray(messageImages)) {
-					for (const img of messageImages) {
-						const imageUrl = img.image_url?.url;
-						if (typeof imageUrl !== "string") {
-							continue;
-						}
-						try {
-							const base64Match = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
-							if (base64Match) {
-								imageObjects.push({
-									base64: base64Match[2],
-									mediaType: base64Match[1],
-								});
-							} else if (
-								imageUrl.startsWith("http://") ||
-								imageUrl.startsWith("https://")
-							) {
-								const imgResponse = await fetch(imageUrl);
-								if (!imgResponse.ok) {
-									continue;
-								}
-								const arrayBuf = await imgResponse.arrayBuffer();
-								const uint8 = new Uint8Array(arrayBuf);
-								let binary = "";
-								for (let i = 0; i < uint8.length; i++) {
-									binary += String.fromCharCode(uint8[i]);
-								}
-								const b64 = btoa(binary);
-								const mt =
-									imgResponse.headers.get("content-type")?.split(";")[0] ??
-									"image/png";
-								imageObjects.push({
-									base64: b64,
-									mediaType: mt,
-								});
-							}
-						} catch {
-							// Skip individual image fetch failures
-						}
-					}
-				}
-
-				if (imageObjects.length === 0) {
+				if (imageData.length === 0) {
 					throw new Error(
 						"The model did not generate any images from the edit request.",
 					);
@@ -508,11 +454,11 @@ export async function POST(req: Request) {
 						const messageId = crypto.randomUUID();
 						writer.write({ type: "start", messageId });
 						writer.write({ type: "start-step" });
-						for (const image of imageObjects) {
+						for (const image of imageData) {
 							writer.write({
 								type: "file",
-								url: `data:${image.mediaType};base64,${image.base64}`,
-								mediaType: image.mediaType,
+								url: `data:image/png;base64,${image.b64_json}`,
+								mediaType: "image/png",
 							});
 						}
 						writer.write({ type: "finish-step" });
