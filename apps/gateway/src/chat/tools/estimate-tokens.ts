@@ -23,10 +23,10 @@ export function estimateTokens(
 	if (!promptTokens || !completionTokens) {
 		// Estimate prompt tokens using encodeChat for better accuracy
 		if (!promptTokens && messages && messages.length > 0) {
-			let chatMessages: ChatMessage[] | undefined;
+			let mappingDone = false;
 			try {
 				// Convert messages to the format expected by gpt-tokenizer
-				chatMessages = messages.map((m) => ({
+				const chatMessages: ChatMessage[] = messages.map((m) => ({
 					role: m.role,
 					content:
 						m.content === null || m.content === undefined
@@ -36,6 +36,7 @@ export function estimateTokens(
 								: (JSON.stringify(m.content) ?? ""),
 					...(m.name !== null && m.name !== undefined && { name: m.name }),
 				}));
+				mappingDone = true;
 				calculatedPromptTokens = encodeChat(
 					chatMessages,
 					DEFAULT_TOKENIZER_MODEL,
@@ -47,9 +48,7 @@ export function estimateTokens(
 					messageCount: messages.length,
 					messageRoles: messages.map((m) => m.role),
 					messageContentTypes: messages.map((m) => typeof m.content),
-					chatMessages: chatMessages
-						? JSON.stringify(chatMessages).slice(0, 500)
-						: "not built yet",
+					failedDuringMapping: !mappingDone,
 				});
 				calculatedPromptTokens =
 					messages.reduce((acc, m) => acc + (m.content?.length ?? 0), 0) / 4;

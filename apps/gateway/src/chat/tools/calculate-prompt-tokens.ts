@@ -9,9 +9,9 @@ import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./types.js";
  */
 // Helper function to calculate prompt tokens when missing or 0
 export function calculatePromptTokensFromMessages(messages: any[]): number {
-	let chatMessages: ChatMessage[] | undefined;
+	let mappingDone = false;
 	try {
-		chatMessages = messages.map((m: any) => ({
+		const chatMessages: ChatMessage[] = messages.map((m: any) => ({
 			role: m.role,
 			content:
 				m.content === null || m.content === undefined
@@ -21,6 +21,7 @@ export function calculatePromptTokensFromMessages(messages: any[]): number {
 						: (JSON.stringify(m.content) ?? ""),
 			...(m.name !== null && m.name !== undefined && { name: m.name }),
 		}));
+		mappingDone = true;
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
 	} catch (error) {
 		logger.error(
@@ -30,9 +31,7 @@ export function calculatePromptTokensFromMessages(messages: any[]): number {
 				messageCount: messages.length,
 				messageRoles: messages.map((m: any) => m.role),
 				messageContentTypes: messages.map((m: any) => typeof m.content),
-				chatMessages: chatMessages
-					? JSON.stringify(chatMessages).slice(0, 500)
-					: "not built yet",
+				failedDuringMapping: !mappingDone,
 			},
 		);
 		return Math.max(
