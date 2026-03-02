@@ -7,6 +7,7 @@ import {
 	ImageIcon,
 	LogOut,
 	MessageSquare,
+	PenTool,
 	Plus,
 	Users,
 } from "lucide-react";
@@ -214,6 +215,14 @@ export function ImageSidebar({
 							<Link href="/video">
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild>
+							<Link href="/canvas">
+								<PenTool className="h-4 w-4" />
+								Canvas
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

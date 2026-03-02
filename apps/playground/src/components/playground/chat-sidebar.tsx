@@ -16,6 +16,7 @@ import {
 	LogOut,
 	ExternalLink,
 	Search,
+	PenTool,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -724,6 +725,18 @@ export const ChatSidebar = function ChatSidebar({
 							<Link href="/video">
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Canvas"
+							isActive={pathname === "/canvas"}
+						>
+							<Link href="/canvas">
+								<PenTool className="h-4 w-4" />
+								<span>Canvas</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
