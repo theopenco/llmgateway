@@ -467,6 +467,38 @@ export async function prepareRequestBody(
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
+	// Handle xAI image generation models
+	if (imageGenerations && usedProvider === "xai") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		// xAI Grok Imagine uses OpenAI-compatible image generation format
+		const xaiImageRequest: any = {
+			model: usedModel,
+			prompt,
+			response_format: "url",
+			...(image_config?.aspect_ratio && {
+				aspect_ratio: image_config.aspect_ratio,
+			}),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		return xaiImageRequest;
+	}
+
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
 		// Extract prompt from last user message
