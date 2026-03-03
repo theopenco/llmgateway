@@ -27,12 +27,12 @@ export function messageContentToString(
  * would otherwise crash gpt-tokenizer.
  */
 export function encodeChatMessages(messages: any[]): number {
-	const chatMessages = messages.map((m) => ({
-		role: m.role as "user" | "assistant" | "system" | undefined,
-		content: messageContentToString(m.content),
-		...(m.name !== null && m.name !== undefined && { name: m.name }),
-	}));
 	try {
+		const chatMessages = messages.map((m) => ({
+			role: m.role as "user" | "assistant" | "system" | undefined,
+			content: messageContentToString(m.content),
+			...(m.name !== null && m.name !== undefined && { name: m.name }),
+		}));
 		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
 	} catch (error) {
 		logger.error("Failed to encode chat messages", {
