@@ -374,10 +374,9 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(747); // 1 * 747
 		expect(result.imageOutputCost).toBeCloseTo(747 * (60 / 1e6)); // 747 * $60/1M
 		const textTokens = 800 - 747; // 53 text tokens
-		expect(result.outputCost).toBeCloseTo(
-			// eslint-disable-next-line no-mixed-operators
-			textTokens * (1.5 / 1e6) + 747 * (60 / 1e6),
-		);
+		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedImageCost = 747 * (60 / 1e6);
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
 
 	it("should use resolution-specific token counts for Flash Image output (4K)", async () => {
@@ -398,10 +397,9 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(5040); // 2 * 2520
 		expect(result.imageOutputCost).toBeCloseTo(5040 * (60 / 1e6));
 		const textTokens = Math.max(0, 5100 - 5040); // 60 text tokens
-		expect(result.outputCost).toBeCloseTo(
-			// eslint-disable-next-line no-mixed-operators
-			textTokens * (1.5 / 1e6) + 5040 * (60 / 1e6),
-		);
+		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedImageCost = 5040 * (60 / 1e6);
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
 
 	it("should use resolution-specific token counts for Pro Image output (4K = 2000 tokens)", async () => {
@@ -422,10 +420,9 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(2000); // 1 * 2000
 		expect(result.imageOutputCost).toBeCloseTo(2000 * (120 / 1e6));
 		const textTokens = Math.max(0, 2100 - 2000); // 100 text tokens
-		expect(result.outputCost).toBeCloseTo(
-			// eslint-disable-next-line no-mixed-operators
-			textTokens * (12 / 1e6) + 2000 * (120 / 1e6),
-		);
+		const expectedTextCost = textTokens * (12 / 1e6);
+		const expectedImageCost = 2000 * (120 / 1e6);
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
 
 	it("should fall back to default resolution when no imageSize is provided", async () => {
@@ -467,10 +464,9 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6) * 0.8);
 		// text output also discounted: (1200 - 1120) * (1.5/1M) * 0.8
 		const textTokens = 1200 - 1120;
-		expect(result.outputCost).toBeCloseTo(
-			// eslint-disable-next-line no-mixed-operators
-			textTokens * (1.5 / 1e6) * 0.8 + 1120 * (60 / 1e6) * 0.8,
-		);
+		const expectedTextCost = textTokens * (1.5 / 1e6) * 0.8;
+		const expectedImageCost = 1120 * (60 / 1e6) * 0.8;
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
 
 	it("should apply per-resolution discount for image input on obsidian", async () => {
