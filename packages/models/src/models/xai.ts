@@ -391,8 +391,8 @@ export const xaiModels = [
 		name: "Grok Imagine Image Pro",
 		description: "xAI's premium image generation model.",
 		family: "xai",
-		output: ["text", "image"],
-		releasedAt: new Date("2026-03-03"),
+		output: ["image"],
+		releasedAt: new Date("2026-03-02"),
 		providers: [
 			{
 				test: "skip",
@@ -416,8 +416,8 @@ export const xaiModels = [
 		name: "Grok Imagine Image",
 		description: "xAI's fast image generation model.",
 		family: "xai",
-		output: ["text", "image"],
-		releasedAt: new Date("2026-03-03"),
+		output: ["image"],
+		releasedAt: new Date("2026-03-02"),
 		providers: [
 			{
 				test: "skip",
