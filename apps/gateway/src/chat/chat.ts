@@ -657,9 +657,11 @@ chat.openapi(completions, async (c) => {
 				const chatMessages: ChatMessage[] = messages.map((m) => ({
 					role: m.role as "user" | "assistant" | "system" | undefined,
 					content:
-						typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
+						m.content === null || m.content === undefined
+							? ""
+							: typeof m.content === "string"
+								? m.content
+								: JSON.stringify(m.content),
 					name: m.name,
 				}));
 				requiredContextSize = encodeChat(
@@ -2570,7 +2572,15 @@ chat.openapi(completions, async (c) => {
 									0, // No completion tokens yet
 									null, // No cached tokens
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) =>
+												m.content === null || m.content === undefined
+													? ""
+													: typeof m.content === "string"
+														? m.content
+														: JSON.stringify(m.content),
+											)
+											.join("\n"),
 										completion: "",
 									},
 									null, // No reasoning tokens
@@ -3573,7 +3583,15 @@ chat.openapi(completions, async (c) => {
 										finalCompletionTokens,
 										cachedTokens,
 										{
-											prompt: messages.map((m) => m.content).join("\n"),
+											prompt: messages
+												.map((m) =>
+													m.content === null || m.content === undefined
+														? ""
+														: typeof m.content === "string"
+															? m.content
+															: JSON.stringify(m.content),
+												)
+												.join("\n"),
 											completion: fullContent,
 											toolResults: streamingToolCalls ?? undefined,
 										},
@@ -4257,7 +4275,12 @@ chat.openapi(completions, async (c) => {
 								// Convert messages to the format expected by gpt-tokenizer
 								const chatMessages: any[] = messages.map((m) => ({
 									role: m.role as "user" | "assistant" | "system" | undefined,
-									content: m.content ?? "",
+									content:
+										m.content === null || m.content === undefined
+											? ""
+											: typeof m.content === "string"
+												? m.content
+												: JSON.stringify(m.content),
 									name: m.name,
 								}));
 								calculatedPromptTokens = encodeChat(
@@ -4643,7 +4666,15 @@ chat.openapi(completions, async (c) => {
 									calculatedCompletionTokens,
 									cachedTokens,
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) =>
+												m.content === null || m.content === undefined
+													? ""
+													: typeof m.content === "string"
+														? m.content
+														: JSON.stringify(m.content),
+											)
+											.join("\n"),
 										completion: fullContent,
 										toolResults: streamingToolCalls ?? undefined,
 									},
@@ -5222,7 +5253,15 @@ chat.openapi(completions, async (c) => {
 					0, // No completion tokens
 					null, // No cached tokens
 					{
-						prompt: messages.map((m) => m.content).join("\n"),
+						prompt: messages
+							.map((m) =>
+								m.content === null || m.content === undefined
+									? ""
+									: typeof m.content === "string"
+										? m.content
+										: JSON.stringify(m.content),
+							)
+							.join("\n"),
 						completion: "",
 					},
 					null, // No reasoning tokens
@@ -5951,7 +5990,15 @@ chat.openapi(completions, async (c) => {
 		calculatedCompletionTokens,
 		cachedTokens,
 		{
-			prompt: messages.map((m) => m.content).join("\n"),
+			prompt: messages
+				.map((m) =>
+					m.content === null || m.content === undefined
+						? ""
+						: typeof m.content === "string"
+							? m.content
+							: JSON.stringify(m.content),
+				)
+				.join("\n"),
 			completion: content,
 			toolResults: toolResults,
 		},
