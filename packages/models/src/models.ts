@@ -22,6 +22,26 @@ export type Provider = (typeof providers)[number]["id"];
 export type Model = (typeof models)[number]["providers"][number]["modelName"];
 
 /**
+ * Pricing configuration for an image at a specific resolution.
+ * Used in imageOutputPricingByResolution and imageInputPricingByResolution.
+ */
+export interface ImageResolutionConfig {
+	/**
+	 * Number of tokens consumed per image at this resolution
+	 */
+	tokensPerImage: number;
+	/**
+	 * Price per token in USD for images at this resolution
+	 */
+	price: number;
+	/**
+	 * Optional discount (0-1) that overrides the provider mapping discount for this resolution.
+	 * Only takes effect when no database discount is active.
+	 */
+	discount?: number;
+}
+
+/**
  * Pricing tier for models with context-length based pricing
  */
 export interface PricingTier {
@@ -76,6 +96,20 @@ export interface ProviderModelMapping {
 	 * Price per image input in USD
 	 */
 	imageInputPrice?: number;
+	/**
+	 * Resolution-based pricing for image output.
+	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to pricing config.
+	 * When set, takes precedence over imageOutputPrice for output cost calculation.
+	 * Use "default" key as a fallback when no imageSize is specified.
+	 */
+	imageOutputPricingByResolution?: Record<string, ImageResolutionConfig>;
+	/**
+	 * Resolution-based pricing for image input.
+	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to pricing config.
+	 * When set, takes precedence over imageInputPrice for input cost calculation.
+	 * Use "default" key as a fallback when no imageSize is specified.
+	 */
+	imageInputPricingByResolution?: Record<string, ImageResolutionConfig>;
 	/**
 	 * Price per request in USD
 	 */

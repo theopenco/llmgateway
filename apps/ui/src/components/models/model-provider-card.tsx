@@ -360,35 +360,111 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					</div>
-					{provider.imageOutputPrice !== undefined && (
-						<div className="grid grid-cols-3 gap-3 mt-3">
-							<div className="col-span-3">
-								<div className="text-muted-foreground text-xs mb-1">
-									Image Output
-								</div>
-								<div className="font-mono">
-									<div className="space-y-1">
-										<div className="flex items-center gap-2">
-											{provider.discount ? (
-												<>
-													<span className="line-through text-muted-foreground text-xs">
-														{formatPrice(provider.imageOutputPrice)}
-													</span>
-													<span className="text-green-600 font-semibold">
-														{formatPrice(
-															provider.imageOutputPrice *
-																(1 - provider.discount),
-														)}
-													</span>
-												</>
-											) : (
-												formatPrice(provider.imageOutputPrice)
-											)}
-										</div>
-										<span className="text-muted-foreground text-xs">/M</span>
-									</div>
-								</div>
+					{(provider.imageInputPricingByResolution ??
+						provider.imageOutputPricingByResolution) && (
+						<div className="mt-3 pt-3 border-t">
+							<div className="text-muted-foreground text-xs mb-2">
+								Image Pricing (est. per image)
 							</div>
+							{provider.imageInputPricingByResolution &&
+								(() => {
+									const named = Object.entries(
+										provider.imageInputPricingByResolution,
+									).filter(([k]) => k !== "default");
+									const defaultEntry =
+										provider.imageInputPricingByResolution["default"];
+									const entries: Array<[string, typeof defaultEntry]> =
+										named.length > 0
+											? named
+											: defaultEntry
+												? [["any size", defaultEntry]]
+												: [];
+									if (entries.length === 0) {
+										return null;
+									}
+									return (
+										<div className="mb-2">
+											<div className="text-xs text-muted-foreground mb-1">
+												Input
+											</div>
+											{entries.map(([res, cfg]) => {
+												if (!cfg) {
+													return null;
+												}
+												const effectiveDiscount =
+													cfg.discount ?? provider.discount ?? 0;
+												const raw = cfg.tokensPerImage * cfg.price;
+												const discounted = raw * (1 - effectiveDiscount);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono">
+															{effectiveDiscount > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
+							{provider.imageOutputPricingByResolution &&
+								(() => {
+									const entries = Object.entries(
+										provider.imageOutputPricingByResolution,
+									).filter(([k]) => k !== "default");
+									if (entries.length === 0) {
+										return null;
+									}
+									return (
+										<div>
+											<div className="text-xs text-muted-foreground mb-1">
+												Output
+											</div>
+											{entries.map(([res, cfg]) => {
+												const effectiveDiscount =
+													cfg.discount ?? provider.discount ?? 0;
+												const raw = cfg.tokensPerImage * cfg.price;
+												const discounted = raw * (1 - effectiveDiscount);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono">
+															{effectiveDiscount > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
 						</div>
 					)}
 					{provider.requestPrice !== undefined && provider.requestPrice > 0 && (

@@ -4,6 +4,7 @@ import { encode, encodeChat } from "gpt-tokenizer";
 import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	type ImageResolutionConfig,
 	type ModelDefinition,
 	models,
 	type PricingTier,
@@ -278,17 +279,60 @@ export async function calculateCosts(
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
-	// Track image input tokens separately (for Google image generation models)
-	// Google reports text tokens but doesn't include image input tokens in usage
-	// Each input image is 560 tokens ($0.0011 per image at $2/1M)
-	const TOKENS_PER_INPUT_IMAGE = 560;
-	const imageInputPrice = (providerInfo as any).imageInputPrice;
+	// Resolve the image resolution config for the given imageSize.
+	// Prefers imageOutputPricingByResolution / imageInputPricingByResolution over
+	// the legacy flat imageOutputPrice / imageInputPrice fields.
+	function resolveImageResolutionConfig(
+		byResolution: Record<string, ImageResolutionConfig> | undefined,
+		size: string | undefined,
+	): ImageResolutionConfig | undefined {
+		if (!byResolution) {
+			return undefined;
+		}
+		return byResolution[size ?? "default"] ?? byResolution["default"];
+	}
+
+	// Build a discount multiplier that respects the per-resolution discount override.
+	// The resolution-level discount only takes effect when no database discount is active
+	// (i.e. the effective discount came from the hardcoded provider mapping or is zero).
+	function resolveImageDiscountMultiplier(
+		resolutionConfig: ImageResolutionConfig | undefined,
+	): Decimal {
+		if (
+			resolutionConfig?.discount !== null &&
+			resolutionConfig?.discount !== undefined &&
+			(effectiveDiscountResult.source === "hardcoded" ||
+				effectiveDiscountResult.source === "none")
+		) {
+			return new Decimal(1).minus(resolutionConfig.discount);
+		}
+		return discountMultiplier;
+	}
+
+	// Track image input tokens separately (for Google image generation models).
+	// Pricing is defined per-resolution in imageInputPricingByResolution; falls back
+	// to the legacy flat imageInputPrice + 560 tokens/image if not present.
+	const imageInputResolutionConfig = resolveImageResolutionConfig(
+		providerInfo.imageInputPricingByResolution,
+		imageSize,
+	);
+	const legacyImageInputPrice = (providerInfo as any).imageInputPrice as
+		| number
+		| undefined;
 	let imageInputTokens: number | null = null;
 	let imageInputCost: Decimal | null = null;
-	if (imageInputPrice && inputImageCount > 0) {
-		imageInputTokens = inputImageCount * TOKENS_PER_INPUT_IMAGE;
+	if (imageInputResolutionConfig && inputImageCount > 0) {
+		imageInputTokens =
+			inputImageCount * imageInputResolutionConfig.tokensPerImage;
 		imageInputCost = new Decimal(imageInputTokens)
-			.times(imageInputPrice)
+			.times(imageInputResolutionConfig.price)
+			.times(resolveImageDiscountMultiplier(imageInputResolutionConfig));
+	} else if (legacyImageInputPrice && inputImageCount > 0) {
+		// Legacy fallback: flat price with hardcoded 560 tokens/image
+		const LEGACY_TOKENS_PER_INPUT_IMAGE = 560;
+		imageInputTokens = inputImageCount * LEGACY_TOKENS_PER_INPUT_IMAGE;
+		imageInputCost = new Decimal(imageInputTokens)
+			.times(legacyImageInputPrice)
 			.times(discountMultiplier);
 	}
 
@@ -315,15 +359,35 @@ export async function calculateCosts(
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
-	// Calculate output cost, handling separate image output pricing if applicable
+	// Calculate output cost, handling separate image output pricing if applicable.
+	// Pricing is defined per-resolution in imageOutputPricingByResolution; falls back
+	// to the legacy flat imageOutputPrice field with hardcoded token counts if not present.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
-	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
-	if (imageOutputPrice && outputImageCount > 0) {
-		// Token count per image depends on model and size.
-		// Gemini 3.1 Flash Image: 0.5K=747, 1K=1120, 2K=1680, 4K=2520
-		// Gemini 3 Pro Image / others: 1K/2K=1120, 4K=2000
+	const imageOutputResolutionConfig = resolveImageResolutionConfig(
+		providerInfo.imageOutputPricingByResolution,
+		imageSize,
+	);
+	const legacyImageOutputPrice = (providerInfo as any).imageOutputPrice as
+		| number
+		| undefined;
+	if (imageOutputResolutionConfig && outputImageCount > 0) {
+		imageOutputTokens =
+			outputImageCount * imageOutputResolutionConfig.tokensPerImage;
+		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
+
+		// Separate image output cost (breakdown field)
+		imageOutputCost = new Decimal(imageOutputTokens)
+			.times(imageOutputResolutionConfig.price)
+			.times(resolveImageDiscountMultiplier(imageOutputResolutionConfig));
+		// outputCost includes both text and image output costs
+		outputCost = new Decimal(textTokens)
+			.times(outputPrice)
+			.times(discountMultiplier)
+			.plus(imageOutputCost);
+	} else if (legacyImageOutputPrice && outputImageCount > 0) {
+		// Legacy fallback: hardcoded token counts per model family
 		const isFlashImage = model.includes("gemini-3.1-flash-image");
 		const TOKENS_PER_IMAGE = isFlashImage
 			? imageSize === "4K"
@@ -339,11 +403,9 @@ export async function calculateCosts(
 		imageOutputTokens = outputImageCount * TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
-		// Separate image output cost (breakdown field)
 		imageOutputCost = new Decimal(imageOutputTokens)
-			.times(imageOutputPrice)
+			.times(legacyImageOutputPrice)
 			.times(discountMultiplier);
-		// outputCost includes both text and image output costs
 		outputCost = new Decimal(textTokens)
 			.times(outputPrice)
 			.times(discountMultiplier)
