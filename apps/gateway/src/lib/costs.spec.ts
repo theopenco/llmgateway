@@ -375,6 +375,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(747 * (60 / 1e6)); // 747 * $60/1M
 		const textTokens = 800 - 747; // 53 text tokens
 		expect(result.outputCost).toBeCloseTo(
+			// eslint-disable-next-line no-mixed-operators
 			textTokens * (1.5 / 1e6) + 747 * (60 / 1e6),
 		);
 	});
@@ -398,6 +399,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(5040 * (60 / 1e6));
 		const textTokens = Math.max(0, 5100 - 5040); // 60 text tokens
 		expect(result.outputCost).toBeCloseTo(
+			// eslint-disable-next-line no-mixed-operators
 			textTokens * (1.5 / 1e6) + 5040 * (60 / 1e6),
 		);
 	});
@@ -421,6 +423,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(2000 * (120 / 1e6));
 		const textTokens = Math.max(0, 2100 - 2000); // 100 text tokens
 		expect(result.outputCost).toBeCloseTo(
+			// eslint-disable-next-line no-mixed-operators
 			textTokens * (12 / 1e6) + 2000 * (120 / 1e6),
 		);
 	});
@@ -465,6 +468,7 @@ describe("calculateCosts", () => {
 		// text output also discounted: (1200 - 1120) * (1.5/1M) * 0.8
 		const textTokens = 1200 - 1120;
 		expect(result.outputCost).toBeCloseTo(
+			// eslint-disable-next-line no-mixed-operators
 			textTokens * (1.5 / 1e6) * 0.8 + 1120 * (60 / 1e6) * 0.8,
 		);
 	});
