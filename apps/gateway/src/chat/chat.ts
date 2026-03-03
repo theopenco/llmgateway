@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { encode, encodeChat } from "gpt-tokenizer";
+import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
@@ -96,9 +96,12 @@ import {
 	selectNextProvider,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
+import {
+	encodeChatMessages,
+	messageContentToString,
+} from "./tools/tokenizer.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -654,20 +657,7 @@ chat.openapi(completions, async (c) => {
 		// Estimate prompt tokens from messages
 		if (messages && messages.length > 0) {
 			try {
-				const chatMessages: ChatMessage[] = messages.map((m) => ({
-					role: m.role as "user" | "assistant" | "system" | undefined,
-					content:
-						m.content === null || m.content === undefined
-							? ""
-							: typeof m.content === "string"
-								? m.content
-								: JSON.stringify(m.content),
-					name: m.name,
-				}));
-				requiredContextSize = encodeChat(
-					chatMessages,
-					DEFAULT_TOKENIZER_MODEL,
-				).length;
+				requiredContextSize = encodeChatMessages(messages);
 			} catch {
 				// Fallback to simple estimation if encoding fails
 				const messageTokens = messages.reduce(
@@ -2573,13 +2563,7 @@ chat.openapi(completions, async (c) => {
 									null, // No cached tokens
 									{
 										prompt: messages
-											.map((m) =>
-												m.content === null || m.content === undefined
-													? ""
-													: typeof m.content === "string"
-														? m.content
-														: JSON.stringify(m.content),
-											)
+											.map((m) => messageContentToString(m.content))
 											.join("\n"),
 										completion: "",
 									},
@@ -3584,13 +3568,7 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										{
 											prompt: messages
-												.map((m) =>
-													m.content === null || m.content === undefined
-														? ""
-														: typeof m.content === "string"
-															? m.content
-															: JSON.stringify(m.content),
-												)
+												.map((m) => messageContentToString(m.content))
 												.join("\n"),
 											completion: fullContent,
 											toolResults: streamingToolCalls ?? undefined,
@@ -4271,34 +4249,7 @@ chat.openapi(completions, async (c) => {
 					// Estimate tokens for providers that don't provide them during streaming
 					if (!promptTokens || !completionTokens) {
 						if (!promptTokens && messages && messages.length > 0) {
-							try {
-								// Convert messages to the format expected by gpt-tokenizer
-								const chatMessages: any[] = messages.map((m) => ({
-									role: m.role as "user" | "assistant" | "system" | undefined,
-									content:
-										m.content === null || m.content === undefined
-											? ""
-											: typeof m.content === "string"
-												? m.content
-												: JSON.stringify(m.content),
-									name: m.name,
-								}));
-								calculatedPromptTokens = encodeChat(
-									chatMessages,
-									DEFAULT_TOKENIZER_MODEL,
-								).length;
-							} catch (error) {
-								// Fallback to simple estimation if encoding fails
-								logger.error(
-									"Failed to encode chat messages in streaming",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-								calculatedPromptTokens =
-									messages.reduce(
-										(acc, m) => acc + (m.content?.length ?? 0),
-										0,
-									) / 4;
-							}
+							calculatedPromptTokens = encodeChatMessages(messages);
 						}
 
 						if (!completionTokens && (fullContent || imageByteSize > 0)) {
@@ -4667,13 +4618,7 @@ chat.openapi(completions, async (c) => {
 									cachedTokens,
 									{
 										prompt: messages
-											.map((m) =>
-												m.content === null || m.content === undefined
-													? ""
-													: typeof m.content === "string"
-														? m.content
-														: JSON.stringify(m.content),
-											)
+											.map((m) => messageContentToString(m.content))
 											.join("\n"),
 										completion: fullContent,
 										toolResults: streamingToolCalls ?? undefined,
@@ -5254,13 +5199,7 @@ chat.openapi(completions, async (c) => {
 					null, // No cached tokens
 					{
 						prompt: messages
-							.map((m) =>
-								m.content === null || m.content === undefined
-									? ""
-									: typeof m.content === "string"
-										? m.content
-										: JSON.stringify(m.content),
-							)
+							.map((m) => messageContentToString(m.content))
 							.join("\n"),
 						completion: "",
 					},
@@ -5990,15 +5929,7 @@ chat.openapi(completions, async (c) => {
 		calculatedCompletionTokens,
 		cachedTokens,
 		{
-			prompt: messages
-				.map((m) =>
-					m.content === null || m.content === undefined
-						? ""
-						: typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
-				)
-				.join("\n"),
+			prompt: messages.map((m) => messageContentToString(m.content)).join("\n"),
 			completion: content,
 			toolResults: toolResults,
 		},
