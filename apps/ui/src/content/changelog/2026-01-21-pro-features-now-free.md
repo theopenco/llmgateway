@@ -19,7 +19,7 @@ We're retiring the Pro plan and making all its features available to everyone fo
 
 **Bring Your Own Keys (BYOK)**
 
-Use your own API keys from OpenAI, Anthropic, Google, and 60+ other providers. Pay providers directly with just a 1% tracking fee from us.
+Use your own API keys from OpenAI, Anthropic, Google, and 25+ other providers. Pay providers directly at no extra cost.
 
 **Team Management**
 
@@ -43,7 +43,7 @@ Automatic provider routing for optimal performance. Prompt caching for faster re
 
 **Credits**: Flat 5% platform fee — no hidden processing fees
 
-**BYOK**: 1% tracking fee when using your own API keys
+**BYOK**: Free — use your own provider API keys at no extra cost
 
 That's it. Simple and transparent.
 

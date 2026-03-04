@@ -36,6 +36,7 @@ interface DiscountFormProps {
 		model: string | null;
 		discountPercent: number;
 		reason: string | null;
+		expiresAt: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -53,6 +54,7 @@ export function DiscountForm({
 	const [model, setModel] = useState<string>("__all__");
 	const [discountPercent, setDiscountPercent] = useState("");
 	const [reason, setReason] = useState("");
+	const [expiresAt, setExpiresAt] = useState("");
 
 	// Filter mappings by selected provider
 	const filteredMappings = useMemo(() => {
@@ -131,6 +133,7 @@ export function DiscountForm({
 			model: model === "__all__" ? null : model,
 			discountPercent: percent,
 			reason: reason || null,
+			expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
 		});
 
 		setLoading(false);
@@ -141,6 +144,7 @@ export function DiscountForm({
 			setModel("__all__");
 			setDiscountPercent("");
 			setReason("");
+			setExpiresAt("");
 			router.refresh();
 		} else {
 			setError(result.error ?? "Failed to create discount");
@@ -262,6 +266,19 @@ export function DiscountForm({
 							value={reason}
 							onChange={(e) => setReason(e.target.value)}
 						/>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="expiresAt">Expires At (optional)</Label>
+						<Input
+							id="expiresAt"
+							type="datetime-local"
+							value={expiresAt}
+							onChange={(e) => setExpiresAt(e.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty for a discount that never expires
+						</p>
 					</div>
 
 					{error && (

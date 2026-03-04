@@ -1,6 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
+import { AnimatedGroup } from "./animated-group";
 import { GlowingEffect } from "./glowing-effect";
 
 import type { ReactNode } from "react";
@@ -63,7 +64,7 @@ const features: FeatureItem[] = [
 		),
 		title: "Multi-provider Support",
 		description:
-			"Access 60+ providers through one integration—no vendor lock-in, switch models instantly.",
+			"Access 25+ providers through one integration—no vendor lock-in, switch models instantly.",
 		slug: "multi-provider-support",
 	},
 	{
@@ -239,7 +240,7 @@ const features: FeatureItem[] = [
 				<circle cx="102" cy="106" r="3" fill="#22C55E" />
 			</svg>
 		),
-		title: "Per‑model/provider breakdown",
+		title: "Per-model/provider breakdown",
 		description:
 			"Break down usage and spend by provider and model so you can quickly spot expensive outliers.",
 		slug: "per-model-provider-breakdown",
@@ -286,7 +287,7 @@ const features: FeatureItem[] = [
 				<circle cx="80" cy="102" r="4" fill="#F97316" />
 			</svg>
 		),
-		title: "Project‑level usage explorer",
+		title: "Project-level usage explorer",
 		description:
 			"Drill into each project's requests, models, errors, cache, and costs with dedicated charts and tables.",
 		slug: "project-level-usage-explorer",
@@ -344,19 +345,42 @@ const features: FeatureItem[] = [
 	},
 ];
 
+const tier1Features = features.slice(0, 3);
+const tier2Features = features.slice(3);
+
 export default function Features() {
 	return (
-		<section
-			id="features"
-			className="py-20 border-b border-zinc-200 dark:border-zinc-800"
-		>
-			<div className="container mx-auto px-4">
-				<h2 className="text-3xl font-bold tracking-tight mb-12 text-center text-zinc-900 dark:text-white">
-					Features
-				</h2>
-				<ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-					{features.map((feature, i) => (
-						<GridItem
+		<section id="features" className="relative py-24 md:py-32 overflow-hidden">
+			{/* Dot grid background */}
+			<div
+				className="absolute inset-0 pointer-events-none"
+				style={{
+					backgroundImage:
+						"radial-gradient(circle, var(--border) 1px, transparent 1px)",
+					backgroundSize: "20px 20px",
+					opacity: 0.4,
+				}}
+			/>
+
+			<div className="container relative mx-auto px-4">
+				<div className="mb-16">
+					<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
+						Platform Capabilities
+					</p>
+					<h2 className="font-display text-4xl md:text-5xl font-bold tracking-tight text-foreground">
+						Everything you need to
+						<br />
+						ship with confidence
+					</h2>
+				</div>
+
+				{/* Tier 1: Featured cards */}
+				<AnimatedGroup
+					preset="blur-slide"
+					className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8"
+				>
+					{tier1Features.map((feature, i) => (
+						<FeaturedCard
 							key={i}
 							icon={feature.icon}
 							title={feature.title}
@@ -364,53 +388,91 @@ export default function Features() {
 							slug={feature.slug}
 						/>
 					))}
-				</ul>
+				</AnimatedGroup>
+
+				{/* Tier 2: Compact cards */}
+				<AnimatedGroup
+					preset="slide"
+					className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+				>
+					{tier2Features.map((feature, i) => (
+						<CompactCard
+							key={i}
+							icon={feature.icon}
+							title={feature.title}
+							description={feature.description}
+							slug={feature.slug}
+						/>
+					))}
+				</AnimatedGroup>
 			</div>
 		</section>
 	);
 }
 
-interface GridItemProps {
+interface CardProps {
 	icon: ReactNode;
 	title: string;
 	description: ReactNode;
 	slug: string;
 }
 
-const GridItem = ({ icon, title, description, slug }: GridItemProps) => {
+const FeaturedCard = ({ icon, title, description, slug }: CardProps) => {
 	return (
-		<li className="min-h-[14rem] list-none">
-			<Link href={`/features/${slug}`} className="block h-full group">
-				<div className="relative h-full rounded-[1.25rem] border-[0.75px] border-border p-2 md:rounded-[1.5rem] md:p-3 transition-transform hover:scale-[1.02]">
-					<GlowingEffect
-						spread={40}
-						glow={true}
-						disabled={false}
-						proximity={64}
-						inactiveZone={0.01}
-						borderWidth={3}
-					/>
-					<div className="relative flex h-full flex-col justify-between gap-6 overflow-hidden rounded-xl border-[0.75px] bg-background p-6 shadow-sm dark:shadow-[0px_0px_27px_0px_rgba(45,45,45,0.3)] md:p-6">
-						<div className="relative flex flex-1 flex-col justify-between gap-3">
-							<div className="w-fit rounded-lg border-[0.75px] border-border bg-muted p-2">
-								{icon}
-							</div>
-							<div className="space-y-3">
-								<h3 className="pt-0.5 text-xl leading-[1.375rem] font-semibold font-sans tracking-[-0.04em] md:text-2xl md:leading-[1.875rem] text-balance text-foreground">
-									{title}
-								</h3>
-								<h2 className="[&_b]:md:font-semibold [&_strong]:md:font-semibold font-sans text-sm leading-[1.125rem] md:text-base md:leading-[1.375rem] text-muted-foreground">
-									{description}
-								</h2>
-							</div>
+		<Link href={`/features/${slug}`} className="block h-full group">
+			<div className="relative h-full rounded-[1.25rem] border-[0.75px] border-border p-2 md:rounded-[1.5rem] md:p-3 transition-transform hover:scale-[1.02]">
+				<GlowingEffect
+					spread={40}
+					glow={true}
+					disabled={false}
+					proximity={64}
+					inactiveZone={0.01}
+					borderWidth={3}
+				/>
+				<div className="relative flex h-full flex-col justify-between gap-6 overflow-hidden rounded-xl border-[0.75px] bg-background p-8 shadow-sm dark:shadow-[0px_0px_27px_0px_rgba(45,45,45,0.3)]">
+					<div className="relative flex flex-1 flex-col justify-between gap-4">
+						<div className="w-fit rounded-lg border-[0.75px] border-border bg-muted p-3">
+							<div className="[&_svg]:h-12 [&_svg]:w-12">{icon}</div>
 						</div>
-						<div className="flex items-center gap-1 text-sm font-medium text-primary">
-							<span>Learn more</span>
-							<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+						<div className="space-y-3">
+							<h3 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-foreground">
+								{title}
+							</h3>
+							<p className="text-sm md:text-base leading-relaxed text-muted-foreground">
+								{description}
+							</p>
 						</div>
 					</div>
+					<div className="flex items-center gap-1 text-sm font-medium text-primary">
+						<span>Learn more</span>
+						<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+					</div>
 				</div>
-			</Link>
-		</li>
+			</div>
+		</Link>
+	);
+};
+
+const CompactCard = ({ icon, title, description, slug }: CardProps) => {
+	return (
+		<Link href={`/features/${slug}`} className="block h-full group">
+			<div className="h-full rounded-xl border border-border/50 bg-background p-6 transition-shadow hover:shadow-md">
+				<div className="flex flex-col gap-3">
+					<div className="w-fit rounded-lg border-[0.75px] border-border bg-muted p-2">
+						{icon}
+					</div>
+					<h3 className="text-lg font-semibold tracking-tight text-foreground">
+						{title}
+					</h3>
+					<p className="text-sm leading-relaxed text-muted-foreground">
+						{description}
+					</p>
+					<div className="flex items-center gap-1 text-sm font-medium text-primary mt-auto">
+						<span>Learn more</span>
+						<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+					</div>
+				</div>
+			</div>
+		</Link>
 	);
 };

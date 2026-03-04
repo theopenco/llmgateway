@@ -84,6 +84,7 @@ export default async function OrganizationDiscountsPage({
 		model: string | null;
 		discountPercent: number;
 		reason: string | null;
+		expiresAt: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
 
@@ -93,6 +94,7 @@ export default async function OrganizationDiscountsPage({
 				model: data.model,
 				discountPercent: data.discountPercent,
 				reason: data.reason,
+				expiresAt: data.expiresAt,
 			});
 
 			if (!result) {
@@ -164,6 +166,7 @@ export default async function OrganizationDiscountsPage({
 							<TableHead>Model</TableHead>
 							<TableHead>Discount</TableHead>
 							<TableHead>Reason</TableHead>
+							<TableHead>Expires</TableHead>
 							<TableHead>Created</TableHead>
 							<TableHead className="w-[50px]" />
 						</TableRow>
@@ -172,7 +175,7 @@ export default async function OrganizationDiscountsPage({
 						{discounts.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={6}
+									colSpan={7}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
@@ -208,6 +211,21 @@ export default async function OrganizationDiscountsPage({
 									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
 										{discount.reason ?? "—"}
+									</TableCell>
+									<TableCell className="text-muted-foreground">
+										{discount.expiresAt ? (
+											<span
+												className={
+													new Date(discount.expiresAt) < new Date()
+														? "text-destructive"
+														: ""
+												}
+											>
+												{formatDate(discount.expiresAt)}
+											</span>
+										) : (
+											"Never"
+										)}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(discount.createdAt)}
