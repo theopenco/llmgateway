@@ -37,6 +37,7 @@ interface ImageControlsProps {
 	isGenerating: boolean;
 	onGenerate: () => void;
 	isEditModel: boolean;
+	requiresImageInput: boolean;
 	inputImages: InputImage[];
 	setInputImages: Dispatch<SetStateAction<InputImage[]>>;
 }
@@ -74,6 +75,7 @@ export function ImageControls({
 	isGenerating,
 	onGenerate,
 	isEditModel,
+	requiresImageInput,
 	inputImages,
 	setInputImages,
 }: ImageControlsProps) {
@@ -124,10 +126,7 @@ export function ImageControls({
 		setInputImages((prev) => prev.filter((_, i) => i !== index));
 	};
 
-	const canGenerate =
-		prompt.trim().length > 0 &&
-		selectedModels.length > 0 &&
-		(!isEditModel || inputImages.length > 0);
+	const canGenerate = prompt.trim().length > 0 && selectedModels.length > 0;
 
 	return (
 		<div className="border-b bg-background p-4">

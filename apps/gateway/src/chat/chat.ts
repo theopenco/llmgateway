@@ -447,6 +447,13 @@ chat.openapi(completions, async (c) => {
 	const allModelProviders = modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
 
+	// Validate that models requiring image input have at least one image in the request
+	if (modelInfo.imageInputRequired && countInputImages(messages) === 0) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
+		});
+	}
+
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
 	const auth = c.req.header("Authorization");

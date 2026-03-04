@@ -220,6 +220,10 @@ export interface ModelDefinition {
 	 */
 	output?: ("text" | "image")[];
 	/**
+	 * Whether this model requires an image input to function (e.g. image editing models).
+	 */
+	imageInputRequired?: boolean;
+	/**
 	 * Stability level of the model (defaults to 'stable' if not specified)
 	 * - stable: Fully tested and production ready
 	 * - beta: Generally stable but may have minor issues

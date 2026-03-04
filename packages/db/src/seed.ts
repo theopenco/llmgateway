@@ -1007,6 +1007,7 @@ function generateSeedModels() {
 		family: m.family,
 		free: m.free ?? false,
 		output: m.output ?? ["text"],
+		imageInputRequired: m.imageInputRequired ?? false,
 		stability: m.stability ?? ("stable" as const),
 		releasedAt: m.releasedAt ?? new Date(),
 		status: "active" as const,
