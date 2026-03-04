@@ -8,7 +8,6 @@
 :root {
 	--font-mono: var(--font-geist-mono);
 	--font-sans: var(--font-inter);
-	--font-display: var(--font-display);
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.141 0.005 285.823);
 	--card: oklch(1 0 0);

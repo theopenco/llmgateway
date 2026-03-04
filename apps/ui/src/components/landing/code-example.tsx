@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 import { AnimatedGroup } from "./animated-group";
 
 import type { Language } from "prism-react-renderer";
-import type { CSSProperties } from "react";
 
 const codeExamples = {
 	curl: {
@@ -366,12 +365,6 @@ export function CodeExample() {
 										tokens,
 										getLineProps,
 										getTokenProps,
-									}: {
-										className: string;
-										style: CSSProperties;
-										tokens: any[];
-										getLineProps: (props: any) => any;
-										getTokenProps: (props: any) => any;
 									}) => (
 										<pre
 											className={cn(
@@ -385,11 +378,11 @@ export function CodeExample() {
 												overflowX: "auto",
 											}}
 										>
-											{tokens.map((line: any, i: number) => {
+											{tokens.map((line, i) => {
 												const lineProps = getLineProps({ line });
 												return (
 													<div key={i} {...lineProps}>
-														{line.map((token: any, key: number) => {
+														{line.map((token, key) => {
 															const tokenProps = getTokenProps({ token });
 															return <span key={key} {...tokenProps} />;
 														})}
