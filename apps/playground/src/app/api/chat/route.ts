@@ -467,37 +467,30 @@ export async function POST(req: Request) {
 					? (error as { status: number }).status
 					: 500;
 
-			// Try to extract the detailed error message from the provider response.
-			// AI SDK errors wrap the original response; the friendly message may be
-			// in responseBody, data, or cause.
-			let message =
+			const message =
 				error instanceof Error ? error.message : "Image generation failed";
+
+			// Try to extract a more detailed message from the provider response.
+			// AI SDK errors may embed the original gateway response in responseBody.
+			let detailedMessage: string | undefined;
 			if (typeof error === "object" && error !== null) {
 				const err = error as Record<string, unknown>;
-				// Check responseBody (string containing JSON)
 				if (typeof err.responseBody === "string") {
 					try {
 						const body = JSON.parse(err.responseBody);
 						if (typeof body.message === "string") {
-							message = body.message;
+							detailedMessage = body.message;
 						}
 					} catch {
 						// ignore parse errors
 					}
 				}
-				// Check data object
-				if (
-					typeof err.data === "object" &&
-					err.data !== null &&
-					typeof (err.data as Record<string, unknown>).message === "string"
-				) {
-					message = (err.data as Record<string, unknown>).message as string;
-				}
 			}
 
-			return new Response(JSON.stringify({ error: message }), {
-				status,
-			});
+			return new Response(
+				JSON.stringify({ error: detailedMessage ?? message }),
+				{ status },
+			);
 		}
 	}
 
