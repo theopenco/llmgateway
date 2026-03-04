@@ -349,9 +349,13 @@ export function getProviderEndpoint(
 				return `${url}/images/generations`;
 			}
 			return `${url}/chat/completions`;
+		case "xai":
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
-		case "xai":
 		case "groq":
 		case "cerebras":
 		case "deepseek":

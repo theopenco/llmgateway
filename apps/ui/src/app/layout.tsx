@@ -30,18 +30,6 @@ export const metadata: Metadata = {
 	},
 	description:
 		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 19+ providers through one API.",
-	keywords: [
-		"LLM",
-		"API Gateway",
-		"OpenAI",
-		"Anthropic",
-		"Claude",
-		"GPT-4",
-		"AI API",
-		"LLM Routing",
-		"Multi-provider LLM",
-		"AI Gateway",
-	],
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",

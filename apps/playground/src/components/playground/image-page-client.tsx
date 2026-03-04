@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
@@ -12,7 +12,7 @@ import { ImageSidebar } from "@/components/playground/image-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
-import { getModelImageConfig, parseImageStream } from "@/lib/image-gen";
+import { getModelImageConfig, streamImageParts } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -38,9 +38,10 @@ export default function ImagePageClient({
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const pathname = usePathname();
+	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to image-gen only
+	// Filter models to image-gen only (includes image-edit models)
 	const imageGenModels = useMemo(
 		() => models.filter((m) => m.output?.includes("image")),
 		[models],
@@ -52,12 +53,21 @@ export default function ImagePageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// State
+	// State — initialize from URL params
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
+		const modelParam = searchParams.get("model");
+		if (modelParam) {
+			const models = modelParam.split(",").filter(Boolean);
+			if (models.length > 0) {
+				return models;
+			}
+		}
 		const first = imageGenModels[0];
 		return first ? [first.id] : [];
 	});
-	const [comparisonMode, setComparisonMode] = useState(false);
+	const [comparisonMode, setComparisonMode] = useState(
+		() => searchParams.get("compare") === "1",
+	);
 	const [prompt, setPrompt] = useState("");
 	const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
 	const [isGenerating, setIsGenerating] = useState(false);
@@ -70,6 +80,25 @@ export default function ImagePageClient({
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
+	// Input images for image-edit models
+	const [inputImages, setInputImages] = useState<
+		{ dataUrl: string; mediaType: string }[]
+	>([]);
+
+	// Detect if the primary selected model supports image input (editing)
+	const isEditModel = useMemo(() => {
+		const primary = selectedModels[0] ?? "";
+		const model = imageGenModels.find((m) => m.id === primary);
+		if (!model) {
+			return false;
+		}
+		return model.mappings.some(
+			(mapping) =>
+				mapping.imageInputPrice !== null &&
+				mapping.imageInputPrice !== undefined,
+		);
+	}, [selectedModels, imageGenModels]);
+
 	// Auth
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
@@ -80,6 +109,7 @@ export default function ImagePageClient({
 	}, [pathname, searchParams]);
 
 	// Ensure playground key
+	const pendingRef = useRef(0);
 	const ensuredProjectRef = useRef<string | null>(null);
 	useEffect(() => {
 		if (!isAuthenticated || !selectedProject) {
@@ -107,14 +137,42 @@ export default function ImagePageClient({
 		void ensureKey();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
-	// Reset imageSize when model changes
+	// Keep URL in sync with selected model(s)
+	useEffect(() => {
+		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		if (comparisonMode) {
+			params.set("model", selectedModels.join(","));
+			params.set("compare", "1");
+		} else {
+			const primary = selectedModels[0];
+			if (primary) {
+				params.set("model", primary);
+			} else {
+				params.delete("model");
+			}
+			params.delete("compare");
+		}
+		const qs = params.toString();
+		router.replace(qs ? `?${qs}` : "");
+	}, [selectedModels, comparisonMode]);
+
+	// Reset imageSize when model changes, clear input images when switching away from edit model
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
 		if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
 		}
-	}, [selectedModels, imageSize]);
+		const model = imageGenModels.find((m) => m.id === primaryModel);
+		const supportsImageInput = model?.mappings.some(
+			(mapping) =>
+				mapping.imageInputPrice !== null &&
+				mapping.imageInputPrice !== undefined,
+		);
+		if (!supportsImageInput) {
+			setInputImages([]);
+		}
+	}, [selectedModels, imageSize, imageGenModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -125,8 +183,9 @@ export default function ImagePageClient({
 	);
 
 	const generateImages = useCallback(
-		async (overridePrompt?: string) => {
-			const effectivePrompt = overridePrompt ?? prompt;
+		async (overridePrompt?: string | unknown) => {
+			const effectivePrompt =
+				typeof overridePrompt === "string" ? overridePrompt : prompt;
 			if (
 				!effectivePrompt.trim() ||
 				selectedModels.length === 0 ||
@@ -164,6 +223,7 @@ export default function ImagePageClient({
 
 			setGalleryItems((prev) => [placeholderItem, ...prev]);
 			setPrompt("");
+			setInputImages([]);
 
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
@@ -183,10 +243,12 @@ export default function ImagePageClient({
 						n: imageCount,
 					};
 
-			// Fire parallel requests
-			const results = await Promise.allSettled(
-				selectedModels.map(async (modelId) => {
-					const isProviderSpecific = modelId.includes("/");
+			// Fire requests independently — each updates gallery as images stream in
+			pendingRef.current = selectedModels.length;
+
+			for (const modelId of selectedModels) {
+				const isProviderSpecific = modelId.includes("/");
+				void (async () => {
 					try {
 						const response = await fetch("/api/chat", {
 							method: "POST",
@@ -198,7 +260,14 @@ export default function ImagePageClient({
 								messages: [
 									{
 										role: "user",
-										parts: [{ type: "text", text: currentPrompt }],
+										parts: [
+											...inputImages.map((img) => ({
+												type: "file" as const,
+												url: img.dataUrl,
+												mediaType: img.mediaType,
+											})),
+											{ type: "text", text: currentPrompt },
+										],
 									},
 								],
 								model: modelId,
@@ -215,63 +284,76 @@ export default function ImagePageClient({
 							);
 						}
 
-						const images = await parseImageStream(response);
-						if (images.length === 0) {
-							throw new Error("No images returned");
-						}
-						return { modelId, images };
-					} catch (error) {
-						return {
-							modelId,
-							images: [],
-							error:
-								error instanceof Error
-									? error.message
-									: "Image generation failed",
-						};
-					}
-				}),
-			);
+						await streamImageParts(response, (image) => {
+							setGalleryItems((prev) =>
+								prev.map((item) => {
+									if (item.id !== itemId) {
+										return item;
+									}
+									return {
+										...item,
+										models: item.models.map((m) => {
+											if (m.modelId !== modelId) {
+												return m;
+											}
+											return {
+												...m,
+												images: [...m.images, image],
+											};
+										}),
+									};
+								}),
+							);
+						});
 
-			// Update gallery item with results
-			setGalleryItems((prev) =>
-				prev.map((item) => {
-					if (item.id !== itemId) {
-						return item;
-					}
-					return {
-						...item,
-						models: item.models.map((model) => {
-							const result = results.find((r) => {
-								if (r.status === "fulfilled") {
-									return r.value.modelId === model.modelId;
+						setGalleryItems((prev) =>
+							prev.map((item) => {
+								if (item.id !== itemId) {
+									return item;
 								}
-								return false;
-							});
-							if (result?.status === "fulfilled") {
 								return {
-									...model,
-									images: result.value.images,
-									error: result.value.error,
-									isLoading: false,
+									...item,
+									models: item.models.map((m) => {
+										if (m.modelId !== modelId) {
+											return m;
+										}
+										return { ...m, isLoading: false };
+									}),
 								};
-							}
-							// Rejected promise
-							const rejected = results.find((r) => r.status === "rejected");
-							return {
-								...model,
-								isLoading: false,
-								error:
-									rejected?.status === "rejected"
-										? String(rejected.reason)
-										: "Generation failed",
-							};
-						}),
-					};
-				}),
-			);
-
-			setIsGenerating(false);
+							}),
+						);
+					} catch (error) {
+						setGalleryItems((prev) =>
+							prev.map((item) => {
+								if (item.id !== itemId) {
+									return item;
+								}
+								return {
+									...item,
+									models: item.models.map((m) => {
+										if (m.modelId !== modelId) {
+											return m;
+										}
+										return {
+											...m,
+											isLoading: false,
+											error:
+												error instanceof Error
+													? error.message
+													: "Image generation failed",
+										};
+									}),
+								};
+							}),
+						);
+					} finally {
+						pendingRef.current--;
+						if (pendingRef.current === 0) {
+							setIsGenerating(false);
+						}
+					}
+				})();
+			}
 		},
 		[
 			prompt,
@@ -282,6 +364,7 @@ export default function ImagePageClient({
 			imageAspectRatio,
 			imageSize,
 			imageCount,
+			inputImages,
 		],
 	);
 
@@ -313,6 +396,8 @@ export default function ImagePageClient({
 				if (second) {
 					setSelectedModels((prev) => [...prev, second.id]);
 				}
+			} else if (!enabled) {
+				setSelectedModels((prev) => prev.slice(0, 1));
 			}
 		},
 		[selectedModels.length, imageGenModels],
@@ -378,6 +463,9 @@ export default function ImagePageClient({
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}
 						onGenerate={generateImages}
+						isEditModel={isEditModel}
+						inputImages={inputImages}
+						setInputImages={setInputImages}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">

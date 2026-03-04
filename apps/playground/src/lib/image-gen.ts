@@ -142,6 +142,74 @@ export async function parseImageStream(
 	return images;
 }
 
+export async function streamImageParts(
+	response: Response,
+	onImage: (image: GeneratedImage) => void,
+): Promise<void> {
+	const reader = response.body?.getReader();
+	if (!reader) {
+		throw new Error("No response body");
+	}
+
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) {
+			break;
+		}
+
+		buffer += decoder.decode(value, { stream: true });
+		const lines = buffer.split("\n");
+		buffer = lines.pop() ?? "";
+
+		for (const line of lines) {
+			const trimmed = line.trim();
+			if (!trimmed) {
+				continue;
+			}
+
+			const colonIndex = trimmed.indexOf(":");
+			if (colonIndex < 0) {
+				continue;
+			}
+
+			const jsonStr = trimmed.slice(colonIndex + 1);
+			try {
+				const event = JSON.parse(jsonStr);
+				if (event.type === "file" && event.url && event.mediaType) {
+					const comma = event.url.indexOf(",");
+					const base64 = comma >= 0 ? event.url.slice(comma + 1) : "";
+					if (base64) {
+						onImage({ base64, mediaType: event.mediaType });
+					}
+				}
+			} catch {
+				// skip non-JSON lines
+			}
+		}
+	}
+
+	if (buffer.trim()) {
+		const colonIndex = buffer.indexOf(":");
+		if (colonIndex >= 0) {
+			try {
+				const event = JSON.parse(buffer.slice(colonIndex + 1));
+				if (event.type === "file" && event.url && event.mediaType) {
+					const comma = event.url.indexOf(",");
+					const base64 = comma >= 0 ? event.url.slice(comma + 1) : "";
+					if (base64) {
+						onImage({ base64, mediaType: event.mediaType });
+					}
+				}
+			} catch {
+				// skip
+			}
+		}
+	}
+}
+
 export function downloadImage(image: GeneratedImage, filename?: string) {
 	const dataUrl = `data:${image.mediaType};base64,${image.base64}`;
 	const ext = image.mediaType.split("/")[1] ?? "png";
