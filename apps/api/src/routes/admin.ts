@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import {
 	and,
 	asc,
@@ -14,6 +15,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	ne,
 	or,
 	sql,
 	tables,
@@ -81,6 +83,9 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	ownerUserId: z.string().nullable().optional(),
+	ownerName: z.string().nullable().optional(),
+	ownerEmail: z.string().nullable().optional(),
 });
 
 const organizationsListSchema = z.object({
@@ -161,6 +166,24 @@ const apiKeysListSchema = z.object({
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+});
+
+const memberSchema = z.object({
+	id: z.string(),
+	userId: z.string(),
+	role: z.string(),
+	createdAt: z.string(),
+	user: z.object({
+		id: z.string(),
+		email: z.string(),
+		name: z.string().nullable(),
+		emailVerified: z.boolean(),
+	}),
+});
+
+const membersListSchema = z.object({
+	members: z.array(memberSchema),
+	total: z.number(),
 });
 
 const getMetrics = createRoute({
@@ -324,6 +347,29 @@ const getOrganizationApiKeys = createRoute({
 	},
 });
 
+const getOrganizationMembers = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/members",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: membersListSchema.openapi({}),
+				},
+			},
+			description: "Organization members.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
 admin.openapi(getMetrics, async (c) => {
 	const query = c.req.valid("query");
 	const range = query.range ?? "all";
@@ -391,11 +437,11 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed transactions)
+	// Total revenue (completed transactions, excluding gifts, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
 		.select({
 			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
 		})
@@ -404,9 +450,13 @@ admin.openapi(getMetrics, async (c) => {
 			startDate
 				? and(
 						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
 						gte(tables.transaction.createdAt, startDate),
 					)
-				: eq(tables.transaction.status, "completed"),
+				: and(
+						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
+					),
 		);
 
 	const totalRevenue = Number(revenueRow?.value ?? 0);
@@ -538,12 +588,12 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (completed transactions)
+	// Revenue per day (completed transactions, excluding gifts, using creditAmount)
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
 			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -551,11 +601,30 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
 				gte(tables.transaction.createdAt, startDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Revenue earned before the range (for cumulative chart, excluding gifts, using creditAmount)
+	const [preRangeRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
 
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
@@ -627,7 +696,7 @@ admin.openapi(getTimeseries, async (c) => {
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
-	let totalRevenue = 0;
+	let totalRevenue = preRangeRevenue;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -647,7 +716,7 @@ admin.openapi(getTimeseries, async (c) => {
 			date: dateStr,
 			signups: totalSignups,
 			paidCustomers: cumulativePaid,
-			revenue: dailyRevenue,
+			revenue: totalRevenue,
 		});
 	}
 
@@ -726,6 +795,19 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
 
+	// Subquery for owner user per org
+	const ownerSub = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_sub");
+
 	const sortColumnMap = {
 		name: tables.organization.name,
 		billingEmail: tables.organization.billingEmail,
@@ -757,6 +839,9 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
 				"totalSpent",
 			),
+			ownerUserId: ownerSub.userId,
+			ownerName: ownerSub.userName,
+			ownerEmail: ownerSub.userEmail,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -767,6 +852,7 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpentSub,
 			eq(tables.organization.id, totalSpentSub.organizationId),
 		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(whereClause)
 		.orderBy(orderFn(sortColumn))
 		.limit(limit)
@@ -784,6 +870,9 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: String(org.totalSpent ?? "0"),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			ownerUserId: org.ownerUserId ?? null,
+			ownerName: org.ownerName ?? null,
+			ownerEmail: org.ownerEmail ?? null,
 		})),
 		total,
 		totalCredits,
@@ -1159,6 +1248,53 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		total,
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getOrganizationMembers, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const members = await db
+		.select({
+			id: tables.userOrganization.id,
+			userId: tables.userOrganization.userId,
+			role: tables.userOrganization.role,
+			createdAt: tables.userOrganization.createdAt,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+			userEmailVerified: tables.user.emailVerified,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.organizationId, orgId))
+		.orderBy(desc(tables.userOrganization.createdAt));
+
+	return c.json({
+		members: members.map((m) => ({
+			id: m.id,
+			userId: m.userId,
+			role: m.role,
+			createdAt: m.createdAt.toISOString(),
+			user: {
+				id: m.userId,
+				email: m.userEmail,
+				name: m.userName,
+				emailVerified: m.userEmailVerified,
+			},
+		})),
+		total: members.length,
 	});
 });
 
@@ -2348,6 +2484,160 @@ admin.openapi(getModelStats, async (c) => {
 		limit,
 		offset,
 	});
+});
+
+// Gift credits to organization
+const giftCreditsRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/gift-credits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						creditAmount: z
+							.number()
+							.min(0.01, "Credit amount must be positive"),
+						comment: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						credits: z.string(),
+					}),
+				},
+			},
+			description: "Credits gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(giftCreditsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { creditAmount, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const description = comment
+		? `Credits gifted by Administrator: ${comment}`
+		: "Credits gifted by Administrator";
+
+	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "credit_gift",
+				creditAmount: creditAmount.toString(),
+				currency: "USD",
+				status: "completed",
+				description,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${creditAmount}`,
+			})
+			.where(eq(tables.organization.id, orgId))
+			.returning({ credits: tables.organization.credits });
+
+		return {
+			transactionId: txn.id,
+			updatedCredits: String(updatedOrg.credits),
+		};
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "credits.gift",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			creditAmount,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Credits gifted successfully",
+		credits: updatedCredits,
+	});
+});
+
+// --- Delete User ---
+
+const deleteUserRoute = createRoute({
+	method: "delete",
+	path: "/users/{userId}",
+	request: {
+		params: z.object({
+			userId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "User deleted.",
+		},
+		404: {
+			description: "User not found.",
+		},
+	},
+});
+
+admin.openapi(deleteUserRoute, async (c) => {
+	const { userId } = c.req.valid("param");
+
+	const existingUser = await db.query.user.findFirst({
+		where: { id: { eq: userId } },
+	});
+
+	if (!existingUser) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	await db.delete(tables.user).where(eq(tables.user.id, userId));
+
+	return c.json({ success: true });
 });
 
 export default admin;

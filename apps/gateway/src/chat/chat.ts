@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { encode, encodeChat } from "gpt-tokenizer";
+import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
@@ -74,6 +74,7 @@ import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
+import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
@@ -95,9 +96,12 @@ import {
 	selectNextProvider,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
+import {
+	encodeChatMessages,
+	messageContentToString,
+} from "./tools/tokenizer.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -430,7 +434,8 @@ chat.openapi(completions, async (c) => {
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
-		requestedModel === "gemini-3-pro-image-preview"
+		requestedModel === "gemini-3-pro-image-preview" ||
+		requestedModel === "gemini-3.1-flash-image-preview"
 			? countInputImages(messages)
 			: 0;
 
@@ -439,9 +444,20 @@ chat.openapi(completions, async (c) => {
 		requestedModel,
 		parseResult.requestedProvider,
 	);
-	const modelInfo = modelInfoResult.modelInfo;
+	let modelInfo = modelInfoResult.modelInfo;
 	const allModelProviders = modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
+
+	// Validate that models requiring image input have at least one image in the request
+	if (
+		modelInfo.imageInputRequired &&
+		!hasImages &&
+		countInputImages(messages) === 0
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
+		});
+	}
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -605,16 +621,29 @@ chat.openapi(completions, async (c) => {
 	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
 
 	// Validate IAM rules for model access
+	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
+	// only considers active providers. This prevents a deny rule from being bypassed
+	// when the only remaining active provider is a denied one but deactivated providers
+	// are still "allowed" by the IAM rules.
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
+		modelInfo,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
 	}
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
+
+	// IAM-filtered model providers for routing and retry fallback paths.
+	// Recomputed after auto-routing because that block replaces modelInfo.
+	let iamFilteredModelProviders = iamAllowedProviders
+		? modelInfo.providers.filter((p) =>
+				iamAllowedProviders.includes(p.providerId),
+			)
+		: modelInfo.providers;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -640,18 +669,7 @@ chat.openapi(completions, async (c) => {
 		// Estimate prompt tokens from messages
 		if (messages && messages.length > 0) {
 			try {
-				const chatMessages: ChatMessage[] = messages.map((m) => ({
-					role: m.role as "user" | "assistant" | "system" | undefined,
-					content:
-						typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
-					name: m.name,
-				}));
-				requiredContextSize = encodeChat(
-					chatMessages,
-					DEFAULT_TOKENIZER_MODEL,
-				).length;
+				requiredContextSize = encodeChatMessages(messages);
 			} catch {
 				// Fallback to simple estimation if encoding fails
 				const messageTokens = messages.reduce(
@@ -736,16 +754,26 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Validate IAM rules for this candidate model and filter providers.
+			// We must re-evaluate per model because iamAllowedProviders was computed
+			// for the "auto" model which only has the "llmgateway" provider.
+			const candidateIam = await validateModelAccess(
+				apiKey.id,
+				modelDef.id,
+				undefined,
+				modelDef,
+			);
+			if (!candidateIam.allowed) {
+				continue;
+			}
+			const candidateAllowedProviders = candidateIam.allowedProviders;
+
 			// Check if any of the model's providers are available
-			// Note: We don't filter by iamAllowedProviders here because it was computed
-			// for the "auto" model, not the actual models being considered for selection
 			const availableModelProviders = modelDef.providers.filter(
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
-					// Filter by IAM allowed providers only for non-auto models
-					(requestedModel === "auto" ||
-						!iamAllowedProviders ||
-						iamAllowedProviders.includes(provider.providerId)),
+					(!candidateAllowedProviders ||
+						candidateAllowedProviders.includes(provider.providerId)),
 			);
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
@@ -888,8 +916,43 @@ chat.openapi(completions, async (c) => {
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
+		// Update modelInfo to the selected model so retry/fallback logic can find
+		// alternative providers. Without this, modelInfo still points to the "auto"
+		// model definition which only has "llmgateway" as a provider, preventing retries.
+		if (selectedModel) {
+			modelInfo = {
+				...selectedModel,
+				providers: selectedProviders,
+			};
+		} else {
+			// Fallback case: look up the default model definition
+			const fallbackModelDef = models.find((m) => m.id === "gpt-5-nano");
+			if (fallbackModelDef) {
+				modelInfo = fallbackModelDef;
+			}
+		}
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
 		requestedProvider = undefined;
+
+		// Re-validate IAM against the resolved model so deny_providers /
+		// allow_providers rules are enforced for retries and the single-provider
+		// shortcut.  The original iamAllowedProviders was computed for the "auto"
+		// model (which only has the "llmgateway" provider) and is not meaningful
+		// for the resolved model.
+		const resolvedIamValidation = await validateModelAccess(
+			apiKey.id,
+			modelInfo.id,
+			undefined,
+			modelInfo,
+		);
+		if (!resolvedIamValidation.allowed) {
+			throwIamException(resolvedIamValidation.reason!);
+		}
+		iamFilteredModelProviders = resolvedIamValidation.allowedProviders
+			? modelInfo.providers.filter((p) =>
+					resolvedIamValidation.allowedProviders!.includes(p.providerId),
+				)
+			: modelInfo.providers;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
@@ -1073,9 +1136,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (!usedProvider) {
-		if (modelInfo.providers.length === 1) {
-			usedProvider = modelInfo.providers[0].providerId;
-			usedModel = modelInfo.providers[0].modelName;
+		if (iamFilteredModelProviders.length === 0) {
+			throw new HTTPException(403, {
+				message: `Access denied: No providers are allowed for model ${modelInfo.id} after applying IAM rules. All active providers for this model are denied by your API key's IAM configuration.`,
+			});
+		}
+
+		if (iamFilteredModelProviders.length === 1) {
+			usedProvider = iamFilteredModelProviders[0].providerId;
+			usedModel = iamFilteredModelProviders[0].modelName;
 		} else {
 			const providerIds = modelInfo.providers.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
@@ -2233,7 +2302,7 @@ chat.openapi(completions, async (c) => {
 						const nextProvider = selectNextProvider(
 							routingMetadata?.providerScores ?? [],
 							failedProviderIds,
-							modelInfo.providers,
+							iamFilteredModelProviders,
 						);
 						if (!nextProvider) {
 							break;
@@ -2349,8 +2418,10 @@ chat.openapi(completions, async (c) => {
 							// Handle timeout error
 							const errorMessage =
 								error instanceof Error ? error.message : "Request timeout";
+							const timeoutCause = extractErrorCause(error);
 							logger.warn("Upstream request timeout", {
 								error: errorMessage,
+								cause: timeoutCause,
 								usedProvider,
 								requestedProvider,
 								usedModel,
@@ -2430,6 +2501,7 @@ chat.openapi(completions, async (c) => {
 									statusCode: 0,
 									statusText: "TimeoutError",
 									responseText: errorMessage,
+									cause: timeoutCause,
 								},
 								cachedInputCost: null,
 								requestCost: null,
@@ -2502,7 +2574,9 @@ chat.openapi(completions, async (c) => {
 									0, // No completion tokens yet
 									null, // No cached tokens
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) => messageContentToString(m.content))
+											.join("\n"),
 										completion: "",
 									},
 									null, // No reasoning tokens
@@ -2621,8 +2695,10 @@ chat.openapi(completions, async (c) => {
 						} else if (error instanceof Error) {
 							// Handle fetch errors (timeout, connection failures, etc.)
 							const errorMessage = error.message;
+							const fetchCause = extractErrorCause(error);
 							logger.warn("Fetch error", {
 								error: errorMessage,
+								cause: fetchCause,
 								usedProvider,
 								requestedProvider,
 								usedModel,
@@ -2703,6 +2779,7 @@ chat.openapi(completions, async (c) => {
 									statusCode: 0,
 									statusText: error.name,
 									responseText: errorMessage,
+									cause: fetchCause,
 								},
 								cachedInputCost: null,
 								requestCost: null,
@@ -3502,7 +3579,9 @@ chat.openapi(completions, async (c) => {
 										finalCompletionTokens,
 										cachedTokens,
 										{
-											prompt: messages.map((m) => m.content).join("\n"),
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
 											completion: fullContent,
 											toolResults: streamingToolCalls ?? undefined,
 										},
@@ -4182,29 +4261,7 @@ chat.openapi(completions, async (c) => {
 					// Estimate tokens for providers that don't provide them during streaming
 					if (!promptTokens || !completionTokens) {
 						if (!promptTokens && messages && messages.length > 0) {
-							try {
-								// Convert messages to the format expected by gpt-tokenizer
-								const chatMessages: any[] = messages.map((m) => ({
-									role: m.role as "user" | "assistant" | "system" | undefined,
-									content: m.content ?? "",
-									name: m.name,
-								}));
-								calculatedPromptTokens = encodeChat(
-									chatMessages,
-									DEFAULT_TOKENIZER_MODEL,
-								).length;
-							} catch (error) {
-								// Fallback to simple estimation if encoding fails
-								logger.error(
-									"Failed to encode chat messages in streaming",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-								calculatedPromptTokens =
-									messages.reduce(
-										(acc, m) => acc + (m.content?.length ?? 0),
-										0,
-									) / 4;
-							}
+							calculatedPromptTokens = encodeChatMessages(messages);
 						}
 
 						if (!completionTokens && (fullContent || imageByteSize > 0)) {
@@ -4572,7 +4629,9 @@ chat.openapi(completions, async (c) => {
 									calculatedCompletionTokens,
 									cachedTokens,
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) => messageContentToString(m.content))
+											.join("\n"),
 										completion: fullContent,
 										toolResults: streamingToolCalls ?? undefined,
 									},
@@ -4840,7 +4899,7 @@ chat.openapi(completions, async (c) => {
 			const nextProvider = selectNextProvider(
 				routingMetadata?.providerScores ?? [],
 				failedProviderIds,
-				modelInfo.providers,
+				iamFilteredModelProviders,
 			);
 			if (!nextProvider) {
 				break;
@@ -4980,8 +5039,10 @@ chat.openapi(completions, async (c) => {
 		// Handle fetch errors (timeout, connection failures, etc.)
 		if (fetchError) {
 			const errorMessage = fetchError.message;
+			const nonStreamingFetchCause = extractErrorCause(fetchError);
 			logger.warn("Fetch error", {
 				error: errorMessage,
+				cause: nonStreamingFetchCause,
 				usedProvider,
 				requestedProvider,
 				usedModel,
@@ -5062,6 +5123,7 @@ chat.openapi(completions, async (c) => {
 					statusCode: 0,
 					statusText: fetchError.name,
 					responseText: errorMessage,
+					cause: nonStreamingFetchCause,
 				},
 				cachedInputCost: null,
 				requestCost: null,
@@ -5148,7 +5210,9 @@ chat.openapi(completions, async (c) => {
 					0, // No completion tokens
 					null, // No cached tokens
 					{
-						prompt: messages.map((m) => m.content).join("\n"),
+						prompt: messages
+							.map((m) => messageContentToString(m.content))
+							.join("\n"),
 						completion: "",
 					},
 					null, // No reasoning tokens
@@ -5269,10 +5333,12 @@ chat.openapi(completions, async (c) => {
 						bodyError instanceof Error
 							? bodyError.message
 							: "Timeout reading error response body";
+					const bodyErrorCause = extractErrorCause(bodyError);
 					logger.warn("Timeout reading error response body", {
 						usedProvider,
 						usedModel,
 						status: res.status,
+						cause: bodyErrorCause,
 					});
 
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -5333,6 +5399,7 @@ chat.openapi(completions, async (c) => {
 							statusCode: res.status,
 							statusText: "TimeoutError",
 							responseText: errorMessage,
+							cause: bodyErrorCause,
 						},
 						cachedInputCost: null,
 						requestCost: null,
@@ -5644,10 +5711,12 @@ chat.openapi(completions, async (c) => {
 				bodyError instanceof Error
 					? bodyError.message
 					: "Timeout reading response body";
+			const bodyReadCause = extractErrorCause(bodyError);
 			logger.warn("Timeout reading response body", {
 				usedProvider,
 				usedModel,
 				initialRequestedModel,
+				cause: bodyReadCause,
 			});
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -5708,6 +5777,7 @@ chat.openapi(completions, async (c) => {
 					statusCode: res.status,
 					statusText: "TimeoutError",
 					responseText: errorMessage,
+					cause: bodyReadCause,
 				},
 				cachedInputCost: null,
 				requestCost: null,
@@ -5871,7 +5941,7 @@ chat.openapi(completions, async (c) => {
 		calculatedCompletionTokens,
 		cachedTokens,
 		{
-			prompt: messages.map((m) => m.content).join("\n"),
+			prompt: messages.map((m) => messageContentToString(m.content)).join("\n"),
 			completion: content,
 			toolResults: toolResults,
 		},

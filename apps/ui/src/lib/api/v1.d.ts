@@ -247,6 +247,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/discounts/model/{modelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    modelId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active global discounts for the specified model */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            discounts: {
+                                id: string;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -692,6 +739,7 @@ export interface paths {
                                     statusCode: number;
                                     statusText: string;
                                     responseText: string;
+                                    cause?: string;
                                 } | null;
                                 cost: number | null;
                                 inputCost: number | null;
@@ -871,6 +919,7 @@ export interface paths {
                                     statusCode: number;
                                     statusText: string;
                                     responseText: string;
+                                    cause?: string;
                                 } | null;
                                 cost: number | null;
                                 inputCost: number | null;
@@ -1030,8 +1079,6 @@ export interface paths {
                                 apiKeysRequestCount: number;
                                 creditsCost: number;
                                 apiKeysCost: number;
-                                creditsServiceFee: number;
-                                apiKeysServiceFee: number;
                                 creditsDataStorageCost: number;
                                 apiKeysDataStorageCost: number;
                                 modelBreakdown: {
@@ -1195,6 +1242,9 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                ownerUserId?: string | null;
+                                ownerName?: string | null;
+                                ownerEmail?: string | null;
                             }[];
                             total: number;
                             totalCredits: string;
@@ -1251,6 +1301,9 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                ownerUserId?: string | null;
+                                ownerName?: string | null;
+                                ownerEmail?: string | null;
                             };
                             /** @enum {string} */
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
@@ -1328,6 +1381,9 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                ownerUserId?: string | null;
+                                ownerName?: string | null;
+                                ownerEmail?: string | null;
                             };
                             transactions: {
                                 id: string;
@@ -1458,6 +1514,64 @@ export interface paths {
                             total: number;
                             limit: number;
                             offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization members. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            members: {
+                                id: string;
+                                userId: string;
+                                role: string;
+                                createdAt: string;
+                                user: {
+                                    id: string;
+                                    email: string;
+                                    name: string | null;
+                                    emailVerified: boolean;
+                                };
+                            }[];
+                            total: number;
                         };
                     };
                 };
@@ -2091,6 +2205,110 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/gift-credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        creditAmount: number;
+                        comment?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Credits gifted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            credits: string;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    userId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description User deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description User not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -3649,7 +3867,7 @@ export interface paths {
                                 updatedAt: string;
                                 organizationId: string;
                                 /** @enum {string} */
-                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "credit_gift" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
                                 amount: string | null;
                                 creditAmount: string | null;
                                 currency: string;
@@ -3700,6 +3918,66 @@ export interface paths {
                     content: {
                         "application/json": {
                             referredCount: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{id}/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active discounts for the organization (org-specific and global) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            orgDiscounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            globalDiscounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
                         };
                     };
                 };
@@ -4131,6 +4409,51 @@ export interface paths {
                     content: {
                         "application/json": {
                             success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/create-checkout-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        amount: number;
+                        /** Format: uri */
+                        returnUrl?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Stripe Checkout session created successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            checkoutUrl: string;
                         };
                     };
                 };
@@ -5086,7 +5409,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
@@ -5943,6 +6266,7 @@ export interface operations {
                             family: string;
                             free: boolean | null;
                             output: string[] | null;
+                            imageInputRequired: boolean | null;
                             /** @enum {string|null} */
                             stability: "stable" | "beta" | "unstable" | "experimental" | null;
                             /** @enum {string} */

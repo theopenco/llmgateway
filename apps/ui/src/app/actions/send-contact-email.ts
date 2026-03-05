@@ -1,8 +1,9 @@
 "use server";
 
 import { headers } from "next/headers";
-import { Resend } from "resend";
 import { z } from "zod";
+
+import { getResendClient } from "@llmgateway/shared/email";
 
 const contactFormSchema = z.object({
 	name: z.string().min(2, "Name must be at least 2 characters"),
@@ -166,8 +167,8 @@ export async function sendContactEmail(data: ContactFormData) {
 		};
 	}
 
-	const resendApiKey = process.env.RESEND_API_KEY;
-	if (!resendApiKey) {
+	const resend = getResendClient();
+	if (!resend) {
 		return {
 			success: false,
 			message: "Email service is not configured. Please try again later.",
@@ -221,9 +222,6 @@ export async function sendContactEmail(data: ContactFormData) {
 			</body>
 		</html>
 	`;
-
-	// Send email via Resend
-	const resend = new Resend(resendApiKey);
 
 	const { error } = await resend.emails.send({
 		from: "LLMGateway Contact Form <contact@mail.llmgateway.io>",

@@ -6,6 +6,7 @@ import {
 	FolderOpen,
 	Key,
 	Receipt,
+	Users,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -23,10 +24,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	getOrganizationApiKeys,
+	getOrganizationMembers,
 	getOrganizationProjects,
 	getOrganizationTransactions,
+	giftCreditsToOrganization,
 } from "@/lib/admin-organizations";
 
+import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { OrgMetricsSection } from "./org-metrics";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -97,7 +101,11 @@ function getTransactionTypeBadgeVariant(type: string) {
 	if (type.includes("cancel") || type.includes("refund")) {
 		return "destructive";
 	}
-	if (type.includes("start") || type.includes("topup")) {
+	if (
+		type.includes("start") ||
+		type.includes("topup") ||
+		type.includes("gift")
+	) {
 		return "default";
 	}
 	if (type.includes("upgrade")) {
@@ -131,11 +139,13 @@ export default async function OrganizationPage({
 	const akLimit = 25;
 	const akOffset = (akPage - 1) * akLimit;
 
-	const [transactionsData, projectsData, apiKeysData] = await Promise.all([
-		getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
-		getOrganizationProjects(orgId),
-		getOrganizationApiKeys(orgId, { limit: akLimit, offset: akOffset }),
-	]);
+	const [transactionsData, projectsData, apiKeysData, membersData] =
+		await Promise.all([
+			getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
+			getOrganizationProjects(orgId),
+			getOrganizationApiKeys(orgId, { limit: akLimit, offset: akOffset }),
+			getOrganizationMembers(orgId),
+		]);
 
 	if (transactionsData === null) {
 		return <SignInPrompt />;
@@ -154,6 +164,8 @@ export default async function OrganizationPage({
 	const apiKeys = apiKeysData?.apiKeys ?? [];
 	const akTotal = apiKeysData?.total ?? 0;
 	const akTotalPages = Math.ceil(akTotal / akLimit);
+	const members = membersData?.members ?? [];
+	const membersTotal = membersData?.total ?? 0;
 
 	return (
 		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
@@ -199,11 +211,21 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
-				<Button variant="outline" size="sm" asChild>
-					<Link href={`/organizations/${orgId}/discounts`}>
-						Manage Discounts
-					</Link>
-				</Button>
+				<div className="flex items-center gap-2">
+					<GiftCreditsDialog
+						orgId={orgId}
+						orgName={org.name}
+						onGift={async (data) => {
+							"use server";
+							return await giftCreditsToOrganization(orgId, data);
+						}}
+					/>
+					<Button variant="outline" size="sm" asChild>
+						<Link href={`/organizations/${orgId}/discounts`}>
+							Manage Discounts
+						</Link>
+					</Button>
+				</div>
 			</header>
 
 			<OrgMetricsSection orgId={orgId} />
@@ -261,6 +283,10 @@ export default async function OrganizationPage({
 					<TabsTrigger value="api-keys">
 						<Key className="mr-1.5 h-4 w-4" />
 						API Keys ({akTotal})
+					</TabsTrigger>
+					<TabsTrigger value="members">
+						<Users className="mr-1.5 h-4 w-4" />
+						Members ({membersTotal})
 					</TabsTrigger>
 				</TabsList>
 
@@ -509,6 +535,74 @@ export default async function OrganizationPage({
 								</div>
 							</div>
 						)}
+					</div>
+				</TabsContent>
+
+				<TabsContent value="members">
+					<div className="space-y-4">
+						<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Name</TableHead>
+										<TableHead>Email</TableHead>
+										<TableHead>Verified</TableHead>
+										<TableHead>Role</TableHead>
+										<TableHead>Joined</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{members.length === 0 ? (
+										<TableRow>
+											<TableCell
+												colSpan={5}
+												className="h-24 text-center text-muted-foreground"
+											>
+												No members found
+											</TableCell>
+										</TableRow>
+									) : (
+										members.map((member) => (
+											<TableRow key={member.id}>
+												<TableCell className="font-medium">
+													{member.user.name ?? "—"}
+												</TableCell>
+												<TableCell>{member.user.email}</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															member.user.emailVerified
+																? "secondary"
+																: "outline"
+														}
+													>
+														{member.user.emailVerified
+															? "verified"
+															: "unverified"}
+													</Badge>
+												</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															member.role === "owner"
+																? "default"
+																: member.role === "admin"
+																	? "secondary"
+																	: "outline"
+														}
+													>
+														{member.role}
+													</Badge>
+												</TableCell>
+												<TableCell className="text-muted-foreground">
+													{formatDate(member.createdAt)}
+												</TableCell>
+											</TableRow>
+										))
+									)}
+								</TableBody>
+							</Table>
+						</div>
 					</div>
 				</TabsContent>
 			</Tabs>

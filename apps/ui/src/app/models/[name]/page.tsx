@@ -15,6 +15,7 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
@@ -215,7 +216,7 @@ export default async function ModelPage({ params }: PageProps) {
 							/>
 
 							<a
-								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${modelDef.providers[0]?.providerId}/${modelDef.id}`)}`}
+								href={`${config.playgroundUrl}?model=${encodeURIComponent(modelDef.id)}`}
 								target="_blank"
 								rel="noopener noreferrer"
 							>
@@ -397,6 +398,13 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 					</div>
 
+					<div className="mb-6">
+						<GlobalDiscountBanner
+							modelId={decodedName}
+							apiUrl={config.apiUrl}
+						/>
+					</div>
+
 					<div className="mb-8">
 						<h2 className="text-xl md:text-2xl font-semibold mb-4">
 							Select Provider
@@ -428,6 +436,7 @@ export default async function ModelPage({ params }: PageProps) {
 									provider={provider}
 									modelName={decodedName}
 									modelStability={modelDef.stability}
+									modelOutput={modelDef.output}
 								/>
 							))}
 						</div>

@@ -587,18 +587,6 @@ export function LogDetailClient({
 												: "$0"
 										}
 									/>
-									{log.usedMode === "api-keys" && (
-										<Field
-											label="API Key Fee (1%)"
-											value={
-												log.serviceFee
-													? `$${Number(log.serviceFee).toFixed(8)}`
-													: log.cost
-														? `$${(Number(log.cost) * 0.01).toFixed(8)}`
-														: "$0"
-											}
-										/>
-									)}
 								</div>
 							</div>
 						</Section>

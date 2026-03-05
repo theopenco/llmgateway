@@ -26,3 +26,4 @@ benchmark_results.json
 *.csv
 exports/
 out-*.json
+output-edit-*.png

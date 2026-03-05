@@ -385,6 +385,96 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.additionalProperties).toBeUndefined();
 	});
 
+	test("should strip advanced JSON Schema properties from Google tool parameters", async () => {
+		const toolsWithAdvancedSchema = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							count: {
+								type: "number",
+								exclusiveMinimum: 0,
+								exclusiveMaximum: 100,
+								multipleOf: 5,
+							},
+							name: {
+								type: "string",
+								const: "fixed_value",
+							},
+							metadata: {
+								type: "object",
+								properties: {
+									key: { type: "string" },
+								},
+								propertyNames: { type: "string" },
+								minProperties: 1,
+								maxProperties: 10,
+							},
+							items: {
+								type: "array",
+								items: { type: "string" },
+								minItems: 1,
+								maxItems: 50,
+								uniqueItems: true,
+								contains: { type: "string" },
+								prefixItems: [{ type: "string" }],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithAdvancedSchema,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// Number properties: should strip exclusiveMinimum, exclusiveMaximum, multipleOf
+		expect(params.properties.count.exclusiveMinimum).toBeUndefined();
+		expect(params.properties.count.exclusiveMaximum).toBeUndefined();
+		expect(params.properties.count.multipleOf).toBeUndefined();
+		expect(params.properties.count.type).toBe("number");
+
+		// String const: should strip const
+		expect(params.properties.name.const).toBeUndefined();
+		expect(params.properties.name.type).toBe("string");
+
+		// Object properties: should strip propertyNames, minProperties, maxProperties
+		expect(params.properties.metadata.propertyNames).toBeUndefined();
+		expect(params.properties.metadata.minProperties).toBeUndefined();
+		expect(params.properties.metadata.maxProperties).toBeUndefined();
+		expect(params.properties.metadata.properties.key.type).toBe("string");
+
+		// Array properties: should strip minItems, maxItems, uniqueItems, contains, prefixItems
+		expect(params.properties.items.minItems).toBeUndefined();
+		expect(params.properties.items.maxItems).toBeUndefined();
+		expect(params.properties.items.uniqueItems).toBeUndefined();
+		expect(params.properties.items.contains).toBeUndefined();
+		expect(params.properties.items.prefixItems).toBeUndefined();
+		expect(params.properties.items.type).toBe("array");
+		expect(params.properties.items.items.type).toBe("string");
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{

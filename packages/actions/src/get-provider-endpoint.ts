@@ -75,9 +75,6 @@ export function getProviderEndpoint(
 			case "together.ai":
 				url = "https://api.together.ai";
 				break;
-			case "cloudrift":
-				url = "https://inference.cloudrift.ai";
-				break;
 			case "mistral":
 				url = "https://api.mistral.ai";
 				break;
@@ -352,10 +349,13 @@ export function getProviderEndpoint(
 				return `${url}/images/generations`;
 			}
 			return `${url}/chat/completions`;
+		case "xai":
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
-		case "cloudrift":
-		case "xai":
 		case "groq":
 		case "cerebras":
 		case "deepseek":

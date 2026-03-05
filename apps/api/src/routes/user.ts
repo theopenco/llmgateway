@@ -343,27 +343,12 @@ user.openapi(updatePassword, async (c) => {
 
 	const { currentPassword, newPassword } = c.req.valid("json");
 
-	const cookieHeader = c.req.raw.headers.get("cookie");
-	const sessionToken = cookieHeader
-		?.split(";")
-		.map((c) => c.trim())
-		.find((c) => c.startsWith("better-auth.session_token="))
-		?.split("=")[1];
-
-	if (!sessionToken) {
-		throw new HTTPException(401, {
-			message: "Session token not found",
-		});
-	}
-
 	await auth.api.changePassword({
 		body: {
 			currentPassword,
 			newPassword,
 		},
-		headers: {
-			Cookie: `better-auth.session_token=${sessionToken}`,
-		},
+		headers: c.req.raw.headers,
 	});
 
 	return c.json({

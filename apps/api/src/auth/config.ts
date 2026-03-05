@@ -4,7 +4,6 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
-import { Resend } from "resend";
 
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
@@ -12,6 +11,7 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getResendClient } from "@llmgateway/shared/email";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -330,17 +330,6 @@ export async function checkRateLimit(
 			remaining: config.maxRequests - 1,
 		};
 	}
-}
-
-let resendClient: Resend | null = null;
-
-function getResendClient(): Resend | null {
-	const resendApiKey = process.env.RESEND_API_KEY;
-	if (!resendApiKey) {
-		return null;
-	}
-	resendClient ??= new Resend(resendApiKey);
-	return resendClient;
 }
 
 async function createResendContact(

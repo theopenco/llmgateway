@@ -413,22 +413,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "cloudrift",
-		name: "CloudRift",
-		description:
-			"CloudRift is a platform for running large language models in the cloud with fast inference.",
-		env: {
-			required: {
-				apiKey: "LLM_CLOUD_RIFT_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#00d4aa",
-		website: "https://www.cloudrift.ai",
-		announcement: "DeepSeek & Kimi K2 are 30-50% cheaper than the competition!",
-	},
-	{
 		id: "nanogpt",
 		name: "NanoGPT",
 		description: "NanoGPT offers a large selection of models",

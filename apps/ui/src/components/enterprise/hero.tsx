@@ -74,14 +74,14 @@ export function HeroEnterprise() {
 					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
 						<StatCard value={100} suffix="B+" label="Total Tokens Processed" />
 						<StatCard
-							value={10}
+							value={20}
 							suffix="M"
 							label="Total Requests"
 							delay={0.1}
 						/>
-						<StatCard value={550} suffix="M" label="Daily Tokens" delay={0.2} />
+						<StatCard value={200} suffix="M" label="Daily Tokens" delay={0.2} />
 						<StatCard
-							value={32}
+							value={50}
 							suffix="K"
 							prefix="$"
 							label="Customer Savings"

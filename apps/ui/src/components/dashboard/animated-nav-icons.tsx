@@ -268,6 +268,42 @@ export function AnimatedBotMessageSquare({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// Percent — bounces on hover
+export function AnimatedPercent({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.line
+				x1="19"
+				y1="5"
+				x2="5"
+				y2="19"
+				initial={false}
+				animate={isHovered ? { rotate: [0, -10, 5, 0] } : { rotate: 0 }}
+				transition={{ duration: 0.4, ease: "easeInOut" }}
+				style={{ transformOrigin: "12px 12px" }}
+			/>
+			<motion.circle
+				cx="6.5"
+				cy="6.5"
+				r="2.5"
+				initial={false}
+				animate={isHovered ? { scale: [1, 1.3, 1] } : { scale: 1 }}
+				transition={{ duration: 0.3, delay: 0.05 }}
+				style={{ transformOrigin: "6.5px 6.5px" }}
+			/>
+			<motion.circle
+				cx="17.5"
+				cy="17.5"
+				r="2.5"
+				initial={false}
+				animate={isHovered ? { scale: [1, 1.3, 1] } : { scale: 1 }}
+				transition={{ duration: 0.3, delay: 0.15 }}
+				style={{ transformOrigin: "17.5px 17.5px" }}
+			/>
+		</svg>
+	);
+}
+
 // ExternalLink — arrow shoots out diagonally
 export function AnimatedExternalLink({ isHovered }: AnimatedIconProps) {
 	return (

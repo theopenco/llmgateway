@@ -61,6 +61,10 @@ export async function syncProvidersAndModels() {
 					family: modelDef.family,
 					free: "free" in modelDef ? modelDef.free : undefined,
 					output: "output" in modelDef ? modelDef.output : undefined,
+					imageInputRequired:
+						"imageInputRequired" in modelDef
+							? modelDef.imageInputRequired
+							: undefined,
 					stability: "stability" in modelDef ? modelDef.stability : undefined,
 					releasedAt:
 						"releasedAt" in modelDef ? modelDef.releasedAt : undefined,
@@ -77,6 +81,10 @@ export async function syncProvidersAndModels() {
 						family: modelDef.family,
 						free: "free" in modelDef ? modelDef.free : false,
 						output: "output" in modelDef ? modelDef.output : ["text"],
+						imageInputRequired:
+							"imageInputRequired" in modelDef
+								? modelDef.imageInputRequired
+								: false,
 						stability: "stability" in modelDef ? modelDef.stability : "stable",
 						releasedAt:
 							"releasedAt" in modelDef ? modelDef.releasedAt : new Date(),

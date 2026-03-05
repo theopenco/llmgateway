@@ -15,6 +15,9 @@ export interface Organization {
 	totalSpent?: string;
 	createdAt: string;
 	status: string | null;
+	ownerUserId?: string | null;
+	ownerName?: string | null;
+	ownerEmail?: string | null;
 }
 
 export interface OrganizationsListResponse {
@@ -105,6 +108,24 @@ export interface ApiKeysListResponse {
 	total: number;
 	limit: number;
 	offset: number;
+}
+
+export interface Member {
+	id: string;
+	userId: string;
+	role: string;
+	createdAt: string;
+	user: {
+		id: string;
+		email: string;
+		name: string | null;
+		emailVerified: boolean;
+	};
+}
+
+export interface MembersListResponse {
+	members: Member[];
+	total: number;
 }
 
 async function hasSession(): Promise<boolean> {
@@ -269,6 +290,28 @@ export async function getOrganizationApiKeys(
 	return data;
 }
 
+export async function getOrganizationMembers(
+	orgId: string,
+): Promise<MembersListResponse | null> {
+	if (!(await hasSession())) {
+		return null;
+	}
+
+	const data = await fetchServerData<MembersListResponse>(
+		"GET",
+		"/admin/organizations/{orgId}/members" as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: {
+					orgId,
+				},
+			},
+		},
+	);
+
+	return data;
+}
+
 export async function loadMetricsAction(
 	orgId: string,
 	window: TokenWindow,
@@ -389,4 +432,46 @@ export async function loadProjectLogsAction(
 	cursor?: string,
 ): Promise<ProjectLogsResponse | null> {
 	return await getProjectLogs(orgId, projectId, { cursor });
+}
+
+export async function giftCreditsToOrganization(
+	orgId: string,
+	data: { creditAmount: number; comment?: string },
+): Promise<{ success: boolean; error?: string }> {
+	if (!(await hasSession())) {
+		return { success: false, error: "Not authenticated" };
+	}
+
+	const result = await fetchServerData<{ message: string; credits: string }>(
+		"POST",
+		`/admin/organizations/${orgId}/gift-credits` as "/admin/organizations/{orgId}",
+		{
+			params: {
+				path: { orgId },
+			},
+			body: {
+				creditAmount: data.creditAmount,
+				comment: data.comment,
+			},
+		},
+	);
+
+	if (!result) {
+		return { success: false, error: "Failed to gift credits" };
+	}
+
+	return { success: true };
+}
+
+export async function deleteUser(userId: string): Promise<boolean> {
+	if (!(await hasSession())) {
+		return false;
+	}
+
+	const data = await fetchServerData<{ success: boolean }>(
+		"DELETE",
+		`/admin/users/${userId}` as "/admin/organizations/{orgId}",
+	);
+
+	return data?.success ?? false;
 }

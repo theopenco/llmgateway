@@ -47,7 +47,7 @@ export function RevenueChart({
 				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
 					<CardTitle>Revenue</CardTitle>
 					<CardDescription>
-						Daily revenue from completed transactions
+						Cumulative revenue from completed transactions
 					</CardDescription>
 				</div>
 				<div className="flex">

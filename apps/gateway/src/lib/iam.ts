@@ -37,12 +37,15 @@ export async function validateModelAccess(
 	apiKeyId: string,
 	requestedModel: string,
 	requestedProvider?: string,
+	activeModelInfo?: ModelDefinition,
 ): Promise<IamValidationResult> {
 	// Get all active IAM rules for this API key (using cacheable select builder)
 	const iamRules = await findActiveIamRules(apiKeyId);
 
-	// Find the model definition
-	const modelDef = models.find((m) => m.id === requestedModel);
+	// Use the provided active model info (with deactivated providers filtered out)
+	// or fall back to looking up from the global models list
+	const modelDef =
+		activeModelInfo ?? models.find((m) => m.id === requestedModel);
 	if (!modelDef) {
 		return { allowed: false, reason: `Model ${requestedModel} not found` };
 	}
@@ -55,7 +58,7 @@ export async function validateModelAccess(
 		};
 	}
 
-	// Get all provider IDs for this model
+	// Get all provider IDs for this model (only active providers if activeModelInfo was provided)
 	const modelProviderIds = modelDef.providers.map((p) => p.providerId);
 
 	// Track which providers are allowed/denied by IAM rules

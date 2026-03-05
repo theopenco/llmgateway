@@ -154,6 +154,44 @@ describe("Models API", () => {
 		]);
 	});
 
+	test("GET /v1/models should include proper output modalities for gemini-3.1-flash-image-preview", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		const imageModel = json.data.find(
+			(model: any) => model.id === "gemini-3.1-flash-image-preview",
+		);
+
+		expect(imageModel).toBeDefined();
+		expect(imageModel.architecture.output_modalities).toContain("text");
+		expect(imageModel.architecture.output_modalities).toContain("image");
+		expect(imageModel.architecture.output_modalities).toEqual([
+			"text",
+			"image",
+		]);
+	});
+
+	test("GET /v1/models should include proper output modalities for gemini-3-pro-image-preview", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		const imageModel = json.data.find(
+			(model: any) => model.id === "gemini-3-pro-image-preview",
+		);
+
+		expect(imageModel).toBeDefined();
+		expect(imageModel.architecture.output_modalities).toContain("text");
+		expect(imageModel.architecture.output_modalities).toContain("image");
+		expect(imageModel.architecture.output_modalities).toEqual([
+			"text",
+			"image",
+		]);
+	});
+
 	test("GET /v1/models should include stability information for models", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);

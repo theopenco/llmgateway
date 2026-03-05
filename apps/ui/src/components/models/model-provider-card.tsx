@@ -9,6 +9,7 @@ import {
 	Eye,
 	Wrench,
 	MessageSquare,
+	ImagePlus,
 	Braces,
 	Play,
 	Share2,
@@ -53,12 +54,14 @@ interface ModelProviderCardProps {
 	provider: ProviderWithInfo;
 	modelName: string;
 	modelStability?: StabilityLevel;
+	modelOutput?: string[];
 }
 
 export function ModelProviderCard({
 	provider,
 	modelName,
 	modelStability,
+	modelOutput,
 }: ModelProviderCardProps) {
 	const config = useAppConfig();
 	const [copied, setCopied] = useState(false);
@@ -553,6 +556,19 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{modelOutput?.includes("image") && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-pink-50 dark:bg-pink-950/30 text-pink-700 dark:text-pink-300 text-xs">
+											<ImagePlus className="h-3.5 w-3.5" />
+											<span>Image Generation</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports native image generation</p>
 									</TooltipContent>
 								</Tooltip>
 							)}
