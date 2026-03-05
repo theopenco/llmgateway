@@ -86,28 +86,29 @@ export default function ImagePageClient({
 		{ dataUrl: string; mediaType: string }[]
 	>([]);
 
-	// Extract root model ID from selected model (handles "providerId/modelId" format)
-	const primaryModelDef = useMemo(() => {
-		const primary = selectedModels[0] ?? "";
-		const rootId = primary.includes("/") ? primary.split("/").pop()! : primary;
-		return imageGenModels.find((m) => m.id === rootId) ?? null;
+	// Resolve model definitions for all selected models (handles "providerId/modelId" format)
+	const selectedModelDefs = useMemo(() => {
+		return selectedModels
+			.map((modelId) => {
+				const rootId = modelId.includes("/")
+					? modelId.split("/").pop()!
+					: modelId;
+				return imageGenModels.find((m) => m.id === rootId) ?? null;
+			})
+			.filter((m): m is NonNullable<typeof m> => m !== null);
 	}, [selectedModels, imageGenModels]);
 
-	// Detect if the primary selected model supports image input (editing)
+	// Detect if any selected model supports image input (editing)
 	const isEditModel = useMemo(() => {
-		if (!primaryModelDef) {
-			return false;
-		}
-		return primaryModelDef.mappings.some((mapping) => mapping.vision === true);
-	}, [primaryModelDef]);
+		return selectedModelDefs.some((m) =>
+			m.mappings.some((mapping) => mapping.vision === true),
+		);
+	}, [selectedModelDefs]);
 
-	// Detect if the primary selected model requires image input
+	// Detect if any selected model requires image input
 	const requiresImageInput = useMemo(() => {
-		if (!primaryModelDef) {
-			return false;
-		}
-		return primaryModelDef.imageInputRequired === true;
-	}, [primaryModelDef]);
+		return selectedModelDefs.some((m) => m.imageInputRequired === true);
+	}, [selectedModelDefs]);
 
 	// Auth
 	const isAuthenticated = !isUserLoading && !!user;
@@ -173,17 +174,10 @@ export default function ImagePageClient({
 		if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
 		}
-		const rootId = primaryModel.includes("/")
-			? primaryModel.split("/").pop()!
-			: primaryModel;
-		const model = imageGenModels.find((m) => m.id === rootId);
-		const supportsImageInput = model?.mappings.some(
-			(mapping) => mapping.vision === true,
-		);
-		if (!supportsImageInput) {
+		if (!isEditModel) {
 			setInputImages([]);
 		}
-	}, [selectedModels, imageSize, imageGenModels]);
+	}, [selectedModels, imageSize, imageGenModels, isEditModel]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
