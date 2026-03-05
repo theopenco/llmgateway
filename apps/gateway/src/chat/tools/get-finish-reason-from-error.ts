@@ -34,6 +34,14 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// xAI (Grok) content safety violations (e.g. SAFETY_CHECK_TYPE_CSAM, usage guidelines)
+	if (
+		statusCode === 403 &&
+		errorText?.includes("Content violates usage guidelines")
+	) {
+		return "content_filter";
+	}
+
 	// zai content filter
 	if (
 		errorText?.includes(

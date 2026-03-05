@@ -247,6 +247,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/discounts/model/{modelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    modelId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active global discounts for the specified model */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            discounts: {
+                                id: string;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -3871,6 +3918,66 @@ export interface paths {
                     content: {
                         "application/json": {
                             referredCount: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{id}/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active discounts for the organization (org-specific and global) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            orgDiscounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            globalDiscounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
                         };
                     };
                 };

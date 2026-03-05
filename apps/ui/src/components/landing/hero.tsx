@@ -56,6 +56,12 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
 	{ name: "Azure", providerId: "azure" },
 	{ name: "Inference.net", providerId: "inference.net" },
+	{ name: "Mistral", providerId: "mistral" },
+	{ name: "Alibaba", providerId: "alibaba" },
+	{ name: "ByteDance", providerId: "bytedance" },
+	{ name: "Cerebras", providerId: "cerebras" },
+	{ name: "Google Vertex", providerId: "google-vertex" },
+	{ name: "MiniMax", providerId: "minimax" },
 ];
 
 interface MigrationData {
@@ -161,7 +167,7 @@ export function Hero({
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route
-											requests to 180+ models, track costs in real-time, and
+											requests to 210+ models, track costs in real-time, and
 											switch providers without changing your code.
 										</p>
 									</AnimatedGroup>
@@ -369,7 +375,7 @@ export function Hero({
 									<ChevronRight className="ml-1 inline-block size-3" />
 								</Link>
 							</div>
-							<div className="group-hover:blur-xs mx-auto mt-12 grid max-w-2xl grid-cols-5 gap-x-12 gap-y-8 transition-all duration-500 group-hover:opacity-50 sm:gap-x-16 sm:gap-y-14">
+							<div className="group-hover:blur-xs mx-auto mt-12 grid max-w-3xl grid-cols-5 gap-x-10 gap-y-6 transition-all duration-500 group-hover:opacity-50 sm:grid-cols-6 sm:gap-x-12 sm:gap-y-10 lg:grid-cols-8">
 								{PROVIDER_LOGOS.map((provider) => {
 									const LogoComponent = providerLogoUrls[provider.providerId];
 

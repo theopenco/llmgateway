@@ -5,7 +5,7 @@ import { z } from "zod";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -736,6 +736,84 @@ organization.openapi(getReferralStats, async (c) => {
 
 	return c.json({
 		referredCount: referrals.length,
+	});
+});
+
+const discountSchema = z.object({
+	id: z.string(),
+	organizationId: z.string().nullable(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	discountPercent: z.string(),
+	reason: z.string().nullable(),
+	expiresAt: z.date().nullable(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+});
+
+const getOrgDiscounts = createRoute({
+	method: "get",
+	path: "/{id}/discounts",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						orgDiscounts: z.array(discountSchema).openapi({}),
+						globalDiscounts: z.array(discountSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"Active discounts for the organization (org-specific and global)",
+		},
+	},
+});
+
+organization.openapi(getOrgDiscounts, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const now = new Date();
+	const notExpired = or(
+		isNull(tables.discount.expiresAt),
+		gte(tables.discount.expiresAt, now),
+	);
+
+	const [orgDiscounts, globalDiscounts] = await Promise.all([
+		db
+			.select()
+			.from(tables.discount)
+			.where(and(eq(tables.discount.organizationId, id), notExpired))
+			.orderBy(desc(tables.discount.createdAt)),
+		db
+			.select()
+			.from(tables.discount)
+			.where(and(isNull(tables.discount.organizationId), notExpired))
+			.orderBy(desc(tables.discount.createdAt)),
+	]);
+
+	return c.json({
+		orgDiscounts,
+		globalDiscounts,
 	});
 });
 

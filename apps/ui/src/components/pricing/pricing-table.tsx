@@ -26,11 +26,11 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Models",
-		description: "180+ unique models across 60+ providers",
+		description: "210+ unique models across 25+ providers",
 		learnMoreLink: "/models",
 		learnMoreText: "Browse all models →",
-		free: "450+ routing options",
-		enterprise: "450+ routing options",
+		free: "All 210+ models",
+		enterprise: "All 210+ models",
 	},
 	{
 		name: "Provider Choice",
@@ -43,8 +43,8 @@ const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Free Models",
 		description: "Zero-cost models with rate limits",
-		free: "25+ (rate limited)",
-		enterprise: "25+ (custom limits)",
+		free: "3 (rate limited)",
+		enterprise: "3 (custom limits)",
 	},
 	{
 		name: "Chat and API Access",
@@ -138,7 +138,7 @@ const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Rate Limits",
 		description: "Paid models are not rate limited",
-		free: "20 reqs/min (free models)",
+		free: "20 reqs/min on free models",
 		enterprise: "Custom limits",
 	},
 	{
