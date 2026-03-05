@@ -360,40 +360,37 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					</div>
-					{(provider.imageInputPricingByResolution ??
-						provider.imageOutputPricingByResolution) && (
+					{(provider.imageInputTokensByResolution ??
+						provider.imageOutputTokensByResolution) && (
 						<div className="mt-3 pt-3 border-t">
 							<div className="text-muted-foreground text-xs mb-2">
 								Image Pricing (est. per image)
 							</div>
-							{provider.imageInputPricingByResolution &&
+							{provider.imageInputPrice &&
+								provider.imageInputTokensByResolution &&
 								(() => {
 									const named = Object.entries(
-										provider.imageInputPricingByResolution,
+										provider.imageInputTokensByResolution,
 									).filter(([k]) => k !== "default");
-									const defaultEntry =
-										provider.imageInputPricingByResolution["default"];
-									const entries: Array<[string, typeof defaultEntry]> =
+									const defaultTokens =
+										provider.imageInputTokensByResolution["default"];
+									const entries: Array<[string, number]> =
 										named.length > 0
 											? named
-											: defaultEntry
-												? [["any size", defaultEntry]]
+											: defaultTokens !== undefined
+												? [["any size", defaultTokens]]
 												: [];
 									if (entries.length === 0) {
 										return null;
 									}
+									const effectiveDiscount = provider.discount ?? 0;
 									return (
 										<div className="mb-2">
 											<div className="text-xs text-muted-foreground mb-1">
 												Input
 											</div>
-											{entries.map(([res, cfg]) => {
-												if (!cfg) {
-													return null;
-												}
-												const effectiveDiscount =
-													cfg.discount ?? provider.discount ?? 0;
-												const raw = cfg.tokensPerImage * cfg.price;
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * provider.imageInputPrice!;
 												const discounted = raw * (1 - effectiveDiscount);
 												return (
 													<div
@@ -412,7 +409,7 @@ export function ModelProviderCard({
 																	</span>
 																</>
 															) : (
-																`~$${raw.toFixed(4)}`
+																`~$\${raw.toFixed(4)}`
 															)}
 														</span>
 													</div>
@@ -421,23 +418,23 @@ export function ModelProviderCard({
 										</div>
 									);
 								})()}
-							{provider.imageOutputPricingByResolution &&
+							{provider.imageOutputPrice &&
+								provider.imageOutputTokensByResolution &&
 								(() => {
 									const entries = Object.entries(
-										provider.imageOutputPricingByResolution,
+										provider.imageOutputTokensByResolution,
 									).filter(([k]) => k !== "default");
 									if (entries.length === 0) {
 										return null;
 									}
+									const effectiveDiscount = provider.discount ?? 0;
 									return (
 										<div>
 											<div className="text-xs text-muted-foreground mb-1">
 												Output
 											</div>
-											{entries.map(([res, cfg]) => {
-												const effectiveDiscount =
-													cfg.discount ?? provider.discount ?? 0;
-												const raw = cfg.tokensPerImage * cfg.price;
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * provider.imageOutputPrice!;
 												const discounted = raw * (1 - effectiveDiscount);
 												return (
 													<div
@@ -456,7 +453,7 @@ export function ModelProviderCard({
 																	</span>
 																</>
 															) : (
-																`~$${raw.toFixed(4)}`
+																`~$\${raw.toFixed(4)}`
 															)}
 														</span>
 													</div>

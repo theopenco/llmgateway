@@ -705,17 +705,15 @@ export const googleModels = [
 				modelName: "gemini-3.1-flash-image-preview",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 1.5 / 1e6,
-				// Input: 560 tokens/image at $0.25/1M
-				imageInputPricingByResolution: {
-					default: { tokensPerImage: 560, price: 0.25 / 1e6 },
-				},
-				// Output: resolution-dependent token counts at $60/1M
-				imageOutputPricingByResolution: {
-					"0.5K": { tokensPerImage: 747, price: 60 / 1e6 },
-					"1K": { tokensPerImage: 1120, price: 60 / 1e6 },
-					"2K": { tokensPerImage: 1680, price: 60 / 1e6 },
-					"4K": { tokensPerImage: 2520, price: 60 / 1e6 },
-					default: { tokensPerImage: 1120, price: 60 / 1e6 },
+				imageInputPrice: 0.25 / 1e6,
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: 60 / 1e6,
+				imageOutputTokensByResolution: {
+					"0.5K": 747,
+					"1K": 1120,
+					"2K": 1680,
+					"4K": 2520,
+					default: 1120,
 				},
 				requestPrice: 0,
 				contextSize: 65536,
@@ -732,17 +730,15 @@ export const googleModels = [
 				modelName: "gemini-3.1-flash-image-preview",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 1.5 / 1e6,
-				// Input: 560 tokens/image at $0.25/1M
-				imageInputPricingByResolution: {
-					default: { tokensPerImage: 560, price: 0.25 / 1e6 },
-				},
-				// Output: resolution-dependent token counts at $60/1M
-				imageOutputPricingByResolution: {
-					"0.5K": { tokensPerImage: 747, price: 60 / 1e6 },
-					"1K": { tokensPerImage: 1120, price: 60 / 1e6 },
-					"2K": { tokensPerImage: 1680, price: 60 / 1e6 },
-					"4K": { tokensPerImage: 2520, price: 60 / 1e6 },
-					default: { tokensPerImage: 1120, price: 60 / 1e6 },
+				imageInputPrice: 0.25 / 1e6,
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: 60 / 1e6,
+				imageOutputTokensByResolution: {
+					"0.5K": 747,
+					"1K": 1120,
+					"2K": 1680,
+					"4K": 2520,
+					default: 1120,
 				},
 				requestPrice: 0,
 				contextSize: 65536,
@@ -759,17 +755,15 @@ export const googleModels = [
 				modelName: "gemini-3.1-flash-image-preview",
 				inputPrice: 0.25 / 1e6,
 				outputPrice: 1.5 / 1e6,
-				// Input: 560 tokens/image at $0.25/1M (obsidian 20% off)
-				imageInputPricingByResolution: {
-					default: { tokensPerImage: 560, price: 0.25 / 1e6, discount: 0.2 },
-				},
-				// Output: resolution-dependent token counts at $60/1M (obsidian 20% off)
-				imageOutputPricingByResolution: {
-					"0.5K": { tokensPerImage: 747, price: 60 / 1e6, discount: 0.2 },
-					"1K": { tokensPerImage: 1120, price: 60 / 1e6, discount: 0.2 },
-					"2K": { tokensPerImage: 1680, price: 60 / 1e6, discount: 0.2 },
-					"4K": { tokensPerImage: 2520, price: 60 / 1e6, discount: 0.2 },
-					default: { tokensPerImage: 1120, price: 60 / 1e6, discount: 0.2 },
+				imageInputPrice: 0.25 / 1e6,
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: 60 / 1e6,
+				imageOutputTokensByResolution: {
+					"0.5K": 747,
+					"1K": 1120,
+					"2K": 1680,
+					"4K": 2520,
+					default: 1120,
 				},
 				discount: 0.2,
 				requestPrice: 0,
@@ -846,12 +840,12 @@ export const googleModels = [
 				modelName: "gemini-2.5-flash-image-preview",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
-				// Output: resolution-dependent token counts at $30/1M
-				imageOutputPricingByResolution: {
-					"1K": { tokensPerImage: 1120, price: 30 / 1e6 },
-					"2K": { tokensPerImage: 1120, price: 30 / 1e6 },
-					"4K": { tokensPerImage: 2000, price: 30 / 1e6 },
-					default: { tokensPerImage: 1120, price: 30 / 1e6 },
+				imageOutputPrice: 30 / 1e6,
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1120,
+					"4K": 2000,
+					default: 1120,
 				},
 				requestPrice: 0,
 				contextSize: 32768,
@@ -870,12 +864,12 @@ export const googleModels = [
 				modelName: "gemini-2.5-flash-image-preview",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
-				// Output: resolution-dependent token counts at $30/1M
-				imageOutputPricingByResolution: {
-					"1K": { tokensPerImage: 1120, price: 30 / 1e6 },
-					"2K": { tokensPerImage: 1120, price: 30 / 1e6 },
-					"4K": { tokensPerImage: 2000, price: 30 / 1e6 },
-					default: { tokensPerImage: 1120, price: 30 / 1e6 },
+				imageOutputPrice: 30 / 1e6,
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1120,
+					"4K": 2000,
+					default: 1120,
 				},
 				requestPrice: 0,
 				contextSize: 32768,
@@ -892,12 +886,12 @@ export const googleModels = [
 				modelName: "gemini-2.5-flash-image-preview",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 2.5 / 1e6,
-				// Output: resolution-dependent token counts at $30/1M (obsidian 20% off)
-				imageOutputPricingByResolution: {
-					"1K": { tokensPerImage: 1120, price: 30 / 1e6, discount: 0.2 },
-					"2K": { tokensPerImage: 1120, price: 30 / 1e6, discount: 0.2 },
-					"4K": { tokensPerImage: 2000, price: 30 / 1e6, discount: 0.2 },
-					default: { tokensPerImage: 1120, price: 30 / 1e6, discount: 0.2 },
+				imageOutputPrice: 30 / 1e6,
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1120,
+					"4K": 2000,
+					default: 1120,
 				},
 				requestPrice: 0,
 				discount: 0.2,
@@ -990,16 +984,14 @@ export const googleModels = [
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
-				// Input: 560 tokens/image at $2/1M ($0.00112/image)
-				imageInputPricingByResolution: {
-					default: { tokensPerImage: 560, price: 2 / 1e6 },
-				},
-				// Output: resolution-dependent token counts at $120/1M
-				imageOutputPricingByResolution: {
-					"1K": { tokensPerImage: 1120, price: 120 / 1e6 },
-					"2K": { tokensPerImage: 1120, price: 120 / 1e6 },
-					"4K": { tokensPerImage: 2000, price: 120 / 1e6 },
-					default: { tokensPerImage: 1120, price: 120 / 1e6 },
+				imageInputPrice: 2 / 1e6,
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: 120 / 1e6,
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1120,
+					"4K": 2000,
+					default: 1120,
 				},
 				requestPrice: 0,
 				contextSize: 65536,
@@ -1017,16 +1009,14 @@ export const googleModels = [
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
-				// Input: 560 tokens/image at $2/1M ($0.00112/image)
-				imageInputPricingByResolution: {
-					default: { tokensPerImage: 560, price: 2 / 1e6 },
-				},
-				// Output: resolution-dependent token counts at $120/1M
-				imageOutputPricingByResolution: {
-					"1K": { tokensPerImage: 1120, price: 120 / 1e6 },
-					"2K": { tokensPerImage: 1120, price: 120 / 1e6 },
-					"4K": { tokensPerImage: 2000, price: 120 / 1e6 },
-					default: { tokensPerImage: 1120, price: 120 / 1e6 },
+				imageInputPrice: 2 / 1e6,
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: 120 / 1e6,
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1120,
+					"4K": 2000,
+					default: 1120,
 				},
 				requestPrice: 0,
 				contextSize: 65536,
@@ -1044,16 +1034,14 @@ export const googleModels = [
 				inputPrice: 2 / 1e6,
 				outputPrice: 12 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
-				// Input: 560 tokens/image at $2/1M ($0.00112/image, obsidian 20% off)
-				imageInputPricingByResolution: {
-					default: { tokensPerImage: 560, price: 2 / 1e6, discount: 0.2 },
-				},
-				// Output: resolution-dependent token counts at $120/1M (obsidian 20% off)
-				imageOutputPricingByResolution: {
-					"1K": { tokensPerImage: 1120, price: 120 / 1e6, discount: 0.2 },
-					"2K": { tokensPerImage: 1120, price: 120 / 1e6, discount: 0.2 },
-					"4K": { tokensPerImage: 2000, price: 120 / 1e6, discount: 0.2 },
-					default: { tokensPerImage: 1120, price: 120 / 1e6, discount: 0.2 },
+				imageInputPrice: 2 / 1e6,
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: 120 / 1e6,
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					"2K": 1120,
+					"4K": 2000,
+					default: 1120,
 				},
 				requestPrice: 0,
 				discount: 0.2,
