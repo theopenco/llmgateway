@@ -409,7 +409,7 @@ export function ModelProviderCard({
 																	</span>
 																</>
 															) : (
-																`~$\${raw.toFixed(4)}`
+																`~$${raw.toFixed(4)}`
 															)}
 														</span>
 													</div>
@@ -453,7 +453,7 @@ export function ModelProviderCard({
 																	</span>
 																</>
 															) : (
-																`~$\${raw.toFixed(4)}`
+																`~$${raw.toFixed(4)}`
 															)}
 														</span>
 													</div>
