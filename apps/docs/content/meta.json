@@ -12,6 +12,7 @@
 		"resources",
 		"integrations",
 		"guides",
+		"migrations",
 		"---References---",
 		"...(api)"
 	]
