@@ -49,7 +49,7 @@ const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    model: "openai/gpt-5.2",
+    model: "gpt-5.2",
     messages: [{ role: "user", content: "Hello!" }],
   }),
 });
