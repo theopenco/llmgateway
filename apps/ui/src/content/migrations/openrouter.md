@@ -128,11 +128,11 @@ const { text } = await generateText({
 
 Most model names are compatible, but here are some common mappings:
 
-| OpenRouter Model                 | LLM Gateway Model                                                 |
-| -------------------------------- | ----------------------------------------------------------------- |
-| openai/gpt-5.2                   | gpt-5.2                                                           |
-| gemini/gemini-3-flash-preview    | gemini-3-flash-preview or google-ai-studio/gemini-3-flash-preview |
-| bedrock/claude-opus-4-5-20251101 | claude-opus-4-5-20251101 or aws-bedrock/claude-opus-4-5-20251101  |
+| OpenRouter Model                 | LLM Gateway Model        |
+| -------------------------------- | ------------------------ |
+| openai/gpt-5.2                   | gpt-5.2                  |
+| gemini/gemini-3-flash-preview    | gemini-3-flash-preview   |
+| bedrock/claude-opus-4-5-20251101 | claude-opus-4-5-20251101 |
 
 Check the [models page](/models) for the full list of available models.
 
