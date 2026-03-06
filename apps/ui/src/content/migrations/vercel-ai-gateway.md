@@ -184,7 +184,7 @@ For more details on routing behavior, see the [routing documentation](https://do
 
 | Vercel AI SDK                             | LLM Gateway                                                                                        |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")` or `llmgateway("openai/gpt-4o")`                                            |
+| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")`                                                                             |
 | `anthropic("claude-3-5-sonnet-20241022")` | `llmgateway("claude-3-5-sonnet-20241022")` or `llmgateway("anthropic/claude-3-5-sonnet-20241022")` |
 | `google("gemini-1.5-pro")`                | `llmgateway("gemini-1.5-pro")` or `llmgateway("google-ai-studio/gemini-1.5-pro")`                  |
 
