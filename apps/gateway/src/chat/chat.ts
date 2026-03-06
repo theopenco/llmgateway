@@ -1135,6 +1135,34 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// For models with multiple provider mappings for the same provider (e.g., routing models
+	// like grok-4-fast with reasoning and non-reasoning variants), select the correct variant
+	// based on request capabilities when a specific provider is already set
+	if (
+		usedProvider &&
+		usedProvider !== "llmgateway" &&
+		usedProvider !== "custom"
+	) {
+		const sameProviderMappings = modelInfo.providers.filter(
+			(p) => p.providerId === usedProvider,
+		);
+		if (sameProviderMappings.length > 1) {
+			let selectedMapping;
+			if (reasoning_effort !== undefined) {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning === true,
+				);
+			} else {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning !== true,
+				);
+			}
+			if (selectedMapping) {
+				usedModel = selectedMapping.modelName;
+			}
+		}
+	}
+
 	if (!usedProvider) {
 		if (iamFilteredModelProviders.length === 0) {
 			throw new HTTPException(403, {
@@ -1198,6 +1226,27 @@ chat.openapi(completions, async (c) => {
 				// If images are present in messages, only include providers that support vision
 				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
 					return false;
+				}
+				// If reasoning_effort is specified, only include providers with reasoning support
+				if (reasoning_effort !== undefined) {
+					if ((provider as ProviderModelMapping).reasoning !== true) {
+						return false;
+					}
+				}
+				// If reasoning_effort is NOT specified, prefer non-reasoning providers
+				// by excluding reasoning providers when a non-reasoning alternative exists for same provider
+				if (reasoning_effort === undefined) {
+					const hasNonReasoningAlternative = modelInfo.providers.some(
+						(p) =>
+							p.providerId === provider.providerId &&
+							(p as ProviderModelMapping).reasoning !== true,
+					);
+					if (
+						hasNonReasoningAlternative &&
+						(provider as ProviderModelMapping).reasoning === true
+					) {
+						return false;
+					}
 				}
 				return true;
 			});

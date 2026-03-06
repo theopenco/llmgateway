@@ -1698,7 +1698,23 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
+				// Check if the model supports reasoning_effort parameter
+				const modelDef = models.find((m) =>
+					m.providers.some(
+						(p) => p.providerId === usedProvider && p.modelName === usedModel,
+					),
+				);
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === usedProvider && p.modelName === usedModel,
+				) as ProviderModelMapping | undefined;
+				const supported = providerMapping?.supportedParameters;
+				if (
+					!supported ||
+					supported.length === 0 ||
+					supported.includes("reasoning_effort")
+				) {
+					requestBody.reasoning_effort = reasoning_effort;
+				}
 			}
 			break;
 		}
