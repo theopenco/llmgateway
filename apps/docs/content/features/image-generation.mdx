@@ -615,9 +615,10 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter    | Type   | Description                                                                                                                             |
-| ------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `image_size` | string | The resolution of the generated image. Options: `"0.5K"` (512x512), `"1K"` (1024x1024, default), `"2K"` (2048x2048), `"4K"` (4096x4096) |
+| Parameter      | Type   | Description                                                                                                                             |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                                                  |
+| `image_size`   | string | The resolution of the generated image. Options: `"0.5K"` (512x512), `"1K"` (1024x1024, default), `"2K"` (2048x2048), `"4K"` (4096x4096) |
 
 <Callout type="info">
 	`gemini-3.1-flash-image-preview` uniquely supports `"0.5K"` resolution, which
