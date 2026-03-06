@@ -7,6 +7,7 @@ import {
 	MessageSquare,
 	Rocket,
 	Shield,
+	ShieldCheck,
 	Users,
 	Wallet,
 } from "lucide-react";
@@ -73,6 +74,12 @@ const features = [
 		title: "Admin Dashboard",
 		description:
 			"Full-featured admin panel to manage organizations, monitor providers, track model performance, and control pricing.",
+	},
+	{
+		icon: ShieldCheck,
+		title: "SOC 2 Type II (In Progress)",
+		description:
+			"We are actively pursuing SOC 2 Type II certification to meet the highest standards of security, availability, and confidentiality for your data.",
 	},
 ];
 

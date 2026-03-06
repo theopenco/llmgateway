@@ -247,6 +247,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/discounts/model/{modelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    modelId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active global discounts for the specified model */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            discounts: {
+                                id: string;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -1521,6 +1568,7 @@ export interface paths {
                                     id: string;
                                     email: string;
                                     name: string | null;
+                                    emailVerified: boolean;
                                 };
                             }[];
                             total: number;
@@ -3883,6 +3931,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{id}/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active discounts for the organization (org-specific and global) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            orgDiscounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            globalDiscounts: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                discountPercent: string;
+                                reason: string | null;
+                                expiresAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/team/{organizationId}/members": {
         parameters: {
             query?: never;
@@ -4301,6 +4409,51 @@ export interface paths {
                     content: {
                         "application/json": {
                             success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/create-checkout-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        amount: number;
+                        /** Format: uri */
+                        returnUrl?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Stripe Checkout session created successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            checkoutUrl: string;
                         };
                     };
                 };
@@ -6113,6 +6266,7 @@ export interface operations {
                             family: string;
                             free: boolean | null;
                             output: string[] | null;
+                            imageInputRequired: boolean | null;
                             /** @enum {string|null} */
                             stability: "stable" | "beta" | "unstable" | "experimental" | null;
                             /** @enum {string} */

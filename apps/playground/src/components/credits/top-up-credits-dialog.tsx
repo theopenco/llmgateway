@@ -5,7 +5,7 @@ import {
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Plus } from "lucide-react";
+import { CreditCard, ExternalLink, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -180,6 +180,11 @@ function AmountStep({
 }) {
 	const presetAmounts = [10, 25, 50, 100];
 	const api = useApi();
+	const [checkoutLoading, setCheckoutLoading] = useState(false);
+	const { mutateAsync: createCheckoutSession } = api.useMutation(
+		"post",
+		"/payments/create-checkout-session",
+	);
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
 		"/payments/calculate-fees",
@@ -190,6 +195,24 @@ function AmountStep({
 			enabled: amount >= 5,
 		},
 	);
+
+	const handleStripeCheckout = async () => {
+		setCheckoutLoading(true);
+		try {
+			const { checkoutUrl } = await createCheckoutSession({
+				body: { amount, returnUrl: window.location.href.split("?")[0] },
+			});
+			window.location.href = checkoutUrl;
+		} catch (error: unknown) {
+			toast.error("Checkout Failed", {
+				description:
+					error instanceof Error
+						? error.message
+						: "Failed to create checkout session.",
+			});
+			setCheckoutLoading(false);
+		}
+	};
 
 	return (
 		<>
@@ -254,17 +277,47 @@ function AmountStep({
 					</div>
 				)}
 			</div>
-			<DialogFooter>
-				<Button type="button" variant="outline" onClick={onCancel}>
-					Cancel
-				</Button>
+			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
+				<div className="flex justify-end gap-2">
+					<Button type="button" variant="outline" onClick={onCancel}>
+						Cancel
+					</Button>
+					<Button
+						type="button"
+						onClick={onNext}
+						disabled={amount < 5 || feeDataLoading || checkoutLoading}
+					>
+						Pay with Card
+					</Button>
+				</div>
+				<div className="relative">
+					<div className="absolute inset-0 flex items-center">
+						<span className="w-full border-t" />
+					</div>
+					<div className="relative flex justify-center text-xs uppercase">
+						<span className="bg-background px-2 text-muted-foreground">or</span>
+					</div>
+				</div>
 				<Button
 					type="button"
-					onClick={onNext}
-					disabled={amount < 5 || feeDataLoading}
+					variant="outline"
+					className="w-full"
+					onClick={handleStripeCheckout}
+					disabled={amount < 5 || feeDataLoading || checkoutLoading}
 				>
-					Continue
+					{checkoutLoading ? (
+						"Redirecting..."
+					) : (
+						<>
+							<ExternalLink className="mr-2 h-4 w-4" />
+							Pay with Stripe Checkout
+						</>
+					)}
 				</Button>
+				<p className="text-xs text-muted-foreground text-center">
+					Stripe Checkout supports additional payment methods like Google Pay,
+					Apple Pay, and more.
+				</p>
 			</DialogFooter>
 		</>
 	);

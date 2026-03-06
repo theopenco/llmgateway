@@ -36,13 +36,13 @@ const GalleryImage = memo(
 		mediaType: string;
 		modelName?: string;
 	}) => (
-		<div className="group relative">
-			<ImageZoom>
+		<div className="group relative h-64 overflow-hidden rounded-lg border">
+			<ImageZoom className="h-full w-full">
 				<Image
 					base64={base64}
 					mediaType={mediaType}
 					alt="Generated image"
-					className="w-full h-auto aspect-auto border rounded-lg object-cover"
+					className="!h-full !w-full !max-w-none object-cover !rounded-none"
 				/>
 			</ImageZoom>
 			<div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -71,9 +71,9 @@ const GalleryImage = memo(
 
 function LoadingSkeleton({ count }: { count: number }) {
 	return (
-		<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+		<div className="grid grid-cols-2 gap-3 max-w-lg">
 			{Array.from({ length: count }).map((_, i) => (
-				<Skeleton key={i} className="aspect-square rounded-lg" />
+				<Skeleton key={i} className="h-64 rounded-lg" />
 			))}
 		</div>
 	);
@@ -123,19 +123,19 @@ function SingleModeItem({ item }: { item: GalleryItem }) {
 					{new Date(item.timestamp).toLocaleTimeString()}
 				</span>
 			</div>
-			{model.isLoading ? (
-				<LoadingSkeleton count={1} />
-			) : model.error ? (
+			{model.error ? (
 				<div className="flex items-center gap-2 p-4 rounded-lg border border-destructive/50 bg-destructive/5">
 					<AlertCircle className="h-4 w-4 text-destructive shrink-0" />
 					<p className="text-sm text-destructive">{model.error}</p>
 				</div>
+			) : model.images.length === 0 && model.isLoading ? (
+				<LoadingSkeleton count={1} />
 			) : (
 				<div
 					className={`grid gap-3 ${
-						model.images.length === 1
-							? "grid-cols-1 max-w-lg"
-							: "grid-cols-1 sm:grid-cols-2"
+						model.images.length === 1 && !model.isLoading
+							? "grid-cols-1 max-w-xs"
+							: "grid-cols-2 max-w-lg"
 					}`}
 				>
 					{model.images.map((img, idx) => (
@@ -145,6 +145,7 @@ function SingleModeItem({ item }: { item: GalleryItem }) {
 							mediaType={img.mediaType}
 						/>
 					))}
+					{model.isLoading && <Skeleton className="h-64 rounded-lg" />}
 				</div>
 			)}
 		</div>
@@ -176,19 +177,19 @@ function ComparisonModeItem({ item }: { item: GalleryItem }) {
 						<Badge variant="outline" className="text-xs">
 							{model.modelName}
 						</Badge>
-						{model.isLoading ? (
-							<LoadingSkeleton count={1} />
-						) : model.error ? (
+						{model.error ? (
 							<div className="flex items-center gap-2 p-4 rounded-lg border border-destructive/50 bg-destructive/5">
 								<AlertCircle className="h-4 w-4 text-destructive shrink-0" />
 								<p className="text-sm text-destructive">{model.error}</p>
 							</div>
+						) : model.images.length === 0 && model.isLoading ? (
+							<LoadingSkeleton count={1} />
 						) : (
 							<div
 								className={`grid gap-2 ${
-									model.images.length === 1
+									model.images.length === 1 && !model.isLoading
 										? "grid-cols-1"
-										: "grid-cols-1 sm:grid-cols-2"
+										: "grid-cols-2"
 								}`}
 							>
 								{model.images.map((img, idx) => (
@@ -199,6 +200,7 @@ function ComparisonModeItem({ item }: { item: GalleryItem }) {
 										modelName={model.modelName}
 									/>
 								))}
+								{model.isLoading && <Skeleton className="h-64 rounded-lg" />}
 							</div>
 						)}
 					</div>

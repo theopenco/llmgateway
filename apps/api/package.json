@@ -16,7 +16,7 @@
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
-		"@hono/node-server": "^1.19.0",
+		"@hono/node-server": "^1.19.10",
 		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.2",
@@ -37,7 +37,7 @@
 		"dotenv": "16.5.0",
 		"drizzle-zod": "0.8.3",
 		"gateway": "workspace:*",
-		"hono": "^4.12.2",
+		"hono": "^4.12.4",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"jspdf": "4.2.0",

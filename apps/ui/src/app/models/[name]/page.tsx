@@ -15,6 +15,7 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
@@ -285,19 +286,18 @@ export default async function ModelPage({ params }: PageProps) {
 								})()}{" "}
 								output tokens
 							</div>
-							{modelProviders.some((p) => p.imageOutputPrice) && (
+							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
 								<div>
 									Starting at{" "}
 									{(() => {
 										const imageOutputPrices = modelProviders
-											.filter((p) => p.imageOutputPrice)
+											.filter((p) => p.imageOutputPrice !== undefined)
 											.map((p) => ({
 												price:
 													p.imageOutputPrice! *
 													1e6 *
 													(p.discount ? 1 - p.discount : 1),
-												originalPrice: p.imageOutputPrice! * 1e6,
-												discount: p.discount,
+												discount: p.discount !== 0 ? p.discount : undefined,
 											}));
 										if (imageOutputPrices.length === 0) {
 											return "Free";
@@ -395,6 +395,13 @@ export default async function ModelPage({ params }: PageProps) {
 								));
 							})()}
 						</div>
+					</div>
+
+					<div className="mb-6">
+						<GlobalDiscountBanner
+							modelId={decodedName}
+							apiUrl={config.apiUrl}
+						/>
 					</div>
 
 					<div className="mb-8">

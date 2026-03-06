@@ -745,6 +745,7 @@ export const model = pgTable(
 		family: text().notNull(),
 		free: boolean().default(false).notNull(),
 		output: json().$type<string[]>().default(["text"]).notNull(),
+		imageInputRequired: boolean().default(false).notNull(),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})

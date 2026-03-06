@@ -177,6 +177,7 @@ const memberSchema = z.object({
 		id: z.string(),
 		email: z.string(),
 		name: z.string().nullable(),
+		emailVerified: z.boolean(),
 	}),
 });
 
@@ -1273,6 +1274,7 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			createdAt: tables.userOrganization.createdAt,
 			userName: tables.user.name,
 			userEmail: tables.user.email,
+			userEmailVerified: tables.user.emailVerified,
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
@@ -1289,6 +1291,7 @@ admin.openapi(getOrganizationMembers, async (c) => {
 				id: m.userId,
 				email: m.userEmail,
 				name: m.userName,
+				emailVerified: m.userEmailVerified,
 			},
 		})),
 		total: members.length,

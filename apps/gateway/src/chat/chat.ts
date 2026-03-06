@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { encode, encodeChat } from "gpt-tokenizer";
+import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
@@ -96,9 +96,12 @@ import {
 	selectNextProvider,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
+import {
+	encodeChatMessages,
+	messageContentToString,
+} from "./tools/tokenizer.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -431,7 +434,8 @@ chat.openapi(completions, async (c) => {
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
-		requestedModel === "gemini-3-pro-image-preview"
+		requestedModel === "gemini-3-pro-image-preview" ||
+		requestedModel === "gemini-3.1-flash-image-preview"
 			? countInputImages(messages)
 			: 0;
 
@@ -443,6 +447,17 @@ chat.openapi(completions, async (c) => {
 	let modelInfo = modelInfoResult.modelInfo;
 	const allModelProviders = modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
+
+	// Validate that models requiring image input have at least one image in the request
+	if (
+		modelInfo.imageInputRequired &&
+		!hasImages &&
+		countInputImages(messages) === 0
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
+		});
+	}
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -654,18 +669,7 @@ chat.openapi(completions, async (c) => {
 		// Estimate prompt tokens from messages
 		if (messages && messages.length > 0) {
 			try {
-				const chatMessages: ChatMessage[] = messages.map((m) => ({
-					role: m.role as "user" | "assistant" | "system" | undefined,
-					content:
-						typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
-					name: m.name,
-				}));
-				requiredContextSize = encodeChat(
-					chatMessages,
-					DEFAULT_TOKENIZER_MODEL,
-				).length;
+				requiredContextSize = encodeChatMessages(messages);
 			} catch {
 				// Fallback to simple estimation if encoding fails
 				const messageTokens = messages.reduce(
@@ -2619,7 +2623,9 @@ chat.openapi(completions, async (c) => {
 									0, // No completion tokens yet
 									null, // No cached tokens
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) => messageContentToString(m.content))
+											.join("\n"),
 										completion: "",
 									},
 									null, // No reasoning tokens
@@ -3622,7 +3628,9 @@ chat.openapi(completions, async (c) => {
 										finalCompletionTokens,
 										cachedTokens,
 										{
-											prompt: messages.map((m) => m.content).join("\n"),
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
 											completion: fullContent,
 											toolResults: streamingToolCalls ?? undefined,
 										},
@@ -4302,29 +4310,7 @@ chat.openapi(completions, async (c) => {
 					// Estimate tokens for providers that don't provide them during streaming
 					if (!promptTokens || !completionTokens) {
 						if (!promptTokens && messages && messages.length > 0) {
-							try {
-								// Convert messages to the format expected by gpt-tokenizer
-								const chatMessages: any[] = messages.map((m) => ({
-									role: m.role as "user" | "assistant" | "system" | undefined,
-									content: m.content ?? "",
-									name: m.name,
-								}));
-								calculatedPromptTokens = encodeChat(
-									chatMessages,
-									DEFAULT_TOKENIZER_MODEL,
-								).length;
-							} catch (error) {
-								// Fallback to simple estimation if encoding fails
-								logger.error(
-									"Failed to encode chat messages in streaming",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-								calculatedPromptTokens =
-									messages.reduce(
-										(acc, m) => acc + (m.content?.length ?? 0),
-										0,
-									) / 4;
-							}
+							calculatedPromptTokens = encodeChatMessages(messages);
 						}
 
 						if (!completionTokens && (fullContent || imageByteSize > 0)) {
@@ -4692,7 +4678,9 @@ chat.openapi(completions, async (c) => {
 									calculatedCompletionTokens,
 									cachedTokens,
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) => messageContentToString(m.content))
+											.join("\n"),
 										completion: fullContent,
 										toolResults: streamingToolCalls ?? undefined,
 									},
@@ -5271,7 +5259,9 @@ chat.openapi(completions, async (c) => {
 					0, // No completion tokens
 					null, // No cached tokens
 					{
-						prompt: messages.map((m) => m.content).join("\n"),
+						prompt: messages
+							.map((m) => messageContentToString(m.content))
+							.join("\n"),
 						completion: "",
 					},
 					null, // No reasoning tokens
@@ -6000,7 +5990,7 @@ chat.openapi(completions, async (c) => {
 		calculatedCompletionTokens,
 		cachedTokens,
 		{
-			prompt: messages.map((m) => m.content).join("\n"),
+			prompt: messages.map((m) => messageContentToString(m.content)).join("\n"),
 			completion: content,
 			toolResults: toolResults,
 		},
