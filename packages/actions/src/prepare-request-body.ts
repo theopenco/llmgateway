@@ -1701,13 +1701,11 @@ export async function prepareRequestBody(
 				// Check if the model supports reasoning_effort parameter
 				const modelDef = models.find((m) =>
 					m.providers.some(
-						(p) =>
-							p.providerId === usedProvider && p.modelName === usedModel,
+						(p) => p.providerId === usedProvider && p.modelName === usedModel,
 					),
 				);
 				const providerMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider && p.modelName === usedModel,
+					(p) => p.providerId === usedProvider && p.modelName === usedModel,
 				) as ProviderModelMapping | undefined;
 				const supported = providerMapping?.supportedParameters;
 				if (
