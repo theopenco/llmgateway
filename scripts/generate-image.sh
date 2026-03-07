@@ -10,16 +10,20 @@ if [ "${1:-}" = "--local" ]; then
 fi
 
 DATE=$(date +%Y%m%d-%H%M%S)
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE" image.b64' EXIT
 
-RESPONSE=$(curl -X POST --location "${BASE_URL}/v1/chat/completions" \
+curl -X POST --location "${BASE_URL}/v1/chat/completions" \
 	-H "Content-Type: application/json" \
 	-H "Authorization: Bearer ${API_KEY}" \
 	-H "x-no-fallback: true" \
+	-H "x-debug: true" \
+	-o "$TMPFILE" \
 	-d '{
-	"model": "google-vertex/gemini-3-pro-image-preview",
+	"model": "obsidian/gemini-3.1-flash-image-preview",
 	"image_config": {
 		"aspect_ratio": "1:1",
-		"image_size": "1K"
+		"image_size": "0.5K"
 	},
 	"messages": [
 		{
@@ -33,13 +37,13 @@ RESPONSE=$(curl -X POST --location "${BASE_URL}/v1/chat/completions" \
 		}
 	],
 	"stream": false
-}')
+}'
 
-URL=$(echo "$RESPONSE" | jq -r '.choices[0].message.images[0].image_url.url')
+URL=$(jq -r '.choices[0].message.images[0].image_url.url' "$TMPFILE")
 
 if [ -z "$URL" ] || [ "$URL" = "null" ]; then
 	echo "No image URL found in response, saving full response to out-${DATE}.json"
-	echo "$RESPONSE" | jq . > "out-${DATE}.json"
+	jq . "$TMPFILE" > "out-${DATE}.json"
 	exit 1
 fi
 
@@ -48,7 +52,5 @@ OUTPUT="output-${DATE}.png"
 echo "$URL" | sed 's/data:image\/[^;]*;base64,//' > image.b64
 
 base64 -D -i image.b64 -o "$OUTPUT"
-
-rm image.b64
 
 echo "Image saved to ${OUTPUT}"

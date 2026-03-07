@@ -27,3 +27,4 @@ benchmark_results.json
 exports/
 out-*.json
 output-edit-*.png
+generate-image-*.png
