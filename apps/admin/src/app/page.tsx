@@ -2,6 +2,7 @@ import {
 	AlertTriangle,
 	ArrowDownToLine,
 	ArrowUpFromLine,
+	Banknote,
 	Building2,
 	CircleDollarSign,
 	PiggyBank,
@@ -12,6 +13,7 @@ import {
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { DashboardCostByModel } from "@/components/dashboard-cost-by-model";
 import { RevenueChart } from "@/components/revenue-chart";
 import { SignupsChart } from "@/components/signups-chart";
 import { TimeRangePicker } from "@/components/time-range-picker";
@@ -170,8 +172,15 @@ export default async function Page({
 				<MetricCard
 					label="Total Revenue"
 					value={currencyFormatter.format(metrics.totalRevenue)}
-					subtitle="All completed payments"
+					subtitle="Money in (excl. Stripe fees & refunds)"
 					icon={<CircleDollarSign className="h-4 w-4" />}
+					accent="green"
+				/>
+				<MetricCard
+					label="Total Processed"
+					value={currencyFormatter.format(metrics.totalProcessed)}
+					subtitle="Stripe gross revenue (incl. fees)"
+					icon={<Banknote className="h-4 w-4" />}
 					accent="green"
 				/>
 				<MetricCard
@@ -228,6 +237,10 @@ export default async function Page({
 					/>
 				</section>
 			) : null}
+
+			<section>
+				<DashboardCostByModel />
+			</section>
 
 			<div className="mt-4">
 				<Button asChild>

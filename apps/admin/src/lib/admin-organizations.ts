@@ -343,18 +343,57 @@ export interface ProjectLogEntry {
 	id: string;
 	createdAt: string;
 	duration: number;
+	requestedModel: string | null;
 	usedModel: string;
 	usedProvider: string;
+	usedModelMapping: string | null;
+	requestId: string | null;
+	promptTokens: string | null;
+	completionTokens: string | null;
 	totalTokens: string | null;
+	reasoningTokens: string | null;
+	cachedTokens: string | null;
 	cost: number | null;
+	inputCost: number | null;
+	outputCost: number | null;
+	cachedInputCost: number | null;
+	requestCost: number | null;
+	dataStorageCost: number | null;
 	hasError: boolean | null;
+	errorDetails: Record<string, unknown> | null;
+	finishReason: string | null;
 	unifiedFinishReason: string | null;
 	cached: boolean | null;
-	cachedTokens: string | null;
+	streamed: boolean | null;
 	source: string | null;
 	content: string | null;
 	usedMode: string;
 	discount: number | null;
+	timeToFirstToken: number | null;
+	responseSize: number | null;
+	routingMetadata: {
+		selectionReason?: string;
+		availableProviders?: string[];
+		providerScores?: Array<{
+			providerId: string;
+			score: number;
+			uptime?: number;
+			throughput?: number;
+			latency?: number;
+			price?: number;
+			priority?: number;
+			failed?: boolean;
+			status_code?: number;
+			error_type?: string;
+		}>;
+		routing?: Array<{
+			provider: string;
+			model: string;
+			succeeded: boolean;
+			status_code?: number;
+			error_type?: string;
+		}>;
+	} | null;
 }
 
 export interface ProjectLogsResponse {

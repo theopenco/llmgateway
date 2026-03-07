@@ -31,6 +31,7 @@ import {
 } from "@/lib/admin-organizations";
 
 import { GiftCreditsDialog } from "./gift-credits-dialog";
+import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgMetricsSection } from "./org-metrics";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -229,6 +230,8 @@ export default async function OrganizationPage({
 			</header>
 
 			<OrgMetricsSection orgId={orgId} />
+
+			<OrgCostByModel orgId={orgId} />
 
 			{projects.length > 0 && (
 				<section className="space-y-4">

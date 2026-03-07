@@ -1133,6 +1133,7 @@ export interface paths {
                             verifiedUsers: number;
                             payingCustomers: number;
                             totalRevenue: number;
+                            totalProcessed: number;
                             totalOrganizations: number;
                             totalToppedUp: number;
                             totalSpent: number;
@@ -1698,18 +1699,35 @@ export interface paths {
                                 id: string;
                                 createdAt: string;
                                 duration: number;
+                                requestedModel: string | null;
                                 usedModel: string;
                                 usedProvider: string;
+                                usedModelMapping: string | null;
+                                requestId: string | null;
+                                promptTokens: string | null;
+                                completionTokens: string | null;
                                 totalTokens: string | null;
+                                reasoningTokens: string | null;
+                                cachedTokens: string | null;
                                 cost: number | null;
+                                inputCost: number | null;
+                                outputCost: number | null;
+                                cachedInputCost: number | null;
+                                requestCost: number | null;
+                                dataStorageCost: number | null;
                                 hasError: boolean | null;
+                                errorDetails?: unknown;
+                                finishReason: string | null;
                                 unifiedFinishReason: string | null;
                                 cached: boolean | null;
-                                cachedTokens: string | null;
+                                streamed: boolean | null;
                                 source: string | null;
                                 content: string | null;
                                 usedMode: string;
                                 discount: number | null;
+                                timeToFirstToken: number | null;
+                                responseSize: number | null;
+                                routingMetadata?: unknown;
                             }[];
                             pagination: {
                                 nextCursor: string | null;
@@ -2309,6 +2327,259 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/providers/{providerId}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1m" | "2m" | "5m" | "30m" | "1h" | "2h" | "4h" | "24h";
+                };
+                header?: never;
+                path: {
+                    providerId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Provider history timeseries. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                timestamp: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTtft: number | null;
+                                avgDuration: number | null;
+                                totalTokens: number;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/models/{modelId}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1m" | "2m" | "5m" | "30m" | "1h" | "2h" | "4h" | "24h";
+                };
+                header?: never;
+                path: {
+                    modelId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Model history timeseries. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                timestamp: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTtft: number | null;
+                                avgDuration: number | null;
+                                totalTokens: number;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/providers/{providerId}/models/{modelId}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1m" | "2m" | "5m" | "30m" | "1h" | "2h" | "4h" | "24h";
+                };
+                header?: never;
+                path: {
+                    providerId: string;
+                    modelId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Provider-model mapping history timeseries. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                timestamp: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTtft: number | null;
+                                avgDuration: number | null;
+                                totalTokens: number;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/cost-by-model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Global cost breakdown by model. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            models: {
+                                model: string;
+                                cost: number;
+                                requestCount: number;
+                                totalTokens: number;
+                            }[];
+                            totalCost: number;
+                            totalRequests: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/cost-by-model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization cost breakdown by model. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            models: {
+                                model: string;
+                                cost: number;
+                                requestCount: number;
+                                totalTokens: number;
+                            }[];
+                            totalCost: number;
+                            totalRequests: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;

@@ -7,6 +7,7 @@ export interface AdminDashboardMetrics {
 	verifiedUsers: number;
 	payingCustomers: number;
 	totalRevenue: number;
+	totalProcessed: number;
 	totalOrganizations: number;
 	totalToppedUp: number;
 	totalSpent: number;

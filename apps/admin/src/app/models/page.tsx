@@ -1,85 +1,14 @@
-import {
-	ArrowDown,
-	ArrowUp,
-	ArrowUpDown,
-	ChevronLeft,
-	ChevronRight,
-	Search,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
+import { ModelsTable } from "@/components/models-table";
 import { Button } from "@/components/ui/button";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { getModels } from "@/lib/admin-models";
-import { cn } from "@/lib/utils";
 
 import type { ModelSortBy } from "@/lib/admin-models";
 
 type SortOrder = "asc" | "desc";
-
-function SortableHeader({
-	label,
-	sortKey,
-	currentSortBy,
-	currentSortOrder,
-	search,
-}: {
-	label: string;
-	sortKey: ModelSortBy;
-	currentSortBy: ModelSortBy;
-	currentSortOrder: SortOrder;
-	search: string;
-}) {
-	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
-
-	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}`;
-
-	return (
-		<Link
-			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
-	);
-}
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
-function formatDate(dateString: string) {
-	return new Date(dateString).toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
 
 function SignInPrompt() {
 	return (
@@ -151,7 +80,7 @@ export default async function ModelsPage({
 				<div>
 					<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} models found
+						{data.total} models found — click a row to view history
 					</p>
 				</div>
 				<form action={handleSearch} className="flex items-center gap-2">
@@ -174,153 +103,7 @@ export default async function ModelsPage({
 			</header>
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead>
-								<SortableHeader
-									label="Model"
-									sortKey="name"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Family"
-									sortKey="family"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead>Free</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Providers"
-									sortKey="providerCount"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Requests"
-									sortKey="logsCount"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Errors"
-									sortKey="errorsCount"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>Error Rate</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Cached"
-									sortKey="cachedCount"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Avg TTFT"
-									sortKey="avgTimeToFirstToken"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									search={search}
-								/>
-							</TableHead>
-							<TableHead>Last Updated</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{data.models.length === 0 ? (
-							<TableRow>
-								<TableCell
-									colSpan={11}
-									className="h-24 text-center text-muted-foreground"
-								>
-									No models found
-								</TableCell>
-							</TableRow>
-						) : (
-							data.models.map((m) => {
-								const errorRate =
-									m.logsCount > 0
-										? ((m.errorsCount / m.logsCount) * 100).toFixed(1)
-										: "0.0";
-
-								return (
-									<TableRow key={m.id}>
-										<TableCell>
-											<span className="font-medium">
-												{m.name !== m.id ? m.name : m.id}
-											</span>
-											{m.name !== m.id && (
-												<p className="text-xs text-muted-foreground">{m.id}</p>
-											)}
-										</TableCell>
-										<TableCell>
-											<Badge variant="outline">{m.family}</Badge>
-										</TableCell>
-										<TableCell>
-											<Badge
-												variant={
-													m.status === "active" ? "secondary" : "outline"
-												}
-											>
-												{m.status}
-											</Badge>
-										</TableCell>
-										<TableCell>
-											{m.free ? (
-												<Badge variant="default">Free</Badge>
-											) : (
-												<span className="text-muted-foreground">
-													{"\u2014"}
-												</span>
-											)}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{m.providerCount}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{formatNumber(m.logsCount)}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{formatNumber(m.errorsCount)}
-										</TableCell>
-										<TableCell className="tabular-nums">{errorRate}%</TableCell>
-										<TableCell className="tabular-nums">
-											{formatNumber(m.cachedCount)}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{m.avgTimeToFirstToken !== null
-												? `${Math.round(m.avgTimeToFirstToken)}ms`
-												: "\u2014"}
-										</TableCell>
-										<TableCell className="text-muted-foreground">
-											{formatDate(m.updatedAt)}
-										</TableCell>
-									</TableRow>
-								);
-							})
-						)}
-					</TableBody>
-				</Table>
+				<ModelsTable models={data.models} />
 			</div>
 
 			{totalPages > 1 && (
