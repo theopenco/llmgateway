@@ -177,7 +177,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
 - `apps/docs`: Documentation site
-- `apps/admin`: Internal Admin Dashboard
+- `ee/admin`: Internal Admin Dashboard (Enterprise License)
 - `packages/db`: Drizzle ORM schema and migrations
 - `packages/models`: Model and provider definitions
 - `packages/shared`: Shared types and utilities

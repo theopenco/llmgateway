@@ -2,16 +2,16 @@
 	"name": "admin",
 	"version": "0.0.0",
 	"private": true,
-	"license": "SEE LICENSE IN ../../LICENSE",
+	"license": "SEE LICENSE IN ../LICENSE",
 	"files": [
 		"public",
 		".next"
 	],
 	"scripts": {
-		"build": "pnpm generate && tsc && next build --turbopack && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/admin/.next/ && test -d public && cp -r public .next/standalone/apps/admin/",
+		"build": "pnpm generate && tsc && next build --turbopack && mkdir -p .next/static && cp -r .next/static .next/standalone/ee/admin/.next/ && test -d public && cp -r public .next/standalone/ee/admin/",
 		"dev": "next dev --port 3006 --turbopack",
 		"format": "eslint --fix . && prettier --write .",
-		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
+		"generate": "openapi-typescript ../../apps/api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",
 		"start": "next start"
 	},
