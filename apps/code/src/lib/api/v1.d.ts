@@ -2126,7 +2126,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    sortBy?: "name" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "modelCount";
+                    sortBy?: "name" | "status" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "modelCount" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                 };
                 header?: never;
@@ -2180,7 +2180,7 @@ export interface paths {
                 query?: {
                     search?: string;
                     family?: string;
-                    sortBy?: "name" | "family" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount";
+                    sortBy?: "name" | "family" | "status" | "free" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number;
                     offset?: number | null;
