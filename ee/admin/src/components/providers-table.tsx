@@ -18,7 +18,7 @@ import { getProviderHistory } from "@/lib/admin-history";
 import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
-import type { ProviderStats } from "@/lib/admin-providers";
+import type { ProviderStats } from "@/lib/types";
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);

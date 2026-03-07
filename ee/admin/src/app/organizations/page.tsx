@@ -20,7 +20,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { deleteUser, getOrganizations } from "@/lib/admin-organizations";
+import { deleteUser } from "@/lib/admin-organizations";
+import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
 type SortBy =
@@ -152,12 +153,9 @@ export default async function OrganizationsPage({
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
-	const data = await getOrganizations({
-		limit,
-		offset,
-		search,
-		sortBy,
-		sortOrder,
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/organizations", {
+		params: { query: { limit, offset, search, sortBy, sortOrder } },
 	});
 
 	if (!data) {

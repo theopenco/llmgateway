@@ -2,10 +2,13 @@ import Link from "next/link";
 
 import { ProvidersTable } from "@/components/providers-table";
 import { Button } from "@/components/ui/button";
-import { getProviders } from "@/lib/admin-providers";
+import { createServerApiClient } from "@/lib/server-api";
 
-import type { ProviderSortBy } from "@/lib/admin-providers";
+import type { paths } from "@/lib/api/v1";
 
+type ProviderSortBy = NonNullable<
+	paths["/admin/providers"]["get"]["parameters"]["query"]
+>["sortBy"];
 type SortOrder = "asc" | "desc";
 
 function SignInPrompt() {
@@ -40,7 +43,10 @@ export default async function ProvidersPage({
 	const sortBy = (params?.sortBy as ProviderSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
 
-	const data = await getProviders({ sortBy, sortOrder });
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/providers", {
+		params: { query: { sortBy, sortOrder } },
+	});
 
 	if (!data) {
 		return <SignInPrompt />;

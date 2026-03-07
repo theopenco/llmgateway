@@ -10,7 +10,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 
-import type { TimeseriesRange } from "@/lib/admin-metrics";
+import type { TimeseriesRange } from "@/lib/types";
 
 const rangeOptions: { value: TimeseriesRange; label: string }[] = [
 	{ value: "7d", label: "Last 7 days" },

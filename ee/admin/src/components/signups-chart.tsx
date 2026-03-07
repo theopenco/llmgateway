@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/chart";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type { TimeseriesDataPoint } from "@/lib/admin-metrics";
+import type { TimeseriesDataPoint } from "@/lib/types";
 
 const chartConfig = {
 	signups: {

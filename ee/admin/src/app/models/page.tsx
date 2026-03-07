@@ -4,10 +4,13 @@ import { redirect } from "next/navigation";
 
 import { ModelsTable } from "@/components/models-table";
 import { Button } from "@/components/ui/button";
-import { getModels } from "@/lib/admin-models";
+import { createServerApiClient } from "@/lib/server-api";
 
-import type { ModelSortBy } from "@/lib/admin-models";
+import type { paths } from "@/lib/api/v1";
 
+type ModelSortBy = NonNullable<
+	paths["/admin/models"]["get"]["parameters"]["query"]
+>["sortBy"];
 type SortOrder = "asc" | "desc";
 
 function SignInPrompt() {
@@ -48,12 +51,9 @@ export default async function ModelsPage({
 	const limit = 50;
 	const offset = (page - 1) * limit;
 
-	const data = await getModels({
-		limit,
-		offset,
-		search,
-		sortBy,
-		sortOrder,
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/models", {
+		params: { query: { limit, offset, search, sortBy, sortOrder } },
 	});
 
 	if (!data) {

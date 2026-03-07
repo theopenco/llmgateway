@@ -19,7 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type { TokenWindow } from "@/lib/admin-organizations";
+import type { TokenWindow } from "@/lib/types";
 
 export interface CostByModelEntry {
 	model: string;

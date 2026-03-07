@@ -19,7 +19,7 @@ import {
 	getDiscountOptions,
 	getOrganizationDiscounts,
 } from "@/lib/admin-discounts";
-import { getOrganizationMetrics } from "@/lib/admin-organizations";
+import { createServerApiClient } from "@/lib/server-api";
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -61,11 +61,15 @@ export default async function OrganizationDiscountsPage({
 }) {
 	const { orgId } = await params;
 
-	const [discountsData, options, metrics] = await Promise.all([
+	const $api = await createServerApiClient();
+	const [discountsData, options, metricsRes] = await Promise.all([
 		getOrganizationDiscounts(orgId),
 		getDiscountOptions(),
-		getOrganizationMetrics(orgId),
+		$api.GET("/admin/organizations/{orgId}", {
+			params: { path: { orgId } },
+		}),
 	]);
+	const metrics = metricsRes.data;
 
 	if (discountsData === null) {
 		return <SignInPrompt />;

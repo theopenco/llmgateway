@@ -19,7 +19,31 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import type { ProjectLogEntry } from "@/lib/admin-organizations";
+import type { ProjectLogEntry } from "@/lib/types";
+
+interface RoutingMetadata {
+	selectionReason?: string;
+	availableProviders?: string[];
+	providerScores?: Array<{
+		providerId: string;
+		score: number;
+		uptime?: number;
+		throughput?: number;
+		latency?: number;
+		price?: number;
+		priority?: number;
+		failed?: boolean;
+		status_code?: number;
+		error_type?: string;
+	}>;
+	routing?: Array<{
+		provider: string;
+		model: string;
+		succeeded: boolean;
+		status_code?: number;
+		error_type?: string;
+	}>;
+}
 
 function formatDuration(ms: number) {
 	if (ms < 1000) {
@@ -189,104 +213,111 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 								</div>
 							</div>
 
-							{log.routingMetadata && (
-								<div className="mt-3">
-									<h5 className="text-xs font-medium text-muted-foreground mb-2">
-										Routing Info
-									</h5>
-									<div className="rounded-md border border-dashed p-2 text-xs space-y-1.5 bg-muted/30">
-										{log.routingMetadata.selectionReason && (
-											<div className="flex justify-between">
-												<span className="text-muted-foreground">Selection</span>
-												<span className="font-mono">
-													{log.routingMetadata.selectionReason}
-												</span>
-											</div>
-										)}
-										{log.routingMetadata.availableProviders &&
-											log.routingMetadata.availableProviders.length > 0 && (
-												<div className="flex justify-between">
-													<span className="text-muted-foreground">
-														Available
-													</span>
-													<span className="font-mono">
-														{log.routingMetadata.availableProviders.join(", ")}
-													</span>
-												</div>
-											)}
-										{log.routingMetadata.providerScores &&
-											log.routingMetadata.providerScores.length > 0 && (
-												<div className="pt-1 border-t border-dashed">
-													<div className="text-muted-foreground mb-1">
-														Scores
-													</div>
-													<div className="space-y-1">
-														{log.routingMetadata.providerScores.map((score) => (
-															<div
-																key={score.providerId}
-																className="flex justify-between items-center"
-															>
-																<span className="font-mono flex items-center gap-1.5">
-																	{score.providerId}
-																	{score.failed && (
-																		<span className="text-red-500">
-																			{score.status_code} {score.error_type}
-																		</span>
-																	)}
-																</span>
+							{log.routingMetadata
+								? (() => {
+										const rm = log.routingMetadata as RoutingMetadata;
+										return (
+											<div className="mt-3">
+												<h5 className="text-xs font-medium text-muted-foreground mb-2">
+													Routing Info
+												</h5>
+												<div className="rounded-md border border-dashed p-2 text-xs space-y-1.5 bg-muted/30">
+													{rm.selectionReason && (
+														<div className="flex justify-between">
+															<span className="text-muted-foreground">
+																Selection
+															</span>
+															<span className="font-mono">
+																{rm.selectionReason}
+															</span>
+														</div>
+													)}
+													{rm.availableProviders &&
+														rm.availableProviders.length > 0 && (
+															<div className="flex justify-between">
 																<span className="text-muted-foreground">
-																	{score.score.toFixed(2)}
-																	{score.uptime !== undefined && (
-																		<span className="ml-2">
-																			↑{score.uptime?.toFixed(0)}%
-																		</span>
-																	)}
-																	{score.latency !== undefined && (
-																		<span className="ml-2">
-																			{score.latency?.toFixed(0)}
-																			ms
-																		</span>
-																	)}
+																	Available
+																</span>
+																<span className="font-mono">
+																	{rm.availableProviders.join(", ")}
 																</span>
 															</div>
-														))}
-													</div>
-												</div>
-											)}
-										{log.routingMetadata.routing &&
-											log.routingMetadata.routing.length > 0 && (
-												<div className="pt-1 border-t border-dashed">
-													<div className="text-muted-foreground mb-1">
-														Request Attempts
-													</div>
-													<div className="space-y-1">
-														{log.routingMetadata.routing.map((attempt, i) => (
-															<div
-																key={`${attempt.provider}-${i}`}
-																className={`flex justify-between items-center ${attempt.succeeded ? "text-green-600" : "text-red-500"}`}
-															>
-																<span className="font-mono flex items-center gap-1">
-																	{attempt.succeeded ? (
-																		<CheckCircle2 className="h-3 w-3" />
-																	) : (
-																		<AlertCircle className="h-3 w-3" />
-																	)}
-																	{attempt.provider}/{attempt.model}
-																</span>
-																<span>
-																	{attempt.status_code}{" "}
-																	{attempt.succeeded
-																		? "ok"
-																		: attempt.error_type}
-																</span>
+														)}
+													{rm.providerScores &&
+														rm.providerScores.length > 0 && (
+															<div className="pt-1 border-t border-dashed">
+																<div className="text-muted-foreground mb-1">
+																	Scores
+																</div>
+																<div className="space-y-1">
+																	{rm.providerScores.map((score) => (
+																		<div
+																			key={score.providerId}
+																			className="flex justify-between items-center"
+																		>
+																			<span className="font-mono flex items-center gap-1.5">
+																				{score.providerId}
+																				{score.failed && (
+																					<span className="text-red-500">
+																						{score.status_code}{" "}
+																						{score.error_type}
+																					</span>
+																				)}
+																			</span>
+																			<span className="text-muted-foreground">
+																				{score.score.toFixed(2)}
+																				{score.uptime !== undefined && (
+																					<span className="ml-2">
+																						↑{score.uptime?.toFixed(0)}%
+																					</span>
+																				)}
+																				{score.latency !== undefined && (
+																					<span className="ml-2">
+																						{score.latency?.toFixed(0)}
+																						ms
+																					</span>
+																				)}
+																			</span>
+																		</div>
+																	))}
+																</div>
 															</div>
-														))}
-													</div>
+														)}
+													{rm.routing && rm.routing.length > 0 && (
+														<div className="pt-1 border-t border-dashed">
+															<div className="text-muted-foreground mb-1">
+																Request Attempts
+															</div>
+															<div className="space-y-1">
+																{rm.routing.map((attempt, i) => (
+																	<div
+																		key={`${attempt.provider}-${i}`}
+																		className={`flex justify-between items-center ${attempt.succeeded ? "text-green-600" : "text-red-500"}`}
+																	>
+																		<span className="font-mono flex items-center gap-1">
+																			{attempt.succeeded ? (
+																				<CheckCircle2 className="h-3 w-3" />
+																			) : (
+																				<AlertCircle className="h-3 w-3" />
+																			)}
+																			{attempt.provider}/{attempt.model}
+																		</span>
+																		<span>
+																			{attempt.status_code}{" "}
+																			{attempt.succeeded
+																				? "ok"
+																				: attempt.error_type}
+																		</span>
+																	</div>
+																))}
+															</div>
+														</div>
+													)}
 												</div>
-											)}
-									</div>
-								</div>
-							)}
+											</div>
+										);
+									})()
+								: null}
 						</div>
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Response Metrics</h4>
@@ -383,16 +414,20 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 						</div>
 					</div>
 
-					{log.errorDetails && (
+					{log.errorDetails ? (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium text-red-500">
 								Error Details
 							</h4>
 							<pre className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 overflow-auto max-h-40 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-								{JSON.stringify(log.errorDetails, null, 2)}
+								{JSON.stringify(
+									log.errorDetails as Record<string, unknown>,
+									null,
+									2,
+								)}
 							</pre>
 						</div>
-					)}
+					) : null}
 				</div>
 			)}
 		</div>

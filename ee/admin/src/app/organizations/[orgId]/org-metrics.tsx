@@ -12,12 +12,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-	loadMetricsAction,
-	type OrganizationMetrics,
-	type TokenWindow,
-} from "@/lib/admin-organizations";
+import { loadMetricsAction } from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
+
+import type { OrganizationMetrics, TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",

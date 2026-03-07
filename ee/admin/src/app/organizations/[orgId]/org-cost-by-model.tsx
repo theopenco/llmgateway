@@ -5,7 +5,7 @@ import { useCallback } from "react";
 import { CostByModelChart } from "@/components/cost-by-model-chart";
 import { getOrgCostByModel } from "@/lib/admin-history";
 
-import type { TokenWindow } from "@/lib/admin-organizations";
+import type { TokenWindow } from "@/lib/types";
 
 export function OrgCostByModel({ orgId }: { orgId: string }) {
 	const fetchData = useCallback(

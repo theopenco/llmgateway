@@ -5,7 +5,7 @@ import { useCallback } from "react";
 import { CostByModelChart } from "@/components/cost-by-model-chart";
 import { getGlobalCostByModel } from "@/lib/admin-history";
 
-import type { TokenWindow } from "@/lib/admin-organizations";
+import type { TokenWindow } from "@/lib/types";
 
 export function DashboardCostByModel() {
 	const fetchData = useCallback(async (window: TokenWindow) => {

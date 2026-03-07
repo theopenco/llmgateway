@@ -5,11 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
-import {
-	loadProjectLogsAction,
-	type ProjectLogEntry,
-	type ProjectLogsResponse,
-} from "@/lib/admin-organizations";
+import { loadProjectLogsAction } from "@/lib/admin-organizations";
+
+import type { ProjectLogEntry, ProjectLogsResponse } from "@/lib/types";
 
 export function ProjectLogsSection({
 	orgId,

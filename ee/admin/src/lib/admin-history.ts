@@ -1,67 +1,29 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { createServerApiClient } from "./server-api";
 
-import { fetchServerData } from "./server-api";
-
-import type { TokenWindow } from "./admin-organizations";
-import type { CostByModelData } from "@/components/cost-by-model-chart";
-import type {
-	HistoryDataPoint,
-	HistoryWindow,
-} from "@/components/history-chart";
-
-async function hasSession(): Promise<boolean> {
-	const cookieStore = await cookies();
-	const key = "better-auth.session_token";
-	const sessionCookie = cookieStore.get(key);
-	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	return !!(sessionCookie ?? secureSessionCookie);
-}
-
-interface HistoryResponse {
-	data: HistoryDataPoint[];
-}
+import type { TokenWindow } from "./types";
+import type { HistoryWindow } from "@/components/history-chart";
 
 export async function getProviderHistory(
 	providerId: string,
 	window: HistoryWindow,
-): Promise<HistoryDataPoint[] | null> {
-	if (!(await hasSession())) {
-		return null;
-	}
-
-	const data = await fetchServerData<HistoryResponse>(
-		"GET",
-		`/admin/providers/${providerId}/history` as "/admin/providers",
-		{
-			params: {
-				query: { window },
-			},
-		},
-	);
-
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/providers/{providerId}/history", {
+		params: { path: { providerId }, query: { window } },
+	});
 	return data?.data ?? null;
 }
 
-export async function getModelHistory(
-	modelId: string,
-	window: HistoryWindow,
-): Promise<HistoryDataPoint[] | null> {
-	if (!(await hasSession())) {
-		return null;
-	}
-
-	const data = await fetchServerData<HistoryResponse>(
-		"GET",
-		`/admin/models/${encodeURIComponent(modelId)}/history` as "/admin/models",
-		{
-			params: {
-				query: { window },
-			},
+export async function getModelHistory(modelId: string, window: HistoryWindow) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/models/{modelId}/history", {
+		params: {
+			path: { modelId: encodeURIComponent(modelId) },
+			query: { window },
 		},
-	);
-
+	});
 	return data?.data ?? null;
 }
 
@@ -69,62 +31,38 @@ export async function getMappingHistory(
 	providerId: string,
 	modelId: string,
 	window: HistoryWindow,
-): Promise<HistoryDataPoint[] | null> {
-	if (!(await hasSession())) {
-		return null;
-	}
-
-	const data = await fetchServerData<HistoryResponse>(
-		"GET",
-		`/admin/providers/${providerId}/models/${encodeURIComponent(modelId)}/history` as "/admin/providers",
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/providers/{providerId}/models/{modelId}/history",
 		{
 			params: {
+				path: {
+					providerId,
+					modelId: encodeURIComponent(modelId),
+				},
 				query: { window },
 			},
 		},
 	);
-
 	return data?.data ?? null;
 }
 
-export async function getGlobalCostByModel(
-	window: TokenWindow,
-): Promise<CostByModelData | null> {
-	if (!(await hasSession())) {
-		return null;
-	}
-
-	const data = await fetchServerData<CostByModelData>(
-		"GET",
-		"/admin/metrics/cost-by-model" as "/admin/metrics",
-		{
-			params: {
-				query: { window },
-			},
-		},
-	);
-
-	return data;
+export async function getGlobalCostByModel(window: TokenWindow) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/metrics/cost-by-model", {
+		params: { query: { window } },
+	});
+	return data ?? null;
 }
 
-export async function getOrgCostByModel(
-	orgId: string,
-	window: TokenWindow,
-): Promise<CostByModelData | null> {
-	if (!(await hasSession())) {
-		return null;
-	}
-
-	const data = await fetchServerData<CostByModelData>(
-		"GET",
-		`/admin/organizations/${orgId}/cost-by-model` as "/admin/organizations/{orgId}",
+export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/organizations/{orgId}/cost-by-model",
 		{
-			params: {
-				path: { orgId },
-				query: { window },
-			},
+			params: { path: { orgId }, query: { window } },
 		},
 	);
-
-	return data;
+	return data ?? null;
 }

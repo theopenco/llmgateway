@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getOrganizationProjects } from "@/lib/admin-organizations";
+import { createServerApiClient } from "@/lib/server-api";
 
 import { ProjectLogsSection } from "./project-logs";
 import { ProjectMetricsSection } from "./project-metrics";
@@ -44,7 +44,11 @@ export default async function ProjectDetailPage({
 }) {
 	const { orgId, projectId } = await params;
 
-	const projectsData = await getOrganizationProjects(orgId);
+	const $api = await createServerApiClient();
+	const { data: projectsData } = await $api.GET(
+		"/admin/organizations/{orgId}/projects",
+		{ params: { path: { orgId } } },
+	);
 
 	if (!projectsData) {
 		return <SignInPrompt />;

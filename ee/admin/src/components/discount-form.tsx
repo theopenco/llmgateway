@@ -26,7 +26,7 @@ import {
 
 import { getProviderIcon } from "@llmgateway/shared";
 
-import type { ProviderModelMapping } from "@/lib/admin-discounts";
+import type { ProviderModelMapping } from "@/lib/types";
 
 interface DiscountFormProps {
 	providers: Array<{ id: string; name: string }>;

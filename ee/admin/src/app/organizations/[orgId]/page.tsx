@@ -22,13 +22,8 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-	getOrganizationApiKeys,
-	getOrganizationMembers,
-	getOrganizationProjects,
-	getOrganizationTransactions,
-	giftCreditsToOrganization,
-} from "@/lib/admin-organizations";
+import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { createServerApiClient } from "@/lib/server-api";
 
 import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
@@ -140,13 +135,32 @@ export default async function OrganizationPage({
 	const akLimit = 25;
 	const akOffset = (akPage - 1) * akLimit;
 
-	const [transactionsData, projectsData, apiKeysData, membersData] =
+	const $api = await createServerApiClient();
+	const [transactionsRes, projectsRes, apiKeysRes, membersRes] =
 		await Promise.all([
-			getOrganizationTransactions(orgId, { limit: txLimit, offset: txOffset }),
-			getOrganizationProjects(orgId),
-			getOrganizationApiKeys(orgId, { limit: akLimit, offset: akOffset }),
-			getOrganizationMembers(orgId),
+			$api.GET("/admin/organizations/{orgId}/transactions", {
+				params: {
+					path: { orgId },
+					query: { limit: txLimit, offset: txOffset },
+				},
+			}),
+			$api.GET("/admin/organizations/{orgId}/projects", {
+				params: { path: { orgId } },
+			}),
+			$api.GET("/admin/organizations/{orgId}/api-keys", {
+				params: {
+					path: { orgId },
+					query: { limit: akLimit, offset: akOffset },
+				},
+			}),
+			$api.GET("/admin/organizations/{orgId}/members", {
+				params: { path: { orgId } },
+			}),
 		]);
+	const transactionsData = transactionsRes.data;
+	const projectsData = projectsRes.data;
+	const apiKeysData = apiKeysRes.data;
+	const membersData = membersRes.data;
 
 	if (transactionsData === null) {
 		return <SignInPrompt />;

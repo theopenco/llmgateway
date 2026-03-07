@@ -16,7 +16,7 @@ import {
 import { getModelHistory } from "@/lib/admin-history";
 
 import type { HistoryWindow } from "@/components/history-chart";
-import type { ModelStats } from "@/lib/admin-models";
+import type { ModelStats } from "@/lib/types";
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);

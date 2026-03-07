@@ -18,13 +18,10 @@ import { RevenueChart } from "@/components/revenue-chart";
 import { SignupsChart } from "@/components/signups-chart";
 import { TimeRangePicker } from "@/components/time-range-picker";
 import { Button } from "@/components/ui/button";
-import {
-	getAdminDashboardMetrics,
-	getAdminTimeseriesMetrics,
-} from "@/lib/admin-metrics";
+import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
-import type { TimeseriesRange } from "@/lib/admin-metrics";
+import type { TimeseriesRange } from "@/lib/types";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -116,10 +113,15 @@ export default async function Page({
 		? (rangeParam as TimeseriesRange)
 		: "all";
 
-	const [metrics, timeseries] = await Promise.all([
-		getAdminDashboardMetrics(range),
-		getAdminTimeseriesMetrics(range),
+	const $api = await createServerApiClient();
+	const [metricsRes, timeseriesRes] = await Promise.all([
+		$api.GET("/admin/metrics", { params: { query: { range } } }),
+		$api.GET("/admin/metrics/timeseries", {
+			params: { query: { range } },
+		}),
 	]);
+	const metrics = metricsRes.data;
+	const timeseries = timeseriesRes.data;
 
 	if (!metrics) {
 		return <SignInPrompt />;
