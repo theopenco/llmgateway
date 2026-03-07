@@ -75,7 +75,7 @@ export default async function ModelsPage({
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
+		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8 overflow-hidden">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
 				<div>
 					<h1 className="text-3xl font-semibold tracking-tight">Models</h1>
@@ -102,8 +102,13 @@ export default async function ModelsPage({
 				</form>
 			</header>
 
-			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<ModelsTable models={data.models} />
+			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+				<ModelsTable
+					models={data.models}
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					search={search}
+				/>
 			</div>
 
 			{totalPages > 1 && (

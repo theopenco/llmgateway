@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
@@ -14,11 +16,62 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { getProviderHistory } from "@/lib/admin-history";
+import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ProviderStats } from "@/lib/types";
+
+type ProviderSortBy =
+	| "name"
+	| "status"
+	| "logsCount"
+	| "errorsCount"
+	| "cachedCount"
+	| "avgTimeToFirstToken"
+	| "modelCount"
+	| "updatedAt";
+
+type SortOrder = "asc" | "desc";
+
+function SortableHeader({
+	label,
+	sortKey,
+	currentSortBy,
+	currentSortOrder,
+}: {
+	label: string;
+	sortKey: ProviderSortBy;
+	currentSortBy: ProviderSortBy;
+	currentSortOrder: SortOrder;
+}) {
+	const isActive = currentSortBy === sortKey;
+	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
+
+	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}`;
+
+	return (
+		<Link
+			href={href}
+			className={cn(
+				"flex items-center gap-1 hover:text-foreground transition-colors",
+				isActive ? "text-foreground" : "text-muted-foreground",
+			)}
+		>
+			{label}
+			{isActive ? (
+				currentSortOrder === "asc" ? (
+					<ArrowUp className="h-3.5 w-3.5" />
+				) : (
+					<ArrowDown className="h-3.5 w-3.5" />
+				)
+			) : (
+				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
+			)}
+		</Link>
+	);
+}
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
@@ -120,20 +173,39 @@ function ProviderRow({ provider }: { provider: ProviderStats }) {
 	);
 }
 
-export function ProvidersTable({ providers }: { providers: ProviderStats[] }) {
+export function ProvidersTable({
+	providers,
+	sortBy = "logsCount",
+	sortOrder = "desc",
+}: {
+	providers: ProviderStats[];
+	sortBy?: ProviderSortBy;
+	sortOrder?: SortOrder;
+}) {
+	const sh = (label: string, sortKey: ProviderSortBy) => (
+		<TableHead>
+			<SortableHeader
+				label={label}
+				sortKey={sortKey}
+				currentSortBy={sortBy}
+				currentSortOrder={sortOrder}
+			/>
+		</TableHead>
+	);
+
 	return (
 		<Table>
 			<TableHeader>
 				<TableRow>
-					<TableHead>Provider</TableHead>
-					<TableHead>Status</TableHead>
-					<TableHead>Models</TableHead>
-					<TableHead>Requests</TableHead>
-					<TableHead>Errors</TableHead>
+					{sh("Provider", "name")}
+					{sh("Status", "status")}
+					{sh("Models", "modelCount")}
+					{sh("Requests", "logsCount")}
+					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
-					<TableHead>Cached</TableHead>
-					<TableHead>Avg TTFT</TableHead>
-					<TableHead>Last Updated</TableHead>
+					{sh("Cached", "cachedCount")}
+					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
 				</TableRow>
 			</TableHeader>

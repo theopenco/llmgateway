@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
@@ -14,9 +16,65 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { getModelHistory } from "@/lib/admin-history";
+import { cn } from "@/lib/utils";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ModelStats } from "@/lib/types";
+
+type ModelSortBy =
+	| "name"
+	| "family"
+	| "status"
+	| "free"
+	| "logsCount"
+	| "errorsCount"
+	| "cachedCount"
+	| "avgTimeToFirstToken"
+	| "providerCount"
+	| "updatedAt";
+
+type SortOrder = "asc" | "desc";
+
+function SortableHeader({
+	label,
+	sortKey,
+	currentSortBy,
+	currentSortOrder,
+	search,
+}: {
+	label: string;
+	sortKey: ModelSortBy;
+	currentSortBy: ModelSortBy;
+	currentSortOrder: SortOrder;
+	search: string;
+}) {
+	const isActive = currentSortBy === sortKey;
+	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
+
+	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}`;
+
+	return (
+		<Link
+			href={href}
+			className={cn(
+				"flex items-center gap-1 hover:text-foreground transition-colors",
+				isActive ? "text-foreground" : "text-muted-foreground",
+			)}
+		>
+			{label}
+			{isActive ? (
+				currentSortOrder === "asc" ? (
+					<ArrowUp className="h-3.5 w-3.5" />
+				) : (
+					<ArrowDown className="h-3.5 w-3.5" />
+				)
+			) : (
+				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
+			)}
+		</Link>
+	);
+}
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
@@ -123,22 +181,44 @@ function ModelRow({ model }: { model: ModelStats }) {
 	);
 }
 
-export function ModelsTable({ models }: { models: ModelStats[] }) {
+export function ModelsTable({
+	models,
+	sortBy = "logsCount",
+	sortOrder = "desc",
+	search = "",
+}: {
+	models: ModelStats[];
+	sortBy?: ModelSortBy;
+	sortOrder?: SortOrder;
+	search?: string;
+}) {
+	const sh = (label: string, sortKey: ModelSortBy) => (
+		<TableHead>
+			<SortableHeader
+				label={label}
+				sortKey={sortKey}
+				currentSortBy={sortBy}
+				currentSortOrder={sortOrder}
+				search={search}
+			/>
+		</TableHead>
+	);
+
 	return (
 		<Table>
 			<TableHeader>
 				<TableRow>
-					<TableHead>Model</TableHead>
-					<TableHead>Family</TableHead>
-					<TableHead>Status</TableHead>
-					<TableHead>Free</TableHead>
-					<TableHead>Providers</TableHead>
-					<TableHead>Requests</TableHead>
-					<TableHead>Errors</TableHead>
+					{sh("Model", "name")}
+					{sh("Family", "family")}
+					{sh("Status", "status")}
+					{sh("Free", "free")}
+					{sh("Providers", "providerCount")}
+					{sh("Requests", "logsCount")}
+					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
-					<TableHead>Cached</TableHead>
-					<TableHead>Avg TTFT</TableHead>
-					<TableHead>Last Updated</TableHead>
+					{sh("Cached", "cachedCount")}
+					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
 				</TableRow>
 			</TableHeader>

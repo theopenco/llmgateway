@@ -2283,11 +2283,13 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 
 const providerSortBySchema = z.enum([
 	"name",
+	"status",
 	"logsCount",
 	"errorsCount",
 	"cachedCount",
 	"avgTimeToFirstToken",
 	"modelCount",
+	"updatedAt",
 ]);
 
 const providerStatsSchema = z.object({
@@ -2347,11 +2349,13 @@ admin.openapi(getProviderStats, async (c) => {
 
 	const sortColumnMap = {
 		name: tables.provider.name,
+		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
 		errorsCount: tables.provider.errorsCount,
 		cachedCount: tables.provider.cachedCount,
 		avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
 		modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
+		updatedAt: tables.provider.updatedAt,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2395,11 +2399,14 @@ admin.openapi(getProviderStats, async (c) => {
 const modelSortBySchema = z.enum([
 	"name",
 	"family",
+	"status",
+	"free",
 	"logsCount",
 	"errorsCount",
 	"cachedCount",
 	"avgTimeToFirstToken",
 	"providerCount",
+	"updatedAt",
 ]);
 
 const modelStatsSchema = z.object({
@@ -2497,11 +2504,14 @@ admin.openapi(getModelStats, async (c) => {
 	const sortColumnMap = {
 		name: tables.model.name,
 		family: tables.model.family,
+		status: tables.model.status,
+		free: tables.model.free,
 		logsCount: tables.model.logsCount,
 		errorsCount: tables.model.errorsCount,
 		cachedCount: tables.model.cachedCount,
 		avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
+		updatedAt: tables.model.updatedAt,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2760,17 +2770,22 @@ function mapHistoryRows(
 	}[],
 ) {
 	return rows.map((r) => {
-		const nonCached = r.logsCount - r.cachedCount;
+		const logsCount = Number(r.logsCount);
+		const errorsCount = Number(r.errorsCount);
+		const cachedCount = Number(r.cachedCount);
+		const totalDuration = Number(r.totalDuration);
+		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken);
+		const totalTokens = Number(r.totalTokens);
+		const nonCached = logsCount - cachedCount;
 		return {
 			timestamp: r.minuteTimestamp.toISOString(),
-			logsCount: r.logsCount,
-			errorsCount: r.errorsCount,
-			cachedCount: r.cachedCount,
+			logsCount,
+			errorsCount,
+			cachedCount,
 			avgTtft:
-				nonCached > 0 ? Math.round(r.totalTimeToFirstToken / nonCached) : null,
-			avgDuration:
-				r.logsCount > 0 ? Math.round(r.totalDuration / r.logsCount) : null,
-			totalTokens: r.totalTokens,
+				nonCached > 0 ? Math.round(totalTimeToFirstToken / nonCached) : null,
+			avgDuration: logsCount > 0 ? Math.round(totalDuration / logsCount) : null,
+			totalTokens,
 		};
 	});
 }

@@ -53,7 +53,7 @@ export default async function ProvidersPage({
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
+		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8 overflow-hidden">
 			<header>
 				<h1 className="text-3xl font-semibold tracking-tight">Providers</h1>
 				<p className="mt-1 text-sm text-muted-foreground">
@@ -61,8 +61,12 @@ export default async function ProvidersPage({
 				</p>
 			</header>
 
-			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<ProvidersTable providers={data.providers} />
+			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+				<ProvidersTable
+					providers={data.providers}
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+				/>
 			</div>
 		</div>
 	);
