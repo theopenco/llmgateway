@@ -3786,7 +3786,8 @@ chat.openapi(completions, async (c) => {
 								// For Google providers, add usage information when available
 								if (
 									usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex"
+									usedProvider === "google-vertex" ||
+									usedProvider === "obsidian"
 								) {
 									const usage = extractTokenUsage(
 										data,
@@ -3955,6 +3956,7 @@ chat.openapi(completions, async (c) => {
 								const contentChunk = extractContent(
 									usedProvider === "google-ai-studio" ||
 										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian" ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -4036,6 +4038,7 @@ chat.openapi(completions, async (c) => {
 								const reasoningContentChunk = extractReasoning(
 									usedProvider === "google-ai-studio" ||
 										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian" ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -4370,7 +4373,8 @@ chat.openapi(completions, async (c) => {
 					// These include both finishReason values and promptFeedback.blockReason values
 					const isGoogleContentFilterStreaming =
 						(usedProvider === "google-ai-studio" ||
-							usedProvider === "google-vertex") &&
+							usedProvider === "google-vertex" ||
+							usedProvider === "obsidian") &&
 						(finishReason === "SAFETY" ||
 							finishReason === "PROHIBITED_CONTENT" ||
 							finishReason === "RECITATION" ||
@@ -4752,7 +4756,8 @@ chat.openapi(completions, async (c) => {
 					// Enhanced logging for Google models streaming to debug missing responses
 					if (
 						usedProvider === "google-ai-studio" ||
-						usedProvider === "google-vertex"
+						usedProvider === "google-vertex" ||
+						usedProvider === "obsidian"
 					) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
