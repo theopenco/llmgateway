@@ -18,26 +18,21 @@ import {
 	subYears,
 } from "date-fns";
 import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { Input } from "@/lib/components/input";
+import { Input } from "@/components/ui/input";
 import {
 	Popover,
 	PopoverContent,
 	PopoverTrigger,
-} from "@/lib/components/popover";
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface DatePreset {
 	label: string;
 	value: string;
 	getRange: () => { from: Date; to: Date };
-}
-
-interface DateRangePickerProps {
-	buildUrl: (path?: string) => string;
-	path?: string;
 }
 
 const MONTH_NAMES = [
@@ -184,7 +179,7 @@ function findMatchingPreset(
 	return "custom";
 }
 
-function getDateRangeFromParams(searchParams: URLSearchParams) {
+export function getDateRangeFromParams(searchParams: URLSearchParams) {
 	const fromParam = searchParams.get("from");
 	const toParam = searchParams.get("to");
 
@@ -197,7 +192,7 @@ function getDateRangeFromParams(searchParams: URLSearchParams) {
 
 	const today = new Date();
 	return {
-		from: subDays(today, 6),
+		from: subDays(today, 29),
 		to: today,
 	};
 }
@@ -258,7 +253,7 @@ function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
 	const renderYearPanel = (year: number) => {
 		const { lo, hi } = getEffectiveRange();
 		return (
-			<div className="flex-1 min-w-0">
+			<div className="min-w-0 flex-1">
 				<div className="mb-2 text-center text-sm font-medium">{year}</div>
 				<div className="grid grid-cols-3 gap-1">
 					{MONTH_NAMES.map((name, idx) => {
@@ -329,8 +324,9 @@ function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
 	);
 }
 
-export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
+export function DateRangePicker() {
 	const router = useRouter();
+	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
@@ -355,11 +351,10 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 
 	const updateDateRange = (newFrom: Date, newTo: Date) => {
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("days");
+		params.delete("range");
 		params.set("from", format(newFrom, "yyyy-MM-dd"));
 		params.set("to", format(newTo, "yyyy-MM-dd"));
-		const url = `${path ? buildUrl(path) : buildUrl()}?${params.toString()}`;
-		router.push(url as Parameters<typeof router.push>[0]);
+		router.push(`${pathname}?${params.toString()}`);
 	};
 
 	const handlePresetSelect = (preset: DatePreset) => {
@@ -408,7 +403,7 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 			</PopoverTrigger>
 			<PopoverContent
 				className={cn("p-0", showCalendar ? "w-[500px]" : "w-72")}
-				align="start"
+				align="end"
 			>
 				{!showCalendar ? (
 					<div>
@@ -471,5 +466,3 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 		</Popover>
 	);
 }
-
-export { getDateRangeFromParams };

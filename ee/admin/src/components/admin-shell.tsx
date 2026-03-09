@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	Building2,
 	Cpu,
+	GitMerge,
 	LayoutDashboard,
 	LogOut,
 	Menu,
@@ -81,6 +82,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDiscounts = pathname === "/discounts";
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
+	const isModelProviderMappings = pathname === "/model-provider-mappings";
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -155,6 +157,17 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isModels} size="lg">
 										<Cpu className="h-4 w-4" />
 										<span>Models</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/model-provider-mappings" className="block">
+									<SidebarMenuButton
+										isActive={isModelProviderMappings}
+										size="lg"
+									>
+										<GitMerge className="h-4 w-4" />
+										<span>Model Mappings</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

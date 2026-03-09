@@ -14,14 +14,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { DashboardCostByModel } from "@/components/dashboard-cost-by-model";
+import { DateRangePicker } from "@/components/date-range-picker";
 import { RevenueChart } from "@/components/revenue-chart";
 import { SignupsChart } from "@/components/signups-chart";
-import { TimeRangePicker } from "@/components/time-range-picker";
 import { Button } from "@/components/ui/button";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
-
-import type { TimeseriesRange } from "@/lib/types";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -100,24 +98,20 @@ function SignInPrompt() {
 	);
 }
 
-const validRanges = new Set(["7d", "30d", "90d", "365d", "all"]);
-
 export default async function Page({
 	searchParams,
 }: {
 	searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
 	const params = await searchParams;
-	const rangeParam = typeof params.range === "string" ? params.range : "all";
-	const range: TimeseriesRange = validRanges.has(rangeParam)
-		? (rangeParam as TimeseriesRange)
-		: "all";
+	const from = typeof params.from === "string" ? params.from : undefined;
+	const to = typeof params.to === "string" ? params.to : undefined;
 
 	const $api = await createServerApiClient();
 	const [metricsRes, timeseriesRes] = await Promise.all([
-		$api.GET("/admin/metrics", { params: { query: { range } } }),
+		$api.GET("/admin/metrics", { params: { query: { from, to } } }),
 		$api.GET("/admin/metrics/timeseries", {
-			params: { query: { range } },
+			params: { query: { from, to } },
 		}),
 	]);
 	const metrics = metricsRes.data;
@@ -140,7 +134,7 @@ export default async function Page({
 				</div>
 				<div className="flex items-center gap-3">
 					<Suspense>
-						<TimeRangePicker value={range} />
+						<DateRangePicker />
 					</Suspense>
 					<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
 						<span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />

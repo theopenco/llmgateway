@@ -18,15 +18,17 @@ function formatNumber(n: number) {
 function ProviderSection({
 	modelId,
 	provider,
+	window,
 }: {
 	modelId: string;
 	provider: ModelProviderStats;
+	window: HistoryWindow;
 }) {
 	const ProviderIcon = getProviderIcon(provider.providerId);
 
 	const fetchData = useCallback(
-		async (window: HistoryWindow) => {
-			return await getMappingHistory(provider.providerId, modelId, window);
+		async (w: HistoryWindow) => {
+			return await getMappingHistory(provider.providerId, modelId, w);
 		},
 		[provider.providerId, modelId],
 	);
@@ -74,6 +76,7 @@ function ProviderSection({
 				title={`${provider.providerName} — History`}
 				description={`Request volume, errors, latency, and tokens for ${provider.providerName}`}
 				fetchData={fetchData}
+				externalWindow={window}
 			/>
 		</div>
 	);
@@ -82,9 +85,11 @@ function ProviderSection({
 export function ModelProviderCharts({
 	modelId,
 	providers,
+	window,
 }: {
 	modelId: string;
 	providers: ModelProviderStats[];
+	window: HistoryWindow;
 }) {
 	if (providers.length === 0) {
 		return (
@@ -101,6 +106,7 @@ export function ModelProviderCharts({
 					key={provider.providerId}
 					modelId={modelId}
 					provider={provider}
+					window={window}
 				/>
 			))}
 		</div>

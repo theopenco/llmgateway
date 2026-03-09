@@ -19,7 +19,7 @@ import { getModelHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import type { HistoryWindow } from "@/components/history-chart";
-import type { ModelStats, TimeseriesRange } from "@/lib/types";
+import type { ModelStats } from "@/lib/types";
 
 type ModelSortBy =
 	| "name"
@@ -41,21 +41,23 @@ function SortableHeader({
 	currentSortBy,
 	currentSortOrder,
 	search,
-	range,
+	from,
+	to,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
 	currentSortBy: ModelSortBy;
 	currentSortOrder: SortOrder;
 	search: string;
-	range: TimeseriesRange;
+	from?: string;
+	to?: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-	const rangeParam = range !== "all" ? `&range=${range}` : "";
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${rangeParam}`;
+	const dateParams = from && to ? `&from=${from}&to=${to}` : "";
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${dateParams}`;
 
 	return (
 		<Link
@@ -210,13 +212,15 @@ export function ModelsTable({
 	sortBy = "logsCount",
 	sortOrder = "desc",
 	search = "",
-	range = "all",
+	from,
+	to,
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
-	range?: TimeseriesRange;
+	from?: string;
+	to?: string;
 }) {
 	const sh = (label: string, sortKey: ModelSortBy) => (
 		<TableHead>
@@ -226,7 +230,8 @@ export function ModelsTable({
 				currentSortBy={sortBy}
 				currentSortOrder={sortOrder}
 				search={search}
-				range={range}
+				from={from}
+				to={to}
 			/>
 		</TableHead>
 	);
