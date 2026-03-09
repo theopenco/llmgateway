@@ -90,8 +90,14 @@ export function convertResponsesInputToMessages(
 			tool_call_id?: string;
 		};
 
+		// Map "developer" role to "system" for chat completions compatibility
+		const role =
+			msg.role === "developer"
+				? ("system" as const)
+				: (msg.role as ChatMessage["role"]);
+
 		const chatMsg: ChatMessage = {
-			role: msg.role as ChatMessage["role"],
+			role,
 			content: convertContent(msg.content),
 		};
 

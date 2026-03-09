@@ -7,6 +7,7 @@ import {
 	createResponseCreatedEvent,
 	processStreamChunk,
 	createCompletionEvents,
+	createFailedEvent,
 } from "./tools/convert-streaming-to-responses.js";
 
 vi.mock("@llmgateway/cache", () => ({
@@ -123,6 +124,16 @@ describe("convertResponsesInputToMessages", () => {
 		];
 		const result = convertResponsesInputToMessages(input);
 		expect(result[0]!.content).toEqual([{ type: "text", text: "Hello" }]);
+	});
+
+	it("maps developer role to system", () => {
+		const input = [
+			{ role: "developer" as const, content: "You are helpful" },
+			{ role: "user" as const, content: "Hello" },
+		];
+		const result = convertResponsesInputToMessages(input);
+		expect(result[0]!.role).toBe("system");
+		expect(result[0]!.content).toBe("You are helpful");
 	});
 });
 
@@ -345,5 +356,91 @@ describe("streaming conversion", () => {
 		const completedEvent = events.find((e) => e.event === "response.completed");
 		const completedData = JSON.parse(completedEvent!.data);
 		expect(completedData.response.status).toBe("completed");
+	});
+
+	it("uses consistent IDs across streaming events", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const events1 = processStreamChunk(
+			{ choices: [{ delta: { content: "Hello" } }] },
+			state,
+		);
+		const completionEvents = createCompletionEvents(state);
+
+		const addedEvent = events1.find(
+			(e) => e.event === "response.output_item.added",
+		);
+		const addedData = JSON.parse(addedEvent!.data);
+		const addedId = addedData.item.id;
+
+		const doneEvent = completionEvents.find(
+			(e) => e.event === "response.output_item.done",
+		);
+		const doneData = JSON.parse(doneEvent!.data);
+
+		const completedEvent = completionEvents.find(
+			(e) => e.event === "response.completed",
+		);
+		const completedData = JSON.parse(completedEvent!.data);
+		const completedMsgId = completedData.response.output.find(
+			(o: Record<string, unknown>) => o.type === "message",
+		)?.id;
+
+		expect(doneData.item.id).toBe(addedId);
+		expect(completedMsgId).toBe(addedId);
+	});
+
+	it("emits output_item.done for function_call items", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_abc",
+									function: { name: "get_weather", arguments: '{"loc":"SF"}' },
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const fcDone = events.find(
+			(e) =>
+				e.event === "response.output_item.done" &&
+				JSON.parse(e.data).item.type === "function_call",
+		);
+		expect(fcDone).toBeDefined();
+		expect(JSON.parse(fcDone!.data).item.name).toBe("get_weather");
+	});
+
+	it("maps length finish_reason to incomplete status in streaming", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		processStreamChunk(
+			{ choices: [{ delta: { content: "Hello" }, finish_reason: "length" }] },
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.status).toBe("incomplete");
+	});
+
+	it("creates a response.failed event", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const event = createFailedEvent(state);
+
+		expect(event.event).toBe("response.failed");
+		const data = JSON.parse(event.data);
+		expect(data.type).toBe("response.failed");
+		expect(data.response.status).toBe("failed");
+		expect(data.response.id).toBe(state.responseId);
 	});
 });

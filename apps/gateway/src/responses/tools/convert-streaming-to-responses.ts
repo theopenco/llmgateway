@@ -6,9 +6,12 @@ interface StreamingState {
 	outputItemIndex: number;
 	contentPartStarted: boolean;
 	outputItemStarted: boolean;
+	messageId: string;
+	reasoningId: string;
 	fullContent: string[];
 	fullReasoning: string[];
 	reasoningStarted: boolean;
+	finishReason: string | null;
 	toolCalls: Map<
 		number,
 		{
@@ -35,9 +38,12 @@ export function createStreamingState(model: string): StreamingState {
 		outputItemIndex: 0,
 		contentPartStarted: false,
 		outputItemStarted: false,
+		messageId: `msg_${shortid(24)}`,
+		reasoningId: `rs_${shortid(24)}`,
 		fullContent: [],
 		fullReasoning: [],
 		reasoningStarted: false,
+		finishReason: null,
 		toolCalls: new Map(),
 		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
 	};
@@ -94,6 +100,13 @@ export function processStreamChunk(
 		| undefined;
 	const delta = choices?.[0]?.delta;
 
+	// Capture finish_reason
+	const finishReason = (choices?.[0] as Record<string, unknown> | undefined)
+		?.finish_reason as string | null | undefined;
+	if (finishReason) {
+		state.finishReason = finishReason;
+	}
+
 	if (!delta) {
 		// Check for usage in the final chunk
 		if (chunk.usage) {
@@ -128,7 +141,7 @@ export function processStreamChunk(
 					output_index: state.outputItemIndex,
 					item: {
 						type: "reasoning",
-						id: `rs_${shortid(24)}`,
+						id: state.reasoningId,
 						summary: [],
 					},
 				}),
@@ -144,13 +157,13 @@ export function processStreamChunk(
 			if (!existing) {
 				const callId = tc.id ?? `call_${shortid(24)}`;
 				const name = tc.function?.name ?? "";
+				const fcId = `fc_${shortid(24)}`;
 				state.toolCalls.set(tc.index, {
-					id: `fc_${shortid(24)}`,
+					id: fcId,
 					callId,
 					name,
 					arguments: tc.function?.arguments ?? "",
 				});
-				// Emit function_call output item added
 				events.push({
 					event: "response.output_item.added",
 					data: JSON.stringify({
@@ -158,7 +171,7 @@ export function processStreamChunk(
 						output_index: state.outputItemIndex++,
 						item: {
 							type: "function_call",
-							id: `fc_${shortid(24)}`,
+							id: fcId,
 							call_id: callId,
 							name,
 							arguments: "",
@@ -190,7 +203,7 @@ export function processStreamChunk(
 					output_index: state.outputItemIndex,
 					item: {
 						type: "message",
-						id: `msg_${shortid(24)}`,
+						id: state.messageId,
 						role: "assistant",
 						content: [],
 						status: "in_progress",
@@ -287,7 +300,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 				output_index: state.outputItemIndex,
 				item: {
 					type: "message",
-					id: `msg_${shortid(24)}`,
+					id: state.messageId,
 					role: "assistant",
 					content: [
 						{
@@ -301,13 +314,37 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 		});
 	}
 
-	// Send response.completed
+	// Emit output_item.done for each function_call
+	for (const tc of state.toolCalls.values()) {
+		events.push({
+			event: "response.output_item.done",
+			data: JSON.stringify({
+				type: "response.output_item.done",
+				item: {
+					type: "function_call",
+					id: tc.id,
+					call_id: tc.callId,
+					name: tc.name,
+					arguments: tc.arguments,
+					status: "completed",
+				},
+			}),
+		});
+	}
+
+	// Map finish_reason to status
+	let status: "completed" | "incomplete" | "failed" = "completed";
+	if (state.finishReason === "length") {
+		status = "incomplete";
+	}
+
+	// Build final output array
 	const output: Record<string, unknown>[] = [];
 
 	if (state.reasoningStarted) {
 		output.push({
 			type: "reasoning",
-			id: `rs_${shortid(24)}`,
+			id: state.reasoningId,
 			summary: [
 				{
 					type: "summary_text",
@@ -331,7 +368,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 	if (state.fullContent.length > 0) {
 		output.push({
 			type: "message",
-			id: `msg_${shortid(24)}`,
+			id: state.messageId,
 			role: "assistant",
 			content: [
 				{
@@ -354,10 +391,31 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 				model: state.model,
 				output,
 				usage: state.usage,
-				status: "completed",
+				status,
 			},
 		}),
 	});
 
 	return events;
+}
+
+/**
+ * Generate a response.failed event for streaming errors.
+ */
+export function createFailedEvent(state: StreamingState): SSEEvent {
+	return {
+		event: "response.failed",
+		data: JSON.stringify({
+			type: "response.failed",
+			response: {
+				id: state.responseId,
+				object: "response",
+				created_at: Math.floor(Date.now() / 1000),
+				model: state.model,
+				output: [],
+				usage: state.usage,
+				status: "failed",
+			},
+		}),
+	};
 }

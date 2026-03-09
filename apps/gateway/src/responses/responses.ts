@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
@@ -14,6 +13,7 @@ import {
 	createResponseCreatedEvent,
 	processStreamChunk,
 	createCompletionEvents,
+	createFailedEvent,
 } from "./tools/convert-streaming-to-responses.js";
 import { storeResponse, getStoredResponse } from "./tools/response-state.js";
 
@@ -215,12 +215,24 @@ responses.post("/", async (c) => {
 
 	// Handle streaming response
 	if (req.stream) {
-		return streamSSE(c, async (stream) => {
-			if (!response.body) {
-				throw new HTTPException(500, { message: "No response body" });
-			}
+		if (!response.body) {
+			return c.json(
+				{
+					error: {
+						message: "No response body from upstream",
+						type: "api_error",
+						code: "internal_error",
+					},
+				},
+				500,
+			);
+		}
 
-			const reader = response.body.getReader();
+		const streamBody = response.body;
+		const shouldStore = req.store !== false;
+
+		return streamSSE(c, async (stream) => {
+			const reader = streamBody.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 
@@ -232,6 +244,59 @@ responses.post("/", async (c) => {
 				event: createdEvent.event,
 				data: createdEvent.data,
 			});
+
+			const processLine = async (line: string) => {
+				if (!line.startsWith("data: ")) {
+					return false;
+				}
+				const data = line.slice(6).trim();
+
+				if (data === "[DONE]") {
+					// Send completion events
+					const completionEvents = createCompletionEvents(state);
+					for (const event of completionEvents) {
+						await stream.writeSSE({
+							event: event.event,
+							data: event.data,
+						});
+					}
+
+					// Store for previous_response_id
+					if (shouldStore) {
+						const completedData = JSON.parse(
+							completionEvents[completionEvents.length - 1]!.data,
+						);
+						await storeResponse(state.responseId, {
+							id: state.responseId,
+							input: inputItems,
+							output: completedData.response?.output ?? [],
+							instructions: req.instructions,
+							model: req.model,
+						});
+					}
+					return true;
+				}
+
+				if (!data) {
+					return false;
+				}
+
+				let chunk: Record<string, unknown>;
+				try {
+					chunk = JSON.parse(data);
+				} catch {
+					return false;
+				}
+
+				const events = processStreamChunk(chunk, state);
+				for (const event of events) {
+					await stream.writeSSE({
+						event: event.event,
+						data: event.data,
+					});
+				}
+				return false;
+			};
 
 			try {
 				while (true) {
@@ -245,58 +310,25 @@ responses.post("/", async (c) => {
 					buffer = lines.pop() ?? "";
 
 					for (const line of lines) {
-						if (!line.startsWith("data: ")) {
-							continue;
-						}
-						const data = line.slice(6).trim();
-
-						if (data === "[DONE]") {
-							// Send completion events
-							const completionEvents = createCompletionEvents(state);
-							for (const event of completionEvents) {
-								await stream.writeSSE({
-									event: event.event,
-									data: event.data,
-								});
-							}
-
-							// Store for previous_response_id
-							const completedData = JSON.parse(
-								completionEvents[completionEvents.length - 1]!.data,
-							);
-							await storeResponse(state.responseId, {
-								id: state.responseId,
-								input: inputItems,
-								output: completedData.response?.output ?? [],
-								instructions: req.instructions,
-								model: req.model,
-							});
+						const isDone = await processLine(line);
+						if (isDone) {
 							return;
 						}
-
-						if (!data) {
-							continue;
-						}
-
-						let chunk: Record<string, unknown>;
-						try {
-							chunk = JSON.parse(data);
-						} catch {
-							continue;
-						}
-
-						const events = processStreamChunk(chunk, state);
-						for (const event of events) {
-							await stream.writeSSE({
-								event: event.event,
-								data: event.data,
-							});
-						}
 					}
+				}
+
+				// Process any remaining data in the buffer
+				if (buffer.trim()) {
+					await processLine(buffer);
 				}
 			} catch (error) {
 				logger.error("Error processing streaming response", {
 					error,
+				});
+				const failedEvent = createFailedEvent(state);
+				await stream.writeSSE({
+					event: failedEvent.event,
+					data: failedEvent.data,
 				});
 			}
 		});
@@ -306,14 +338,16 @@ responses.post("/", async (c) => {
 	const chatJson = await response.json();
 	const responsesResponse = convertChatResponseToResponses(chatJson, req.model);
 
-	// Store for previous_response_id
-	await storeResponse(responsesResponse.id, {
-		id: responsesResponse.id,
-		input: inputItems,
-		output: responsesResponse.output,
-		instructions: req.instructions,
-		model: req.model,
-	});
+	// Store for previous_response_id (unless store: false)
+	if (req.store !== false) {
+		await storeResponse(responsesResponse.id, {
+			id: responsesResponse.id,
+			input: inputItems,
+			output: responsesResponse.output,
+			instructions: req.instructions,
+			model: req.model,
+		});
+	}
 
 	return c.json(responsesResponse);
 });
