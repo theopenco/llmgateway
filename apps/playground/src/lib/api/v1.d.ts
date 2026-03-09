@@ -1115,6 +1115,8 @@ export interface paths {
             parameters: {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d" | "all";
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1163,6 +1165,8 @@ export interface paths {
             parameters: {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d" | "all";
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -2128,6 +2132,8 @@ export interface paths {
                 query?: {
                     sortBy?: "name" | "status" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "modelCount" | "updatedAt";
                     sortOrder?: "asc" | "desc";
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -2184,6 +2190,8 @@ export interface paths {
                     sortOrder?: "asc" | "desc";
                     limit?: number;
                     offset?: number | null;
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -2403,7 +2411,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1m" | "2m" | "5m" | "30m" | "1h" | "2h" | "4h" | "24h";
+                    window?: "1m" | "2m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2452,7 +2460,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1m" | "2m" | "5m" | "30m" | "1h" | "2h" | "4h" | "24h";
+                    window?: "1m" | "2m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2501,7 +2509,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1m" | "2m" | "5m" | "30m" | "1h" | "2h" | "4h" | "24h";
+                    window?: "1m" | "2m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2635,6 +2643,65 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/model-provider-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "avgTimeToFirstToken" | "updatedAt";
+                    sortOrder?: "asc" | "desc";
+                    limit?: number | null;
+                    offset?: number | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of all model-provider mappings. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            mappings: {
+                                id: string;
+                                modelId: string;
+                                modelName: string;
+                                providerId: string;
+                                providerName: string;
+                                status: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                inputPrice: string | null;
+                                outputPrice: string | null;
+                                contextSize: number | null;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
                 };
             };
         };
