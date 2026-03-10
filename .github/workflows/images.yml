@@ -90,7 +90,7 @@ jobs:
 
       - name: Build and conditionally push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/split.dockerfile
@@ -281,7 +281,7 @@ jobs:
 
       - name: Build and conditionally push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/unified.dockerfile
@@ -387,7 +387,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build unified Docker image for testing
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/unified.dockerfile
