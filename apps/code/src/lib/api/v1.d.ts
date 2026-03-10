@@ -2158,9 +2158,13 @@ export interface paths {
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 modelCount: number;
+                                totalTokens: number;
+                                totalCost: number;
                                 updatedAt: string;
                             }[];
                             total: number;
+                            totalTokens: number;
+                            totalCost: number;
                         };
                     };
                 };
@@ -2218,11 +2222,15 @@ export interface paths {
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
+                                totalTokens: number;
+                                totalCost: number;
                                 updatedAt: string;
                             }[];
                             total: number;
                             limit: number;
                             offset: number;
+                            totalTokens: number;
+                            totalCost: number;
                         };
                     };
                 };
@@ -2411,7 +2419,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2436,6 +2444,7 @@ export interface paths {
                                 avgTtft: number | null;
                                 avgDuration: number | null;
                                 totalTokens: number;
+                                totalCost: number;
                             }[];
                         };
                     };
@@ -2460,7 +2469,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2485,6 +2494,7 @@ export interface paths {
                                 avgTtft: number | null;
                                 avgDuration: number | null;
                                 totalTokens: number;
+                                totalCost: number;
                             }[];
                         };
                     };
@@ -2509,7 +2519,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2535,6 +2545,7 @@ export interface paths {
                                 avgTtft: number | null;
                                 avgDuration: number | null;
                                 totalTokens: number;
+                                totalCost: number;
                             }[];
                         };
                     };

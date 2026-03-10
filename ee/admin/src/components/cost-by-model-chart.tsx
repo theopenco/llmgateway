@@ -70,14 +70,17 @@ export function CostByModelChart({
 	title,
 	description,
 	fetchData,
+	externalWindow,
 }: {
 	title: string;
 	description?: string;
 	fetchData: (window: TokenWindow) => Promise<CostByModelData | null>;
+	externalWindow?: TokenWindow;
 }) {
 	const [data, setData] = useState<CostByModelData | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [window, setWindow] = useState<TokenWindow>("7d");
+	const [internalWindow, setInternalWindow] = useState<TokenWindow>("7d");
+	const window = externalWindow ?? internalWindow;
 	const [activeView, setActiveView] = useState<ActiveView>("cost");
 
 	const loadData = useCallback(
@@ -133,19 +136,21 @@ export function CostByModelChart({
 							</div>
 						)}
 					</div>
-					<div className="flex items-center gap-1">
-						{windowOptions.map((opt) => (
-							<Button
-								key={opt.value}
-								variant={window === opt.value ? "default" : "outline"}
-								size="sm"
-								className="h-7 px-2 text-xs"
-								onClick={() => setWindow(opt.value)}
-							>
-								{opt.label}
-							</Button>
-						))}
-					</div>
+					{!externalWindow && (
+						<div className="flex items-center gap-1">
+							{windowOptions.map((opt) => (
+								<Button
+									key={opt.value}
+									variant={window === opt.value ? "default" : "outline"}
+									size="sm"
+									className="h-7 px-2 text-xs"
+									onClick={() => setInternalWindow(opt.value)}
+								>
+									{opt.label}
+								</Button>
+							))}
+						</div>
+					)}
 				</div>
 				<div className="flex items-center gap-1 border-b pb-2">
 					{viewTabs.map((tab) => (
@@ -176,12 +181,15 @@ export function CostByModelChart({
 				) : (
 					<ChartContainer
 						config={config}
-						className="aspect-auto h-[300px] w-full"
+						className="aspect-auto w-full"
+						style={{
+							height: `${Math.max(300, data.models.length * 28)}px`,
+						}}
 					>
 						<BarChart
 							data={data.models}
 							layout="vertical"
-							margin={{ left: 8, right: 8, top: 4, bottom: 0 }}
+							margin={{ left: 8, right: 8, top: 20, bottom: 4 }}
 						>
 							<CartesianGrid horizontal={false} strokeDasharray="3 3" />
 							<YAxis

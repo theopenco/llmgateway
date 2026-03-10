@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { windowOptions } from "@/components/history-chart";
@@ -49,6 +50,15 @@ interface AllTimeStats {
 	id: string;
 }
 
+const validWindows = new Set<HistoryWindow>(windowOptions.map((o) => o.value));
+
+function parseHistoryWindow(value: string | null): HistoryWindow {
+	if (value && validWindows.has(value as HistoryWindow)) {
+		return value as HistoryWindow;
+	}
+	return "24h";
+}
+
 export function ModelDetailClient({
 	modelId,
 	allTimeStats,
@@ -58,7 +68,10 @@ export function ModelDetailClient({
 	allTimeStats: AllTimeStats;
 	providers: ModelProviderStats[];
 }) {
-	const [window, setWindow] = useState<HistoryWindow>("4h");
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pathname = usePathname();
+	const window = parseHistoryWindow(searchParams.get("window"));
 	const [loading, setLoading] = useState(true);
 	const [stats, setStats] = useState({
 		totalRequests: allTimeStats.logsCount,
@@ -122,7 +135,13 @@ export function ModelDetailClient({
 						variant={window === opt.value ? "default" : "outline"}
 						size="sm"
 						className="h-7 px-2 text-xs"
-						onClick={() => setWindow(opt.value)}
+						onClick={() => {
+							const params = new URLSearchParams(searchParams.toString());
+							params.set("window", opt.value);
+							router.replace(`${pathname}?${params.toString()}`, {
+								scroll: false,
+							});
+						}}
 					>
 						{opt.label}
 					</Button>

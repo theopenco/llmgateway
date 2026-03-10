@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { DateRangePicker } from "@/components/date-range-picker";
+import { TimeWindowSelector } from "@/components/time-window-selector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -37,17 +38,19 @@ function SortableHeader({
 	currentSortBy,
 	currentSortOrder,
 	search,
+	pageWindow,
 }: {
 	label: string;
 	sortKey: MappingSortBy;
 	currentSortBy: MappingSortBy;
 	currentSortOrder: SortOrder;
 	search: string;
+	pageWindow: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}`;
+	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}&window=${pageWindow}`;
 
 	return (
 		<Link
@@ -154,6 +157,25 @@ function MappingRow({ mapping }: { mapping: ModelProviderMappingEntry }) {
 	);
 }
 
+function formatCompactNumber(value: number): string {
+	if (value >= 1_000_000_000) {
+		return `${(value / 1_000_000_000).toFixed(1)}B`;
+	}
+	if (value >= 1_000_000) {
+		return `${(value / 1_000_000).toFixed(1)}M`;
+	}
+	if (value >= 1_000) {
+		return `${(value / 1_000).toFixed(1)}k`;
+	}
+	return value.toLocaleString("en-US");
+}
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 4,
+});
+
 export default async function ModelProviderMappingsPage({
 	searchParams,
 }: {
@@ -161,12 +183,15 @@ export default async function ModelProviderMappingsPage({
 		search?: string;
 		sortBy?: string;
 		sortOrder?: string;
+		window?: string;
 	}>;
 }) {
 	const params = await searchParams;
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as MappingSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) ?? "desc";
+	const pageWindow = parsePageWindow(params?.window);
+	const { from, to } = windowToFromTo(pageWindow);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/model-provider-mappings", {
@@ -199,14 +224,26 @@ export default async function ModelProviderMappingsPage({
 		);
 	}
 
+	// Compute aggregate stats from the mapping data using projectHourlyModelStats via from/to
+	// Since the mappings API doesn't yet return totalTokens/totalCost aggregates,
+	// we derive totals from the models endpoint with the same window
+	const { data: modelsData } = await $api.GET("/admin/models", {
+		params: { query: { limit: 1, offset: 0, from, to } },
+	});
+	const totalTokens = modelsData?.totalTokens ?? 0;
+	const totalCost = modelsData?.totalCost ?? 0;
+	const totalRequests = data.mappings.reduce((s, m) => s + m.logsCount, 0);
+
 	async function handleSearch(formData: FormData) {
 		"use server";
 		const searchValue = formData.get("search") as string;
+		const windowValue = formData.get("window") as string;
 		const searchParam = searchValue
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
+		const windowParam = windowValue ? `&window=${windowValue}` : "";
 		redirect(
-			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}`,
+			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}`,
 		);
 	}
 
@@ -218,6 +255,7 @@ export default async function ModelProviderMappingsPage({
 				currentSortBy={sortBy}
 				currentSortOrder={sortOrder}
 				search={search}
+				pageWindow={pageWindow}
 			/>
 		</TableHead>
 	);
@@ -237,6 +275,7 @@ export default async function ModelProviderMappingsPage({
 					<form action={handleSearch} className="flex items-center gap-2">
 						<input type="hidden" name="sortBy" value={sortBy} />
 						<input type="hidden" name="sortOrder" value={sortOrder} />
+						<input type="hidden" name="window" value={pageWindow} />
 						<div className="relative">
 							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 							<input
@@ -251,11 +290,34 @@ export default async function ModelProviderMappingsPage({
 							Search
 						</Button>
 					</form>
-					<Suspense>
-						<DateRangePicker />
-					</Suspense>
 				</div>
 			</header>
+
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div className="flex flex-wrap items-center gap-6 text-sm">
+					<div>
+						<span className="text-muted-foreground">Total Requests</span>
+						<p className="text-xl font-semibold tabular-nums">
+							{formatCompactNumber(totalRequests)}
+						</p>
+					</div>
+					<div>
+						<span className="text-muted-foreground">Total Tokens</span>
+						<p className="text-xl font-semibold tabular-nums">
+							{formatCompactNumber(totalTokens)}
+						</p>
+					</div>
+					<div>
+						<span className="text-muted-foreground">Total Cost</span>
+						<p className="text-xl font-semibold tabular-nums">
+							{currencyFormatter.format(totalCost)}
+						</p>
+					</div>
+				</div>
+				<Suspense>
+					<TimeWindowSelector current={pageWindow} />
+				</Suspense>
+			</div>
 
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>

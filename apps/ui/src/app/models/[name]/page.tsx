@@ -40,9 +40,7 @@ interface PageProps {
 	params: Promise<{ name: string }>;
 }
 
-async function getCurrentModelDiscount(
-	modelId: string,
-): Promise<DiscountData | null> {
+async function getModelDiscounts(modelId: string): Promise<DiscountData[]> {
 	const data = await fetchServerData<{ discounts: DiscountData[] }>(
 		"GET",
 		"/public/discounts/model/{modelId}",
@@ -53,15 +51,64 @@ async function getCurrentModelDiscount(
 		},
 	);
 
-	return (
-		data?.discounts.find((discount) => {
-			if (!discount.expiresAt || discount.model !== modelId) {
-				return false;
-			}
+	return data?.discounts ?? [];
+}
 
-			return new Date(discount.expiresAt).getTime() > Date.now();
-		}) ?? null
+function getBestDiscount(
+	discounts: DiscountData[],
+	modelId: string,
+): DiscountData | null {
+	// Precedence: model-specific > fully global
+	const modelSpecific = discounts.find((d) => d.model === modelId);
+	if (modelSpecific) {
+		return modelSpecific;
+	}
+
+	const fullyGlobal = discounts.find(
+		(d) => d.provider === null && d.model === null,
 	);
+	if (fullyGlobal) {
+		return fullyGlobal;
+	}
+
+	return null;
+}
+
+function getEffectiveProviderDiscount(
+	discounts: DiscountData[],
+	providerId: string,
+	modelId: string,
+): number | undefined {
+	// Precedence: provider+model > provider > model > fully global
+	const providerModel = discounts.find(
+		(d) => d.provider === providerId && d.model === modelId,
+	);
+	if (providerModel) {
+		return parseFloat(providerModel.discountPercent);
+	}
+
+	const providerOnly = discounts.find(
+		(d) => d.provider === providerId && d.model === null,
+	);
+	if (providerOnly) {
+		return parseFloat(providerOnly.discountPercent);
+	}
+
+	const modelOnly = discounts.find(
+		(d) => d.provider === null && d.model === modelId,
+	);
+	if (modelOnly) {
+		return parseFloat(modelOnly.discountPercent);
+	}
+
+	const fullyGlobal = discounts.find(
+		(d) => d.provider === null && d.model === null,
+	);
+	if (fullyGlobal) {
+		return parseFloat(fullyGlobal.discountPercent);
+	}
+
+	return undefined;
 }
 
 export default async function ModelPage({ params }: PageProps) {
@@ -106,16 +153,24 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
+	const allDiscounts = await getModelDiscounts(decodedName);
 	const modelProviders = modelDef.providers.map((provider) => {
 		const providerInfo = providerDefinitions.find(
 			(p) => p.id === provider.providerId,
 		);
+		const globalDiscount = getEffectiveProviderDiscount(
+			allDiscounts,
+			provider.providerId,
+			decodedName,
+		);
 		return {
 			...provider,
 			providerInfo,
+			// Global discount takes precedence over hardcoded
+			discount: globalDiscount ?? provider.discount,
 		};
 	});
-	const currentModelDiscount = await getCurrentModelDiscount(decodedName);
+	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",

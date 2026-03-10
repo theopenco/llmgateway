@@ -22,16 +22,15 @@ import { cn } from "@/lib/utils";
 import type { ChartConfig } from "@/components/ui/chart";
 
 export type HistoryWindow =
-	| "1m"
 	| "2m"
 	| "5m"
 	| "15m"
-	| "30m"
 	| "1h"
 	| "2h"
 	| "4h"
 	| "12h"
 	| "24h"
+	| "1d"
 	| "2d"
 	| "7d";
 
@@ -43,9 +42,10 @@ export interface HistoryDataPoint {
 	avgTtft: number | null;
 	avgDuration: number | null;
 	totalTokens: number;
+	totalCost: number;
 }
 
-type ActiveMetric = "requests" | "errors" | "latency" | "tokens";
+type ActiveMetric = "requests" | "errors" | "latency" | "tokens" | "cost";
 
 const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 	requests: {
@@ -63,10 +63,12 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 	tokens: {
 		totalTokens: { label: "Tokens", color: "hsl(32 95% 44%)" },
 	},
+	cost: {
+		totalCost: { label: "Cost ($)", color: "hsl(142 71% 45%)" },
+	},
 };
 
 export const windowOptions: { value: HistoryWindow; label: string }[] = [
-	{ value: "1m", label: "1m" },
 	{ value: "2m", label: "2m" },
 	{ value: "5m", label: "5m" },
 	{ value: "15m", label: "15m" },
@@ -75,6 +77,7 @@ export const windowOptions: { value: HistoryWindow; label: string }[] = [
 	{ value: "4h", label: "4h" },
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
+	{ value: "1d", label: "1d" },
 	{ value: "2d", label: "2d" },
 	{ value: "7d", label: "7d" },
 ];
@@ -84,6 +87,7 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "errors", label: "Errors" },
 	{ key: "latency", label: "Latency" },
 	{ key: "tokens", label: "Tokens" },
+	{ key: "cost", label: "Cost" },
 ];
 
 function formatTimestamp(ts: string, window: HistoryWindow): string {
@@ -255,11 +259,14 @@ export function HistoryChart({
 								axisLine={false}
 								tickMargin={4}
 								width={50}
-								tickFormatter={(value: number) =>
-									value >= 1000
+								tickFormatter={(value: number) => {
+									if (activeMetric === "cost") {
+										return `$${value >= 0.01 ? value.toFixed(2) : value.toFixed(4)}`;
+									}
+									return value >= 1000
 										? `${(value / 1000).toFixed(1)}k`
-										: String(value)
-								}
+										: String(value);
+								}}
 							/>
 							<ChartTooltip
 								content={
@@ -269,10 +276,14 @@ export function HistoryChart({
 										}
 										formatter={(value, name) => {
 											const label = config[name as string]?.label ?? name;
-											const formatted =
-												activeMetric === "latency"
-													? `${Math.round(Number(value))}ms`
-													: Number(value).toLocaleString();
+											let formatted: string;
+											if (activeMetric === "latency") {
+												formatted = `${Math.round(Number(value))}ms`;
+											} else if (activeMetric === "cost") {
+												formatted = `$${Number(value).toFixed(4)}`;
+											} else {
+												formatted = Number(value).toLocaleString();
+											}
 											return (
 												<span>
 													{label}: <strong>{formatted}</strong>

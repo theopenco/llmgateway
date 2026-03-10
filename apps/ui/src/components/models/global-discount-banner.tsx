@@ -17,7 +17,7 @@ interface GlobalDiscountBannerProps {
 }
 
 export function GlobalDiscountBanner({ discount }: GlobalDiscountBannerProps) {
-	if (!discount || !discount.expiresAt) {
+	if (!discount) {
 		return null;
 	}
 
@@ -34,9 +34,14 @@ export function GlobalDiscountBanner({ discount }: GlobalDiscountBannerProps) {
 				</span>
 				<span className="text-sm text-muted-foreground">
 					{discount.model ? "this model" : "all models"}
-					{discount.provider ? ` via ${discount.provider}` : ""} —
+					{discount.provider ? ` via ${discount.provider}` : ""}
 				</span>
-				<Countdown expiresAt={discount.expiresAt} />
+				{discount.expiresAt && (
+					<>
+						<span className="text-sm text-muted-foreground">—</span>
+						<Countdown expiresAt={discount.expiresAt} />
+					</>
+				)}
 			</div>
 		</div>
 	);

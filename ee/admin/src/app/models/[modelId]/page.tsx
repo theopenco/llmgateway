@@ -1,5 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { ModelDetailClient } from "@/components/model-detail-client";
 import { Button } from "@/components/ui/button";
@@ -46,11 +47,13 @@ export default async function ModelDetailPage({
 					</Link>
 				</Button>
 			</div>
-			<ModelDetailClient
-				modelId={decodedModelId}
-				allTimeStats={model}
-				providers={providers}
-			/>
+			<Suspense>
+				<ModelDetailClient
+					modelId={decodedModelId}
+					allTimeStats={model}
+					providers={providers}
+				/>
+			</Suspense>
 		</div>
 	);
 }
