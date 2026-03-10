@@ -17,6 +17,29 @@ vi.mock("@llmgateway/cache", () => ({
 	},
 }));
 
+vi.mock("@llmgateway/db", async (importOriginal) => {
+	const actual = await importOriginal<Record<string, unknown>>();
+	return {
+		...actual,
+		db: {
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					where: vi.fn().mockReturnValue({
+						orderBy: vi.fn().mockReturnValue({
+							limit: vi.fn().mockResolvedValue([]),
+						}),
+					}),
+				}),
+			}),
+			update: vi.fn().mockReturnValue({
+				set: vi.fn().mockReturnValue({
+					where: vi.fn().mockResolvedValue(undefined),
+				}),
+			}),
+		},
+	};
+});
+
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
 		warn: vi.fn(),
@@ -262,6 +285,41 @@ describe("convertChatResponseToResponses", () => {
 		expect((reasoning as any).summary[0].text).toBe(
 			"Let me think step by step...",
 		);
+	});
+
+	it("uses provided responseId when given", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		const result = convertChatResponseToResponses(
+			chatResponse,
+			"gpt-4o-mini",
+			"resp_custom_id_123",
+		);
+
+		expect(result.id).toBe("resp_custom_id_123");
+	});
+
+	it("generates responseId when not provided", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-4o-mini");
+		expect(result.id).toMatch(/^resp_/);
 	});
 
 	it("passes through cost fields", () => {

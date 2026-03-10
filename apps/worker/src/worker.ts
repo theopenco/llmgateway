@@ -600,6 +600,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						upstreamResponse: null,
 						userAgent: null,
 						gatewayContentFilterResponse: null,
+						responsesApiData: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));
@@ -980,6 +981,7 @@ export async function processLogQueue(): Promise<void> {
 						tools: _tools,
 						toolChoice: _toolChoice,
 						toolResults: _toolResults,
+						responsesApiData: _responsesApiData,
 						...metadataOnly
 					} = data;
 					return metadataOnly;

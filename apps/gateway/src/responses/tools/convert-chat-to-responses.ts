@@ -83,6 +83,7 @@ export interface ResponsesApiResponse {
 export function convertChatResponseToResponses(
 	chatResponse: ChatCompletionsResponse,
 	requestedModel: string,
+	responseId?: string,
 ): ResponsesApiResponse {
 	const choice = chatResponse.choices?.[0];
 	const message = choice?.message;
@@ -173,7 +174,7 @@ export function convertChatResponseToResponses(
 	}
 
 	return {
-		id: `resp_${shortid(24)}`,
+		id: responseId ?? `resp_${shortid(24)}`,
 		object: "response",
 		created_at: chatResponse.created ?? Math.floor(Date.now() / 1000),
 		model: chatResponse.model ?? requestedModel,

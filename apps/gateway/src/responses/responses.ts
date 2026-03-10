@@ -2,6 +2,11 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import {
+	findApiKeyByToken,
+	findProjectById,
+	findOrganizationById,
+} from "@/lib/cached-queries.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -20,6 +25,51 @@ import { storeResponse, getStoredResponse } from "./tools/response-state.js";
 import type { ServerTypes } from "@/vars.js";
 
 export const responses = new Hono<ServerTypes>();
+
+/**
+ * Extract and validate the API token from request headers.
+ * Returns the token, apiKey, project, and organization.
+ */
+async function authenticateRequest(c: {
+	req: { header: (name: string) => string | undefined };
+}) {
+	const auth = c.req.header("Authorization");
+	const xApiKey = c.req.header("x-api-key");
+
+	let token: string | undefined;
+
+	if (auth) {
+		const split = auth.split("Bearer ");
+		if (split.length === 2 && split[1]) {
+			token = split[1];
+		}
+	}
+
+	if (!token && xApiKey) {
+		token = xApiKey;
+	}
+
+	if (!token) {
+		return { error: "No API key provided", status: 401 as const };
+	}
+
+	const apiKey = await findApiKeyByToken(token);
+	if (!apiKey || apiKey.status !== "active") {
+		return { error: "Invalid API key", status: 401 as const };
+	}
+
+	const project = await findProjectById(apiKey.projectId);
+	if (!project) {
+		return { error: "Could not find project", status: 500 as const };
+	}
+
+	const organization = await findOrganizationById(project.organizationId);
+	if (!organization) {
+		return { error: "Could not find organization", status: 500 as const };
+	}
+
+	return { apiKey, project, organization };
+}
 
 /**
  * POST /v1/responses - OpenAI Responses API endpoint
@@ -61,6 +111,39 @@ responses.post("/", async (c) => {
 
 	const req = validation.data;
 
+	// Authenticate and check data retention
+	const authResult = await authenticateRequest(c);
+	if ("error" in authResult) {
+		return c.json(
+			{
+				error: {
+					message: authResult.error,
+					type: "invalid_request_error",
+					code: "unauthorized",
+				},
+			},
+			authResult.status,
+		);
+	}
+
+	const { project, organization } = authResult;
+
+	if (organization.retentionLevel !== "retain") {
+		return c.json(
+			{
+				error: {
+					message:
+						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
+					type: "invalid_request_error",
+					code: "data_retention_required",
+				},
+			},
+			400,
+		);
+	}
+
+	const projectId = project.id;
+
 	let inputItems: unknown[];
 	if (typeof req.input === "string") {
 		inputItems = [{ role: "user", content: req.input }];
@@ -70,7 +153,7 @@ responses.post("/", async (c) => {
 
 	// Handle previous_response_id for conversation chaining
 	if (req.previous_response_id) {
-		const stored = await getStoredResponse(req.previous_response_id);
+		const stored = await getStoredResponse(req.previous_response_id, projectId);
 		if (!stored) {
 			return c.json(
 				{
@@ -171,6 +254,19 @@ responses.post("/", async (c) => {
 		chatRequest.stream_options = { include_usage: true };
 	}
 
+	// Generate the response ID upfront so we can pass it to the log entry
+	const state = createStreamingState(req.model);
+	const responsesApiId = state.responseId;
+
+	// Build Responses API data for storage in the log entry.
+	// For streaming, we'll update this after completion with the final output.
+	const responsesApiData = {
+		input: inputItems,
+		output: [] as unknown[],
+		instructions: req.instructions,
+		model: req.model,
+	};
+
 	// Make internal request to the existing chat completions endpoint
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
@@ -183,6 +279,8 @@ responses.post("/", async (c) => {
 			"x-source": c.req.header("x-source") ?? "",
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+			"x-responses-api-id": responsesApiId,
+			"x-responses-api-data": JSON.stringify(responsesApiData),
 		},
 		body: JSON.stringify(chatRequest),
 	});
@@ -236,8 +334,6 @@ responses.post("/", async (c) => {
 			const decoder = new TextDecoder();
 			let buffer = "";
 
-			const state = createStreamingState(req.model);
-
 			// Send response.created
 			const createdEvent = createResponseCreatedEvent(state);
 			await stream.writeSSE({
@@ -266,13 +362,17 @@ responses.post("/", async (c) => {
 						const completedData = JSON.parse(
 							completionEvents[completionEvents.length - 1]!.data,
 						);
-						await storeResponse(state.responseId, {
-							id: state.responseId,
-							input: inputItems,
-							output: completedData.response?.output ?? [],
-							instructions: req.instructions,
-							model: req.model,
-						});
+						await storeResponse(
+							responsesApiId,
+							{
+								id: responsesApiId,
+								input: inputItems,
+								output: completedData.response?.output ?? [],
+								instructions: req.instructions,
+								model: req.model,
+							},
+							projectId,
+						);
 					}
 					return true;
 				}
@@ -336,17 +436,25 @@ responses.post("/", async (c) => {
 
 	// Handle non-streaming response
 	const chatJson = await response.json();
-	const responsesResponse = convertChatResponseToResponses(chatJson, req.model);
+	const responsesResponse = convertChatResponseToResponses(
+		chatJson,
+		req.model,
+		responsesApiId,
+	);
 
 	// Store for previous_response_id (unless store: false)
 	if (req.store !== false) {
-		await storeResponse(responsesResponse.id, {
-			id: responsesResponse.id,
-			input: inputItems,
-			output: responsesResponse.output,
-			instructions: req.instructions,
-			model: req.model,
-		});
+		await storeResponse(
+			responsesResponse.id,
+			{
+				id: responsesResponse.id,
+				input: inputItems,
+				output: responsesResponse.output,
+				instructions: req.instructions,
+				model: req.model,
+			},
+			projectId,
+		);
 	}
 
 	return c.json(responsesResponse);
@@ -356,8 +464,24 @@ responses.post("/", async (c) => {
  * GET /v1/responses/:response_id - Retrieve a stored response
  */
 responses.get("/:response_id", async (c) => {
+	// Authenticate for project scoping
+	const authResult = await authenticateRequest(c);
+	if ("error" in authResult) {
+		return c.json(
+			{
+				error: {
+					message: authResult.error,
+					type: "invalid_request_error",
+					code: "unauthorized",
+				},
+			},
+			authResult.status,
+		);
+	}
+
+	const { project } = authResult;
 	const responseId = c.req.param("response_id");
-	const stored = await getStoredResponse(responseId);
+	const stored = await getStoredResponse(responseId, project.id);
 
 	if (!stored) {
 		return c.json(

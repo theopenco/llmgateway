@@ -602,6 +602,8 @@ export const log = pgTable(
 		internalContentFilter: boolean(),
 		gatewayContentFilterResponse:
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
+		responsesApiId: text(),
+		responsesApiData: jsonb(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
