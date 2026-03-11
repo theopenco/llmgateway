@@ -2638,21 +2638,21 @@ admin.openapi(getModelStats, async (c) => {
 		const [statsRows, modelRows, providerCountRows] = await Promise.all([
 			db
 				.select({
-					usedModel: projectHourlyModelStats.usedModel,
-					logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
-					errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`,
-					cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`,
-					totalTokens: sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`,
-					totalCost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+					modelId: modelHistory.modelId,
+					logsCount: sql<number>`SUM(${modelHistory.logsCount})`,
+					errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`,
+					cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`,
+					totalTokens: sql<number>`SUM(CAST(${modelHistory.totalTokens} AS NUMERIC))`,
+					totalCost: sql<number>`SUM(${modelHistory.totalCost})`,
 				})
-				.from(projectHourlyModelStats)
+				.from(modelHistory)
 				.where(
 					and(
-						gte(projectHourlyModelStats.hourTimestamp, startDate),
-						lt(projectHourlyModelStats.hourTimestamp, endDateExclusive),
+						gte(modelHistory.minuteTimestamp, startDate),
+						lt(modelHistory.minuteTimestamp, endDateExclusive),
 					),
 				)
-				.groupBy(projectHourlyModelStats.usedModel),
+				.groupBy(modelHistory.modelId),
 			db
 				.select({
 					id: tables.model.id,
@@ -2677,7 +2677,7 @@ admin.openapi(getModelStats, async (c) => {
 
 		const statsMap = new Map(
 			statsRows.map((r) => [
-				r.usedModel,
+				r.modelId,
 				{
 					logsCount: Number(r.logsCount ?? 0),
 					errorsCount: Number(r.errorsCount ?? 0),
@@ -2886,20 +2886,23 @@ admin.openapi(getModelDetail, async (c) => {
 			.where(eq(tables.modelProviderMapping.modelId, modelId)),
 		db
 			.select({
-				usedProvider: projectHourlyModelStats.usedProvider,
-				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"logs_count",
-				),
-				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`.as(
-					"errors_count",
-				),
-				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
-					"cached_count",
-				),
+				providerId: modelProviderMappingHistory.providerId,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+						"errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+						"cached_count",
+					),
 			})
-			.from(projectHourlyModelStats)
-			.where(eq(projectHourlyModelStats.usedModel, modelId))
-			.groupBy(projectHourlyModelStats.usedProvider),
+			.from(modelProviderMappingHistory)
+			.where(eq(modelProviderMappingHistory.modelId, modelId))
+			.groupBy(modelProviderMappingHistory.providerId),
 	]);
 
 	const providerIds = mappings.map((m) => m.providerId);
@@ -2913,7 +2916,7 @@ admin.openapi(getModelDetail, async (c) => {
 	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
 	const providerStatsMap = new Map(
 		statsRows.map((r) => [
-			r.usedProvider,
+			r.providerId,
 			{
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
