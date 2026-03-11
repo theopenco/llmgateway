@@ -115,16 +115,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.10
-        version: 1.19.10(hono@4.12.4)
+        version: 1.19.10(hono@4.12.7)
       '@hono/swagger-ui':
         specifier: ^0.5.2
-        version: 0.5.2(hono@4.12.4)
+        version: 0.5.2(hono@4.12.7)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.12.4)(zod@3.25.75)
+        version: 0.19.8(hono@4.12.7)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.2(hono@4.12.4)(zod@3.25.75)
+        version: 0.7.2(hono@4.12.7)(zod@3.25.75)
       '@kubiks/otel-better-auth':
         specifier: 2.0.2
         version: 2.0.2(@opentelemetry/api@1.9.0)(better-auth@1.3.30(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
@@ -177,11 +177,11 @@ importers:
         specifier: workspace:*
         version: link:../gateway
       hono:
-        specifier: ^4.12.4
-        version: 4.12.4
+        specifier: ^4.12.7
+        version: 4.12.7
       hono-openapi:
         specifier: ^1.1.1
-        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.4)(openapi-types@12.1.3)
+        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.7)(openapi-types@12.1.3)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -199,7 +199,7 @@ importers:
         version: 6.8.0(@react-email/render@1.0.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       stripe:
         specifier: 18.1.1
-        version: 18.1.1(@types/node@25.3.3)
+        version: 18.1.1(@types/node@25.4.0)
       zod:
         specifier: 3.25.75
         version: 3.25.75
@@ -368,7 +368,7 @@ importers:
         version: 16.0.11(@types/react@19.2.14)(lucide-react@0.544.0(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       fumadocs-mdx:
         specifier: 13.0.8
-        version: 13.0.8(fumadocs-core@16.0.11(@types/react@19.2.14)(lucide-react@0.544.0(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(vite@7.1.11(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1))
+        version: 13.0.8(fumadocs-core@16.0.11(@types/react@19.2.14)(lucide-react@0.544.0(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(vite@7.1.11(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1))
       fumadocs-openapi:
         specifier: 10.0.6
         version: 10.0.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(lucide-react@0.544.0(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(prettier@3.6.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(tailwindcss@4.1.16)
@@ -435,16 +435,16 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.10
-        version: 1.19.10(hono@4.12.4)
+        version: 1.19.10(hono@4.12.7)
       '@hono/swagger-ui':
         specifier: ^0.5.2
-        version: 0.5.2(hono@4.12.4)
+        version: 0.5.2(hono@4.12.7)
       '@hono/zod-openapi':
         specifier: ^0.19.6
-        version: 0.19.8(hono@4.12.4)(zod@3.25.75)
+        version: 0.19.8(hono@4.12.7)(zod@3.25.75)
       '@hono/zod-validator':
         specifier: ^0.7.2
-        version: 0.7.2(hono@4.12.4)(zod@3.25.75)
+        version: 0.7.2(hono@4.12.7)(zod@3.25.75)
       '@llmgateway/actions':
         specifier: workspace:*
         version: link:../../packages/actions
@@ -471,7 +471,7 @@ importers:
         version: link:../../packages/shared
       '@modelcontextprotocol/sdk':
         specifier: 1.25.3
-        version: 1.25.3(hono@4.12.4)(zod@3.25.75)
+        version: 1.25.3(hono@4.12.7)(zod@3.25.75)
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
@@ -488,11 +488,11 @@ importers:
         specifier: 3.0.1
         version: 3.0.1
       hono:
-        specifier: ^4.12.4
-        version: 4.12.4
+        specifier: ^4.12.7
+        version: 4.12.7
       hono-openapi:
         specifier: ^1.1.1
-        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.4)(openapi-types@12.1.3)
+        version: 1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.7)(openapi-types@12.1.3)
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
@@ -534,7 +534,7 @@ importers:
         version: link:../../packages/shared
       '@modelcontextprotocol/sdk':
         specifier: 1.25.3
-        version: 1.25.3(hono@4.12.4)(zod@3.25.76)
+        version: 1.25.3(hono@4.12.7)(zod@3.25.76)
       '@radix-ui/react-avatar':
         specifier: 1.1.11
         version: 1.1.11(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -748,10 +748,10 @@ importers:
     dependencies:
       '@content-collections/core':
         specifier: 0.11.1
-        version: 0.11.1(typescript@5.9.3)
+        version: 0.11.1(typescript@5.9.2)
       '@content-collections/next':
         specifier: 0.2.9
-        version: 0.2.9(@content-collections/core@0.11.1(typescript@5.9.3))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
+        version: 0.2.9(@content-collections/core@0.11.1(typescript@5.9.2))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       '@hookform/resolvers':
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.4))
@@ -962,7 +962,7 @@ importers:
         version: 10.4.21(postcss@8.5.6)
       openapi-typescript:
         specifier: 7.10.1
-        version: 7.10.1(typescript@5.9.3)
+        version: 7.10.1(typescript@5.9.2)
       postcss:
         specifier: ^8.5.6
         version: 8.5.6
@@ -992,7 +992,7 @@ importers:
         version: 10.5.0
       stripe:
         specifier: 18.1.1
-        version: 18.1.1(@types/node@25.3.3)
+        version: 18.1.1(@types/node@25.4.0)
       zod:
         specifier: 3.25.75
         version: 3.25.75
@@ -1288,8 +1288,8 @@ importers:
         specifier: 2.2.0
         version: 2.2.0(@opentelemetry/api@1.9.0)
       hono:
-        specifier: ^4.12.4
-        version: 4.12.4
+        specifier: ^4.12.7
+        version: 4.12.7
       prom-client:
         specifier: 15.1.3
         version: 15.1.3
@@ -1553,8 +1553,8 @@ packages:
     resolution: {integrity: sha512-YKWi9YuCU04B55h25cnOYZHxXYtEvQEbKST5vqRga7hWY9ydd3FZHdeQF8pyh+acWZvppw13M/LMGx0LABUVMA==}
     engines: {node: '>=18.0.0'}
 
-  '@azure/core-rest-pipeline@1.22.2':
-    resolution: {integrity: sha512-MzHym+wOi8CLUlKCQu12de0nwcq9k9Kuv43j4Wa++CsCpJwps2eeBQwD2Bu8snkxTtDKDx4GwjuR9E8yC8LNrg==}
+  '@azure/core-rest-pipeline@1.23.0':
+    resolution: {integrity: sha512-Evs1INHo+jUjwHi1T6SG6Ua/LHOQBCLuKEEE6efIpt4ZOoNonaT1kP32GoOcdNDbfqsD2445CPri3MubBy5DEQ==}
     engines: {node: '>=20.0.0'}
 
   '@azure/core-tracing@1.3.1':
@@ -4405,8 +4405,8 @@ packages:
   '@types/node@25.3.0':
     resolution: {integrity: sha512-4K3bqJpXpqfg2XKGK9bpDTc6xO/xoUP/RBWS7AtRMug6zZFaRekiLzjVtAoZMquxoAbzBvy5nxQ7veS5eYzf8A==}
 
-  '@types/node@25.3.3':
-    resolution: {integrity: sha512-DpzbrH7wIcBaJibpKo9nnSQL0MTRdnWttGyE5haGwK86xgMOkFLp7vEyfQPGLOJh5wNYiJ3V9PmUMDhV9u8kkQ==}
+  '@types/node@25.4.0':
+    resolution: {integrity: sha512-9wLpoeWuBlcbBpOY3XmzSTG3oscB6xjBEEtn+pYXTfhyXhIxC5FsBer2KTopBlvKEiW9l13po9fq+SJY/5lkhw==}
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
@@ -4573,8 +4573,8 @@ packages:
     resolution: {integrity: sha512-q+SL+b+05Ud6LbEE35qe4A99P+htKTKVbyiNEe45eCbJFyh/HVK9QXwlrbz+Q4L8SOW4roxSVwXYj4DMBT7Ieg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@typespec/ts-http-runtime@0.3.3':
-    resolution: {integrity: sha512-91fp6CAAJSRtH5ja95T1FHSKa8aPW9/Zw6cta81jlZTUw/+Vq8jM/AfF/14h2b71wwR84JUTW/3Y8QPhDAawFA==}
+  '@typespec/ts-http-runtime@0.3.4':
+    resolution: {integrity: sha512-CI0NhTrz4EBaa0U+HaaUZrJhPoso8sG7ZFya8uQoBA57fjzrjRSv87ekCjLZOFExN+gXE/z0xuN2QfH4H2HrLQ==}
     engines: {node: '>=20.0.0'}
 
   '@ungap/structured-clone@1.3.0':
@@ -6972,8 +6972,8 @@ packages:
       hono:
         optional: true
 
-  hono@4.12.4:
-    resolution: {integrity: sha512-ooiZW1Xy8rQ4oELQ++otI2T9DsKpV0M6c6cO6JGx4RTfav9poFFLlet9UMXHZnoM1yG0HWGlQLswBGX3RZmHtg==}
+  hono@4.12.7:
+    resolution: {integrity: sha512-jq9l1DM0zVIvsm3lv9Nw9nlJnMNPOcAtsbsgiUhWcFzPE99Gvo6yRTlszSLLYacMeQ6quHD6hMfId8crVHvexw==}
     engines: {node: '>=16.9.0'}
 
   hook-std@4.0.0:
@@ -8182,8 +8182,8 @@ packages:
       sass:
         optional: true
 
-  node-abi@3.87.0:
-    resolution: {integrity: sha512-+CGM1L1CgmtheLcBuleyYOn7NWPVu0s0EJH2C4puxgEZb9h8QpR9G2dBfZJOAUhi7VQxuBPMd0hiISWcTyiYyQ==}
+  node-abi@3.88.0:
+    resolution: {integrity: sha512-At6b4UqIEVudaqPsXjmUO1r/N5BUr4yhDGs5PkBE8/oG5+TfLPhFechiskFsnT6Ql0VfUXbalUUCbfXxtj7K+w==}
     engines: {node: '>=10'}
 
   node-cleanup@2.1.2:
@@ -10633,9 +10633,9 @@ snapshots:
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
-      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-rest-pipeline': 1.23.0
       '@azure/core-tracing': 1.3.1
-      '@typespec/ts-http-runtime': 0.3.3
+      '@typespec/ts-http-runtime': 0.3.4
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
@@ -10656,7 +10656,7 @@ snapshots:
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
-      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-rest-pipeline': 1.23.0
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
@@ -10664,11 +10664,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@azure/core-http-compat@2.3.2(@azure/core-client@1.10.1)(@azure/core-rest-pipeline@1.22.2)':
+  '@azure/core-http-compat@2.3.2(@azure/core-client@1.10.1)(@azure/core-rest-pipeline@1.23.0)':
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@azure/core-client': 1.10.1
-      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-rest-pipeline': 1.23.0
 
   '@azure/core-lro@2.7.2':
     dependencies:
@@ -10683,14 +10683,14 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@azure/core-rest-pipeline@1.22.2':
+  '@azure/core-rest-pipeline@1.23.0':
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
-      '@typespec/ts-http-runtime': 0.3.3
+      '@typespec/ts-http-runtime': 0.3.4
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
@@ -10702,7 +10702,7 @@ snapshots:
   '@azure/core-util@1.13.1':
     dependencies:
       '@azure/abort-controller': 2.1.2
-      '@typespec/ts-http-runtime': 0.3.3
+      '@typespec/ts-http-runtime': 0.3.4
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
@@ -10712,7 +10712,7 @@ snapshots:
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
       '@azure/core-client': 1.10.1
-      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-rest-pipeline': 1.23.0
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
@@ -10728,7 +10728,7 @@ snapshots:
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
       '@azure/core-client': 1.10.1
-      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-rest-pipeline': 1.23.0
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
@@ -10741,10 +10741,10 @@ snapshots:
       '@azure-rest/core-client': 2.5.1
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.10.1
-      '@azure/core-http-compat': 2.3.2(@azure/core-client@1.10.1)(@azure/core-rest-pipeline@1.22.2)
+      '@azure/core-http-compat': 2.3.2(@azure/core-client@1.10.1)(@azure/core-rest-pipeline@1.23.0)
       '@azure/core-lro': 2.7.2
       '@azure/core-paging': 1.6.2
-      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-rest-pipeline': 1.23.0
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/keyvault-common': 2.0.0
@@ -10756,7 +10756,7 @@ snapshots:
 
   '@azure/logger@1.3.0':
     dependencies:
-      '@typespec/ts-http-runtime': 0.3.3
+      '@typespec/ts-http-runtime': 0.3.4
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
@@ -11039,7 +11039,7 @@ snapshots:
       conventional-commits-parser: 6.2.1
       picocolors: 1.1.1
 
-  '@content-collections/core@0.11.1(typescript@5.9.3)':
+  '@content-collections/core@0.11.1(typescript@5.9.2)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       camelcase: 8.0.0
@@ -11051,18 +11051,18 @@ snapshots:
       pluralize: 8.0.0
       serialize-javascript: 6.0.2
       tinyglobby: 0.2.15
-      typescript: 5.9.3
+      typescript: 5.9.2
       yaml: 2.8.1
       zod: 3.25.76
 
-  '@content-collections/integrations@0.3.0(@content-collections/core@0.11.1(typescript@5.9.3))':
+  '@content-collections/integrations@0.3.0(@content-collections/core@0.11.1(typescript@5.9.2))':
     dependencies:
-      '@content-collections/core': 0.11.1(typescript@5.9.3)
+      '@content-collections/core': 0.11.1(typescript@5.9.2)
 
-  '@content-collections/next@0.2.9(@content-collections/core@0.11.1(typescript@5.9.3))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))':
+  '@content-collections/next@0.2.9(@content-collections/core@0.11.1(typescript@5.9.2))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))':
     dependencies:
-      '@content-collections/core': 0.11.1(typescript@5.9.3)
-      '@content-collections/integrations': 0.3.0(@content-collections/core@0.11.1(typescript@5.9.3))
+      '@content-collections/core': 0.11.1(typescript@5.9.2)
+      '@content-collections/integrations': 0.3.0(@content-collections/core@0.11.1(typescript@5.9.2))
       next: 16.1.6(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
 
   '@date-fns/tz@1.4.1': {}
@@ -11373,24 +11373,24 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@1.19.10(hono@4.12.4)':
+  '@hono/node-server@1.19.10(hono@4.12.7)':
     dependencies:
-      hono: 4.12.4
+      hono: 4.12.7
 
-  '@hono/swagger-ui@0.5.2(hono@4.12.4)':
+  '@hono/swagger-ui@0.5.2(hono@4.12.7)':
     dependencies:
-      hono: 4.12.4
+      hono: 4.12.7
 
-  '@hono/zod-openapi@0.19.8(hono@4.12.4)(zod@3.25.75)':
+  '@hono/zod-openapi@0.19.8(hono@4.12.7)(zod@3.25.75)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 7.3.0(zod@3.25.75)
-      '@hono/zod-validator': 0.7.2(hono@4.12.4)(zod@3.25.75)
-      hono: 4.12.4
+      '@hono/zod-validator': 0.7.2(hono@4.12.7)(zod@3.25.75)
+      hono: 4.12.7
       zod: 3.25.75
 
-  '@hono/zod-validator@0.7.2(hono@4.12.4)(zod@3.25.75)':
+  '@hono/zod-validator@0.7.2(hono@4.12.7)(zod@3.25.75)':
     dependencies:
-      hono: 4.12.4
+      hono: 4.12.7
       zod: 3.25.75
 
   '@hookform/resolvers@5.2.2(react-hook-form@7.65.0(react@19.2.4))':
@@ -11612,9 +11612,9 @@ snapshots:
     dependencies:
       langium: 3.3.1
 
-  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.4)(zod@3.25.75)':
+  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.7)(zod@3.25.75)':
     dependencies:
-      '@hono/node-server': 1.19.10(hono@4.12.4)
+      '@hono/node-server': 1.19.10(hono@4.12.7)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -11634,9 +11634,9 @@ snapshots:
       - hono
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.4)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.25.3(hono@4.12.7)(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.10(hono@4.12.4)
+      '@hono/node-server': 1.19.10(hono@4.12.7)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -13998,7 +13998,7 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  '@types/node@25.3.3':
+  '@types/node@25.4.0':
     dependencies:
       undici-types: 7.18.2
     optional: true
@@ -14237,7 +14237,7 @@ snapshots:
       '@typescript-eslint/types': 8.56.0
       eslint-visitor-keys: 5.0.0
 
-  '@typespec/ts-http-runtime@0.3.3':
+  '@typespec/ts-http-runtime@0.3.4':
     dependencies:
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
@@ -16549,7 +16549,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  fumadocs-mdx@13.0.8(fumadocs-core@16.0.11(@types/react@19.2.14)(lucide-react@0.544.0(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(vite@7.1.11(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)):
+  fumadocs-mdx@13.0.8(fumadocs-core@16.0.11(@types/react@19.2.14)(lucide-react@0.544.0(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(next@16.1.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(vite@7.1.11(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)):
     dependencies:
       '@mdx-js/mdx': 3.1.1
       '@standard-schema/spec': 1.1.0
@@ -16572,7 +16572,7 @@ snapshots:
     optionalDependencies:
       next: 16.1.6(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
-      vite: 7.1.11(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)
+      vite: 7.1.11(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -17063,16 +17063,16 @@ snapshots:
 
   highlightjs-vue@1.0.0: {}
 
-  hono-openapi@1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.4)(openapi-types@12.1.3):
+  hono-openapi@1.1.1(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75))(@types/json-schema@7.0.15)(hono@4.12.7)(openapi-types@12.1.3):
     dependencies:
       '@standard-community/standard-json': 0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75)
       '@standard-community/standard-openapi': 0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@3.25.75))(zod@3.25.75))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod-openapi@5.4.3(zod@3.25.75))(zod@3.25.75)
       '@types/json-schema': 7.0.15
       openapi-types: 12.1.3
     optionalDependencies:
-      hono: 4.12.4
+      hono: 4.12.7
 
-  hono@4.12.4: {}
+  hono@4.12.7: {}
 
   hook-std@4.0.0: {}
 
@@ -18505,7 +18505,7 @@ snapshots:
       - '@babel/core'
       - babel-plugin-macros
 
-  node-abi@3.87.0:
+  node-abi@3.88.0:
     dependencies:
       semver: 7.7.4
     optional: true
@@ -18692,6 +18692,16 @@ snapshots:
   openapi-types@12.1.3: {}
 
   openapi-typescript-helpers@0.0.15: {}
+
+  openapi-typescript@7.10.1(typescript@5.9.2):
+    dependencies:
+      '@redocly/openapi-core': 1.34.5(supports-color@10.2.2)
+      ansi-colors: 4.1.3
+      change-case: 5.4.4
+      parse-json: 8.3.0
+      supports-color: 10.2.2
+      typescript: 5.9.2
+      yargs-parser: 21.1.1
 
   openapi-typescript@7.10.1(typescript@5.9.3):
     dependencies:
@@ -19062,7 +19072,7 @@ snapshots:
       minimist: 1.2.8
       mkdirp-classic: 0.5.3
       napi-build-utils: 2.0.0
-      node-abi: 3.87.0
+      node-abi: 3.88.0
       pump: 3.0.4
       rc: 1.2.8
       simple-get: 4.0.1
@@ -20228,11 +20238,11 @@ snapshots:
 
   strip-json-comments@5.0.3: {}
 
-  stripe@18.1.1(@types/node@25.3.3):
+  stripe@18.1.1(@types/node@25.4.0):
     dependencies:
       qs: 6.14.1
     optionalDependencies:
-      '@types/node': 25.3.3
+      '@types/node': 25.4.0
 
   strnum@1.1.2: {}
 
@@ -20873,7 +20883,7 @@ snapshots:
       tsx: 4.20.6
       yaml: 2.8.1
 
-  vite@7.1.11(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1):
+  vite@7.1.11(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.40.0)(tsx@4.20.6)(yaml@2.8.1):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.3)
@@ -20882,7 +20892,7 @@ snapshots:
       rollup: 4.52.5
       tinyglobby: 0.2.15
     optionalDependencies:
-      '@types/node': 25.3.3
+      '@types/node': 25.4.0
       fsevents: 2.3.3
       jiti: 2.6.1
       lightningcss: 1.30.2
