@@ -7,6 +7,10 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import {
+	setResponsesContext,
+	deleteResponsesContext,
+} from "@/lib/responses-context.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -288,18 +292,28 @@ responses.post("/", async (c) => {
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 	};
 
-	// Only send sync insert / storage headers when we need to persist the response
+	// Pass Responses API context via in-memory Map (not headers) to avoid
+	// exposing internal control fields to external callers and header size limits.
+	const contextKey = logId;
 	if (shouldStore) {
-		internalHeaders["x-sync-log-insert"] = "true";
-		internalHeaders["x-log-id"] = logId;
-		internalHeaders["x-responses-api-data"] = JSON.stringify(responsesApiData);
+		setResponsesContext(contextKey, {
+			logId,
+			syncInsert: true,
+			responsesApiData,
+		});
+		internalHeaders["x-responses-context-key"] = contextKey;
 	}
 
-	const response = await app.request("/v1/chat/completions", {
-		method: "POST",
-		headers: internalHeaders,
-		body: JSON.stringify(chatRequest),
-	});
+	let response: Response;
+	try {
+		response = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: internalHeaders,
+			body: JSON.stringify(chatRequest),
+		});
+	} finally {
+		deleteResponsesContext(contextKey);
+	}
 
 	if (!response.ok) {
 		logger.warn("Responses API -> chat completions request failed", {
