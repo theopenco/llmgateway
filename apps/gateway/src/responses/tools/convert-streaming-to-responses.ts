@@ -3,6 +3,7 @@ import { shortid } from "@llmgateway/db";
 interface StreamingState {
 	responseId: string;
 	model: string;
+	createdAt: number;
 	outputItemIndex: number;
 	contentPartStarted: boolean;
 	outputItemStarted: boolean;
@@ -19,6 +20,7 @@ interface StreamingState {
 			callId: string;
 			name: string;
 			arguments: string;
+			outputIndex: number;
 		}
 	>;
 	usage: {
@@ -38,6 +40,7 @@ export function createStreamingState(
 	return {
 		responseId: responseId ?? `resp_${shortid(24)}`,
 		model,
+		createdAt: Math.floor(Date.now() / 1000),
 		outputItemIndex: 0,
 		contentPartStarted: false,
 		outputItemStarted: false,
@@ -68,7 +71,7 @@ export function createResponseCreatedEvent(state: StreamingState): SSEEvent {
 			response: {
 				id: state.responseId,
 				object: "response",
-				created_at: Math.floor(Date.now() / 1000),
+				created_at: state.createdAt,
 				model: state.model,
 				status: "in_progress",
 				output: [],
@@ -166,17 +169,19 @@ export function processStreamChunk(
 				const callId = tc.id ?? `call_${shortid(24)}`;
 				const name = tc.function?.name ?? "";
 				const fcId = `fc_${shortid(24)}`;
+				const tcOutputIndex = state.outputItemIndex++;
 				state.toolCalls.set(tc.index, {
 					id: fcId,
 					callId,
 					name,
 					arguments: tc.function?.arguments ?? "",
+					outputIndex: tcOutputIndex,
 				});
 				events.push({
 					event: "response.output_item.added",
 					data: JSON.stringify({
 						type: "response.output_item.added",
-						output_index: state.outputItemIndex++,
+						output_index: tcOutputIndex,
 						item: {
 							type: "function_call",
 							id: fcId,
@@ -328,6 +333,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 			event: "response.output_item.done",
 			data: JSON.stringify({
 				type: "response.output_item.done",
+				output_index: tc.outputIndex,
 				item: {
 					type: "function_call",
 					id: tc.id,
@@ -395,7 +401,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 			response: {
 				id: state.responseId,
 				object: "response",
-				created_at: Math.floor(Date.now() / 1000),
+				created_at: state.createdAt,
 				model: state.model,
 				output,
 				usage: state.usage,
@@ -418,7 +424,7 @@ export function createFailedEvent(state: StreamingState): SSEEvent {
 			response: {
 				id: state.responseId,
 				object: "response",
-				created_at: Math.floor(Date.now() / 1000),
+				created_at: state.createdAt,
 				model: state.model,
 				output: [],
 				usage: state.usage,

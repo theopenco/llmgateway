@@ -24,6 +24,7 @@ import {
 import { storeResponse, getStoredResponse } from "./tools/response-state.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const responses = new Hono<ServerTypes>();
 
@@ -129,12 +130,18 @@ responses.post("/", async (c) => {
 
 	const { project, organization } = authResult;
 
-	if (organization.retentionLevel !== "retain") {
+	const shouldStore = req.store !== false;
+
+	// Require retention when storing responses or chaining via previous_response_id
+	if (
+		(shouldStore || req.previous_response_id) &&
+		organization.retentionLevel !== "retain"
+	) {
 		return c.json(
 			{
 				error: {
 					message:
-						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
+						"Storing responses and using previous_response_id requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, use store: false, or use /v1/chat/completions instead.",
 					type: "invalid_request_error",
 					code: "data_retention_required",
 				},
@@ -270,21 +277,27 @@ responses.post("/", async (c) => {
 	};
 
 	// Make internal request to the existing chat completions endpoint
+	const internalHeaders: Record<string, string> = {
+		"Content-Type": "application/json",
+		Authorization: c.req.header("Authorization") ?? "",
+		"x-api-key": c.req.header("x-api-key") ?? "",
+		"User-Agent": c.req.header("User-Agent") ?? "",
+		"x-request-id": c.req.header("x-request-id") ?? "",
+		"x-source": c.req.header("x-source") ?? "",
+		"x-debug": c.req.header("x-debug") ?? "",
+		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+	};
+
+	// Only send sync insert / storage headers when we need to persist the response
+	if (shouldStore) {
+		internalHeaders["x-sync-log-insert"] = "true";
+		internalHeaders["x-log-id"] = logId;
+		internalHeaders["x-responses-api-data"] = JSON.stringify(responsesApiData);
+	}
+
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: c.req.header("Authorization") ?? "",
-			"x-api-key": c.req.header("x-api-key") ?? "",
-			"User-Agent": c.req.header("User-Agent") ?? "",
-			"x-request-id": c.req.header("x-request-id") ?? "",
-			"x-source": c.req.header("x-source") ?? "",
-			"x-debug": c.req.header("x-debug") ?? "",
-			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-			"x-sync-log-insert": "true",
-			"x-log-id": logId,
-			"x-responses-api-data": JSON.stringify(responsesApiData),
-		},
+		headers: internalHeaders,
 		body: JSON.stringify(chatRequest),
 	});
 
@@ -296,10 +309,7 @@ responses.post("/", async (c) => {
 		const errorData = await response.text();
 		try {
 			const errorJson = JSON.parse(errorData);
-			return c.json(
-				errorJson,
-				response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
-			);
+			return c.json(errorJson, response.status as ContentfulStatusCode);
 		} catch {
 			return c.json(
 				{
@@ -309,7 +319,7 @@ responses.post("/", async (c) => {
 						code: "internal_error",
 					},
 				},
-				response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
+				response.status as ContentfulStatusCode,
 			);
 		}
 	}
@@ -330,7 +340,6 @@ responses.post("/", async (c) => {
 		}
 
 		const streamBody = response.body;
-		const shouldStore = req.store !== false;
 
 		return streamSSE(c, async (stream) => {
 			const reader = streamBody.getReader();
@@ -365,12 +374,16 @@ responses.post("/", async (c) => {
 						const completedData = JSON.parse(
 							completionEvents[completionEvents.length - 1]!.data,
 						);
+						const completedResponse = completedData.response;
 						await storeResponse(logId, {
 							id: logId,
 							input: inputItems,
-							output: completedData.response?.output ?? [],
+							output: completedResponse?.output ?? [],
 							instructions: req.instructions,
 							model: req.model,
+							status: completedResponse?.status ?? "completed",
+							usage: completedResponse?.usage,
+							created_at: completedResponse?.created_at,
 						});
 					}
 					return true;
@@ -442,13 +455,16 @@ responses.post("/", async (c) => {
 	);
 
 	// Store for previous_response_id (unless store: false)
-	if (req.store !== false) {
+	if (shouldStore) {
 		await storeResponse(logId, {
 			id: logId,
 			input: inputItems,
 			output: responsesResponse.output,
 			instructions: req.instructions,
 			model: req.model,
+			status: responsesResponse.status,
+			usage: responsesResponse.usage,
+			created_at: responsesResponse.created_at,
 		});
 	}
 
@@ -494,8 +510,14 @@ responses.get("/:response_id", async (c) => {
 	return c.json({
 		id: stored.id,
 		object: "response",
+		created_at: stored.created_at ?? Math.floor(Date.now() / 1000),
 		model: stored.model,
 		output: stored.output,
-		status: "completed",
+		usage: stored.usage ?? {
+			input_tokens: 0,
+			output_tokens: 0,
+			total_tokens: 0,
+		},
+		status: stored.status,
 	});
 });

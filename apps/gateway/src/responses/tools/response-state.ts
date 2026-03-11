@@ -7,6 +7,9 @@ export interface StoredResponseData {
 	output: unknown[];
 	instructions?: string;
 	model: string;
+	status: "completed" | "incomplete" | "failed";
+	usage?: Record<string, unknown>;
+	created_at?: number;
 }
 
 /**
@@ -56,6 +59,9 @@ export async function getStoredResponse(
 			output: unknown[];
 			instructions?: string;
 			model?: string;
+			status?: "completed" | "incomplete" | "failed";
+			usage?: Record<string, unknown>;
+			created_at?: number;
 		};
 
 		return {
@@ -64,6 +70,9 @@ export async function getStoredResponse(
 			output: data.output,
 			instructions: data.instructions,
 			model: data.model ?? "",
+			status: data.status ?? "completed",
+			usage: data.usage,
+			created_at: data.created_at,
 		};
 	} catch {
 		return null;
