@@ -155,6 +155,11 @@ export function processStreamChunk(
 
 	// Handle tool_calls delta
 	if (delta.tool_calls) {
+		// If reasoning was streamed but tool calls arrive (no content), close reasoning index
+		if (state.reasoningStarted && !state.outputItemStarted) {
+			state.outputItemIndex++;
+		}
+
 		for (const tc of delta.tool_calls) {
 			const existing = state.toolCalls.get(tc.index);
 			if (!existing) {

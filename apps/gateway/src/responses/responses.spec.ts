@@ -149,6 +149,27 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[0]!.role).toBe("system");
 		expect(result[0]!.content).toBe("You are helpful");
 	});
+
+	it("skips reasoning items from stored output", () => {
+		// Reasoning items appear in stored output when chaining via previous_response_id.
+		// The function should skip them since they can't be converted to chat messages.
+		const input = [
+			{
+				type: "reasoning",
+				id: "rs_123",
+				summary: [{ type: "summary_text", text: "thinking..." }],
+			},
+			{ role: "assistant" as const, content: "The answer is 42" },
+			{ role: "user" as const, content: "Thanks" },
+		] as unknown[];
+		const result = convertResponsesInputToMessages(
+			input as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		expect(result).toHaveLength(2);
+		expect(result[0]!.role).toBe("assistant");
+		expect(result[0]!.content).toBe("The answer is 42");
+		expect(result[1]!.role).toBe("user");
+	});
 });
 
 describe("convertChatResponseToResponses", () => {

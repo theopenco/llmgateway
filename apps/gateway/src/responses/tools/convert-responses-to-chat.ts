@@ -66,6 +66,16 @@ export function convertResponsesInputToMessages(
 			continue;
 		}
 
+		// Skip reasoning items — they cannot be converted to chat messages.
+		// These appear in stored output when chaining via previous_response_id.
+		if (
+			"type" in item &&
+			(item as Record<string, unknown>).type === "reasoning"
+		) {
+			i++;
+			continue;
+		}
+
 		// function_call_output items -> tool messages
 		if ("type" in item && item.type === "function_call_output") {
 			messages.push({
