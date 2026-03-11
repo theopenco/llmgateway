@@ -8,6 +8,7 @@ import {
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
 
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { responsesRequestSchema } from "./schemas.js";
@@ -254,12 +255,13 @@ responses.post("/", async (c) => {
 		chatRequest.stream_options = { include_usage: true };
 	}
 
-	// Generate the response ID upfront so we can pass it to the log entry
-	const state = createStreamingState(req.model);
-	const responsesApiId = state.responseId;
+	// Generate log ID with resp_ prefix — this is both the log entry's primary key
+	// and the Responses API response ID
+	const logId = `resp_${shortid(24)}`;
+	const state = createStreamingState(req.model, logId);
 
 	// Build Responses API data for storage in the log entry.
-	// For streaming, we'll update this after completion with the final output.
+	// Output starts empty and is updated after completion via storeResponse().
 	const responsesApiData = {
 		input: inputItems,
 		output: [] as unknown[],
@@ -279,7 +281,8 @@ responses.post("/", async (c) => {
 			"x-source": c.req.header("x-source") ?? "",
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-			"x-responses-api-id": responsesApiId,
+			"x-sync-log-insert": "true",
+			"x-log-id": logId,
 			"x-responses-api-data": JSON.stringify(responsesApiData),
 		},
 		body: JSON.stringify(chatRequest),
@@ -362,17 +365,13 @@ responses.post("/", async (c) => {
 						const completedData = JSON.parse(
 							completionEvents[completionEvents.length - 1]!.data,
 						);
-						await storeResponse(
-							responsesApiId,
-							{
-								id: responsesApiId,
-								input: inputItems,
-								output: completedData.response?.output ?? [],
-								instructions: req.instructions,
-								model: req.model,
-							},
-							projectId,
-						);
+						await storeResponse(logId, {
+							id: logId,
+							input: inputItems,
+							output: completedData.response?.output ?? [],
+							instructions: req.instructions,
+							model: req.model,
+						});
 					}
 					return true;
 				}
@@ -439,22 +438,18 @@ responses.post("/", async (c) => {
 	const responsesResponse = convertChatResponseToResponses(
 		chatJson,
 		req.model,
-		responsesApiId,
+		logId,
 	);
 
 	// Store for previous_response_id (unless store: false)
 	if (req.store !== false) {
-		await storeResponse(
-			responsesResponse.id,
-			{
-				id: responsesResponse.id,
-				input: inputItems,
-				output: responsesResponse.output,
-				instructions: req.instructions,
-				model: req.model,
-			},
-			projectId,
-		);
+		await storeResponse(logId, {
+			id: logId,
+			input: inputItems,
+			output: responsesResponse.output,
+			instructions: req.instructions,
+			model: req.model,
+		});
 	}
 
 	return c.json(responsesResponse);

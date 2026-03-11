@@ -31,9 +31,12 @@ interface StreamingState {
 	};
 }
 
-export function createStreamingState(model: string): StreamingState {
+export function createStreamingState(
+	model: string,
+	responseId?: string,
+): StreamingState {
 	return {
-		responseId: `resp_${shortid(24)}`,
+		responseId: responseId ?? `resp_${shortid(24)}`,
 		model,
 		outputItemIndex: 0,
 		contentPartStarted: false,

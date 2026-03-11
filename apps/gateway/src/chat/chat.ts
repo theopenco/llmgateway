@@ -762,7 +762,8 @@ chat.openapi(completions, async (c) => {
 	const customHeaders = extractCustomHeaders(c);
 
 	// Extract Responses API headers (set by /v1/responses proxy)
-	const responsesApiId = c.req.header("x-responses-api-id") ?? null;
+	const syncLogInsert = c.req.header("x-sync-log-insert") === "true";
+	const logIdOverride = c.req.header("x-log-id") ?? undefined;
 	const responsesApiDataHeader = c.req.header("x-responses-api-data");
 	let responsesApiData: unknown = null;
 	if (responsesApiDataHeader) {
@@ -775,11 +776,14 @@ chat.openapi(completions, async (c) => {
 
 	// Wrapper that injects Responses API fields into every log entry
 	const insertLogEntry = (logData: LogInsertData) =>
-		insertLog({
-			...logData,
-			responsesApiId,
-			responsesApiData,
-		});
+		insertLog(
+			{
+				...logData,
+				...(logIdOverride ? { id: logIdOverride } : {}),
+				responsesApiData,
+			},
+			{ syncInsert: syncLogInsert },
+		);
 
 	// Check for X-No-Fallback header to disable provider fallback on low uptime
 	const noFallback =

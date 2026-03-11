@@ -10,13 +10,6 @@ import {
 	createFailedEvent,
 } from "./tools/convert-streaming-to-responses.js";
 
-vi.mock("@llmgateway/cache", () => ({
-	redisClient: {
-		setex: vi.fn().mockResolvedValue("OK"),
-		get: vi.fn().mockResolvedValue(null),
-	},
-}));
-
 vi.mock("@llmgateway/db", async (importOriginal) => {
 	const actual = await importOriginal<Record<string, unknown>>();
 	return {
@@ -25,9 +18,7 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 			select: vi.fn().mockReturnValue({
 				from: vi.fn().mockReturnValue({
 					where: vi.fn().mockReturnValue({
-						orderBy: vi.fn().mockReturnValue({
-							limit: vi.fn().mockResolvedValue([]),
-						}),
+						limit: vi.fn().mockResolvedValue([]),
 					}),
 				}),
 			}),
