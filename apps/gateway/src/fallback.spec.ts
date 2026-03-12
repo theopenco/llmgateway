@@ -203,7 +203,7 @@ describe("fallback and error status code handling", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(502);
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
 			expect(json.error.type).toBe("upstream_error");
@@ -235,7 +235,7 @@ describe("fallback and error status code handling", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(502);
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
 			expect(json.error.type).toBe("upstream_error");
