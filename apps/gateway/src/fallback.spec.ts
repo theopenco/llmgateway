@@ -556,18 +556,19 @@ describe("fallback and error status code handling", () => {
 			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
 
 			const errorEvent = streamResult.errorEvents[0];
-			expect(errorEvent.error.type).toBe("gateway_error");
-			expect(errorEvent.error.message).toContain(
+			const errorPayload = errorEvent.error ?? errorEvent;
+			expect(errorPayload.type).toBe("ValidationException");
+			expect(errorPayload.message).toContain(
 				"The provided model identifier is invalid for this account.",
 			);
-			expect(errorEvent.error.responseText).toContain("ValidationException");
 
 			const logs = await waitForLogs(1);
 			const log = logs[0];
-			expect(log.finishReason).toBe("gateway_error");
+			expect(log.finishReason).toBe("client_error");
 			expect(log.hasError).toBe(true);
 			expect(log.streamed).toBe(true);
 			expect(log.errorDetails?.statusCode).toBe(400);
+			expect(log.errorDetails?.responseText).toContain("ValidationException");
 			expect(log.errorDetails?.responseText).toContain(
 				"The provided model identifier is invalid for this account.",
 			);
