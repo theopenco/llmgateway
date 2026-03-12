@@ -29,11 +29,6 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
-	// 401/403 usually indicate invalid or unauthorized provider credentials
-	if (statusCode === 401 || statusCode === 403) {
-		return "gateway_error";
-	}
-
 	// Azure OpenAI content filter (ResponsibleAIPolicyViolation)
 	if (errorText?.includes("ResponsibleAIPolicyViolation")) {
 		return "content_filter";
@@ -45,6 +40,11 @@ export function getFinishReasonFromError(
 		errorText?.includes("Content violates usage guidelines")
 	) {
 		return "content_filter";
+	}
+
+	// 401/403 usually indicate invalid or unauthorized provider credentials
+	if (statusCode === 401 || statusCode === 403) {
+		return "gateway_error";
 	}
 
 	// zai content filter

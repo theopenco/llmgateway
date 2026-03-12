@@ -145,6 +145,22 @@ describe("api-key-health", () => {
 				permanentlyBlacklisted: false,
 			});
 		});
+
+		it("should still permanently blacklist ignored 4xx with permanent auth text", () => {
+			reportKeyError(
+				"LLM_OPENAI_API_KEY",
+				0,
+				400,
+				"API Key not found. Please pass a valid API key.",
+			);
+
+			expect(getKeyMetrics("LLM_OPENAI_API_KEY", 0)).toMatchObject({
+				uptime: 0,
+				totalRequests: 1,
+				consecutiveErrors: 0,
+				permanentlyBlacklisted: true,
+			});
+		});
 	});
 
 	describe("getKeyHealth", () => {

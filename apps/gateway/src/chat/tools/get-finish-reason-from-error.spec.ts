@@ -64,6 +64,15 @@ describe("getFinishReasonFromError", () => {
 		).toBe("client_error");
 	});
 
+	it("returns content_filter for xAI 403 safety rejection", () => {
+		expect(
+			getFinishReasonFromError(
+				403,
+				"Content violates usage guidelines: SAFETY_CHECK_TYPE_CSAM",
+			),
+		).toBe("content_filter");
+	});
+
 	it("returns client_error for other 400 errors", () => {
 		expect(getFinishReasonFromError(400, "some other error")).toBe(
 			"client_error",
