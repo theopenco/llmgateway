@@ -132,6 +132,13 @@ async function evaluateRule(
 
 		case "allow_providers":
 			if (ruleValue.providers) {
+				const newAllowedProviders = new Set<ProviderId>();
+				for (const provider of currentAllowedProviders) {
+					if (ruleValue.providers.includes(provider)) {
+						newAllowedProviders.add(provider);
+					}
+				}
+
 				if (requestedProvider) {
 					// Specific provider requested - check if it's allowed
 					if (!ruleValue.providers.includes(requestedProvider)) {
@@ -140,14 +147,8 @@ async function evaluateRule(
 							reason: `Provider ${requestedProvider} is not in the allowed providers list`,
 						};
 					}
+					return { allowed: true, allowedProviders: newAllowedProviders };
 				} else {
-					// No specific provider requested - filter allowed providers
-					const newAllowedProviders = new Set<ProviderId>();
-					for (const provider of currentAllowedProviders) {
-						if (ruleValue.providers.includes(provider)) {
-							newAllowedProviders.add(provider);
-						}
-					}
 					if (newAllowedProviders.size === 0) {
 						return {
 							allowed: false,
@@ -161,6 +162,13 @@ async function evaluateRule(
 
 		case "deny_providers":
 			if (ruleValue.providers) {
+				const newAllowedProviders = new Set<ProviderId>();
+				for (const provider of currentAllowedProviders) {
+					if (!ruleValue.providers.includes(provider)) {
+						newAllowedProviders.add(provider);
+					}
+				}
+
 				if (requestedProvider) {
 					// Specific provider requested - check if it's denied
 					if (ruleValue.providers.includes(requestedProvider)) {
@@ -169,14 +177,8 @@ async function evaluateRule(
 							reason: `Provider ${requestedProvider} is in the denied providers list`,
 						};
 					}
+					return { allowed: true, allowedProviders: newAllowedProviders };
 				} else {
-					// No specific provider requested - remove denied providers from allowed set
-					const newAllowedProviders = new Set<ProviderId>();
-					for (const provider of currentAllowedProviders) {
-						if (!ruleValue.providers.includes(provider)) {
-							newAllowedProviders.add(provider);
-						}
-					}
 					if (newAllowedProviders.size === 0) {
 						return {
 							allowed: false,
