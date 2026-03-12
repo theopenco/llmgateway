@@ -1,5 +1,6 @@
 import {
 	afterAll,
+	afterEach,
 	beforeEach,
 	beforeAll,
 	describe,
@@ -21,15 +22,8 @@ import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 describe("fallback and error status code handling", () => {
 	let mockServerUrl: string;
 
-	beforeAll(() => {
-		mockServerUrl = startMockServer(3001);
-	});
-
-	afterAll(() => {
-		stopMockServer();
-	});
-
-	beforeEach(async () => {
+	async function resetTestState() {
+		resetFailOnceCounter();
 		await clearCache();
 
 		await Promise.all([
@@ -51,6 +45,18 @@ describe("fallback and error status code handling", () => {
 			db.delete(tables.session),
 			db.delete(tables.verification),
 		]);
+	}
+
+	beforeAll(() => {
+		mockServerUrl = startMockServer(3001);
+	});
+
+	afterAll(() => {
+		stopMockServer();
+	});
+
+	beforeEach(async () => {
+		await resetTestState();
 	});
 
 	beforeEach(async () => {
@@ -81,6 +87,10 @@ describe("fallback and error status code handling", () => {
 			organizationId: "org-id",
 			mode: "api-keys",
 		});
+	});
+
+	afterEach(async () => {
+		await resetTestState();
 	});
 
 	// Helper to set up API key and provider key
@@ -904,10 +914,6 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("retry with fallback to alternate provider", () => {
-		beforeEach(() => {
-			resetFailOnceCounter();
-		});
-
 		test("non-streaming: retries on 500 and succeeds on fallback provider with failed_attempts in metadata", async () => {
 			await setupMultiProviderKeys();
 
@@ -1136,7 +1142,8 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(502);
 
 			const logs = await waitForLogs(1);
-			expect(logs.some((log) => log.usedProvider === "together.ai")).toBe(true);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("together.ai");
 			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 
@@ -1165,7 +1172,8 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(500);
 
 			const logs = await waitForLogs(1);
-			expect(logs.some((log) => log.usedProvider === "together.ai")).toBe(true);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("together.ai");
 			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 
@@ -1199,7 +1207,8 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(502);
 
 			const logs = await waitForLogs(1);
-			expect(logs.some((log) => log.usedProvider === "together.ai")).toBe(true);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("together.ai");
 			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 	});
