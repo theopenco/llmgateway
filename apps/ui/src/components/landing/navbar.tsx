@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
+import { ModelSearch } from "@/components/shared/model-search";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -331,6 +332,9 @@ export const Navbar = ({
 
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-2 lg:flex">
+							<div className="w-[140px] lg:w-[160px]">
+								<ModelSearch />
+							</div>
 							<NavigationMenu viewport={false}>
 								<NavigationMenuList className="flex gap-1 text-sm">
 									{/* Features dropdown */}
@@ -565,6 +569,9 @@ export const Navbar = ({
 						<div className="bg-background group-data-[state=active]:block lg:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap lg:m-0 lg:flex lg:w-fit lg:gap-3 lg:space-y-0 lg:border-transparent lg:bg-transparent lg:p-0 lg:shadow-none dark:shadow-none dark:lg:bg-transparent">
 							{/* Mobile nav */}
 							<div className="lg:hidden">
+								<div className="mb-6">
+									<ModelSearch />
+								</div>
 								<ul className="space-y-6 text-base">
 									<li>
 										<Link
