@@ -182,7 +182,7 @@ describe("fallback and error status code handling", () => {
 				apiKeyId: "token-id",
 				ruleType: rule.ruleType,
 				ruleValue: { providers: rule.providers },
-				status: "active",
+				status: "active" as const,
 			})),
 		);
 	}
