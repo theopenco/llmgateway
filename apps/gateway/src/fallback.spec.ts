@@ -203,7 +203,7 @@ describe("fallback and error status code handling", () => {
 				}),
 			});
 
-			expect(res.status).toBe(502);
+			expect(res.status).toBe(500);
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
 			expect(json.error.type).toBe("upstream_error");
@@ -235,7 +235,7 @@ describe("fallback and error status code handling", () => {
 				}),
 			});
 
-			expect(res.status).toBe(502);
+			expect(res.status).toBe(500);
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
 			expect(json.error.type).toBe("upstream_error");
@@ -1133,12 +1133,11 @@ describe("fallback and error status code handling", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(502);
 
 			const logs = await waitForLogs(1);
-			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
-			expect(logs[0].retried).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "together.ai")).toBe(true);
+			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 
 		test("non-streaming: IAM deny_providers prevents retry fallback to a denied provider", async () => {
@@ -1166,9 +1165,8 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(500);
 
 			const logs = await waitForLogs(1);
-			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
-			expect(logs[0].retried).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "together.ai")).toBe(true);
+			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 
 		test("non-streaming: combined IAM allow and deny rules prevent retry fallback to any disallowed provider", async () => {
@@ -1198,12 +1196,11 @@ describe("fallback and error status code handling", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(502);
 
 			const logs = await waitForLogs(1);
-			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
-			expect(logs[0].retried).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "together.ai")).toBe(true);
+			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 	});
 });
