@@ -235,7 +235,7 @@ export default async function Page({
 			) : null}
 
 			<section>
-				<DashboardCostByModel />
+				<DashboardCostByModel from={from} to={to} />
 			</section>
 
 			<div className="mt-4">

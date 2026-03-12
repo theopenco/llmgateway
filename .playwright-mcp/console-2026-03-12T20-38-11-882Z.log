@@ -1,0 +1,144 @@
+[    1638ms] [ERROR] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+%s%s https://react.dev/link/hydration-mismatch 
+
+  ...
+    <RedirectBoundary>
+      <RedirectErrorBoundary router={{...}}>
+        <InnerLayoutRouter url="/enterprise" tree={[...]} params={{}} cacheNode={{rsc:<Fragment>, ...}} ...>
+          <SegmentViewNode type="page" pagePath="enterprise...">
+            <SegmentTrieNode>
+            <EnterprisePage>
+              <div>
+                <Hero>
+                <HeroEnterprise>
+                <section>
+                <section>
+                <ProductShowcase>
+                  <section className="py-20 sm:p...">
+                    <div className="container ...">
+                      <div>
+                      <div className="space-y-20">
+                        <div className="space-y-4">
+                          <div>
+                          <div className="mx-auto ma...">
+                            <img
+                              alt="LLM Gateway Dashboard"
+                              fetchPriority={undefined}
+                              loading="lazy"
+                              width={1440}
+                              height={900}
+                              decoding="async"
+                              data-nimg="1"
+                              className="w-full h-auto rounded-lg"
+                              style={{color:"transparent"}}
+                              sizes={undefined}
++                             srcSet={"/_next/image?url=%2Fscreenshots%2Fdashboard-light.png&w=1920&q=75 1x, /_next/i..."}
+-                             srcSet={"/_next/image?url=%2Fscreenshots%2Fdashboard-dark.png&w=1920&q=75 1x, /_next/im..."}
++                             src={"/_next/image?url=%2Fscreenshots%2Fdashboard-light.png&w=3840&q=75"}
+-                             src={"/_next/image?url=%2Fscreenshots%2Fdashboard-dark.png&w=3840&q=75"}
+                              ref={function}
+                              onLoad={function onLoad}
+                              onError={function onError}
+                            >
+                        <div className="space-y-4">
+                          <div>
+                          <div className="mx-auto ma...">
+                            <img
+                              alt="LLM Gateway Chat Playground"
+                              fetchPriority={undefined}
+                              loading="lazy"
+                              width={1440}
+                              height={900}
+                              decoding="async"
+                              data-nimg="1"
+                              className="w-full h-auto rounded-lg"
+                              style={{color:"transparent"}}
+                              sizes={undefined}
++                             srcSet={"/_next/image?url=%2Fscreenshots%2Fplayground-light.png&w=1920&q=75 1x, /_next/..."}
+-                             srcSet={"/_next/image?url=%2Fscreenshots%2Fplayground-dark.png&w=1920&q=75 1x, /_next/i..."}
++                             src={"/_next/image?url=%2Fscreenshots%2Fplayground-light.png&w=3840&q=75"}
+-                             src={"/_next/image?url=%2Fscreenshots%2Fplayground-dark.png&w=3840&q=75"}
+                              ref={function}
+                              onLoad={function onLoad}
+                              onError={function onError}
+                            >
+                        <div className="space-y-4">
+                          <div>
+                          <div className="mx-auto ma...">
+                            <img
+                              alt="LLM Gateway Image Studio"
+                              fetchPriority={undefined}
+                              loading="lazy"
+                              width={1440}
+                              height={900}
+                              decoding="async"
+                              data-nimg="1"
+                              className="w-full h-auto rounded-lg"
+                              style={{color:"transparent"}}
+                              sizes={undefined}
++                             srcSet={"/_next/image?url=%2Fscreenshots%2Fimage-studio-light.png&w=1920&q=75 1x, /_nex..."}
+-                             srcSet={"/_next/image?url=%2Fscreenshots%2Fimage-studio-dark.png&w=1920&q=75 1x, /_next..."}
++                             src={"/_next/image?url=%2Fscreenshots%2Fimage-studio-light.png&w=3840&q=75"}
+-                             src={"/_next/image?url=%2Fscreenshots%2Fimage-studio-dark.png&w=3840&q=75"}
+                              ref={function}
+                              onLoad={function onLoad}
+                              onError={function onError}
+                            >
+                        <div className="space-y-4">
+                          <div>
+                          <div className="mx-auto ma...">
+                            <img
+                              alt="LLM Gateway Admin Dashboard"
+                              fetchPriority={undefined}
+                              loading="lazy"
+                              width={1440}
+                              height={900}
+                              decoding="async"
+                              data-nimg="1"
+                              className="w-full h-auto rounded-lg"
+                              style={{color:"transparent"}}
+                              sizes={undefined}
++                             srcSet={"/_next/image?url=%2Fscreenshots%2Fadmin-light.png&w=1920&q=75 1x, /_next/image..."}
+-                             srcSet={"/_next/image?url=%2Fscreenshots%2Fadmin-dark.png&w=1920&q=75 1x, /_next/image?..."}
++                             src={"/_next/image?url=%2Fscreenshots%2Fadmin-light.png&w=3840&q=75"}
+-                             src={"/_next/image?url=%2Fscreenshots%2Fadmin-dark.png&w=3840&q=75"}
+                              ref={function}
+                              onLoad={function onLoad}
+                              onError={function onError}
+                            >
+                        <div className="space-y-4">
+                          <div>
+                          <div className="mx-auto ma...">
+                            <img
+                              alt="LLM Gateway Documentation"
+                              fetchPriority={undefined}
+                              loading="lazy"
+                              width={1440}
+                              height={900}
+                              decoding="async"
+                              data-nimg="1"
+                              className="w-full h-auto rounded-lg"
+                              style={{color:"transparent"}}
+                              sizes={undefined}
++                             srcSet={"/_next/image?url=%2Fscreenshots%2Fdocs-light.png&w=1920&q=75 1x, /_next/image?..."}
+-                             srcSet={"/_next/image?url=%2Fscreenshots%2Fdocs-dark.png&w=1920&q=75 1x, /_next/image?u..."}
++                             src={"/_next/image?url=%2Fscreenshots%2Fdocs-light.png&w=3840&q=75"}
+-                             src={"/_next/image?url=%2Fscreenshots%2Fdocs-dark.png&w=3840&q=75"}
+                              ref={function}
+                              onLoad={function onLoad}
+                              onError={function onError}
+                            >
+                      ...
+                ...
+          ...
+        ...
+ @ webpack-internal:///(app-pages-browser)/../../node_modules/.pnpm/next@16.1.6_@babel+core@7.28.5_@opentelemetry+api@1.9.0_babel-plugin-react-compiler@1.0_a6e2a55bf0d146db39a0d18fbc247eb7/node_modules/next/dist/next-devtools/userspace/app/errors/intercept-console-error.js:51

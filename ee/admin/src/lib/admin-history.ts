@@ -64,6 +64,14 @@ export async function getGlobalCostByModel(window: TokenWindow) {
 	return data ?? null;
 }
 
+export async function getGlobalCostByModelRange(from?: string, to?: string) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/metrics/cost-by-model", {
+		params: { query: { from, to } },
+	});
+	return data ?? null;
+}
+
 export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(

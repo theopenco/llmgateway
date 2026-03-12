@@ -15,6 +15,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	lte,
 	ne,
 	or,
 	sql,
@@ -3559,6 +3560,8 @@ const getGlobalCostByModel = createRoute({
 	request: {
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -3576,7 +3579,17 @@ const getGlobalCostByModel = createRoute({
 admin.openapi(getGlobalCostByModel, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
-	const startDate = getTokenWindowStartDate(window);
+
+	let startDate: Date;
+	let endDate: Date | undefined;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00");
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(query.to + "T00:00:00");
+		endDate.setUTCHours(23, 59, 59, 999);
+	} else {
+		startDate = getTokenWindowStartDate(window);
+	}
 
 	const rows = await db
 		.select({
@@ -3592,7 +3605,14 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 				),
 		})
 		.from(projectHourlyModelStats)
-		.where(gte(projectHourlyModelStats.hourTimestamp, startDate))
+		.where(
+			endDate
+				? and(
+						gte(projectHourlyModelStats.hourTimestamp, startDate),
+						lte(projectHourlyModelStats.hourTimestamp, endDate),
+					)
+				: gte(projectHourlyModelStats.hourTimestamp, startDate),
+		)
 		.groupBy(projectHourlyModelStats.usedModel)
 		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
 		.limit(20);

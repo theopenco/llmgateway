@@ -1,12 +1,11 @@
-import { Star } from "lucide-react";
+import { Github, Star } from "lucide-react";
 
-import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
 
 async function fetchGitHubStars(repo: string): Promise<number | null> {
 	try {
 		const res = await fetch(`https://api.github.com/repos/${repo}`, {
-			next: { revalidate: 600 }, // Revalidate every 10 minutes
+			next: { revalidate: 600 },
 			headers: {
 				Accept: "application/vnd.github.v3+json",
 				"User-Agent": "LLM Gateway",
@@ -48,23 +47,23 @@ export async function GitHubStars() {
 	const stars = await fetchGitHubStars(REPO);
 
 	return (
-		<Button variant="secondary" className="w-full md:w-fit" asChild>
-			<a
-				href={config.githubUrl ?? ""}
-				target="_blank"
-				rel="noopener noreferrer"
-				className="group"
-			>
+		<a
+			href={config.githubUrl ?? ""}
+			target="_blank"
+			rel="noopener noreferrer"
+			className="group relative flex items-center gap-0.5 rounded-full p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+			aria-label={`GitHub - ${formatNumber(stars)} stars`}
+		>
+			<div className="relative">
+				<Github className="h-5 w-5" />
 				<Star
-					className="-ms-1 me-2 opacity-60 transition-colors duration-200 group-hover:fill-yellow-400 group-hover:opacity-100 group-hover:stroke-transparent"
-					size={16}
-					fill="none"
+					className="absolute -right-1 -top-1 h-2.5 w-2.5 fill-yellow-400 stroke-yellow-400 transition-transform group-hover:scale-110"
+					strokeWidth={2}
 				/>
-				<span className="flex items-baseline gap-2">
-					Star
-					<span className="text-xs">{formatNumber(stars)}</span>
-				</span>
-			</a>
-		</Button>
+			</div>
+			<span className="ml-1 text-xs font-medium tabular-nums">
+				{formatNumber(stars)}
+			</span>
+		</a>
 	);
 }

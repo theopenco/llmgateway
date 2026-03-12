@@ -70,38 +70,48 @@ export function CostByModelChart({
 	title,
 	description,
 	fetchData,
+	fetchDataRange,
 	externalWindow,
+	from,
+	to,
 }: {
 	title: string;
 	description?: string;
 	fetchData: (window: TokenWindow) => Promise<CostByModelData | null>;
+	fetchDataRange?: (
+		from: string,
+		to: string,
+	) => Promise<CostByModelData | null>;
 	externalWindow?: TokenWindow;
+	from?: string;
+	to?: string;
 }) {
 	const [data, setData] = useState<CostByModelData | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [internalWindow, setInternalWindow] = useState<TokenWindow>("7d");
 	const window = externalWindow ?? internalWindow;
 	const [activeView, setActiveView] = useState<ActiveView>("cost");
+	const useDateRange = Boolean(from && to && fetchDataRange);
 
-	const loadData = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			try {
-				const result = await fetchData(w);
-				setData(result);
-			} catch (error) {
-				console.error("Failed to load cost by model:", error);
-				setData(null);
-			} finally {
-				setLoading(false);
-			}
-		},
-		[fetchData],
-	);
+	const loadData = useCallback(async () => {
+		setLoading(true);
+		try {
+			const result =
+				useDateRange && fetchDataRange
+					? await fetchDataRange(from!, to!)
+					: await fetchData(window);
+			setData(result);
+		} catch (error) {
+			console.error("Failed to load cost by model:", error);
+			setData(null);
+		} finally {
+			setLoading(false);
+		}
+	}, [fetchData, fetchDataRange, window, from, to, useDateRange]);
 
 	useEffect(() => {
-		void loadData(window);
-	}, [loadData, window]);
+		void loadData();
+	}, [loadData]);
 
 	const config = viewConfigs[activeView];
 	const dataKey = Object.keys(config)[0];
@@ -136,7 +146,7 @@ export function CostByModelChart({
 							</div>
 						)}
 					</div>
-					{!externalWindow && (
+					{!externalWindow && !useDateRange && (
 						<div className="flex items-center gap-1">
 							{windowOptions.map((opt) => (
 								<Button
