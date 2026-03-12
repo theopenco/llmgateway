@@ -120,6 +120,31 @@ describe("api-key-health", () => {
 			const health = getKeyHealth("LLM_OPENAI_API_KEY", 0);
 			expect(health?.permanentlyBlacklisted).toBe(false);
 		});
+
+		it("should ignore non-exempt 4xx errors for uptime routing", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 400);
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 422);
+
+			expect(getKeyHealth("LLM_OPENAI_API_KEY", 0)).toBeDefined();
+			expect(getKeyMetrics("LLM_OPENAI_API_KEY", 0)).toMatchObject({
+				uptime: 100,
+				totalRequests: 0,
+				consecutiveErrors: 0,
+				permanentlyBlacklisted: false,
+			});
+		});
+
+		it("should still track 404 and 429 for uptime routing", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 404);
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 429);
+
+			expect(getKeyMetrics("LLM_OPENAI_API_KEY", 0)).toMatchObject({
+				uptime: 0,
+				totalRequests: 2,
+				consecutiveErrors: 2,
+				permanentlyBlacklisted: false,
+			});
+		});
 	});
 
 	describe("getKeyHealth", () => {

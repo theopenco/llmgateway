@@ -71,6 +71,13 @@ const MAX_HISTORY_SIZE = 1000;
 const PERMANENT_ERROR_CODES = [401, 403];
 
 /**
+ * 4xx responses that should still count against provider/key health.
+ * These usually indicate gateway/provider configuration issues rather than
+ * end-user request problems.
+ */
+const UPTIME_RELEVANT_4XX_CODES = new Set([401, 403, 404, 429]);
+
+/**
  * Error messages that indicate permanent key issues
  */
 const PERMANENT_ERROR_MESSAGES = [
@@ -273,6 +280,17 @@ export function reportKeyError(
 			history: [],
 		};
 		keyHealthMap.set(healthKey, health);
+	}
+
+	// Most upstream 4xx responses are client-side request issues and should not
+	// degrade provider uptime or influence routing decisions.
+	if (
+		statusCode !== undefined &&
+		statusCode >= 400 &&
+		statusCode < 500 &&
+		!UPTIME_RELEVANT_4XX_CODES.has(statusCode)
+	) {
+		return;
 	}
 
 	// Check for permanent auth errors by status code
