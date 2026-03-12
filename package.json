@@ -41,7 +41,7 @@
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
 		"@types/node": "25.3.0",
-		"commitlint": "19.8.1",
+		"commitlint": "20.4.3",
 		"concurrently": "^9.2.1",
 		"cross-env-shell": "7.0.3",
 		"dotenv": "16.5.0",
