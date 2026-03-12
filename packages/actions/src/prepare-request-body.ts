@@ -1200,31 +1200,57 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Transform non-system messages to Bedrock format
-			requestBody.messages = bedrockNonSystemMessages.map((msg: any) => {
-				// Map OpenAI roles to Bedrock roles
-				const role =
-					msg.role === "user" || msg.role === "tool" ? "user" : "assistant";
+			// Transform non-system messages to Bedrock format.
+			// Bedrock expects all tool results for an assistant tool_use turn to be grouped
+			// into the next user message instead of split across multiple user messages.
+			const bedrockMessages: any[] = [];
+			let pendingToolResultMessage: any | null = null;
 
-				const bedrockMessage: any = {
-					role: role,
-					content: [],
-				};
+			const flushPendingToolResults = () => {
+				if (pendingToolResultMessage?.content?.length) {
+					bedrockMessages.push(pendingToolResultMessage);
+				}
+				pendingToolResultMessage = null;
+			};
 
-				// Handle tool results (from role: "tool")
-				if (msg.role === "tool") {
-					bedrockMessage.content.push({
+			for (const msg of bedrockNonSystemMessages) {
+				const originalRole =
+					msg.role === "user" && msg.tool_call_id ? "tool" : msg.role;
+
+				if (originalRole === "tool" && msg.tool_call_id) {
+					pendingToolResultMessage ??= {
+						role: "user",
+						content: [],
+					};
+
+					const textContent =
+						typeof msg.content === "string"
+							? msg.content
+							: JSON.stringify(msg.content ?? "");
+
+					pendingToolResultMessage.content.push({
 						toolResult: {
 							toolUseId: msg.tool_call_id,
 							content: [
 								{
-									text: msg.content ?? "",
+									text:
+										textContent && textContent.trim()
+											? textContent
+											: "No output",
 								},
 							],
 						},
 					});
-					return bedrockMessage;
+					continue;
 				}
+
+				flushPendingToolResults();
+
+				const role = msg.role === "user" ? "user" : "assistant";
+				const bedrockMessage: any = {
+					role,
+					content: [],
+				};
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls) {
@@ -1246,7 +1272,8 @@ export async function prepareRequestBody(
 						});
 					});
 
-					return bedrockMessage;
+					bedrockMessages.push(bedrockMessage);
+					continue;
 				}
 
 				// Handle regular content (user/assistant messages)
@@ -1300,8 +1327,11 @@ export async function prepareRequestBody(
 					});
 				}
 
-				return bedrockMessage;
-			});
+				bedrockMessages.push(bedrockMessage);
+			}
+
+			flushPendingToolResults();
+			requestBody.messages = bedrockMessages;
 
 			// Transform tools from OpenAI format to Bedrock format
 			if (tools && tools.length > 0) {
