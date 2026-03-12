@@ -613,7 +613,7 @@ chat.openapi(completions, async (c) => {
 	const retentionLevel = organization?.retentionLevel ?? "none";
 
 	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 10;
+	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
 	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
 
 	// Determine max image size based on plan
