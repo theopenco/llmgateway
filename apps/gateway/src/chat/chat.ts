@@ -72,6 +72,10 @@ import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
+import {
+	extractAwsBedrockHttpError,
+	extractAwsBedrockStreamError,
+} from "./tools/extract-aws-bedrock-error.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
 import { extractErrorCause } from "./tools/extract-error-cause.js";
@@ -1007,19 +1011,12 @@ chat.openapi(completions, async (c) => {
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
-				const availableModelProviders = modelInfo.providers.filter(
+				const availableModelProviders = iamFilteredModelProviders.filter(
 					(provider) => {
 						if (!availableProviders.includes(provider.providerId)) {
 							return false;
 						}
 						if (provider.providerId === usedProvider) {
-							return false;
-						}
-						// Filter by IAM allowed providers
-						if (
-							iamAllowedProviders &&
-							!iamAllowedProviders.includes(provider.providerId)
-						) {
 							return false;
 						}
 						// If web search tool is requested, only include providers that support it
@@ -1174,7 +1171,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedModel = iamFilteredModelProviders[0].modelName;
 		} else {
-			const providerIds = modelInfo.providers.map((p) => p.providerId);
+			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
 				project.organizationId,
 				providerIds,
@@ -1191,65 +1188,60 @@ chat.openapi(completions, async (c) => {
 			// Filter model providers to only those available
 			// If web search is requested, also filter to providers that support it
 			// If JSON output is requested, also filter to providers that support it
-			const availableModelProviders = modelInfo.providers.filter((provider) => {
-				if (!availableProviders.includes(provider.providerId)) {
-					return false;
-				}
-				// Filter by IAM allowed providers
-				if (
-					iamAllowedProviders &&
-					!iamAllowedProviders.includes(provider.providerId)
-				) {
-					return false;
-				}
-				// If web search tool is requested, only include providers that support it
-				if (webSearchTool) {
-					if ((provider as ProviderModelMapping).webSearch !== true) {
+			const availableModelProviders = iamFilteredModelProviders.filter(
+				(provider) => {
+					if (!availableProviders.includes(provider.providerId)) {
 						return false;
 					}
-				}
-				// If JSON output is requested, only include providers that support it
-				if (
-					response_format?.type === "json_object" ||
-					response_format?.type === "json_schema"
-				) {
-					if ((provider as ProviderModelMapping).jsonOutput !== true) {
-						return false;
+					// If web search tool is requested, only include providers that support it
+					if (webSearchTool) {
+						if ((provider as ProviderModelMapping).webSearch !== true) {
+							return false;
+						}
 					}
-				}
-				// If JSON schema output is requested, also include providers that support it
-				if (response_format?.type === "json_schema") {
-					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
-						return false;
-					}
-				}
-				// If images are present in messages, only include providers that support vision
-				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
-					return false;
-				}
-				// If reasoning_effort is specified, only include providers with reasoning support
-				if (reasoning_effort !== undefined) {
-					if ((provider as ProviderModelMapping).reasoning !== true) {
-						return false;
-					}
-				}
-				// If reasoning_effort is NOT specified, prefer non-reasoning providers
-				// by excluding reasoning providers when a non-reasoning alternative exists for same provider
-				if (reasoning_effort === undefined) {
-					const hasNonReasoningAlternative = modelInfo.providers.some(
-						(p) =>
-							p.providerId === provider.providerId &&
-							(p as ProviderModelMapping).reasoning !== true,
-					);
+					// If JSON output is requested, only include providers that support it
 					if (
-						hasNonReasoningAlternative &&
-						(provider as ProviderModelMapping).reasoning === true
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
 					) {
+						if ((provider as ProviderModelMapping).jsonOutput !== true) {
+							return false;
+						}
+					}
+					// If JSON schema output is requested, also include providers that support it
+					if (response_format?.type === "json_schema") {
+						if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+							return false;
+						}
+					}
+					// If images are present in messages, only include providers that support vision
+					if (hasImages && (provider as ProviderModelMapping).vision !== true) {
 						return false;
 					}
-				}
-				return true;
-			});
+					// If reasoning_effort is specified, only include providers with reasoning support
+					if (reasoning_effort !== undefined) {
+						if ((provider as ProviderModelMapping).reasoning !== true) {
+							return false;
+						}
+					}
+					// If reasoning_effort is NOT specified, prefer non-reasoning providers
+					// by excluding reasoning providers when a non-reasoning alternative exists for same provider
+					if (reasoning_effort === undefined) {
+						const hasNonReasoningAlternative = modelInfo.providers.some(
+							(p) =>
+								p.providerId === provider.providerId &&
+								(p as ProviderModelMapping).reasoning !== true,
+						);
+						if (
+							hasNonReasoningAlternative &&
+							(provider as ProviderModelMapping).reasoning === true
+						) {
+							return false;
+						}
+					}
+					return true;
+				},
+			);
 
 			if (availableModelProviders.length === 0) {
 				throw new HTTPException(400, {
@@ -2887,7 +2879,11 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!res.ok) {
-						const errorResponseText = await res.text();
+						const rawErrorResponseText = await res.text();
+						const errorResponseText =
+							usedProvider === "aws-bedrock"
+								? extractAwsBedrockHttpError(res, rawErrorResponseText)
+								: rawErrorResponseText;
 
 						// Determine the finish reason for error handling
 						const finishReason = getFinishReasonFromError(
@@ -3247,6 +3243,7 @@ chat.openapi(completions, async (c) => {
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				const isAwsBedrock = usedProvider === "aws-bedrock";
+				let shouldTerminateStream = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -3742,6 +3739,53 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								const awsBedrockStreamError =
+									usedProvider === "aws-bedrock"
+										? extractAwsBedrockStreamError(data)
+										: null;
+								if (awsBedrockStreamError) {
+									const errorType = getFinishReasonFromError(
+										awsBedrockStreamError.statusCode,
+										awsBedrockStreamError.responseText,
+									);
+
+									streamingError = {
+										message: awsBedrockStreamError.message,
+										type: errorType,
+										code: awsBedrockStreamError.eventType,
+										details: {
+											statusCode: awsBedrockStreamError.statusCode,
+											statusText: awsBedrockStreamError.eventType,
+											responseText: awsBedrockStreamError.responseText,
+										},
+									};
+									finishReason = errorType;
+
+									await writeSSEAndCache({
+										event: "error",
+										data: JSON.stringify({
+											error: {
+												message: awsBedrockStreamError.message,
+												type: errorType,
+												code: awsBedrockStreamError.eventType,
+												param: null,
+												responseText: awsBedrockStreamError.responseText,
+											},
+										}),
+										id: String(eventId++),
+									});
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+									shouldTerminateStream = true;
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									break;
+								}
+
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									usedProvider,
@@ -4185,6 +4229,10 @@ chat.openapi(completions, async (c) => {
 						// Remove processed data from buffer
 						if (processedLength > 0) {
 							buffer = bufferCopy.slice(processedLength);
+						}
+
+						if (shouldTerminateStream) {
+							break;
 						}
 					}
 				} catch (error) {
@@ -4808,15 +4856,42 @@ chat.openapi(completions, async (c) => {
 						hasError: streamingError !== null,
 						errorDetails: streamingError
 							? {
-									statusCode: 500,
-									statusText: "Streaming Error",
+									statusCode:
+										typeof streamingError === "object" &&
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"statusCode" in streamingError.details &&
+										typeof streamingError.details.statusCode === "number"
+											? streamingError.details.statusCode
+											: 500,
+									statusText:
+										typeof streamingError === "object" &&
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"statusText" in streamingError.details &&
+										typeof streamingError.details.statusText === "string"
+											? streamingError.details.statusText
+											: "Streaming Error",
 									responseText:
 										typeof streamingError === "object" &&
-										"details" in streamingError
-											? JSON.stringify(streamingError) // Store structured error as JSON string
-											: streamingError instanceof Error
-												? streamingError.message
-												: String(streamingError),
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"responseText" in streamingError.details &&
+										typeof streamingError.details.responseText === "string"
+											? streamingError.details.responseText
+											: typeof streamingError === "object" &&
+												  streamingError !== null &&
+												  "details" in streamingError
+												? JSON.stringify(streamingError)
+												: streamingError instanceof Error
+													? streamingError.message
+													: String(streamingError),
 								}
 							: null,
 						streamed: true,
@@ -5380,7 +5455,11 @@ chat.openapi(completions, async (c) => {
 			// Body read can throw TimeoutError if the abort signal fires during consumption
 			let errorResponseText: string;
 			try {
-				errorResponseText = await res.text();
+				const rawErrorResponseText = await res.text();
+				errorResponseText =
+					usedProvider === "aws-bedrock"
+						? extractAwsBedrockHttpError(res, rawErrorResponseText)
+						: rawErrorResponseText;
 			} catch (bodyError) {
 				if (isTimeoutError(bodyError)) {
 					const errorMessage =
