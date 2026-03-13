@@ -3,6 +3,7 @@
 import { Plus } from "lucide-react";
 
 import { CreateProviderKeyDialog } from "@/components/provider-keys/create-provider-key-dialog";
+import { CreditsRecommendationBanner } from "@/components/provider-keys/credits-recommendation-banner";
 import { ProviderKeysList } from "@/components/provider-keys/provider-keys-list";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
@@ -55,6 +56,7 @@ export function ProviderKeysClient({
 						</CreateProviderKeyDialog>
 					)}
 				</div>
+				<CreditsRecommendationBanner />
 				<div className="space-y-4">
 					<Card>
 						<CardContent>

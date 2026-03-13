@@ -335,7 +335,7 @@ export const Navbar = ({
 							<div className="w-[140px] lg:w-[160px]">
 								<ModelSearch />
 							</div>
-							<NavigationMenu viewport={false}>
+							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-1 text-sm">
 									{/* Features dropdown */}
 									<NavigationMenuItem>
