@@ -15,12 +15,17 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import {
+	GlobalDiscountBanner,
+	type DiscountData,
+} from "@/components/models/global-discount-banner";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
+import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
@@ -49,17 +54,85 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		notFound();
 	}
 
-	const providerMapping = modelDef.providers.find(
+	const staticProviderMapping = modelDef.providers.find(
 		(p) => p.providerId === decodedProvider,
 	);
 
-	if (!providerMapping) {
+	if (!staticProviderMapping) {
 		notFound();
 	}
 
 	const providerInfo = providerDefinitions.find(
 		(p) => p.id === decodedProvider,
 	);
+
+	// Fetch global discounts and apply to provider
+	const discountData = await fetchServerData<{ discounts: DiscountData[] }>(
+		"GET",
+		"/public/discounts/model/{modelId}",
+		{ params: { path: { modelId: decodedName } } },
+	);
+	const discounts = discountData?.discounts ?? [];
+	const globalDiscount = (() => {
+		const providerModel = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === decodedName,
+		);
+		if (providerModel) {
+			return parseFloat(providerModel.discountPercent);
+		}
+		const providerOnly = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === null,
+		);
+		if (providerOnly) {
+			return parseFloat(providerOnly.discountPercent);
+		}
+		const modelOnly = discounts.find(
+			(d) => d.provider === null && d.model === decodedName,
+		);
+		if (modelOnly) {
+			return parseFloat(modelOnly.discountPercent);
+		}
+		const fullyGlobal = discounts.find(
+			(d) => d.provider === null && d.model === null,
+		);
+		if (fullyGlobal) {
+			return parseFloat(fullyGlobal.discountPercent);
+		}
+		return undefined;
+	})();
+
+	const providerMapping = {
+		...staticProviderMapping,
+		discount: globalDiscount ?? staticProviderMapping.discount,
+	};
+
+	const bannerDiscount: DiscountData | null = (() => {
+		const providerModel = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === decodedName,
+		);
+		if (providerModel) {
+			return providerModel;
+		}
+		const providerOnly = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === null,
+		);
+		if (providerOnly) {
+			return providerOnly;
+		}
+		const modelOnly = discounts.find(
+			(d) => d.provider === null && d.model === decodedName,
+		);
+		if (modelOnly) {
+			return modelOnly;
+		}
+		const fullyGlobal = discounts.find(
+			(d) => d.provider === null && d.model === null,
+		);
+		if (fullyGlobal) {
+			return fullyGlobal;
+		}
+		return null;
+	})();
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -316,6 +389,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							})()}
 						</div>
 					</div>
+
+					{bannerDiscount && (
+						<div className="mb-6">
+							<GlobalDiscountBanner discount={bannerDiscount} />
+						</div>
+					)}
 
 					<div className="mb-8">
 						<h2 className="text-xl md:text-2xl font-semibold mb-4">

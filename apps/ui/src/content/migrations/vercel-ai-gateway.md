@@ -75,7 +75,7 @@ const llmgateway = createLLMGateway({
 });
 
 const { text: openaiText } = await generateText({
-  model: llmgateway("openai/gpt-4o"),
+  model: llmgateway("gpt-4o"),
   prompt: "Hello!",
 });
 
@@ -120,7 +120,7 @@ export async function POST(req: Request) {
   const { messages } = await req.json();
 
   const result = await streamText({
-    model: llmgateway("openai/gpt-4o"),
+    model: llmgateway("gpt-4o"),
     messages,
   });
 
@@ -142,7 +142,7 @@ const llmgateway = createOpenAI({
 });
 
 const { text } = await generateText({
-  model: llmgateway("openai/gpt-4o"),
+  model: llmgateway("gpt-4o"),
   prompt: "Hello!",
 });
 ```
@@ -182,11 +182,11 @@ For more details on routing behavior, see the [routing documentation](https://do
 
 ### Model Mapping Examples
 
-| Vercel AI SDK                             | LLM Gateway                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")` or `llmgateway("openai/gpt-4o")`                                            |
-| `anthropic("claude-3-5-sonnet-20241022")` | `llmgateway("claude-3-5-sonnet-20241022")` or `llmgateway("anthropic/claude-3-5-sonnet-20241022")` |
-| `google("gemini-1.5-pro")`                | `llmgateway("gemini-1.5-pro")` or `llmgateway("google-ai-studio/gemini-1.5-pro")`                  |
+| Vercel AI SDK                             | LLM Gateway                                |
+| ----------------------------------------- | ------------------------------------------ |
+| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")`                     |
+| `anthropic("claude-3-5-sonnet-20241022")` | `llmgateway("claude-3-5-sonnet-20241022")` |
+| `google("gemini-1.5-pro")`                | `llmgateway("gemini-1.5-pro")`             |
 
 Check the [models page](/models) for the full list of available models.
 
@@ -204,7 +204,7 @@ const llmgateway = createLLMGateway({
 });
 
 const { text, toolResults } = await generateText({
-  model: llmgateway("openai/gpt-4o"),
+  model: llmgateway("gpt-4o"),
   tools: {
     weather: tool({
       description: "Get the weather for a location",

@@ -356,6 +356,139 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeNull();
 	});
 
+	it("should use resolution-specific token counts for Flash Image output (0.5K)", async () => {
+		// gemini-3.1-flash-image-preview: 0.5K = 747 tokens/image
+		const result = await calculateCosts(
+			"gemini-3.1-flash-image-preview",
+			"google-ai-studio",
+			1000,
+			800, // completion tokens (includes 747 image tokens for 1 image)
+			null,
+			undefined,
+			null,
+			1, // 1 output image
+			"0.5K",
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(747); // 1 * 747
+		expect(result.imageOutputCost).toBeCloseTo(747 * (60 / 1e6)); // 747 * $60/1M
+		const textTokens = 800 - 747; // 53 text tokens
+		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedImageCost = 747 * (60 / 1e6);
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
+	});
+
+	it("should use resolution-specific token counts for Flash Image output (4K)", async () => {
+		// gemini-3.1-flash-image-preview: 4K = 2520 tokens/image
+		const result = await calculateCosts(
+			"gemini-3.1-flash-image-preview",
+			"google-ai-studio",
+			1000,
+			5100, // completion tokens (includes 2520 * 2 = 5040 image tokens)
+			null,
+			undefined,
+			null,
+			2, // 2 output images
+			"4K",
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(5040); // 2 * 2520
+		expect(result.imageOutputCost).toBeCloseTo(5040 * (60 / 1e6));
+		const textTokens = Math.max(0, 5100 - 5040); // 60 text tokens
+		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedImageCost = 5040 * (60 / 1e6);
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
+	});
+
+	it("should use resolution-specific token counts for Pro Image output (4K = 2000 tokens)", async () => {
+		// gemini-3-pro-image-preview: 4K = 2000 tokens/image
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-ai-studio",
+			1000,
+			2100,
+			null,
+			undefined,
+			null,
+			1, // 1 output image
+			"4K",
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(2000); // 1 * 2000
+		expect(result.imageOutputCost).toBeCloseTo(2000 * (120 / 1e6));
+		const textTokens = Math.max(0, 2100 - 2000); // 100 text tokens
+		const expectedTextCost = textTokens * (12 / 1e6);
+		const expectedImageCost = 2000 * (120 / 1e6);
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
+	});
+
+	it("should fall back to default resolution when no imageSize is provided", async () => {
+		// gemini-3.1-flash-image-preview default = 1120 tokens/image
+		const result = await calculateCosts(
+			"gemini-3.1-flash-image-preview",
+			"google-ai-studio",
+			1000,
+			1200, // includes 1120 image tokens
+			null,
+			undefined,
+			null,
+			1, // 1 output image
+			undefined, // no imageSize → use default
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(1120); // default = 1K
+		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
+	});
+
+	it("should apply per-resolution discount overriding provider mapping discount", async () => {
+		// obsidian provider has discount: 0.2 on the provider mapping AND 0.2 in each resolution config
+		// With no DB discount active, the resolution-level discount (0.2) should apply
+		const result = await calculateCosts(
+			"gemini-3.1-flash-image-preview",
+			"obsidian",
+			1000,
+			1200, // includes 1120 image tokens
+			null,
+			undefined,
+			null,
+			1, // 1 output image
+			"1K",
+			0,
+		);
+
+		// imageOutputCost with 20% discount: 1120 * (60/1M) * 0.8 = 0.00005376
+		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6) * 0.8);
+		// text output also discounted: (1200 - 1120) * (1.5/1M) * 0.8
+		const textTokens = 1200 - 1120;
+		const expectedTextCost = textTokens * (1.5 / 1e6) * 0.8;
+		const expectedImageCost = 1120 * (60 / 1e6) * 0.8;
+		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
+	});
+
+	it("should apply per-resolution discount for image input on obsidian", async () => {
+		// gemini-3-pro-image-preview on obsidian: resolution discount 0.2 for input
+		const result = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"obsidian",
+			1000,
+			500,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			2, // 2 input images
+		);
+
+		// imageInputCost: 2 * 560 * (2/1M) * 0.8 = 1120 * 2e-6 * 0.8
+		expect(result.imageInputTokens).toBe(1120); // 2 * 560
+		expect(result.imageInputCost).toBeCloseTo(1120 * (2 / 1e6) * 0.8);
+	});
+
 	it("should include image costs in totalCost sum", async () => {
 		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
 		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)

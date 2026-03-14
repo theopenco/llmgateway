@@ -583,3 +583,100 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.plainString.type).toBe("string");
 	});
 });
+
+describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should group consecutive tool results into a single user message", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			[
+				{ role: "user", content: "What is the weather and time in Berlin?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+						{
+							id: "tool_2",
+							type: "function",
+							function: {
+								name: "get_time",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17, unit: "celsius" }),
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_2",
+					content: JSON.stringify({ time: "20:52" }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(3);
+		expect(requestBody.messages[0]).toEqual({
+			role: "user",
+			content: [{ text: "What is the weather and time in Berlin?" }],
+		});
+		expect(requestBody.messages[1].role).toBe("assistant");
+		expect(requestBody.messages[1].content).toHaveLength(2);
+		expect(requestBody.messages[1].content[0]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
+		});
+		expect(requestBody.messages[1].content[1]).toEqual({
+			toolUse: {
+				toolUseId: "tool_2",
+				name: "get_time",
+				input: { city: "Berlin" },
+			},
+		});
+		expect(requestBody.messages[2]).toEqual({
+			role: "user",
+			content: [
+				{
+					toolResult: {
+						toolUseId: "tool_1",
+						content: [
+							{ text: JSON.stringify({ temperature: 17, unit: "celsius" }) },
+						],
+					},
+				},
+				{
+					toolResult: {
+						toolUseId: "tool_2",
+						content: [{ text: JSON.stringify({ time: "20:52" }) }],
+					},
+				},
+			],
+		});
+	});
+});

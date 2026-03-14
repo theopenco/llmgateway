@@ -19,6 +19,9 @@
 		"policies",
 		"org-preferences",
 		"team",
-		"audit-logs"
+		"audit-logs",
+		"playground",
+		"playground-group",
+		"playground-image"
 	]
 }

@@ -278,6 +278,7 @@ describe("validateModelAccess — deny_providers", () => {
 		);
 
 		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["google-ai-studio", "openai"]);
 	});
 });
 
@@ -398,6 +399,7 @@ describe("validateModelAccess — allow_providers", () => {
 		);
 
 		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["google-vertex", "openai"]);
 	});
 });
 

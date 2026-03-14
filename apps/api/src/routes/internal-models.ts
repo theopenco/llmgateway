@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { db } from "@llmgateway/db";
+import { and, db, gte, isNull, or, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -93,26 +93,97 @@ const getModelsRoute = createRoute({
 });
 
 internalModels.openapi(getModelsRoute, async (c) => {
-	const models = await db.query.model.findMany({
-		where: {
-			status: { eq: "active" },
-		},
-		with: {
-			modelProviderMappings: {
-				where: {
-					status: { eq: "active" },
+	const now = new Date();
+
+	const [models, globalDiscounts] = await Promise.all([
+		db.query.model.findMany({
+			where: {
+				status: { eq: "active" },
+			},
+			with: {
+				modelProviderMappings: {
+					where: {
+						status: { eq: "active" },
+					},
 				},
 			},
-		},
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
+			orderBy: {
+				createdAt: "desc",
+			},
+		}),
+		db
+			.select({
+				provider: tables.discount.provider,
+				model: tables.discount.model,
+				discountPercent: tables.discount.discountPercent,
+			})
+			.from(tables.discount)
+			.where(
+				and(
+					isNull(tables.discount.organizationId),
+					or(
+						isNull(tables.discount.expiresAt),
+						gte(tables.discount.expiresAt, now),
+					),
+				),
+			),
+	]);
 
-	// Transform to match expected schema (rename modelProviderMappings to mappings)
+	// Helper to find the best global discount for a given provider+model
+	const getGlobalDiscount = (
+		providerId: string,
+		modelId: string,
+		modelName: string,
+	): string | null => {
+		const modelMatches = (dm: string | null) =>
+			dm === modelId || dm === modelName;
+
+		// Precedence: provider+model > provider > model
+		const providerModel = globalDiscounts.find(
+			(d) => d.provider === providerId && modelMatches(d.model),
+		);
+		if (providerModel) {
+			return providerModel.discountPercent;
+		}
+
+		const providerOnly = globalDiscounts.find(
+			(d) => d.provider === providerId && d.model === null,
+		);
+		if (providerOnly) {
+			return providerOnly.discountPercent;
+		}
+
+		const modelOnly = globalDiscounts.find(
+			(d) => d.provider === null && modelMatches(d.model),
+		);
+		if (modelOnly) {
+			return modelOnly.discountPercent;
+		}
+
+		// Fully global (null provider + null model)
+		const fullyGlobal = globalDiscounts.find(
+			(d) => d.provider === null && d.model === null,
+		);
+		if (fullyGlobal) {
+			return fullyGlobal.discountPercent;
+		}
+
+		return null;
+	};
+
+	// Transform and apply effective discount
 	const transformedModels = models.map((model) => ({
 		...model,
-		mappings: model.modelProviderMappings,
+		mappings: model.modelProviderMappings.map((mapping) => {
+			const globalDiscount = getGlobalDiscount(
+				mapping.providerId,
+				model.id,
+				mapping.modelName,
+			);
+			// Global discount takes precedence over hardcoded mapping discount
+			const effectiveDiscount = globalDiscount ?? mapping.discount;
+			return { ...mapping, discount: effectiveDiscount };
+		}),
 	}));
 
 	return c.json({ models: transformedModels });

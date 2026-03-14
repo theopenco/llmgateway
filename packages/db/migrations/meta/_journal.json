@@ -694,6 +694,13 @@
       "when": 1772645024809,
       "tag": "1772645024_talented_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "8",
+      "when": 1773263792063,
+      "tag": "1773263792_boring_luminals",
+      "breakpoints": true
     }
   ]
 }

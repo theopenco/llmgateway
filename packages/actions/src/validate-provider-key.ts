@@ -7,12 +7,75 @@ import {
 	type ProviderValidationResult,
 } from "@llmgateway/models";
 
-import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
+
+function getValidationModel(
+	provider: ProviderId,
+	providerKeyOptions?: ProviderKeyOptions,
+): string | null {
+	if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
+		return providerKeyOptions.azure_validation_model;
+	}
+
+	const currentDate = new Date();
+	const providerModels = models
+		.flatMap((model) => {
+			const providerMapping = model.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			if (!providerMapping) {
+				return [];
+			}
+
+			const providerStability =
+				"stability" in providerMapping
+					? (providerMapping.stability as string | undefined)
+					: undefined;
+			const modelStability =
+				"stability" in model
+					? (model.stability as string | undefined)
+					: undefined;
+			const effectiveStability = providerStability ?? modelStability;
+			const isStable =
+				effectiveStability !== "unstable" &&
+				effectiveStability !== "experimental";
+
+			const isDeprecated =
+				providerMapping.deprecatedAt &&
+				currentDate >= providerMapping.deprecatedAt;
+			const isDeactivated =
+				providerMapping.deactivatedAt &&
+				currentDate >= providerMapping.deactivatedAt;
+
+			if (!isStable || isDeprecated || isDeactivated) {
+				return [];
+			}
+
+			const hasPricing =
+				providerMapping.inputPrice !== undefined &&
+				providerMapping.outputPrice !== undefined;
+			const inputPrice = providerMapping.inputPrice ?? 0;
+			const outputPrice = providerMapping.outputPrice ?? 0;
+			const discount = providerMapping.discount ?? 0;
+			const discountedAveragePrice = hasPricing
+				? ((inputPrice + outputPrice) / 2) * (1 - discount)
+				: Number.MAX_VALUE;
+
+			return [
+				{
+					modelName: providerMapping.modelName,
+					price: discountedAveragePrice,
+				},
+			];
+		})
+		.sort((a, b) => a.price - b.price);
+
+	return providerModels[0]?.modelName ?? null;
+}
 
 /**
  * Validate a provider API key by making a minimal request
@@ -37,38 +100,32 @@ export async function validateProviderKey(
 	let validationModel: string | undefined;
 
 	try {
-		// Determine the validation model first (needed for endpoint URL)
-		if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
-			validationModel = providerKeyOptions.azure_validation_model;
-			logger.debug("Using Azure validation model from options", {
-				provider,
-				validationModel,
-			});
-		} else if (provider === "openai") {
-			validationModel = "gpt-4o-mini";
-			logger.debug("Using fixed OpenAI validation model", {
-				provider,
-				validationModel,
-			});
-		} else if (provider === "google-ai-studio") {
-			validationModel = "gemini-2.5-flash-lite";
-			logger.debug("Using fixed Google AI Studio validation model", {
-				provider,
-				validationModel,
-			});
-		} else {
-			const cheapestModel = getCheapestModelForProvider(provider);
-			logger.debug("Using cheapest validation model", {
-				provider,
-				validationModel: cheapestModel ?? undefined,
-			});
-			if (!cheapestModel) {
-				throw new Error(
-					`No model with pricing information found for provider ${provider}`,
-				);
-			}
-			validationModel = cheapestModel;
+		validationModel =
+			getValidationModel(provider, providerKeyOptions) ?? undefined;
+		if (!validationModel) {
+			throw new Error(
+				`No suitable validation model found for provider ${provider}`,
+			);
 		}
+
+		logger.debug("Using validation model", {
+			provider,
+			validationModel,
+		});
+
+		// Use prepareRequestBody to create the validation payload
+		const systemMessage: BaseMessage = {
+			role: "system",
+			content: "You are a helpful assistant.",
+		};
+		const minimalMessage: BaseMessage = {
+			role: "user",
+			content: "Hello",
+		};
+		const messages: BaseMessage[] = [systemMessage, minimalMessage];
+
+		const headers = getProviderHeaders(provider, token);
+		headers["Content-Type"] = "application/json";
 
 		// Find the model definition to get the model ID
 		// For Azure with custom validation model, we might not find it in our models list
@@ -87,7 +144,7 @@ export async function validateProviderKey(
 
 		logger.debug("Validation endpoint configuration", {
 			provider,
-			validationModel,
+			model: validationModel,
 			modelId,
 			effectiveModelId,
 			providerKeyOptions,
@@ -105,17 +162,6 @@ export async function validateProviderKey(
 			false, // hasExistingToolCalls - disable for validation
 			providerKeyOptions,
 		);
-
-		// Use prepareRequestBody to create the validation payload
-		const systemMessage: BaseMessage = {
-			role: "system",
-			content: "You are a helpful assistant.",
-		};
-		const minimalMessage: BaseMessage = {
-			role: "user",
-			content: "Hello",
-		};
-		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
 		// Check if max_tokens is supported
 		const providerMapping = modelDef?.providers.find(
@@ -156,9 +202,6 @@ export async function validateProviderKey(
 			undefined, // reasoning_max_tokens
 			useResponsesApi,
 		);
-
-		const headers = getProviderHeaders(provider, token);
-		headers["Content-Type"] = "application/json";
 
 		logger.debug("Sending provider key validation request", {
 			provider,

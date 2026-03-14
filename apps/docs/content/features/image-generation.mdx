@@ -562,6 +562,15 @@ You can customize the generated image using the optional `image_config` paramete
 
 ### Google Models
 
+Available Google models:
+
+| Model                            | Description                                                                         |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `gemini-3-pro-image-preview`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
+| `gemini-3.1-flash-image-preview` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
+
+#### gemini-3-pro-image-preview
+
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
@@ -581,10 +590,40 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter      | Type   | Description                                                                                                |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------------------- |
-| `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                     |
-| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096) |
+| Parameter      | Type   | Description                                                                                                                                   |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:3"`, `"4:5"`, `"5:4"`, `"9:16"`, `"16:9"`, `"21:9"` |
+| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096)                                    |
+
+#### gemini-3.1-flash-image-preview
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3.1-flash-image-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "image_size": "1K"
+    }
+  }'
+```
+
+| Parameter      | Type   | Description                                                                                                                                                                       |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"1:4"`, `"1:8"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:1"`, `"4:3"`, `"4:5"`, `"5:4"`, `"8:1"`, `"9:16"`, `"16:9"`, `"21:9"` |
+| `image_size`   | string | The resolution of the generated image. Options: `"0.5K"` (512x512), `"1K"` (1024x1024, default), `"2K"` (2048x2048), `"4K"` (4096x4096)                                           |
+
+<Callout type="info">
+	`gemini-3.1-flash-image-preview` uniquely supports `"0.5K"` resolution, which
+	is not available on other Google image models.
+</Callout>
 
 ### Alibaba Models
 

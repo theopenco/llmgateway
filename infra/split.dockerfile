@@ -257,7 +257,7 @@ WORKDIR /app
 COPY --from=base-builder /app/.tool-versions ./
 
 # Copy the ENTIRE standalone output - this is self-contained
-COPY --from=admin-builder /app/apps/admin/.next/standalone/ ./
+COPY --from=admin-builder /app/ee/admin/.next/standalone/ ./
 
 EXPOSE 80
 ENV PORT=80
@@ -265,7 +265,7 @@ ENV NODE_ENV=production
 ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
-WORKDIR /app/apps/admin
+WORKDIR /app/ee/admin
 CMD ["node", "server.js"]
 
 # Code runtime stage

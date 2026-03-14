@@ -14,6 +14,7 @@ const BLACKLISTED_DOMAINS = [
 	"vsheerid.me",
 	"addy.io",
 	"xigege.me",
+	"duckmail.sbs",
 ];
 
 export function validateEmail(email: string): EmailValidationResult {

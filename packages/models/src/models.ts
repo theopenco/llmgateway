@@ -77,6 +77,20 @@ export interface ProviderModelMapping {
 	 */
 	imageInputPrice?: number;
 	/**
+	 * Resolution-based token counts for image output.
+	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to tokens per image.
+	 * The per-token price comes from imageOutputPrice.
+	 * Use "default" key as a fallback when no imageSize is specified.
+	 */
+	imageOutputTokensByResolution?: Record<string, number>;
+	/**
+	 * Resolution-based token counts for image input.
+	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to tokens per image.
+	 * The per-token price comes from imageInputPrice.
+	 * Use "default" key as a fallback when no imageSize is specified.
+	 */
+	imageInputTokensByResolution?: Record<string, number>;
+	/**
 	 * Price per request in USD
 	 */
 	requestPrice?: number;

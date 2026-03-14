@@ -94,7 +94,7 @@ import { llmgateway } from "@llmgateway/ai-sdk-provider";
 import { generateText } from "ai";
 
 const { text } = await generateText({
-  model: llmgateway("openai/gpt-4o"),
+  model: llmgateway("gpt-4o"),
   prompt: "What is an LLM gateway?",
 });
 ```
